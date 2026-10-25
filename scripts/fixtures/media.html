@@ -1,0 +1,109 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Media compatibility check</title>
+<style>
+  :root { color-scheme: light dark; font: 15px -apple-system, sans-serif; }
+  body { max-width: 920px; padding: 24px; margin: auto; }
+  video { width: 100%; max-height: 430px; background: #101820; }
+  button, select { font: inherit; padding: 8px 12px; margin: 4px 4px 10px 0; }
+  pre { white-space: pre-wrap; font: 12px ui-monospace, monospace; padding: 16px; background: #8882; }
+</style>
+<h1>Media compatibility check</h1>
+<p>Original local video: 12 seconds, 30 fps. No analytics or external requests unless Apple HLS is selected.</p>
+<select id="source" aria-label="Video source">
+  <option value="/media-files/avc-aac.mp4">H.264 + AAC · local MP4</option>
+  <option value="/media-files/hevc.mp4">HEVC · local MP4</option>
+  <option value="/media-files/silent.mp4">H.264 · no audio track</option>
+  <option value="https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8">Apple HLS test stream · network</option>
+</select>
+<video id="video" controls playsinline loop preload="metadata">
+  <track kind="subtitles" src="/media-captions.vtt" srclang="en" label="Test captions" default>
+</video>
+<div>
+  <button id="play">Play / pause</button>
+  <button id="seek">Seek to 5 seconds</button>
+  <button id="rate">Speed 2×</button>
+  <button id="fullscreen">Full screen</button>
+  <button id="pip">Picture in Picture</button>
+</div>
+<p id="status" aria-live="off"></p>
+<p id="error" role="status"></p>
+<button id="probe">Check codec capabilities</button>
+<pre id="capabilities">Select “Check codec capabilities” to inspect this device.</pre>
+<script>
+const video = document.getElementById('video');
+const error = document.getElementById('error');
+const params = new URLSearchParams(location.search);
+const source = document.getElementById('source');
+if (params.get('codec') === 'hevc') source.value = '/media-files/hevc.mp4';
+video.src = source.value;
+video.muted = params.get('autoplay') !== 'audible';
+video.textTracks[0].mode = 'showing';
+window.autoplayResult = 'not-requested';
+let presentedFrames = 0;
+function framePresented() { presentedFrames++; video.requestVideoFrameCallback(framePresented); }
+video.requestVideoFrameCallback?.(framePresented);
+window.mediaState = () => ({
+  time: video.currentTime, duration: video.duration, paused: video.paused,
+  ready: video.readyState, width: video.videoWidth, height: video.videoHeight,
+  rate: video.playbackRate, frames: video.getVideoPlaybackQuality?.().totalVideoFrames ?? 0,
+  dropped: video.getVideoPlaybackQuality?.().droppedVideoFrames ?? 0,
+  captions: video.textTracks[0]?.cues?.length ?? 0,
+  error: video.error?.code ?? null, autoplay: window.autoplayResult,
+  visibility: document.visibilityState, source: video.currentSrc, presentedFrames
+});
+if (params.has('autoplay')) {
+  video.play().then(() => window.autoplayResult = 'playing', e => window.autoplayResult = e.name);
+}
+function showError(e) { error.textContent = `${e.name || 'Media error'}: ${e.message || e.code || e}`; }
+video.addEventListener('error', () => showError(video.error));
+source.onchange = () => {
+  video.pause(); presentedFrames = 0; window.autoplayResult = 'not-requested';
+  video.src = source.value; video.load(); error.textContent = '';
+};
+document.getElementById('play').onclick = () => video.paused ? video.play().catch(showError) : video.pause();
+document.getElementById('seek').onclick = () => video.currentTime = Math.min(5, video.duration || 5);
+document.getElementById('rate').onclick = () => video.playbackRate = video.playbackRate === 2 ? 1 : 2;
+document.getElementById('fullscreen').onclick = () => video.requestFullscreen().catch(showError);
+document.getElementById('pip').onclick = () => {
+  if (video.webkitSupportsPresentationMode?.('picture-in-picture')) video.webkitSetPresentationMode('picture-in-picture');
+  else if (document.pictureInPictureEnabled) video.requestPictureInPicture().catch(showError);
+  else error.textContent = 'Picture in Picture is unavailable in this runtime.';
+};
+window.probeCapabilities = async () => {
+  const result = {
+    userAgent: navigator.userAgent, fullscreen: document.fullscreenEnabled,
+    mediaSource: typeof MediaSource !== 'undefined', managedMediaSource: typeof ManagedMediaSource !== 'undefined',
+    hls: video.canPlayType('application/vnd.apple.mpegurl'),
+    pictureInPictureAPIEnabled: !!document.pictureInPictureEnabled,
+    webkitPictureInPictureSupported: !!video.webkitSupportsPresentationMode?.('picture-in-picture'),
+    encryptedMediaAPI: typeof navigator.requestMediaKeySystemAccess === 'function', codecs: {}
+  };
+  for (const [name, contentType] of Object.entries({
+    avc: 'video/mp4; codecs="avc1.42E01E"', hevc: 'video/mp4; codecs="hvc1.1.6.L93.B0"',
+    vp9: 'video/webm; codecs="vp09.00.10.08"', av1: 'video/mp4; codecs="av01.0.04M.08"'
+  })) {
+    try {
+      result.codecs[name] = { canPlayType: video.canPlayType(contentType),
+        ...await navigator.mediaCapabilities.decodingInfo({type: 'file', video: {
+          contentType, width: 1920, height: 1080, bitrate: 5_000_000, framerate: 30
+        }}) };
+    } catch (e) { result.codecs[name] = {error: e.message}; }
+  }
+  return result;
+};
+document.getElementById('probe').onclick = async () => {
+  const result = await window.probeCapabilities();
+  const output = document.getElementById('capabilities');
+  output.replaceChildren();
+  for (const [key, value] of Object.entries(result)) {
+    const row = document.createElement('p');
+    row.textContent = `${key}: ${JSON.stringify(value)}`;
+    output.append(row);
+  }
+};
+setInterval(() => {
+  const s = window.mediaState();
+  document.getElementById('status').textContent = `${s.paused ? 'Paused' : 'Playing'} · ${s.time.toFixed(2)} s · ${s.width} × ${s.height} · ${s.rate}× · ${s.frames} frames · ${s.presentedFrames} presented · ${s.dropped} dropped · ${s.captions} caption cues · ${s.visibility} · autoplay: ${s.autoplay}`;
+}, 250);
+</script>

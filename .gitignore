@@ -1,0 +1,34 @@
+.build/
+.swiftpm/
+build/
+DerivedData/
+*.xcuserstate
+*.log
+xcuserdata/
+.DS_Store
+# Local QA can include browsing history, system notifications and third-party media.
+docs/qa/
+
+# Machine-local configuration, credentials and signing material.
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.xcresult
+*.dmg
+*.ipa
+*.app/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+session.json
+session.backup.json
+.agents/
+.codex/
+.aws/

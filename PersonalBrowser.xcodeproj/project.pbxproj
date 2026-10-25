@@ -1,0 +1,629 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00C8251C897B662F8D71C217 /* WorkspaceEditors.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB103FA85F705892F2AA390A /* WorkspaceEditors.swift */; };
+		09158F2AEC38C69C2ADDCAC2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 98BDFB485ABEF60DCDF58E3D /* Assets.xcassets */; };
+		106A42F99B3A5EF44311ECB5 /* PasswordsGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CCB6084F43851D0C48939A /* PasswordsGuide.swift */; };
+		2E0551D76372C14A7FCE698B /* StartPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CAAA24DB8987B27A3552F8 /* StartPage.swift */; };
+		3410252DA5443D78D83DEDA3 /* AddressField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FD9844F6F3B8861C2940D30 /* AddressField.swift */; };
+		399E641FE1A05FA21AE9981B /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3724E0FB2115CE38A1205D0B /* AppearanceSettings.swift */; };
+		3BB9E853F8D5782A6023C057 /* ProductivityKit in Frameworks */ = {isa = PBXBuildFile; productRef = 652905B6AF8722FE662FA323 /* ProductivityKit */; };
+		4228C13C24BEE49A3EF808F3 /* BrowserCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8ECAA03ADB28A327CB2F74E9 /* BrowserCore */; };
+		59337D0A449E203EA95C50A8 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B442D594891DC82B3D250D /* DownloadManager.swift */; };
+		65961C6DB232A25C9FF766DB /* BrowserEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 7524B3DDE79509C3D54EC5D0 /* BrowserEngine */; };
+		69C564E3660C6E14953AFA24 /* MacWebUIDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 042D301C9B932584788A342C /* MacWebUIDelegate.swift */; };
+		7372FE36019590AD1B336C62 /* PersonalBrowserApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7386740AFC4831A24704F36 /* PersonalBrowserApp.swift */; };
+		8701DFFD06629E8A4530C1A1 /* WebPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB76D8DF92E50B12564B1B4 /* WebPageView.swift */; };
+		87494624E057D3B11DAEE3C1 /* ContextCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29D0B0C1D4934521955AE388 /* ContextCaptureTests.swift */; };
+		87AA2527E877C6FA41AF9BED /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877DA86CCA04C05838767532 /* WorkspaceView.swift */; };
+		965D19A8FC9E8C675FD2A0A0 /* BrowserIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A691C28F096E86E1877CEFBE /* BrowserIntegrationTests.swift */; };
+		9FFF59A8080C7B6202FF6202 /* ApplePasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442FDE219EF9488DDE1FCC4B /* ApplePasswords.swift */; };
+		A00EDF1C5C477043ACD72BFA /* BrowserEngine in Frameworks */ = {isa = PBXBuildFile; productRef = C375408A17C9A5901B2F1AC9 /* BrowserEngine */; };
+		A56BF89B9713036A9A972AB9 /* BrowserCore in Frameworks */ = {isa = PBXBuildFile; productRef = A02C69FDC5057F49DD04C6C1 /* BrowserCore */; };
+		B80F36D66D097FE6DC30B91B /* BrowserWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B580B217F14BCBD3EB221E6 /* BrowserWindow.swift */; };
+		BEE1F4F33087B56DAD736006 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 510FEC9B1B9E6E53BD6B1D0D /* LibraryView.swift */; };
+		C54987E5E9A139FB94D18326 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 50662FD1B526D56CB7C16DD8 /* AppIcon.icon */; };
+		C8A2D8A21637115D627C67DD /* BrowserController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18F96811A76DF4DF9A811A80 /* BrowserController.swift */; };
+		D3B2FC2A4CC349CA60CEA729 /* BrowserCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7461202644629BDE4F81AB96 /* BrowserCommands.swift */; };
+		D8BC7652E2AAA6C2D4A35693 /* AdBlockingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC2F6AD096CF2CFE90715D25 /* AdBlockingTests.swift */; };
+		DFC081CA922E404C719F1067 /* BrowserSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B45444A4BA34A62AA3C0A13 /* BrowserSidebar.swift */; };
+		EC03A499CE0EB70149CC5523 /* AdBlockingPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77112F5272BD8CB1F8016434 /* AdBlockingPopover.swift */; };
+		F94B03B286358461C49195F7 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E6DFDFED836B2D4118B66C /* Theme.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D690F88790763D96ECAA8FBF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 06FA9B291CABC488372F664F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C206B24713611A992623E62E;
+			remoteInfo = PersonalBrowser;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		042D301C9B932584788A342C /* MacWebUIDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWebUIDelegate.swift; sourceTree = "<group>"; };
+		12CAAA24DB8987B27A3552F8 /* StartPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartPage.swift; sourceTree = "<group>"; };
+		18F96811A76DF4DF9A811A80 /* BrowserController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserController.swift; sourceTree = "<group>"; };
+		27B442D594891DC82B3D250D /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
+		29D0B0C1D4934521955AE388 /* ContextCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextCaptureTests.swift; sourceTree = "<group>"; };
+		2B580B217F14BCBD3EB221E6 /* BrowserWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindow.swift; sourceTree = "<group>"; };
+		3724E0FB2115CE38A1205D0B /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
+		442FDE219EF9488DDE1FCC4B /* ApplePasswords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplePasswords.swift; sourceTree = "<group>"; };
+		4FD9844F6F3B8861C2940D30 /* AddressField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressField.swift; sourceTree = "<group>"; };
+		50662FD1B526D56CB7C16DD8 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		510FEC9B1B9E6E53BD6B1D0D /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		59E6DFDFED836B2D4118B66C /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		65AAB65D9489FD4B74BEE7F6 /* PersonalBrowser.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PersonalBrowser.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		66CCB6084F43851D0C48939A /* PasswordsGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordsGuide.swift; sourceTree = "<group>"; };
+		6B45444A4BA34A62AA3C0A13 /* BrowserSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSidebar.swift; sourceTree = "<group>"; };
+		6FB76D8DF92E50B12564B1B4 /* WebPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPageView.swift; sourceTree = "<group>"; };
+		7461202644629BDE4F81AB96 /* BrowserCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCommands.swift; sourceTree = "<group>"; };
+		77112F5272BD8CB1F8016434 /* AdBlockingPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdBlockingPopover.swift; sourceTree = "<group>"; };
+		877DA86CCA04C05838767532 /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
+		98BDFB485ABEF60DCDF58E3D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A691C28F096E86E1877CEFBE /* BrowserIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserIntegrationTests.swift; sourceTree = "<group>"; };
+		AC772707C4EA905455485D42 /* BrowserKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BrowserKit; path = Packages/BrowserKit; sourceTree = SOURCE_ROOT; };
+		CB103FA85F705892F2AA390A /* WorkspaceEditors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEditors.swift; sourceTree = "<group>"; };
+		DC2F6AD096CF2CFE90715D25 /* AdBlockingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdBlockingTests.swift; sourceTree = "<group>"; };
+		E0D15ECBA8E716F17D95FD41 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		EF258C0980E21F36427D8E49 /* PersonalBrowser.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PersonalBrowser.entitlements; sourceTree = "<group>"; };
+		F04E01CD03158BE65CFA6836 /* BrowserMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrowserMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7386740AFC4831A24704F36 /* PersonalBrowserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalBrowserApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		DE5FAA4BE2B84749C3B95C4F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A56BF89B9713036A9A972AB9 /* BrowserCore in Frameworks */,
+				65961C6DB232A25C9FF766DB /* BrowserEngine in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FEE70C3236EADD504622F50C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4228C13C24BEE49A3EF808F3 /* BrowserCore in Frameworks */,
+				A00EDF1C5C477043ACD72BFA /* BrowserEngine in Frameworks */,
+				3BB9E853F8D5782A6023C057 /* ProductivityKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		45EB55BFBD7EACD4C4CE1076 /* Apps */ = {
+			isa = PBXGroup;
+			children = (
+				6C4A6E83A5D6BA0C62DDDD7E /* macOS */,
+			);
+			path = Apps;
+			sourceTree = "<group>";
+		};
+		575959E734178F5066229876 = {
+			isa = PBXGroup;
+			children = (
+				45EB55BFBD7EACD4C4CE1076 /* Apps */,
+				6F942AC8EFC9D80F4ED35BE0 /* Packages */,
+				6B3FF8C69CC7CBFD5960314C /* Tests */,
+				BC1B4880079C97AABB679556 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		6A3DCCFD77C3887EDEC031BA /* BrowserMacTests */ = {
+			isa = PBXGroup;
+			children = (
+				DC2F6AD096CF2CFE90715D25 /* AdBlockingTests.swift */,
+				A691C28F096E86E1877CEFBE /* BrowserIntegrationTests.swift */,
+				29D0B0C1D4934521955AE388 /* ContextCaptureTests.swift */,
+			);
+			path = BrowserMacTests;
+			sourceTree = "<group>";
+		};
+		6B3FF8C69CC7CBFD5960314C /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				6A3DCCFD77C3887EDEC031BA /* BrowserMacTests */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		6C4A6E83A5D6BA0C62DDDD7E /* macOS */ = {
+			isa = PBXGroup;
+			children = (
+				442FDE219EF9488DDE1FCC4B /* ApplePasswords.swift */,
+				7461202644629BDE4F81AB96 /* BrowserCommands.swift */,
+				18F96811A76DF4DF9A811A80 /* BrowserController.swift */,
+				27B442D594891DC82B3D250D /* DownloadManager.swift */,
+				042D301C9B932584788A342C /* MacWebUIDelegate.swift */,
+				EF258C0980E21F36427D8E49 /* PersonalBrowser.entitlements */,
+				F7386740AFC4831A24704F36 /* PersonalBrowserApp.swift */,
+				720CAF7F9D74C6854F0A3925 /* Resources */,
+				E55A46009DA4F5DFA6B92F12 /* Views */,
+			);
+			path = macOS;
+			sourceTree = "<group>";
+		};
+		6F942AC8EFC9D80F4ED35BE0 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				AC772707C4EA905455485D42 /* BrowserKit */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		720CAF7F9D74C6854F0A3925 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				50662FD1B526D56CB7C16DD8 /* AppIcon.icon */,
+				98BDFB485ABEF60DCDF58E3D /* Assets.xcassets */,
+				E0D15ECBA8E716F17D95FD41 /* Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		BC1B4880079C97AABB679556 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F04E01CD03158BE65CFA6836 /* BrowserMacTests.xctest */,
+				65AAB65D9489FD4B74BEE7F6 /* PersonalBrowser.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E55A46009DA4F5DFA6B92F12 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				77112F5272BD8CB1F8016434 /* AdBlockingPopover.swift */,
+				4FD9844F6F3B8861C2940D30 /* AddressField.swift */,
+				3724E0FB2115CE38A1205D0B /* AppearanceSettings.swift */,
+				6B45444A4BA34A62AA3C0A13 /* BrowserSidebar.swift */,
+				2B580B217F14BCBD3EB221E6 /* BrowserWindow.swift */,
+				510FEC9B1B9E6E53BD6B1D0D /* LibraryView.swift */,
+				66CCB6084F43851D0C48939A /* PasswordsGuide.swift */,
+				12CAAA24DB8987B27A3552F8 /* StartPage.swift */,
+				59E6DFDFED836B2D4118B66C /* Theme.swift */,
+				6FB76D8DF92E50B12564B1B4 /* WebPageView.swift */,
+				CB103FA85F705892F2AA390A /* WorkspaceEditors.swift */,
+				877DA86CCA04C05838767532 /* WorkspaceView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C206B24713611A992623E62E /* PersonalBrowser */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BEDBAE3476F4DB30450AC0B7 /* Build configuration list for PBXNativeTarget "PersonalBrowser" */;
+			buildPhases = (
+				86F62D72FF3BFA2F8183034D /* Sources */,
+				567ED4AC7565909DB5A81F02 /* Resources */,
+				FEE70C3236EADD504622F50C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PersonalBrowser;
+			packageProductDependencies = (
+				8ECAA03ADB28A327CB2F74E9 /* BrowserCore */,
+				C375408A17C9A5901B2F1AC9 /* BrowserEngine */,
+				652905B6AF8722FE662FA323 /* ProductivityKit */,
+			);
+			productName = PersonalBrowser;
+			productReference = 65AAB65D9489FD4B74BEE7F6 /* PersonalBrowser.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E2D3B5E0AD111DD4F0A8192F /* BrowserMacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B902058E896F845BCBDB440C /* Build configuration list for PBXNativeTarget "BrowserMacTests" */;
+			buildPhases = (
+				C47113E2B21AB2274EF6D718 /* Sources */,
+				DE5FAA4BE2B84749C3B95C4F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				45F21A6A6AD50D76E1F4D2DF /* PBXTargetDependency */,
+			);
+			name = BrowserMacTests;
+			packageProductDependencies = (
+				A02C69FDC5057F49DD04C6C1 /* BrowserCore */,
+				7524B3DDE79509C3D54EC5D0 /* BrowserEngine */,
+			);
+			productName = BrowserMacTests;
+			productReference = F04E01CD03158BE65CFA6836 /* BrowserMacTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		06FA9B291CABC488372F664F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					C206B24713611A992623E62E = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+					E2D3B5E0AD111DD4F0A8192F = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = F49730079408EEA3EB5F27E9 /* Build configuration list for PBXProject "PersonalBrowser" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 575959E734178F5066229876;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				460A2877C88FC4D7DA80F1EF /* XCLocalSwiftPackageReference "Packages/BrowserKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = BC1B4880079C97AABB679556 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C206B24713611A992623E62E /* PersonalBrowser */,
+				E2D3B5E0AD111DD4F0A8192F /* BrowserMacTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		567ED4AC7565909DB5A81F02 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C54987E5E9A139FB94D18326 /* AppIcon.icon in Resources */,
+				09158F2AEC38C69C2ADDCAC2 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		86F62D72FF3BFA2F8183034D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EC03A499CE0EB70149CC5523 /* AdBlockingPopover.swift in Sources */,
+				3410252DA5443D78D83DEDA3 /* AddressField.swift in Sources */,
+				399E641FE1A05FA21AE9981B /* AppearanceSettings.swift in Sources */,
+				9FFF59A8080C7B6202FF6202 /* ApplePasswords.swift in Sources */,
+				D3B2FC2A4CC349CA60CEA729 /* BrowserCommands.swift in Sources */,
+				C8A2D8A21637115D627C67DD /* BrowserController.swift in Sources */,
+				DFC081CA922E404C719F1067 /* BrowserSidebar.swift in Sources */,
+				B80F36D66D097FE6DC30B91B /* BrowserWindow.swift in Sources */,
+				59337D0A449E203EA95C50A8 /* DownloadManager.swift in Sources */,
+				BEE1F4F33087B56DAD736006 /* LibraryView.swift in Sources */,
+				69C564E3660C6E14953AFA24 /* MacWebUIDelegate.swift in Sources */,
+				106A42F99B3A5EF44311ECB5 /* PasswordsGuide.swift in Sources */,
+				7372FE36019590AD1B336C62 /* PersonalBrowserApp.swift in Sources */,
+				2E0551D76372C14A7FCE698B /* StartPage.swift in Sources */,
+				F94B03B286358461C49195F7 /* Theme.swift in Sources */,
+				8701DFFD06629E8A4530C1A1 /* WebPageView.swift in Sources */,
+				00C8251C897B662F8D71C217 /* WorkspaceEditors.swift in Sources */,
+				87AA2527E877C6FA41AF9BED /* WorkspaceView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C47113E2B21AB2274EF6D718 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8BC7652E2AAA6C2D4A35693 /* AdBlockingTests.swift in Sources */,
+				965D19A8FC9E8C675FD2A0A0 /* BrowserIntegrationTests.swift in Sources */,
+				87494624E057D3B11DAEE3C1 /* ContextCaptureTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		45F21A6A6AD50D76E1F4D2DF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C206B24713611A992623E62E /* PersonalBrowser */;
+			targetProxy = D690F88790763D96ECAA8FBF /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		55BE36568EED11DC0E17CDDC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Apps/macOS/PersonalBrowser.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 5;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Oriv;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Allow websites you choose to use your camera.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = Oriv;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Allow websites you choose to use your microphone.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.5.0;
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.mac;
+				PRODUCT_MODULE_NAME = PersonalBrowser;
+				PRODUCT_NAME = Oriv;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		726E7B3703354320AE942B10 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.BrowserMacTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Oriv.app/Contents/MacOS/Oriv";
+			};
+			name = Release;
+		};
+		831CD2ABBEE318968135E4ED /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		A1988666DA9C4C9D493CD160 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.BrowserMacTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Oriv.app/Contents/MacOS/Oriv";
+			};
+			name = Debug;
+		};
+		B51D6E2C1DABF5EE18B77EAE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Apps/macOS/PersonalBrowser.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 5;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Oriv;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Allow websites you choose to use your camera.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = Oriv;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Allow websites you choose to use your microphone.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.5.0;
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.mac;
+				PRODUCT_MODULE_NAME = PersonalBrowser;
+				PRODUCT_NAME = Oriv;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		E00F0486EAE3FAFF75CBFE80 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B902058E896F845BCBDB440C /* Build configuration list for PBXNativeTarget "BrowserMacTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1988666DA9C4C9D493CD160 /* Debug */,
+				726E7B3703354320AE942B10 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BEDBAE3476F4DB30450AC0B7 /* Build configuration list for PBXNativeTarget "PersonalBrowser" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				55BE36568EED11DC0E17CDDC /* Debug */,
+				B51D6E2C1DABF5EE18B77EAE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F49730079408EEA3EB5F27E9 /* Build configuration list for PBXProject "PersonalBrowser" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E00F0486EAE3FAFF75CBFE80 /* Debug */,
+				831CD2ABBEE318968135E4ED /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		460A2877C88FC4D7DA80F1EF /* XCLocalSwiftPackageReference "Packages/BrowserKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/BrowserKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		652905B6AF8722FE662FA323 /* ProductivityKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ProductivityKit;
+		};
+		7524B3DDE79509C3D54EC5D0 /* BrowserEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BrowserEngine;
+		};
+		8ECAA03ADB28A327CB2F74E9 /* BrowserCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BrowserCore;
+		};
+		A02C69FDC5057F49DD04C6C1 /* BrowserCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BrowserCore;
+		};
+		C375408A17C9A5901B2F1AC9 /* BrowserEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BrowserEngine;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 06FA9B291CABC488372F664F /* Project object */;
+}

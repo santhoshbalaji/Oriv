@@ -1,0 +1,47 @@
+{
+  "fill": {
+    "automatic-gradient": "srgb:0.39608,0.16471,0.22745,1.00000"
+  },
+  "fill-specializations": [
+    {
+      "appearance": "dark",
+      "value": {
+        "automatic-gradient": "srgb:0.21961,0.09804,0.14510,1.00000"
+      }
+    },
+    {
+      "appearance": "tinted",
+      "value": "automatic"
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "kolam.svg",
+          "name": "Woven aperture",
+          "fill-specializations": [
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:0.95000,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.1
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.06
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared",
+    "circles": []
+  }
+}

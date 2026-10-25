@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Ad blocking check</title>
+<style>body{font:17px system-ui;margin:50px;max-width:760px}section{padding:24px;margin:20px 0;border-radius:12px;background:#eef4f1}.ad-banner{background:#f7d8d0}pre{white-space:pre-wrap}a{margin-right:20px}</style>
+<h1>Ad blocking check</h1>
+<p>This local fixture tests real WebKit resource filtering without contacting an advertising network.</p>
+<section class="ad-banner">Sample ad slot: Strict mode hides this panel. Balanced keeps this local sample visible.</section>
+<section>Ordinary page content should always remain visible.</section>
+<pre id="results">Checking resources…</pre>
+<a id="popup" href="http://localhost:8768/adblock?run=popup" target="_blank">Open test popup</a>
+<script>
+const run = new URLSearchParams(location.search).get('run') || 'manual';
+async function probe(path) {
+  try { const r = await fetch(path + '?run=' + encodeURIComponent(run), {cache:'no-store'}); return r.ok ? 'loaded' : 'error'; }
+  catch { return 'blocked'; }
+}
+Promise.all(['/ad-banner.js','/analytics.js','/content.js'].map(probe)).then(values => {
+  window.probeResults = values;
+  results.textContent = JSON.stringify({advertising:values[0],analytics:values[1],content:values[2]},null,2);
+  document.title = 'Adblock checked ' + run;
+});
+</script></html>
