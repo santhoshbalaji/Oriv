@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Fullscreen container regression</title>
+<style>
+body { margin: 0; padding: 24px; font: 16px system-ui; }
+#player { display: flex; width: 80%; height: 400px; background: black; color: white; }
+video { width: 75%; height: 100%; object-fit: contain; }
+aside { width: 25%; background: #173e46; padding: 12px; box-sizing: border-box; }
+#player:fullscreen { width: 100%; height: 100%; }
+button { padding: 12px; margin: 16px 0; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+</style>
+<h1>Container fullscreen</h1>
+<div id="player"><video id="video" src="/media-files/silent.mp4" muted loop playsinline controls></video><aside>Live chat layout<br>Both columns must fill the fullscreen viewport.<pre id="state"></pre></aside></div>
+<button onclick="document.querySelector('#player').requestFullscreen()">Fullscreen container</button>
+<script>
+let entries = 0, exits = 0, lastFullscreen = null;
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement) {
+    entries++;
+    setTimeout(() => { lastFullscreen = {width:innerWidth, height:innerHeight,
+      playerWidth:player.getBoundingClientRect().width, playerHeight:player.getBoundingClientRect().height}; }, 300);
+  } else { exits++; }
+});
+window.viewportState = () => ({width: innerWidth, height: innerHeight, fullscreen: !!document.fullscreenElement,
+ visibility:document.visibilityState, entries, exits, lastFullscreen,
+ playerWidth: player.getBoundingClientRect().width, playerHeight: player.getBoundingClientRect().height});
+setInterval(() => state.textContent = JSON.stringify(viewportState(), null, 2), 250);
+</script></html>
