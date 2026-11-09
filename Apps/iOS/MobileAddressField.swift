@@ -4,10 +4,22 @@ import UIKit
 /// A native editor provides URL selection and a clear button without changing the displayed host.
 struct MobileAddressField: UIViewRepresentable {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Binding var text: String
     @Binding var editing: Bool
-    let fontSize: CGFloat
     let submit: () -> Void
+    // Match the capped SwiftUI address-bar environment using the native body style.
+    private var contentSize: UIContentSizeCategory {
+        switch typeSize {
+        case .xSmall: .extraSmall
+        case .small: .small
+        case .medium: .medium
+        case .large: .large
+        case .xLarge: .extraLarge
+        case .xxLarge: .extraExtraLarge
+        default: .extraExtraExtraLarge
+        }
+    }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UITextField {
         let field = UITextField()
@@ -25,7 +37,7 @@ struct MobileAddressField: UIViewRepresentable {
     func updateUIView(_ field: UITextField, context: Context) {
         context.coordinator.parent = self
         if field.text != text { field.text = text }
-        field.font = .systemFont(ofSize: fontSize)
+        field.font = .preferredFont(forTextStyle: .body, compatibleWith: UITraitCollection(preferredContentSizeCategory: contentSize))
         field.textColor = UIColor(theme.text); field.tintColor = UIColor(theme.accent)
         field.attributedPlaceholder = NSAttributedString(string: "Search or enter address", attributes: [.foregroundColor: UIColor(theme.fieldText)])
         if editing && !field.isFirstResponder {

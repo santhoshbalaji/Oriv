@@ -1,6 +1,39 @@
 import BrowserCore
 import SwiftUI
 
+/// Selective shared metrics. Deliberate platform geometry (including hit targets) stays local.
+enum OrivSpacing {
+    static let xs: CGFloat = 4
+    static let small: CGFloat = 8
+    static let medium: CGFloat = 12
+    static let large: CGFloat = 16
+    static let xl: CGFloat = 24
+    static let xxl: CGFloat = 32
+}
+
+enum OrivRadius {
+    static let compact: CGFloat = 6
+    static let small: CGFloat = 8
+    static let medium: CGFloat = 10
+    static let large: CGFloat = 14
+    // Capsule shapes use Capsule(), rather than a radius tied to a particular height.
+}
+
+/// Mac's compact type scale maps to native, scalable text styles on iPhone.
+enum OrivType {
+    #if os(macOS)
+    static let body: Font = .system(size: 13)
+    static let detail: Font = .system(size: 12)
+    static let caption: Font = .system(size: 11)
+    static let title: Font = .system(size: 17, weight: .semibold)
+    #else
+    static let body: Font = .body
+    static let detail: Font = .footnote
+    static let caption: Font = .caption
+    static let title: Font = .headline
+    #endif
+}
+
 /// Shared by the Mac and iPhone targets. Existing stored appearance names remain valid.
 enum BrowserAppearance: String, CaseIterable, Identifiable {
     case system = "System", light = "Light", dark = "Dark", t3Code = "T3 Code"
@@ -70,7 +103,13 @@ struct Theme {
     private static let nativeSeparator = Color(uiColor: .separator)
     #endif
 
-    static func editorial(_ size: CGFloat) -> Font { .system(size: size, weight: .medium, design: .serif) }
+    static func editorial(_ size: CGFloat) -> Font {
+        #if os(macOS)
+        .system(size: size, weight: .medium, design: .serif)
+        #else
+        .system(.title, design: .serif, weight: .medium)
+        #endif
+    }
     private static func hex(_ value: UInt32) -> Color {
         Color(.sRGB, red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255,
               blue: Double(value & 255) / 255, opacity: 1)
@@ -105,6 +144,8 @@ extension EnvironmentValues {
 private struct BrowserAppearanceModifier: ViewModifier {
     let appearance: BrowserAppearance
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     func body(content: Content) -> some View {
         let theme = appearance.theme.respecting(contrast)
         content.environment(\.browserTheme, theme)
@@ -113,12 +154,15 @@ private struct BrowserAppearanceModifier: ViewModifier {
             // Text controls inherit accentText; fills, focus and selection opt in to accent/controlFill.
             .tint(theme.accentText).accentColor(theme.accentText)
             .background(theme.canvas)
+            .transaction { transaction in
+                if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
+            }
             #if os(macOS)
             .toolbarBackground(theme.chrome, for: .windowToolbar)
-            .toolbarBackground(theme.isT3Code ? .visible : .automatic, for: .windowToolbar)
+            .toolbarBackground((theme.isT3Code || reduceTransparency) ? .visible : .automatic, for: .windowToolbar)
             #else
             .toolbarBackground(theme.chrome, for: .navigationBar, .tabBar)
-            .toolbarBackground(theme.isT3Code ? .visible : .automatic, for: .navigationBar, .tabBar)
+            .toolbarBackground((theme.isT3Code || reduceTransparency) ? .visible : .automatic, for: .navigationBar, .tabBar)
             #endif
     }
 }
@@ -155,15 +199,15 @@ struct AppearancePreview: View {
                     RoundedRectangle(cornerRadius: 2).fill(theme.secondaryText.opacity(0.5)).frame(height: 4)
                     RoundedRectangle(cornerRadius: 2).fill(theme.secondaryText.opacity(0.3)).frame(height: 4)
                     Spacer()
-                }.padding(8).frame(width: 36).background(theme.canvas)
-                VStack(alignment: .leading, spacing: 8) {
+                }.padding(OrivSpacing.small).frame(width: 36).background(theme.canvas)
+                VStack(alignment: .leading, spacing: OrivSpacing.small) {
                     Capsule().fill(theme.field).frame(height: 8)
                     RoundedRectangle(cornerRadius: 2).fill(theme.accent).frame(width: 32, height: 5)
                     RoundedRectangle(cornerRadius: 2).fill(theme.secondaryText.opacity(0.4)).frame(height: 3)
                     Spacer()
-                }.padding(8).frame(maxWidth: .infinity)
-            }.frame(height: 78).background(theme.page).clipShape(.rect(cornerRadius: 8))
-                .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(theme.separator, lineWidth: 1) }
+                }.padding(OrivSpacing.small).frame(maxWidth: .infinity)
+            }.frame(height: 78).background(theme.page).clipShape(.rect(cornerRadius: OrivRadius.small))
+                .overlay { RoundedRectangle(cornerRadius: OrivRadius.small).strokeBorder(theme.separator, lineWidth: 1) }
         }
     }
 }
@@ -174,7 +218,7 @@ struct OrivIdentity: View {
     var body: some View {
         HStack(spacing: 10) {
             Image("OrivMark").resizable().scaledToFit().frame(width: 30, height: 30)
-                .clipShape(.rect(cornerRadius: 8)).accessibilityHidden(true)
+                .clipShape(.rect(cornerRadius: OrivRadius.small)).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(AppIdentity.name).font(.headline.weight(.semibold))
                 if let subtitle { Text(subtitle).font(.caption).foregroundStyle(theme.secondaryText) }
@@ -218,7 +262,7 @@ struct EditorHeading: View {
     }
 }
 
-/// Quiet content affordance. Navigation and toolbars retain their system materials.
+/// Quiet content affordance. Native chrome observes the system accessibility settings.
 struct ContentButtonStyle: ButtonStyle {
     @Environment(\.colorSchemeContrast) private var contrast
     func makeBody(configuration: Configuration) -> some View {
@@ -234,17 +278,17 @@ struct ContentButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .background {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: OrivRadius.medium)
                         .fill(.primary.opacity(configuration.isPressed ? 0.10 : hovered ? 0.05 : 0))
                 }
                 .overlay {
                     if isFocused {
-                        RoundedRectangle(cornerRadius: 10).strokeBorder(theme.accent, lineWidth: 2)
+                        RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.accent, lineWidth: 2)
                     } else if hovered && contrast == .increased {
-                        RoundedRectangle(cornerRadius: 10).strokeBorder(theme.separator, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.separator, lineWidth: 1)
                     }
                 }
-                .contentShape(RoundedRectangle(cornerRadius: 10))
+                .contentShape(RoundedRectangle(cornerRadius: OrivRadius.medium))
                 .onHover { hovered = $0 }
         }
     }
@@ -291,8 +335,7 @@ struct SiteIdentity: View {
 
     /// The site's own name (apple in developer.apple.com), not a subdomain such as en. or www.
     private var host: String {
-        let labels = (url?.host() ?? "").split(separator: ".")
-        return labels.count >= 2 ? String(labels[labels.count - 2]) : labels.first.map(String.init) ?? ""
+        SiteMonogram.label(for: url?.host()) ?? ""
     }
     private var symbol: String? {
         if isPrivate { return "eyeglasses" }
@@ -307,7 +350,13 @@ struct SiteIdentity: View {
                 Image(systemName: symbol).font(.system(size: size * 0.42, weight: .medium))
             } else {
                 Text(String(host.prefix(1)).uppercased())
+                    #if os(macOS)
                     .font(.system(size: size * 0.46, weight: .semibold, design: .rounded))
+                    #else
+                    .font(.system(.footnote, design: .rounded, weight: .semibold))
+                    // Decorative identity stays within its icon; readable row text scales separately.
+                    .dynamicTypeSize(.large)
+                    #endif
             }
         }
         .foregroundStyle(isPrivate ? theme.privateAccent : (isSelected ? theme.text : theme.secondaryText))

@@ -37,19 +37,19 @@ struct LibraryView: View {
                     Label(item.rawValue, systemImage: item.symbol).padding(.vertical, 3).tag(item)
                 }
             }.listStyle(.sidebar).tint(theme.accent).accentColor(theme.accent)
-            .scrollContentBackground(.hidden).padding(.top, 12)
+            .scrollContentBackground(.hidden).padding(.top, OrivSpacing.medium)
             .frame(width: 174).background(theme.canvas)
             Divider()
             VStack(spacing: 0) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(section.rawValue).font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
-                    Text(subtitle).font(.system(size: 12)).foregroundStyle(theme.secondaryText)
+                    Text(section.rawValue).font(OrivType.title).accessibilityAddTraits(.isHeader)
+                    Text(subtitle).font(OrivType.detail).foregroundStyle(theme.secondaryText)
                     Spacer()
                     Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
-                }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 14)
+                }.padding(.horizontal, OrivSpacing.xl).padding(.top, 20).padding(.bottom, 14)
 
                 if section != .downloads {
-                    HStack(spacing: 8) {
+                    HStack(spacing: OrivSpacing.small) {
                         Image(systemName: "magnifyingglass").foregroundStyle(theme.secondaryText).accessibilityHidden(true)
                         TextField("Search \(section.rawValue.lowercased())", text: $search).textFieldStyle(.plain)
                             .accessibilityIdentifier("librarySearchField")
@@ -58,14 +58,14 @@ struct LibraryView: View {
                                 .buttonStyle(.plain).foregroundStyle(theme.secondaryText).accessibilityLabel("Clear search")
                         }
                     }
-                    .font(.system(size: 13)).padding(.horizontal, 10).frame(height: 30).background(theme.field, in: RoundedRectangle(cornerRadius: 8))
-                    .padding(.horizontal, 24).padding(.bottom, 12)
+                    .font(OrivType.body).padding(.horizontal, 10).frame(height: 30).background(theme.field, in: RoundedRectangle(cornerRadius: OrivRadius.small))
+                    .padding(.horizontal, OrivSpacing.xl).padding(.bottom, OrivSpacing.medium)
                 }
                 Divider()
                 contents.frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 if controller.session.canUndoBookmarkRemoval {
-                    HStack { Text("Bookmark removed"); Spacer(); Button("Undo") { controller.session.undoBookmarkRemoval() } }.padding(.horizontal, 24).padding(.vertical, 8)
+                    HStack { Text("Bookmark removed"); Spacer(); Button("Undo") { controller.session.undoBookmarkRemoval() } }.padding(.horizontal, OrivSpacing.xl).padding(.vertical, OrivSpacing.small)
                 }
                 HStack {
                     if section == .history && count > 0 {
@@ -81,7 +81,7 @@ struct LibraryView: View {
                             .font(.caption).foregroundStyle(theme.secondaryText)
                         Spacer()
                     }
-                }.padding(.horizontal, 24).frame(height: 48)
+                }.padding(.horizontal, OrivSpacing.xl).frame(height: 48)
             }.background(theme.surface)
         }
         .frame(width: 760, height: 540)
@@ -97,16 +97,16 @@ struct LibraryView: View {
             if let profiles { OtherDeviceTabsView(continuity: profiles.continuity, search: search) { page in dismiss(); profiles.openContinuityPage(page) } }
         case .bookmarks:
             if count == 0 {
-                empty("Your useful corners of the web", detail: "Save a page with ⌘D. Find it here whenever you need it.", symbol: "bookmark")
+                BrowserEmptyState("No bookmarks yet. Save a page with ⌘D.")
             } else if bookmarks.isEmpty {
-                ContentUnavailableView.search(text: search)
+                BrowserEmptyState("No results for “\(search)”.")
             } else {
                 let context = URLDisplay.Context(bookmarks.map { ($0.title, $0.url) })
                 List(bookmarks) { bookmark in
-                    HStack(spacing: 12) {
+                    HStack(spacing: OrivSpacing.medium) {
                         pageRow(bookmark.title, url: bookmark.url, context: context)
                         Button { controller.session.removeBookmark(bookmark.id) } label: {
-                            Image(systemName: "trash").font(.system(size: 11)).frame(width: 24, height: 24)
+                            Image(systemName: "trash").font(OrivType.caption).frame(width: 24, height: 24)
                         }.buttonStyle(.borderless).foregroundStyle(theme.secondaryText)
                             .accessibilityLabel("Remove bookmark for \(bookmark.title)")
                     }
@@ -114,13 +114,13 @@ struct LibraryView: View {
             }
         case .history:
             if count == 0 {
-                empty("Your trail starts here", detail: "Pages you visit appear here so you can find them again.", symbol: "clock.arrow.circlepath")
+                BrowserEmptyState("No history yet. Regular pages you visit appear here.")
             } else if history.isEmpty {
-                ContentUnavailableView.search(text: search)
+                BrowserEmptyState("No results for “\(search)”.")
             } else {
                 let context = URLDisplay.Context(history.map { ($0.title, $0.url) })
                 List(history) { entry in
-                    HStack(spacing: 12) {
+                    HStack(spacing: OrivSpacing.medium) {
                         pageRow(entry.title, url: entry.url, context: context)
                         Text(entry.visitedAt, format: .dateTime.month(.abbreviated).day())
                             .font(.caption).foregroundStyle(theme.secondaryText).fixedSize()
@@ -131,13 +131,13 @@ struct LibraryView: View {
             }
         case .downloads:
             if controller.downloads.items.isEmpty {
-                empty("All your downloads, together", detail: "Save a file from any page to see its progress here.", symbol: "arrow.down.circle")
+                BrowserEmptyState("No downloads yet. Save a file from a page to see it here.")
             } else {
                 List(controller.downloads.items) { item in
-                    HStack(spacing: 12) {
+                    HStack(spacing: OrivSpacing.medium) {
                         Image(systemName: item.isFailed ? "exclamationmark.triangle" : "doc")
                             .font(.title2).foregroundStyle(theme.secondaryText).frame(width: 32)
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: OrivSpacing.xs) {
                             Text(item.name).font(.callout.weight(.medium)).lineLimit(1)
                             Text(item.status).font(.caption).foregroundStyle(theme.secondaryText)
                             if !item.isFinished && item.temporaryURL != nil {
@@ -160,7 +160,7 @@ struct LibraryView: View {
                             if item.temporaryURL != nil { Button("Pause") { controller.downloads.pause(item) }.buttonStyle(.borderless).disabled(item.isCancelling) }
                             Button("Cancel") { controller.downloads.cancel(item) }.buttonStyle(.borderless).disabled(item.isCancelling)
                         }
-                    }.padding(.vertical, 8)
+                    }.padding(.vertical, OrivSpacing.small)
                 }.listStyle(.inset).scrollContentBackground(.hidden)
             }
         }
@@ -171,21 +171,11 @@ struct LibraryView: View {
             controller.session.openSavedPage(url)
             dismiss()
         } label: {
-            HStack(spacing: 12) {
-                SiteIdentity(url: url, size: 24)
-                Text(title.isEmpty ? (url.host() ?? url.absoluteString) : title).font(.system(size: 13)).foregroundStyle(theme.text).lineLimit(1)
-                if let host = secondaryLine(title: title, url: url, in: context) {
-                    Text(host).font(.system(size: 12)).foregroundStyle(theme.secondaryText).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2).contentShape(Rectangle())
+            PageRowContent(title: title, url: url, context: context)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2).contentShape(Rectangle())
         }.buttonStyle(ContentButtonStyle()).help(url.absoluteString)
-            .accessibilityCustomContent(Text("Address"), Text(verbatim: url.absoluteString))
     }
     private func matches(_ title: String, _ url: URL) -> Bool {
         search.isEmpty || title.localizedCaseInsensitiveContains(search) || url.absoluteString.localizedCaseInsensitiveContains(search)
-    }
-    private func empty(_ title: String, detail: String, symbol: String) -> some View {
-        ContentUnavailableView(title, systemImage: symbol, description: Text(detail))
     }
 }

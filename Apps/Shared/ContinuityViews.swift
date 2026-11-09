@@ -61,19 +61,13 @@ struct OtherDeviceTabsView: View {
     var body: some View {
         Group {
             if !continuity.isConfigured {
-                ContentUnavailableView("Not available in this build", systemImage: "laptopcomputer.and.iphone",
-                    description: Text("Mac & iPhone sync needs a signed build of Oriv."))
+                BrowserEmptyState("Mac & iPhone sync needs a signed build of Oriv.")
             } else if !continuity.state.enabled {
-                ContentUnavailableView {
-                    Label("Continue on another device", systemImage: "laptopcomputer.and.iphone")
-                } description: {
-                    Text("Sync tabs, bookmarks and history between your Mac and iPhone.")
-                } actions: { setupAction }
+                BrowserEmptyState("Turn on sync to see tabs from your other devices.") { setupAction }
             } else if devices.isEmpty {
-                ContentUnavailableView("No other devices yet", systemImage: "laptopcomputer.and.iphone",
-                    description: Text("Turn on sync in Oriv on your other device, using the same Apple Account."))
+                BrowserEmptyState("No other devices yet. Turn on sync with the same Apple Account on your other device.")
             } else if !search.isEmpty && devices.allSatisfy({ device in continuity.state.profiles.allSatisfy { tabs($0, device).isEmpty } }) {
-                ContentUnavailableView.search(text: search)
+                BrowserEmptyState("No results for “\(search)”.")
             } else {
                 List {
                     ForEach(devices) { device in
@@ -89,21 +83,15 @@ struct OtherDeviceTabsView: View {
                                         Button {
                                             if let page = ContinuityPage(url: tab.url, title: tab.title, profile: profile.browserProfile, isPrivate: false) { open(page) }
                                         } label: {
-                                            HStack(spacing: 12) {
-                                                SiteIdentity(url: tab.url, size: 24)
-                                                Text(tab.title.isEmpty ? (tab.url?.host() ?? "Page") : tab.title).foregroundStyle(theme.text).rowTitleLines()
-                                                if let host = secondaryLine(title: tab.title, url: tab.url, in: context) {
-                                                    Text(host).font(.caption).foregroundStyle(theme.secondaryText).lineLimit(1)
-                                                }
-                                                Spacer(minLength: 0)
-                                            }.frame(minHeight: 44).contentShape(Rectangle())
+                                            PageRowContent(title: tab.title, url: tab.url, context: context)
+                                                .frame(minHeight: 44).contentShape(Rectangle())
                                         }.buttonStyle(.plain).listRowBackground(theme.row)
                                             .accessibilityHint("Opens a new regular tab in \(profile.name)")
                                     }
                                 }
                             }
                             if continuity.state.profiles.allSatisfy({ continuity.state.tabs(for: $0.id, device: device.id).isEmpty }) {
-                                Text("No open tabs at last sync").foregroundStyle(theme.secondaryText).listRowBackground(theme.row)
+                                BrowserEmptyState("No open tabs at last sync").listRowBackground(theme.row).listRowSeparator(.hidden)
                             }
                         } header: {
                             HStack(alignment: .firstTextBaseline) {
@@ -115,7 +103,8 @@ struct OtherDeviceTabsView: View {
                     }
                 }.orivListStyle(theme)
             }
-        }.background(theme.canvas).navigationTitle("Other devices")
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(theme.canvas).navigationTitle("Other devices")
     }
     @ViewBuilder private var setupAction: some View {
         #if os(macOS)

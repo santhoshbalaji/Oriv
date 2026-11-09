@@ -71,17 +71,17 @@ struct MobileAppearanceSettings: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("For the \(profileName) profile.").font(.callout).foregroundStyle(theme.secondaryText)
-                LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 155), spacing: 16)], spacing: 16) {
+                LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 155), spacing: OrivSpacing.large)], spacing: OrivSpacing.large) {
                     ForEach(BrowserAppearance.allCases) { choice in
                         Button { appearance = choice } label: {
-                            VStack(alignment: .leading, spacing: 12) {
+                            VStack(alignment: .leading, spacing: OrivSpacing.medium) {
                                 if !typeSize.isAccessibilitySize { AppearancePreview(choice: choice) }
                                 Text(choice.rawValue).font(.body).foregroundStyle(theme.text).fixedSize(horizontal: false, vertical: true)
                                 Label(appearance == choice ? "Selected" : "Use theme", systemImage: appearance == choice ? "checkmark.circle.fill" : "circle")
                                     .font(.callout).foregroundStyle(theme.secondaryText)
-                            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(theme.surface, in: .rect(cornerRadius: 14))
-                                .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(appearance == choice ? theme.accent : theme.separator, lineWidth: appearance == choice ? 2 : 1) }
+                            }.padding(OrivSpacing.large).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(theme.surface, in: .rect(cornerRadius: OrivRadius.large))
+                                .overlay { RoundedRectangle(cornerRadius: OrivRadius.large).strokeBorder(appearance == choice ? theme.accent : theme.separator, lineWidth: appearance == choice ? 2 : 1) }
                         }.buttonStyle(.plain).accessibilityLabel("Use \(choice.rawValue) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
@@ -189,8 +189,8 @@ struct MobileWebsiteData: View {
             Text("Cookies, caches and offline storage. Removing data can sign you out. Bookmarks are kept separately.").font(.callout).foregroundStyle(theme.secondaryText)
             let records = manager.records.filter { query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query) }
             if manager.isWorking { ProgressView() }
-            else if manager.records.isEmpty { ContentUnavailableView("No website data", systemImage: "externaldrive") }
-            else if records.isEmpty { ContentUnavailableView.search(text: query) }
+            else if manager.records.isEmpty { BrowserEmptyState("No website data").listRowBackground(theme.row).listRowSeparator(.hidden) }
+            else if records.isEmpty { BrowserEmptyState("No results for “\(query)”.").listRowBackground(theme.row).listRowSeparator(.hidden) }
             ForEach(records, id: \.displayName) { record in
                 VStack(alignment: .leading) { Text(record.displayName); Button("Remove…", role: .destructive) { pending = [record]; confirm = true } }
             }

@@ -64,7 +64,7 @@ struct WebsiteDataView: View {
                     Button("Remove…", role: .destructive) { pending = [record]; confirm = true }
                         .accessibilityLabel("Remove data for \(record.displayName)")
                 }.padding(.vertical, 4)
-            }.overlay { if manager.isWorking { ProgressView() } else if records.isEmpty { ContentUnavailableView.search(text: query) } }
+            }.overlay { if manager.isWorking { ProgressView() } else if records.isEmpty { BrowserEmptyState(manager.records.isEmpty ? "No website data" : "No results for “\(query)”.") } }
             HStack {
                 Text("\(manager.records.count) websites").font(.caption).foregroundStyle(theme.secondaryText)
                 Spacer()

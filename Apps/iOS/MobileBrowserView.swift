@@ -25,7 +25,7 @@ struct MobileBrowserView: View {
                 // Shown while editing too, so a new private tab never looks like a regular one.
                 if tab?.isPrivate == true && (tab?.url != nil || editingAddress) {
                     Label("Private", systemImage: "eyeglasses").font(.footnote.weight(.medium)).foregroundStyle(theme.privateAccent)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.bottom, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.bottom, OrivSpacing.xs)
                         .accessibilityElement(children: .combine)
                 }
                 if !editingAddress {
@@ -65,26 +65,26 @@ struct MobileBrowserView: View {
     }
 
     private var addressBar: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: OrivSpacing.small) {
             if editingAddress {
                 CappedAddressEditor(text: $address, editing: $editingAddress, submit: submitAddress)
-                    .padding(.horizontal, 12).background(theme.field, in: .rect(cornerRadius: 14))
+                    .padding(.horizontal, OrivSpacing.medium).background(theme.field, in: .rect(cornerRadius: OrivRadius.large))
                 HStack {
                     Spacer(); Button("Cancel") { editingAddress = false; address = tab?.url?.absoluteString ?? "" }
                 }
             } else {
-                HStack(spacing: 4) {
+                HStack(spacing: OrivSpacing.xs) {
                     if let tab, tab.url != nil {
                         let cue = ConnectionCue(tab)
                         Button { controller.sheet = .site } label: {
-                            HStack(spacing: 4) {
+                            HStack(spacing: OrivSpacing.xs) {
                                 Image(systemName: cue.symbol)
                                 if cue == .notSecure { Text(cue.label).font(.subheadline.weight(.medium)).lineLimit(1).layoutPriority(1) }
-                            }.font(.system(size: 15)).foregroundStyle(cue.color(theme))
+                            }.font(.subheadline).foregroundStyle(cue.color(theme))
                                 .frame(minWidth: 44, minHeight: 44).padding(.leading, cue == .notSecure ? 10 : 0).contentShape(Rectangle())
                         }.accessibilityLabel("\(cue.label). Site settings").accessibilityShowsLargeContentViewer()
                     } else {
-                        Image(systemName: tab?.isPrivate == true ? "eyeglasses" : "magnifyingglass").font(.system(size: 15))
+                        Image(systemName: tab?.isPrivate == true ? "eyeglasses" : "magnifyingglass").font(.subheadline)
                             .foregroundStyle(tab?.isPrivate == true ? theme.privateAccent : theme.secondaryText).frame(width: 44, height: 44).accessibilityHidden(true)
                     }
                     Button(action: beginAddressEditing) {
@@ -96,22 +96,22 @@ struct MobileBrowserView: View {
                     if tab?.url != nil {
                         Button(tab?.isLoading == true ? "Stop" : "Reload", systemImage: tab?.isLoading == true ? "xmark" : "arrow.clockwise") {
                             tab?.isLoading == true ? tab?.stop() : tab?.reload()
-                        }.labelStyle(.iconOnly).font(.system(size: 15)).foregroundStyle(theme.secondaryText).frame(width: 44, height: 44)
+                        }.labelStyle(.iconOnly).font(.subheadline).foregroundStyle(theme.secondaryText).frame(width: 44, height: 44)
                     }
-                }.padding(.horizontal, 2).background(theme.field, in: .rect(cornerRadius: 14))
+                }.padding(.horizontal, 2).background(theme.field, in: .rect(cornerRadius: OrivRadius.large))
             }
-        }.padding(.horizontal, 12).padding(.vertical, 8)
+        }.padding(.horizontal, OrivSpacing.medium).padding(.vertical, OrivSpacing.small)
             // Like Safari, the address bar stops growing at the largest standard size; long-press shows the large content viewer.
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
     @ViewBuilder private var notices: some View {
         if let notice = controller.session.persistenceNotice {
             HStack { Text(notice).font(.footnote); Spacer(); if controller.session.canPersist { Button("Dismiss") { controller.session.dismissNotice() } } }
-                .padding(.horizontal, 16).padding(.vertical, 10).background(theme.surface)
+                .padding(.horizontal, OrivSpacing.large).padding(.vertical, 10).background(theme.surface)
         }
         if controller.session.canUndoBookmarkRemoval {
             HStack { Text("Bookmark removed").foregroundStyle(theme.secondaryText); Spacer(); Button("Undo") { controller.session.undoBookmarkRemoval() }; Button("Dismiss", systemImage: "xmark") { controller.session.dismissBookmarkUndo() }.labelStyle(.iconOnly).foregroundStyle(theme.secondaryText) }
-                .font(.footnote).padding(.horizontal, 16).frame(minHeight: 44).background(theme.surface)
+                .font(.footnote).padding(.horizontal, OrivSpacing.large).frame(minHeight: 44).background(theme.surface)
         }
     }
     private var findBar: some View {
@@ -124,7 +124,7 @@ struct MobileBrowserView: View {
                 Button("Next", systemImage: "chevron.down") { tab?.find(findText) }.labelStyle(.iconOnly).disabled(findText.isEmpty)
                 Button("Done") { finding = false; tab?.clearFind() }
             }
-        }.padding(12).background(theme.surface)
+        }.padding(OrivSpacing.medium).background(theme.surface)
     }
     @ViewBuilder private var page: some View {
         if let tab, tab.url != nil {
@@ -146,19 +146,18 @@ struct MobileBrowserView: View {
                     Label(profileName, systemImage: "person.crop.circle").font(.footnote).foregroundStyle(theme.secondaryText)
                 }
                 if tab?.isPrivate == true {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: OrivSpacing.small) {
                         Label("Private browsing", systemImage: "eyeglasses").font(.headline).foregroundStyle(theme.privateAccent)
                         Text("Private tabs aren’t saved or added to history. Their cookies and website data are erased when the last private tab closes. Websites and your network can still see your activity.").font(.callout).foregroundStyle(theme.secondaryText)
                     }.padding(.top, 40)
                 } else if homeBookmarks.isEmpty && homeRecent.isEmpty {
-                    Text("Bookmarks and recent pages appear here.").font(.callout).foregroundStyle(theme.secondaryText)
-                        .frame(maxWidth: .infinity).padding(.top, 80)
+                    BrowserEmptyState("Bookmarks and recent pages appear here.").padding(.top, 56)
                 } else {
                     let context = URLDisplay.Context(homeBookmarks.map { ($0.title, $0.url) } + homeRecent.map { ($0.title, $0.url) })
                     if !homeBookmarks.isEmpty { homeSection("Bookmarks", items: homeBookmarks.map { ($0.title, $0.url) }, context: context) }
                     if !homeRecent.isEmpty { homeSection("Recent", items: homeRecent.map { ($0.title, $0.url) }, context: context) }
                 }
-            }.padding(.horizontal, 20).padding(.vertical, 24).frame(maxWidth: 650, alignment: .leading).frame(maxWidth: .infinity)
+            }.padding(.horizontal, 20).padding(.vertical, OrivSpacing.xl).frame(maxWidth: 650, alignment: .leading).frame(maxWidth: .infinity)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     private func homeSection(_ title: String, items: [(String, URL)], context: URLDisplay.Context) -> some View {
@@ -169,15 +168,9 @@ struct MobileBrowserView: View {
     }
     private func homeLink(_ title: String, url: URL, context: URLDisplay.Context) -> some View {
         Button { controller.open(url) } label: {
-            HStack(spacing: 12) {
-                SiteIdentity(url: url, size: 28)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title.isEmpty ? (url.host() ?? url.absoluteString) : title).foregroundStyle(theme.text).rowTitleLines()
-                    if let host = secondaryLine(title: title, url: url, in: context) { Text(host).font(.footnote).foregroundStyle(theme.secondaryText).rowTitleLines().truncationMode(.middle) }
-                }
-                Spacer(minLength: 0)
-            }.frame(minHeight: 48).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityCustomContent(Text("Address"), Text(verbatim: url.absoluteString)).contextMenu { Button("Open in New Tab") { controller.session.openSavedPage(url, inNewTab: true) } }
+            PageRowContent(title: title, url: url, context: context)
+                .frame(minHeight: 48).contentShape(Rectangle())
+        }.buttonStyle(.plain).contextMenu { Button("Open in New Tab") { controller.session.openSavedPage(url, inNewTab: true) } }
     }
     private var suggestions: some View {
         ScrollView {
@@ -185,7 +178,7 @@ struct MobileBrowserView: View {
                 if !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button(action: submitAddress) {
                         Label(AddressAction.title(for: address, engine: controller.session.settings.searchEngine, compact: typeSize.isAccessibilitySize), systemImage: AddressAction.symbol(for: address, engine: controller.session.settings.searchEngine))
-                            .foregroundStyle(theme.text).lineLimit(typeSize.isAccessibilitySize ? 3 : 1).padding(.horizontal, 8).frame(minHeight: 52, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            .foregroundStyle(theme.text).lineLimit(typeSize.isAccessibilitySize ? 3 : 1).padding(.horizontal, OrivSpacing.small).frame(minHeight: 52, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                     }.buttonStyle(.plain)
                 }
                 let matches = controller.session.suggestions(for: address, isPrivate: tab?.isPrivate == true)
@@ -195,22 +188,13 @@ struct MobileBrowserView: View {
                         editingAddress = false
                         if let id = match.tabID { controller.session.selectTab(id) } else { controller.perform { try controller.session.navigate(match.url.absoluteString) } }
                     } label: {
-                        HStack(spacing: 12) {
-                            SiteIdentity(url: match.url, size: 28, isPrivate: tab?.isPrivate == true)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(match.title).foregroundStyle(theme.text).rowTitleLines()
-                                if let line = secondaryLine(title: match.title, url: match.url, in: context) {
-                                    Text(line).font(.footnote).foregroundStyle(theme.secondaryText).rowTitleLines().truncationMode(.middle)
-                                }
-                                // At accessibility sizes the tag sits under the address instead of squeezing the row.
-                                if match.tabID != nil && typeSize.isAccessibilitySize { SwitchToTabBadge() }
-                            }
-                            Spacer(minLength: 8)
-                            if match.tabID != nil && !typeSize.isAccessibilitySize { SwitchToTabBadge() }
-                        }.padding(.horizontal, 8).frame(minHeight: 52).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityCustomContent(Text("Address"), Text(verbatim: match.url.absoluteString))
+                        PageRowContent(title: match.title, url: match.url, context: context,
+                                       isPrivate: tab?.isPrivate == true,
+                                       accessory: match.tabID != nil ? .alreadyOpen : .none)
+                            .padding(.horizontal, OrivSpacing.small).frame(minHeight: 52).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
                 }
-            }.padding(.horizontal, 12).padding(.top, 4)
+            }.padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).scrollDismissesKeyboard(.interactively)
     }
     private var browserToolbar: some View {
@@ -224,8 +208,8 @@ struct MobileBrowserView: View {
                     .foregroundStyle(controller.downloads.hasActivity ? theme.accentText : theme.text)
             }.accessibilityLabel(controller.downloads.hasActivity ? "Library, downloads available" : "Library").frame(maxWidth: .infinity, minHeight: 48)
             Button { controller.sheet = .tabs } label: {
-                Text("\(controller.session.tabs.count)").font(.system(size: 13, weight: .semibold)).monospacedDigit()
-                    .frame(minWidth: 22, minHeight: 22).overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(lineWidth: 1.5) }
+                Text("\(controller.session.tabs.count)").font(.footnote.weight(.semibold)).monospacedDigit()
+                    .frame(minWidth: 22, minHeight: 22).overlay { RoundedRectangle(cornerRadius: OrivRadius.compact).strokeBorder(lineWidth: 1.5) }
             }.accessibilityLabel("Tabs, \(controller.session.tabs.count) open, profile \(profileName)").accessibilityIdentifier("browserTabs").frame(maxWidth: .infinity, minHeight: 48)
             Menu {
                 Button(controller.session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: controller.session.isBookmarked(tab?.url) ? "bookmark.fill" : "bookmark") { controller.session.toggleBookmark() }.disabled(tab?.url == nil || tab?.isPrivate == true)
@@ -234,10 +218,11 @@ struct MobileBrowserView: View {
                 if let tab, tab.url != nil {
                     ControlGroup {
                         Button("Zoom Out", systemImage: "minus.magnifyingglass") { tab.zoomOut() }
-                        // Menu items take only their title for VoiceOver; it reads "100 percent" between Zoom Out and Zoom In.
-                        Button("Reset Page Zoom (\(Int(tab.pageZoom * 100))%)") { tab.resetZoom() }
                         Button("Zoom In", systemImage: "plus.magnifyingglass") { tab.zoomIn() }
                     }
+                    // Native menus use the actual title for VoiceOver, ignoring a custom label
+                    // on a ControlGroup segment. Give reset its own full-width menu item.
+                    Button("Reset Page Zoom (\(Int(tab.pageZoom * 100))%)") { tab.resetZoom() }
                 }
                 Section {
                     Button("New Tab", systemImage: "plus") { controller.newTab() }
@@ -246,7 +231,8 @@ struct MobileBrowserView: View {
                 }
                 Section { Button("Settings", systemImage: "gearshape") { controller.sheet = .settings } }
             } label: { Label("Page options and settings", systemImage: "ellipsis").frame(maxWidth: .infinity, minHeight: 48) }
-        }.labelStyle(.iconOnly).font(.system(size: 18)).tint(theme.text).padding(.horizontal, 8).background(theme.chrome)
+        // Toolbar glyphs keep their compact geometry; the count above uses scalable footnote text.
+        }.labelStyle(.iconOnly).font(.system(size: 18)).tint(theme.text).padding(.horizontal, OrivSpacing.small).background(theme.chrome)
     }
     private func beginAddressEditing() { address = tab?.url?.absoluteString ?? ""; editingAddress = true }
     private func submitAddress() {
@@ -273,9 +259,8 @@ private struct CappedAddressEditor: View {
     @Binding var editing: Bool
     let submit: () -> Void
     @ScaledMetric(relativeTo: .body) private var height: CGFloat = 44
-    @ScaledMetric(relativeTo: .body) private var fontSize: CGFloat = 17
     var body: some View {
-        MobileAddressField(text: $text, editing: $editing, fontSize: fontSize, submit: submit)
+        MobileAddressField(text: $text, editing: $editing, submit: submit)
             .frame(height: height)
     }
 }

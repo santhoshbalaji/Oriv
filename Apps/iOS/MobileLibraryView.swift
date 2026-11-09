@@ -63,25 +63,18 @@ private struct MobileSavedPages: View {
         }.orivListStyle(theme).navigationTitle(title).searchable(text: $query, prompt: "Search \(title.lowercased())")
     }
     @ViewBuilder private func empty(isEmpty: Bool) -> some View {
-        if isEmpty { ContentUnavailableView(history ? "No history yet" : "No bookmarks yet", systemImage: history ? "clock" : "bookmark", description: Text(history ? "Regular pages you visit appear here. Private tabs aren’t included." : "Bookmark a page from its options menu.")) }
-        else { ContentUnavailableView.search(text: query) }
+        BrowserEmptyState(isEmpty ? (history ? "No history yet. Private tabs aren’t included." : "No bookmarks yet. Bookmark a page from its options menu.") : "No results for “\(query)”.")
+            .listRowBackground(theme.row).listRowSeparator(.hidden)
     }
     private func link(_ title: String, url: URL, context: URLDisplay.Context) -> some View {
         Button { controller.open(url) } label: {
-            HStack(spacing: 12) {
-                SiteIdentity(url: url, size: 28)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title.isEmpty ? (url.host() ?? url.absoluteString) : title).foregroundStyle(theme.text).rowTitleLines()
-                    if let host = secondaryLine(title: title, url: url, in: context) { Text(host).font(.footnote).foregroundStyle(theme.secondaryText).rowTitleLines().truncationMode(.middle) }
-                }
-            }.frame(minHeight: 44)
-        }.accessibilityCustomContent(Text("Address"), Text(verbatim: url.absoluteString)).contextMenu { Button("Open in New Tab") { controller.session.openSavedPage(url, inNewTab: true); controller.sheet = nil } }
+            PageRowContent(title: title, url: url, context: context).frame(minHeight: 44)
+        }.contextMenu { Button("Open in New Tab") { controller.session.openSavedPage(url, inNewTab: true); controller.sheet = nil } }
     }
 }
 
 struct MobileTabsView: View {
     @Environment(\.browserTheme) private var theme
-    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.dismiss) private var dismiss
     let controller: MobileController
     let profileName: String
@@ -94,7 +87,7 @@ struct MobileTabsView: View {
             List {
                 tabSection(matches.contains(where: \.isPrivate) ? "Tabs" : nil, privateMode: false)
                 if matches.contains(where: \.isPrivate) { tabSection("Private", privateMode: true) }
-                if matches.isEmpty { ContentUnavailableView.search(text: query) }
+                if matches.isEmpty { BrowserEmptyState(query.isEmpty ? "No open tabs" : "No results for “\(query)”.").listRowBackground(theme.row).listRowSeparator(.hidden) }
                 if controller.session.canReopenTab {
                     Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { controller.session.reopenClosedTab(); dismiss() }.listRowBackground(theme.row)
                 }
@@ -117,20 +110,13 @@ struct MobileTabsView: View {
             let shown = matches.filter { $0.isPrivate == privateMode }
             let context = URLDisplay.Context(shown.compactMap { tab in tab.url.map { (tab.displayTitle, $0) } })
             ForEach(shown) { tab in
-                HStack(spacing: 8) {
+                HStack(spacing: OrivSpacing.small) {
                     Button { controller.session.selectTab(tab.id); dismiss() } label: {
-                        HStack(spacing: 12) {
-                            SiteIdentity(url: tab.url, size: 28, isPrivate: tab.isPrivate, isSelected: controller.session.selectedTabID == tab.id)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(tab.displayTitle).foregroundStyle(theme.text).fontWeight(controller.session.selectedTabID == tab.id ? .semibold : .regular).rowTitleLines()
-                                if let host = secondaryLine(title: tab.displayTitle, url: tab.url, in: context) { Text(host).font(.footnote).foregroundStyle(theme.secondaryText).rowTitleLines() }
-                                if typeSize.isAccessibilitySize && controller.session.selectedTabID == tab.id {
-                                    Image(systemName: "checkmark").font(.footnote.weight(.semibold)).foregroundStyle(theme.accentText).accessibilityHidden(true)
-                                }
-                            }
-                            Spacer(minLength: 4)
-                            if !typeSize.isAccessibilitySize && controller.session.selectedTabID == tab.id { Image(systemName: "checkmark").font(.footnote.weight(.semibold)).foregroundStyle(theme.accentText).accessibilityHidden(true) }
-                        }.frame(minHeight: 44).contentShape(Rectangle())
+                        PageRowContent(title: tab.displayTitle, url: tab.url, context: context,
+                                       titleWeight: controller.session.selectedTabID == tab.id ? .semibold : .regular,
+                                       isPrivate: tab.isPrivate, isSelected: controller.session.selectedTabID == tab.id,
+                                       accessory: controller.session.selectedTabID == tab.id ? .selected : .none)
+                            .frame(minHeight: 44).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityAddTraits(controller.session.selectedTabID == tab.id ? [.isSelected] : [])
                     Button { close(tab) } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 44, height: 44) }
                         .buttonStyle(.borderless).foregroundStyle(theme.secondaryText).accessibilityLabel("Close \(tab.displayTitle)")
@@ -149,9 +135,9 @@ struct MobileDownloadsView: View {
     let downloads: MobileDownloads
     var body: some View {
         List {
-            if downloads.entries.isEmpty { ContentUnavailableView("No downloads yet", systemImage: "arrow.down.circle", description: Text("Downloads are kept until you close Oriv. Save files you want to keep to Files.")) }
+            if downloads.entries.isEmpty { BrowserEmptyState("No downloads yet. Save files you want to keep to Files.").listRowBackground(theme.row).listRowSeparator(.hidden) }
             ForEach(downloads.entries) { entry in
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: OrivSpacing.small) {
                     Text(entry.name).font(.headline); Text(entry.status).font(.callout).foregroundStyle(theme.secondaryText)
                     if entry.isActive {
                         if entry.totalBytes > 0 { ProgressView(value: Double(entry.bytesReceived), total: Double(max(entry.totalBytes, entry.bytesReceived))).tint(theme.accent) }

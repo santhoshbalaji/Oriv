@@ -24,14 +24,14 @@ struct BrowserSidebar: View {
             Button { controller.library = .bookmarks } label: { Image(systemName: "bookmark").frame(width: 36, height: 30) }.accessibilityLabel("Bookmarks")
             Divider()
             ScrollView {
-                VStack(spacing: 8) {
+                VStack(spacing: OrivSpacing.small) {
                     ForEach(session.orderedTabs) { tab in
                         Button { session.selectTab(tab.id) } label: {
                             Group {
                                 if tab.url != nil { SiteIdentity(url: tab.url, size: 26, isPrivate: tab.isPrivate) }
                                 else { Image(systemName: tab.isPrivate ? "eyeglasses" : "plus.square.dashed").foregroundStyle(theme.secondaryText).frame(width: 26, height: 26) }
                             }.frame(width: 40, height: 36)
-                                .background { if tab.id == session.selectedTabID { SelectedRowBackground(cornerRadius: 8) } }
+                                .background { if tab.id == session.selectedTabID { SelectedRowBackground(cornerRadius: OrivRadius.small) } }
                         }.help(tab.displayTitle).accessibilityLabel(tab.displayTitle)
                             .accessibilityAddTraits(tab.id == session.selectedTabID ? .isSelected : [])
                             .contextMenu {
@@ -44,22 +44,22 @@ struct BrowserSidebar: View {
             }
             Button { controller.library = .downloads } label: { Image(systemName: "arrow.down.circle").frame(width: 36, height: 30) }.accessibilityLabel("Downloads")
             SettingsLink { Image(systemName: "gearshape").frame(width: 36, height: 30) }.accessibilityLabel("Settings")
-        }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText).padding(.vertical, 14).padding(.horizontal, 8)
+        }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText).padding(.vertical, 14).padding(.horizontal, OrivSpacing.small)
     }
     private var expanded: some View {
         VStack(spacing: 0) {
             if let profiles {
                 ProfileMenu(profiles: profiles).fixedSize().frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).frame(height: 40)
-                if let notice = profiles.notice { Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 18).padding(.bottom, 8) }
+                if let notice = profiles.notice { Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 18).padding(.bottom, OrivSpacing.small) }
             }
             Button { controller.newTab() } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "plus").frame(width: 18)
                     Text("New Tab")
                     Spacer()
-                }.font(.system(size: 13)).foregroundStyle(theme.secondaryText)
+                }.font(OrivType.body).foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle())
-            }.buttonStyle(ContentButtonStyle()).padding(.horizontal, 8).help("New tab (⌘T)")
+            }.buttonStyle(ContentButtonStyle()).padding(.horizontal, OrivSpacing.small).help("New tab (⌘T)")
                 .accessibilityIdentifier("newTabButton")
 
             if session.tabs.count >= 8 || !search.isEmpty {
@@ -72,9 +72,9 @@ struct BrowserSidebar: View {
                             .buttonStyle(.plain).foregroundStyle(theme.secondaryText).accessibilityLabel("Clear tab search")
                     }
                 }
-                .font(.system(size: 12)).padding(.horizontal, 8).frame(height: 26)
+                .font(OrivType.detail).padding(.horizontal, OrivSpacing.small).frame(height: 26)
                 .background(theme.field, in: RoundedRectangle(cornerRadius: 7))
-                .padding(.horizontal, 12).padding(.vertical, 6)
+                .padding(.horizontal, OrivSpacing.medium).padding(.vertical, 6)
             }
 
             List(selection: Binding(get: { session.selectedTabID }, set: { if let id = $0 { session.selectTab(id) } })) {
@@ -89,27 +89,26 @@ struct BrowserSidebar: View {
             .listStyle(.sidebar).scrollContentBackground(.hidden)
             .overlay {
                 if filteredTabs.isEmpty {
-                    VStack(spacing: 8) {
-                        Text("No matching tabs").font(.callout)
+                    BrowserEmptyState("No matching tabs") {
                         Button("Clear Search") { search = "" }.buttonStyle(.link)
-                    }.foregroundStyle(theme.secondaryText)
+                    }
                 }
             }
 
             HStack(spacing: 2) {
                 ForEach(LibrarySection.allCases) { section in
                     Button { controller.library = section } label: {
-                        Image(systemName: section.symbol).font(.system(size: 13)).frame(width: 30, height: 28)
+                        Image(systemName: section.symbol).font(OrivType.body).frame(width: 30, height: 28)
                     }
                     .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText)
                     .accessibilityLabel(section.rawValue)
                     .help(section == .bookmarks ? "Bookmarks (⇧⌘B)" : section.rawValue)
                 }
                 Spacer(minLength: 4)
-                SettingsLink { Image(systemName: "gearshape").font(.system(size: 13)).frame(width: 30, height: 28) }
+                SettingsLink { Image(systemName: "gearshape").font(OrivType.body).frame(width: 30, height: 28) }
                     .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText)
                     .accessibilityLabel("Settings").help("Settings (⌘,)")
-            }.padding(.horizontal, 10).padding(.vertical, 8)
+            }.padding(.horizontal, 10).padding(.vertical, OrivSpacing.small)
         }
         .onChange(of: session.selectedTabID) { _, newID in
             if let newID, !filteredTabs.contains(where: { $0.id == newID }) { search = "" }
@@ -124,7 +123,7 @@ struct BrowserSidebar: View {
             ForEach(tabs) { tab in
                 TabRow(tab: tab, isSelected: tab.id == session.selectedTabID) { controller.requestCloseTab(tab.id) }
                     .tag(tab.id)
-                    .listRowBackground(Group { if tab.id == session.selectedTabID { SelectedRowBackground().padding(.horizontal, 4) } })
+                    .listRowBackground(Group { if tab.id == session.selectedTabID { SelectedRowBackground().padding(.horizontal, OrivSpacing.xs) } })
                     .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
                     .contextMenu {
                         Button(tab.isPinned ? "Unpin Tab" : "Pin Tab", systemImage: tab.isPinned ? "pin.slash" : "pin") { session.togglePinned(tab.id) }
@@ -144,7 +143,7 @@ struct BrowserSidebar: View {
             }
         } header: {
             if let title {
-                Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(theme.secondaryText)
+                Text(title).font(OrivType.caption.weight(.medium)).foregroundStyle(theme.secondaryText)
             }
         }
     }
@@ -159,12 +158,11 @@ private struct TabRow: View {
     @FocusState private var closeFocused: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            if tab.isLoading { ProgressView().controlSize(.mini).frame(width: 18) }
-            else if tab.url == nil { Image(systemName: tab.isPrivate ? "eyeglasses" : "plus.square.dashed").foregroundStyle(theme.secondaryText).frame(width: 18) }
-            else { SiteIdentity(url: tab.url, size: 18, isPrivate: tab.isPrivate, isSelected: isSelected) }
-            Text(tab.displayTitle).font(.system(size: 13, weight: isSelected ? .medium : .regular)).foregroundStyle(theme.text).lineLimit(1)
-            Spacer(minLength: 0)
+        HStack(spacing: OrivSpacing.small) {
+            PageRowContent(title: tab.displayTitle, url: tab.url, layout: .titleOnly, iconSize: 18,
+                           spacing: OrivSpacing.small, titleWeight: isSelected ? .medium : .regular,
+                           isPrivate: tab.isPrivate, isSelected: isSelected,
+                           isLoading: tab.isLoading, showsNewTabSymbol: true)
             if tab.isPinned { Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(theme.secondaryText).accessibilityLabel("Pinned") }
             if tab.mediaSuspended { Image(systemName: "pause.circle").foregroundStyle(theme.secondaryText).accessibilityLabel("Media paused") }
             Button(action: close) {

@@ -36,51 +36,41 @@ struct StartPage: View {
                 }
             }
             .frame(maxWidth: 640, alignment: .leading)
-            .padding(.horizontal, 32).padding(.vertical, 56)
+            .padding(.horizontal, OrivSpacing.xxl).padding(.vertical, 56)
             .frame(maxWidth: .infinity)
         }
         .background(theme.page)
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Text("Search or enter a website above").foregroundStyle(theme.text)
-            Text("⌘L").font(.caption).foregroundStyle(theme.secondaryText)
-        }
-        .font(.system(size: 13)).frame(maxWidth: .infinity).padding(.top, 120)
+        BrowserEmptyState("Search or enter a website above (⌘L)")
+            .padding(.top, 96)
     }
 
     private var privateExplanation: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Private browsing", systemImage: "eyeglasses").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.privateAccent)
+            Label("Private browsing", systemImage: "eyeglasses").font(OrivType.body.weight(.semibold)).foregroundStyle(theme.privateAccent)
             Text("Private tabs aren’t saved or added to history. Their cookies and website data are erased when the last private tab closes. Websites and your network can still see your activity, and downloaded files stay on your Mac.")
-                .font(.system(size: 13)).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
+                .font(OrivType.body).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
         }.padding(.top, 80)
     }
 
     private func section<Rows: View>(_ title: String, showAll: LibrarySection, @ViewBuilder rows: () -> Rows) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: OrivSpacing.xs) {
             HStack {
-                Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(theme.secondaryText).accessibilityAddTraits(.isHeader)
+                Text(title).font(OrivType.detail.weight(.medium)).foregroundStyle(theme.secondaryText).accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button("Show All") { controller.library = showAll }.buttonStyle(.plain)
-                    .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
-            }.padding(.horizontal, 8).padding(.bottom, 4)
+                    .font(OrivType.detail).foregroundStyle(theme.secondaryText)
+            }.padding(.horizontal, OrivSpacing.small).padding(.bottom, OrivSpacing.xs)
             rows()
         }
     }
 
     private func row(_ title: String, url: URL, context: URLDisplay.Context) -> some View {
         Button { controller.session.openSavedPage(url) } label: {
-            HStack(spacing: 12) {
-                SiteIdentity(url: url, size: 24)
-                Text(title.isEmpty ? (url.host() ?? url.absoluteString) : title).font(.system(size: 13)).foregroundStyle(theme.text).lineLimit(1)
-                if let host = secondaryLine(title: title, url: url, in: context) {
-                    Text(host).font(.system(size: 12)).foregroundStyle(theme.secondaryText).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }.padding(.horizontal, 8).frame(height: 36).contentShape(Rectangle())
+            PageRowContent(title: title, url: url, context: context)
+                .padding(.horizontal, OrivSpacing.small).frame(height: 36).contentShape(Rectangle())
         }.buttonStyle(ContentButtonStyle()).help(url.absoluteString)
-            .accessibilityCustomContent(Text("Address"), Text(verbatim: url.absoluteString))
     }
 }

@@ -55,7 +55,7 @@ struct BrowserWindow: View {
         .toolbar { browserToolbar }
         .overlay(alignment: .top) {
             if addressFocused && !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                addressSuggestions.frame(width: addressWidth).padding(.top, 4)
+                addressSuggestions.frame(width: addressWidth).padding(.top, OrivSpacing.xs)
             }
         }
     }
@@ -77,14 +77,14 @@ struct BrowserWindow: View {
                     if let tab, tab.url != nil {
                         let cue = ConnectionCue(tab)
                         Button { showSiteInfo.toggle() } label: {
-                            HStack(spacing: 4) {
+                            HStack(spacing: OrivSpacing.xs) {
                                 Image(systemName: cue.symbol)
-                                if cue == .notSecure { Text(cue.label).font(.system(size: 12, weight: .medium)).fixedSize() }
-                            }.font(.system(size: 12)).foregroundStyle(cue.color(theme)).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
+                                if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
+                            }.font(OrivType.detail).foregroundStyle(cue.color(theme)).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
                         }.buttonStyle(.plain).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
                             .popover(isPresented: $showSiteInfo) { SiteInformationView(session: session, tab: tab) }
                     } else {
-                        Image(systemName: tab?.isPrivate == true ? "eyeglasses" : "magnifyingglass").font(.system(size: 12))
+                        Image(systemName: tab?.isPrivate == true ? "eyeglasses" : "magnifyingglass").font(OrivType.detail)
                             .foregroundStyle(tab?.isPrivate == true ? theme.privateAccent : theme.secondaryText).accessibilityHidden(true)
                     }
                     AddressField(text: $address, isEditing: $addressFocused,
@@ -106,14 +106,14 @@ struct BrowserWindow: View {
                         }
                         Button { tab?.isLoading == true ? tab?.stop() : tab?.reload() } label: {
                             Image(systemName: tab?.isLoading == true ? "xmark" : "arrow.clockwise")
-                                .font(.system(size: 12)).frame(width: 24, height: 24)
+                                .font(OrivType.detail).frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(tab?.isLoading == true ? "Stop loading" : "Reload page")
                         .help(tab?.isLoading == true ? "Stop loading" : "Reload (⌘R)")
                     }
                 }
-                .padding(.leading, 12).padding(.trailing, tab?.url == nil ? 12 : 4)
+                .padding(.leading, OrivSpacing.medium).padding(.trailing, tab?.url == nil ? 12 : 4)
                 .frame(width: addressWidth, height: 28)
                 .overlay {
                     Capsule().strokeBorder(addressFocused ? theme.accent : .clear, lineWidth: 1.5)
@@ -174,7 +174,7 @@ struct BrowserWindow: View {
             VStack(spacing: 0) {
                 if session.canUndoBookmarkRemoval {
                     HStack { Text("Bookmark removed").foregroundStyle(theme.secondaryText); Spacer(); Button("Undo") { session.undoBookmarkRemoval() }.buttonStyle(.borderless); Button("Dismiss", systemImage: "xmark") { session.dismissBookmarkUndo() }.labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(theme.secondaryText) }
-                        .font(.system(size: 12)).padding(.horizontal, 16).frame(height: 32).background(theme.surface)
+                        .font(OrivType.detail).padding(.horizontal, OrivSpacing.large).frame(height: 32).background(theme.surface)
                 }
                 if let notice = controller.browserNotice {
                     noticeBar(notice, symbol: "checkmark.circle", isWarning: false) { controller.browserNotice = nil }
@@ -191,8 +191,8 @@ struct BrowserWindow: View {
                         Text("Private browsing")
                         Spacer()
                     }
-                    .font(.system(size: 11, weight: .medium)).foregroundStyle(theme.privateAccent)
-                    .padding(.horizontal, 16).frame(height: 24)
+                    .font(OrivType.caption.weight(.medium)).foregroundStyle(theme.privateAccent)
+                    .padding(.horizontal, OrivSpacing.large).frame(height: 24)
                     .background(theme.privateAccent.opacity(0.08))
                     .accessibilityElement(children: .combine)
                 }
@@ -288,27 +288,22 @@ struct AddressSuggestionList: View {
 
     var body: some View {
         let context = URLDisplay.Context(suggestions.map { ($0.title, $0.url) })
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: OrivSpacing.xs) {
             ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, match in
                 Button { choose(match) } label: {
-                    HStack(spacing: 10) {
-                        SiteIdentity(url: match.url, size: 20, isPrivate: isPrivate)
-                        Text(match.title).foregroundStyle(theme.text).lineLimit(1)
-                        if let line = secondaryLine(title: match.title, url: match.url, in: context) {
-                            Text(line).font(.caption).foregroundStyle(theme.secondaryText).lineLimit(1).truncationMode(.middle)
-                        }
-                        Spacer(minLength: 8)
-                        if match.tabID != nil { SwitchToTabBadge() }
-                    }.padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle()).background { if selectedIndex == index { SelectedRowBackground() } }
+                    PageRowContent(title: match.title, url: match.url, context: context,
+                                   iconSize: 20, spacing: 10, secondaryFont: .caption, isPrivate: isPrivate,
+                                   accessory: match.tabID != nil ? .alreadyOpen : .none)
+                        .padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle())
+                        .background { if selectedIndex == index { SelectedRowBackground() } }
                 }.buttonStyle(.plain).accessibilityAddTraits(selectedIndex == index ? [.isSelected] : [])
-                    .accessibilityCustomContent(Text("Address"), Text(verbatim: match.url.absoluteString))
             }
             Button(action: submit) {
                 Label(AddressAction.title(for: address, engine: engine), systemImage: AddressAction.symbol(for: address, engine: engine))
                     .foregroundStyle(theme.text).padding(.horizontal, 10).frame(height: 32).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
-        }.font(.system(size: 13)).padding(6).background(theme.surface, in: .rect(cornerRadius: 10))
-            .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(theme.separator) }
+        }.font(OrivType.body).padding(6).background(theme.surface, in: .rect(cornerRadius: OrivRadius.medium))
+            .overlay { RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.separator) }
             .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
     }
 }
