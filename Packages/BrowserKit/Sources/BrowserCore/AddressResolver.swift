@@ -13,7 +13,7 @@ public enum AddressError: LocalizedError, Equatable {
 }
 
 public enum AddressResolver {
-    public static func resolve(_ input: String) throws -> URL {
+    public static func resolve(_ input: String, searchEngine: SearchEngine = .duckDuckGo) throws -> URL {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { throw AddressError.empty }
         let lower = value.lowercased()
@@ -31,14 +31,13 @@ public enum AddressResolver {
         if looksLikeHost && !value.contains(where: \.isWhitespace) && !value.contains("@") {
             return try validatedWebURL("\(isLocal ? "http" : "https")://\(value)")
         }
-        var search = URLComponents(string: "https://duckduckgo.com/")!
-        search.queryItems = [URLQueryItem(name: "q", value: value)]
-        return search.url!
+        return searchEngine.searchURL(value)
     }
 
     public static func isWebURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              let host = url.host, !host.isEmpty, url.user == nil, url.password == nil else { return false }
+              let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
+              url.port.map({ (1...65535).contains($0) }) ?? true else { return false }
         return true
     }
 

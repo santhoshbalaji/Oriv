@@ -54,7 +54,12 @@ final class BrowserIntegrationTests: XCTestCase {
             try await waitForScript("innerWidth > 700 && innerHeight > 500 && Math.abs(player.getBoundingClientRect().width - innerWidth) < 2 && Math.abs(player.getBoundingClientRect().height - innerHeight) < 2", in: tab.webView)
             let screen = try XCTUnwrap(tab.webView.window?.screen)
             XCTAssertEqual(tab.webView.bounds.width, screen.frame.width, accuracy: 2)
-            XCTAssertEqual(tab.webView.bounds.height, screen.frame.height, accuracy: 2)
+            // WebKit may exclude the camera housing area on a built-in display.
+            // Both fullscreen policies must fill the usable display, while the
+            // DOM check above still requires the player to fill its viewport.
+            let safeHeight = screen.frame.height - screen.safeAreaInsets.top - screen.safeAreaInsets.bottom
+            XCTAssertTrue([screen.frame.height, safeHeight].contains { abs(tab.webView.bounds.height - $0) < 2 },
+                          "Fullscreen height \(tab.webView.bounds.height) must fill the display (\(screen.frame.height)) or its safe area (\(safeHeight))")
             _ = try await tab.webView.evaluateJavaScript("document.exitFullscreen(); true")
             try await waitUntil("WebKit exits fullscreen") { tab.webView.fullscreenState == .notInFullscreen }
             try await waitUntil("Original layout restored") {

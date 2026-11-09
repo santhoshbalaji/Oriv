@@ -2,6 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Packages the legacy local-only Release configuration, without CloudKit.
+# For signed continuity builds, use OrivReleaseMac and Config/Distribution/.
 # Builds both supported Mac architectures. The default is a local ad-hoc release;
 # Developer ID distribution requires an appropriate identity and notarization.
 output="$PWD/build/releases"

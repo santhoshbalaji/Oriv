@@ -6,14 +6,11 @@ let package = Package(
     platforms: [.macOS("26.0"), .iOS("26.0")],
     products: [
         .library(name: "BrowserCore", targets: ["BrowserCore"]),
-        .library(name: "BrowserEngine", targets: ["BrowserEngine"]),
-        .library(name: "ProductivityKit", targets: ["ProductivityKit"])
+        .library(name: "BrowserEngine", targets: ["BrowserEngine"])
     ],
     targets: [
         .target(name: "BrowserCore"),
-        .target(name: "BrowserEngine", dependencies: ["BrowserCore", "ProductivityKit"]),
-        .target(name: "ProductivityKit", dependencies: ["BrowserCore"]),
-        .testTarget(name: "BrowserCoreTests", dependencies: ["BrowserCore"]),
-        .testTarget(name: "ProductivityTests", dependencies: ["ProductivityKit"])
+        .target(name: "BrowserEngine", dependencies: ["BrowserCore"]),
+        .testTarget(name: "BrowserCoreTests", dependencies: ["BrowserCore"])
     ]
 )

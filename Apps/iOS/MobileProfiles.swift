@@ -1,0 +1,91 @@
+import Foundation
+import Observation
+import BrowserCore
+import BrowserEngine
+
+@MainActor @Observable final class MobileProfiles {
+    let continuity: BrowserContinuity
+    private(set) var current: MobileController
+    private(set) var profiles: [BrowserProfile]
+    @ObservationIgnored private var controllers: [UUID: MobileController] = [:]
+    init() {
+        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1"
+        continuity = BrowserContinuity(root: testing ? nil : URL.applicationSupportDirectory.appendingPathComponent("Oriv"), deviceName: "iPhone")
+        // Compatibility with the earlier mobile profile-name list, without accessing any cloud service.
+        struct LegacyProfile: Decodable { let id: UUID; let name: String }
+        let stored = UserDefaults.standard.data(forKey: "OrivMobileProfiles").flatMap { try? JSONDecoder().decode([BrowserProfile].self, from: $0) }
+        let legacy = UserDefaults.standard.data(forKey: "OrivMobileLibraries").flatMap { try? JSONDecoder().decode([LegacyProfile].self, from: $0) } ?? []
+        let saved = stored ?? legacy.map { BrowserProfile(id: $0.id, name: $0.name) }
+        var seen: Set<UUID> = [BrowserProfile.personalID]
+        let personal = saved.first { $0.isPersonal } ?? .personal
+        let known: [BrowserProfile] = [personal] + saved.filter { ProfileRegistry.validName($0.name) && seen.insert($0.id).inserted }
+        let selected = (UserDefaults.standard.string(forKey: "BrowserProfileID") ?? UserDefaults.standard.string(forKey: "WorkspaceProfileID")).flatMap(UUID.init(uuidString:))
+        profiles = known
+        current = MobileController(profile: known.first { $0.id == selected && $0.archivedAt == nil } ?? .personal)
+        controllers[current.profileID] = current
+        continuity.configure(profiles: { [weak self] in self?.profiles.filter { $0.archivedAt == nil } ?? [] }, source: { [weak self] profile in
+            guard let self else { return nil }
+            return self.obtain(profile).continuitySource
+        }, importProfiles: { [weak self] incoming in
+            guard let self else { return }
+            var registry = ProfileRegistry(); registry.profiles = self.profiles; registry.activeID = self.current.profileID
+            self.profiles = try registry.importingContinuity(incoming).profiles; self.persist()
+        })
+    }
+    private func obtain(_ profile: BrowserProfile) -> MobileController {
+        if let existing = controllers[profile.id] { return existing }
+        let created = MobileController(profile: profile); created.session.setProfileActive(false)
+        controllers[profile.id] = created; return created
+    }
+    func openContinuityPage(_ page: ContinuityPage) {
+        current.perform {
+            if !profiles.contains(where: { $0.id == page.profile.id }) {
+                var registry = ProfileRegistry(); registry.profiles = profiles; registry.activeID = current.profileID
+                profiles = try registry.importingContinuity([page.profile]).profiles; persist()
+            }
+            guard let profile = profiles.first(where: { $0.id == page.profile.id }), profile.archivedAt == nil else { throw ProfileError.protectedProfile }
+            current.sheet = nil; select(profile); current.session.addTab(url: page.url)
+        }
+    }
+    func select(_ profile: BrowserProfile) {
+        guard profile.archivedAt == nil else { return }
+        current.background()
+        if !profiles.contains(where: { $0.id == profile.id }) { profiles.append(profile) }
+        let next = obtain(profile)
+        controllers[profile.id] = next; current = next
+        UserDefaults.standard.set(profile.id.uuidString, forKey: "BrowserProfileID")
+        persist()
+        current.foreground()
+    }
+    func saveName(_ input: String, for id: UUID?) throws {
+        let name = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ProfileRegistry.validName(name) else { throw ProfileError.invalidName }
+        guard !profiles.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) else { throw ProfileError.duplicateName }
+        if let id {
+            guard let index = profiles.firstIndex(where: { $0.id == id }), !profiles[index].isPersonal else { throw ProfileError.protectedProfile }
+            profiles[index].name = name; persist()
+        } else {
+            guard profiles.count < 100 else { throw ProfileError.invalidRegistry }
+            select(BrowserProfile(name: name))
+        }
+    }
+    func archive(_ id: UUID) {
+        guard id != current.profileID, let index = profiles.firstIndex(where: { $0.id == id }), !profiles[index].isPersonal else { return }
+        if let controller = controllers[id] {
+            for tab in controller.session.tabs.filter(\.isPrivate) { controller.session.closeTab(tab.id) }
+            controller.background()
+        }
+        profiles[index].archivedAt = .now; persist()
+    }
+    func restore(_ id: UUID) {
+        guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles[index].archivedAt = nil; persist()
+    }
+    private func persist() {
+        if let data = try? JSONEncoder().encode(profiles) { UserDefaults.standard.set(data, forKey: "OrivMobileProfiles") }
+        continuity.profilesChanged()
+    }
+    func foreground() { current.foreground(); continuity.setForeground(true) }
+    func background() { controllers.values.forEach { $0.background() }; continuity.setForeground(false) }
+    func route(_ url: URL) { current.route(url) }
+}

@@ -1,41 +1,34 @@
-# Oriv: a place for connected thoughts
+# Oriv browser design system
 
-## Direction before implementation
+Oriv is a privacy-first native browser for Mac and iPhone. The active interface covers browsing, tabs, bookmarks, history, downloads, profiles and browser settings. Workspace, tasks, trackers, AI and source monitoring are outside the current product scope.
 
-Oriv connects browsing to a remembered source, a thought and a next action. Its subtle kolam mark suggests continuity; the UI should echo that through a fine woven line and an activity thread, without turning the interface into a decorative pattern.
+## Appearance and typography
 
-Palette (light / dark):
-- Mulberry, primary action: `#713C52` / `#E3ADC4`.
-- Paper, reading surface: `#FCFAFD` / `#252228`.
-- Mist, canvas: `#F3F0F5` / `#1D1B20`.
-- Graphite, reference ink: `#28232D` / `#F1ECF3`; actual text uses adaptive system primary/secondary colors.
-- Fern, completed-work accent: `#35685D` / `#A6CDBF`.
-- Thread, decorative line: `#C8B8CD` / `#6C5B73`.
+The shared palette and components live in `Apps/macOS/Views/Theme.swift` and are compiled into both apps. **T3 Code** is the default for new profiles. System, Light and Dark remain available. The choice belongs to the current profile on the current device; it is not an account-wide or synced preference. See [Appearance](appearance.md) for the exact palette and website-color behavior.
 
-Native selection uses a separate dark-mode accent, `#9B6681`, because macOS draws white text on selected rows. The lighter Mulberry tint remains for foreground icons and custom controls. Selected site monograms inherit the native foreground rather than the brand tint.
+Use semantic theme roles instead of hardcoded colors. Main text belongs in address fields; secondary text belongs on the canvas or surface. Increased Contrast brightens foreground accents, secondary text and boundaries. Filled primary buttons retain a darker fill so white labels remain readable. Selection also has a checkmark or a leading indicator. Private browsing uses text and glasses, independently of the connection-security icon.
 
-Typography: native San Francisco for controls, metadata, forms and reading. System serif for the new-tab greeting and saved-item title, bringing a literary tone to the content without replacing familiar Mac controls. Body content stays selectable and comfortably spaced. No external fonts.
+Use system text styles for iPhone controls and content so Dynamic Type can reflow. Toolbar glyphs retain compact, labeled targets while text grows. At accessibility text sizes the appearance picker becomes one column and hides decorative previews. Mac controls use native text fields, menu commands and familiar keyboard shortcuts. The new-tab heading uses system serif; controls use the system sans-serif. No downloaded fonts or remote theme assets.
 
-Layout:
-```
-Browser:   [Oriv / Workspace / tabs] [native toolbar + address]
-                                   [greeting, subtle thread]
-                                   [search]
-                                   [compact quick links]
-                                   [continue work | recent pages]
-Workspace: [scope navigation] [saved items] [source/title/purpose]
-                                          [actions / notes / content / timeline]
-```
+## Navigation
 
-Principles: hierarchy before decoration; one primary task per panel; preserve native selection, keyboard focus, resizing and menus; glass only for controls/navigation; opaque readable content; distinguish private browsing with both text and symbol; adapt to dark mode, Increase Contrast and Reduce Transparency. No invented activity, sync status or AI features.
+Mac: a native toolbar with one address/search field, a vertical tab sidebar, and a browser content area. The start-page search affordance focuses that same field. Suggestions are available from any page. Bookmarks, history and downloads open from the sidebar; Settings is labeled explicitly.
 
-Critique before building: merely tinting the existing blue interface would leave a generic browser template. The meaningful changes are the prominent Workspace doorway, a new-tab continuation area backed by real items, the editorial detail layout, a connected activity timeline, and consistent editor headings. Avoid a grid of indistinguishable rounded cards or large branding on websites.
+iPhone: one browser screen with an address control above the page and a single bottom row for Back, Forward, Library, tab count and Page options. Tabs, Library, Site settings and Settings open as sheets. Library groups bookmarks, history and downloads. The page menu names the active profile in its Settings action. Profile names are also visible on the start page and tab list.
 
-## References
+The resting iPhone address shows the host; editing exposes the complete URL with native selection and a clear button. Private mode remains visible during address editing. Site settings shows the exact origin, connection state and per-site controls. HTTPS is described as connection encryption, not a guarantee that a site is trustworthy.
 
-- [Apple Materials HIG](https://developer.apple.com/design/human-interface-guidelines/materials): system materials and content hierarchy.
-- [Apple Accessibility HIG](https://developer.apple.com/design/human-interface-guidelines/accessibility): contrast, recognizable controls and system accessibility preferences.
-- [Things](https://culturedcode.com/things/): task hierarchy and restrained list presentation.
-- [Craft](https://www.craft.do/): readable document layouts and keeping tasks near context.
+## Shared behavior
 
-These are design references, not copied layouts or assets. Native SwiftUI/AppKit supplies the platform behavior. This is implementation guidance, not a claim of Apple certification or an exhaustive accessibility audit.
+- Local address suggestions use the active profile only. Regular tabs can suggest regular tabs, bookmarks and history; private tabs suggest only open private tabs. Results deduplicate by URL and prefer an already open tab. Nothing is sent to a search provider until submission.
+- A saved link reuses an empty regular tab. Otherwise it opens a new regular tab, preserving a loaded page or private tab. An explicit Open in new tab always adds a tab.
+- Both apps confirm closing a page after trusted form input. This is an edited-field signal, not a promise that the website's data is unsaved or saved.
+- Removing a bookmark offers one-level Undo, restoring its metadata and position without creating duplicates. Other destructive actions state their scope and use confirmation where recovery is unavailable.
+- Download feedback reports actual activity, bytes, completion or failure. Mobile downloads are temporary until saved or shared; their list is not restored across launches.
+- Empty libraries and searches with no matches have distinct messages. Success messages do not use error titles.
+
+## Native behavior and acceptance
+
+Preserve existing WebKit instances during address editing and sheet navigation. Native scrolling, focus, sheets, menus, system permission prompts and selection behavior take precedence over decoration. Keep large content readable, avoid nested global navigation, and use explicit scope language for profile data and privacy controls.
+
+Release acceptance still includes real-device reachability, VoiceOver and Full Keyboard Access, Increase Contrast and Reduce Transparency, landscape/narrow layouts, localization and media/camera permission flows. Local build and simulator evidence does not establish complete accessibility, HIG or web-standards conformance. Current evidence is recorded in [the UX implementation report](ux-implementation.md).

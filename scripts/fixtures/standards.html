@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web platform regression</title>
+<style>body{font:18px system-ui;margin:24px;max-width:760px} .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}pre{white-space:pre-wrap}input,button{font:inherit;padding:8px}</style>
+<h1>Web platform regression</h1><p>Local synthetic tests. No accounts or external resources.</p>
+<div class="grid"><div id="shadow"></div><div id="layout">Grid layout</div></div>
+<form action="/post" method="post"><label>Sample field <input name="standard" value="Tamil தமிழ்"></label><button>Submit form</button></form>
+<p><a href="/two" target="_blank">New tab</a> · <a href="/download" download>Download</a></p><pre id="results">Running…</pre>
+<script>
+(async () => {
+  const results = {};
+  async function check(name, body) { try { results[name] = await body() === true; } catch(e) { results[name] = String(e); } }
+  await check('URL and encoding', () => new URL('/search?q=தமிழ்&x=a%26b', location.href).searchParams.get('x') === 'a&b');
+  await check('Grid layout', () => getComputedStyle(document.querySelector('.grid')).display === 'grid');
+  await check('Flex and container queries', () => CSS.supports('display','flex') && CSS.supports('container-type','inline-size'));
+  await check('Shadow DOM', () => { const shadow = document.querySelector('#shadow').attachShadow({mode:'open'});shadow.innerHTML='<span>Scoped</span>';return shadow.textContent==='Scoped' && !document.querySelector('#shadow span'); });
+  await check('History state', () => { history.pushState({test:42},'', '/standards?state=42');return history.state.test===42 && location.search==='?state=42'; });
+  await check('Local storage', () => {localStorage.setItem('oriv-standard','தமிழ்');const ok=localStorage.getItem('oriv-standard')==='தமிழ்';localStorage.removeItem('oriv-standard');return ok;});
+  await check('Session storage', () => {sessionStorage.setItem('oriv-standard','ok');return sessionStorage.getItem('oriv-standard')==='ok';});
+  await check('IndexedDB transaction', () => new Promise((resolve,reject) => {
+    const request=indexedDB.open('oriv-standard-'+crypto.randomUUID(),1);
+    request.onupgradeneeded=()=>request.result.createObjectStore('records');request.onerror=()=>reject(request.error);
+    request.onsuccess=()=>{const db=request.result, tx=db.transaction('records','readwrite'), records=tx.objectStore('records');records.put('preserved','key');const read=records.get('key');read.onsuccess=()=>resolve(read.result==='preserved');tx.oncomplete=()=>{db.close();indexedDB.deleteDatabase(db.name);};tx.onerror=()=>reject(tx.error);};
+  }));
+  await check('Cookies', () => { document.cookie='oriv_standard=value; SameSite=Lax; path=/';const ok=document.cookie.includes('oriv_standard=value');document.cookie='oriv_standard=; Max-Age=0; path=/';return ok; });
+  await check('Fetch same origin', async () => (await (await fetch('/standards-data')).json()).ok === true);
+  const other = location.origin.replace('127.0.0.1','localhost');
+  await check('CORS allowed', async () => (await (await fetch(other+'/standards-data?cors=1')).json()).ok === true);
+  await check('CORS blocked', async () => {try{await fetch(other+'/standards-data');return false;}catch{return true;}});
+  await check('Form data encoding', () => new FormData(document.querySelector('form')).get('standard') === 'Tamil தமிழ்');
+  await check('Mutation observer', () => new Promise(resolve => { const node=document.createElement('div'), observer=new MutationObserver(records=>{observer.disconnect();resolve(records.length===1);});observer.observe(node,{childList:true});node.appendChild(document.createElement('span')); }));
+  window.orivStandardsResults = results;
+  window.orivCapabilities = {secureContext:isSecureContext,serviceWorker:'serviceWorker' in navigator,webAuthn:'credentials' in navigator,webRTC:'RTCPeerConnection' in window,webGL:!!document.createElement('canvas').getContext('webgl2'),userAgent:navigator.userAgent};
+  document.querySelector('#results').textContent=JSON.stringify({results,capabilities:window.orivCapabilities},null,2);
+  document.title='Web platform complete';
+})();
+</script></html>

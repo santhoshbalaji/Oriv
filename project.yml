@@ -1,9 +1,17 @@
+---
 name: PersonalBrowser
 options:
   bundleIdPrefix: local.personalbrowser
   deploymentTarget:
     macOS: '26.0'
+    iOS: '26.0'
   createIntermediateGroups: true
+configs:
+  Debug: debug
+  BrowserDevelopment: debug
+  ContinuityDevelopment: debug
+  ContinuityRelease: release
+  Release: release
 packages:
   BrowserKit:
     path: Packages/BrowserKit
@@ -11,74 +19,265 @@ settings:
   base:
     SWIFT_VERSION: '6.0'
     CODE_SIGN_STYLE: Manual
-    CODE_SIGN_IDENTITY: '-'
+    CODE_SIGN_IDENTITY: "-"
     DEVELOPMENT_TEAM: ''
+    ORIV_APP_NAME: Oriv
+    ORIV_BUILD_CHANNEL: Release
+    ORIV_CONTINUITY_CONTAINER: ''
+    ORIV_HANDOFF_ACTIVITY: com.santhoshbalaji.oriv.dev.browsing
+  configs:
+    Debug:
+      ORIV_APP_NAME: Oriv-Dev
+      ORIV_BUILD_CHANNEL: Development
+    ContinuityDevelopment:
+      CODE_SIGN_STYLE: Automatic
+      CODE_SIGN_IDENTITY: Apple Development
+      DEVELOPMENT_TEAM: ''
+      ORIV_APP_NAME: Oriv-Continuity-Dev
+      ORIV_BUILD_CHANNEL: Development
+      ORIV_CONTINUITY_CONTAINER: iCloud.com.santhoshbalaji.oriv.browser.dev
+    ContinuityRelease:
+      CODE_SIGN_STYLE: Automatic
+      CODE_SIGN_IDENTITY: Apple Development
+      DEVELOPMENT_TEAM: ''
+      ORIV_APP_NAME: Oriv
+      ORIV_BUILD_CHANNEL: Release
+      ORIV_CONTINUITY_CONTAINER: iCloud.com.santhoshbalaji.oriv.browser.dev
+      ORIV_HANDOFF_ACTIVITY: com.santhoshbalaji.oriv.browsing
+    BrowserDevelopment:
+      CODE_SIGN_STYLE: Automatic
+      CODE_SIGN_IDENTITY: Apple Development
+      DEVELOPMENT_TEAM: ''
+      ORIV_APP_NAME: Oriv-Browser-Dev
+      ORIV_BUILD_CHANNEL: Development
 targets:
   PersonalBrowser:
+    attributes:
+      SystemCapabilities:
+        com.apple.iCloud:
+          enabled: 1
     type: application
     platform: macOS
     sources:
-      - path: Apps/macOS
-        excludes: [Resources/AppIcon.icon]
-      - path: Apps/macOS/Resources/AppIcon.icon
-        type: file
-        buildPhase: resources
+    - path: Apps/Shared
+    - path: Apps/macOS
+      excludes:
+      - Resources/AppIcon.icon
+    - path: Apps/macOS/Resources/AppIcon.icon
+      type: file
+      buildPhase: resources
     dependencies:
-      - package: BrowserKit
-        product: BrowserCore
-      - package: BrowserKit
-        product: BrowserEngine
-      - package: BrowserKit
-        product: ProductivityKit
+    - package: BrowserKit
+      product: BrowserCore
+    - package: BrowserKit
+      product: BrowserEngine
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.personalbrowser.mac
-        PRODUCT_NAME: Oriv
+        PRODUCT_NAME: "$(ORIV_APP_NAME)"
         PRODUCT_MODULE_NAME: PersonalBrowser
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Oriv
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: "$(ORIV_APP_NAME)"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         INFOPLIST_KEY_NSHumanReadableCopyright: Oriv
-        INFOPLIST_KEY_NSCameraUsageDescription: Allow websites you choose to use your camera.
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: Allow websites you choose to use your microphone.
-        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: Allow websites you choose to use your
+          camera.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Allow websites you choose to use
+          your microphone.
+        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent: true
         CODE_SIGN_ENTITLEMENTS: Apps/macOS/PersonalBrowser.entitlements
-        ENABLE_HARDENED_RUNTIME: YES
-        MARKETING_VERSION: '0.5.0'
-        CURRENT_PROJECT_VERSION: '5'
+        ENABLE_HARDENED_RUNTIME: true
+        MARKETING_VERSION: 0.6.0
+        CURRENT_PROJECT_VERSION: '6'
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: local.personalbrowser.qa
+        ContinuityDevelopment:
+          PRODUCT_BUNDLE_IDENTIFIER: com.santhoshbalaji.oriv.mac.dev
+          CODE_SIGN_ENTITLEMENTS: Apps/macOS/Continuity.entitlements
+        ContinuityRelease:
+          CODE_SIGN_ENTITLEMENTS: Apps/macOS/ContinuityRelease.entitlements
     info:
       path: Apps/macOS/Resources/Info.plist
       properties:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoadsInWebContent: true
         CFBundleURLTypes:
-          - CFBundleURLName: Web addresses
-            CFBundleURLSchemes: [http, https]
+        - CFBundleURLName: Web addresses
+          CFBundleURLSchemes:
+          - http
+          - https
+        OrivBuildChannel: "$(ORIV_BUILD_CHANNEL)"
+        OrivContinuityContainer: "$(ORIV_CONTINUITY_CONTAINER)"
+        NSUserActivityTypes:
+        - "$(ORIV_HANDOFF_ACTIVITY)"
         NSPrincipalClass: NSApplication
+  OrivMobile:
+    attributes:
+      SystemCapabilities:
+        com.apple.iCloud:
+          enabled: 1
+    type: application
+    platform: iOS
+    sources:
+    - path: Apps/Shared
+    - path: Apps/iOS
+    - path: Apps/macOS/AppIdentity.swift
+    - path: Apps/macOS/Views/Theme.swift
+    - path: Apps/macOS/Resources/Assets.xcassets
+    - path: Apps/macOS/Resources/AppIcon.icon
+      type: file
+      buildPhase: resources
+    dependencies:
+    - package: BrowserKit
+      product: BrowserCore
+    - package: BrowserKit
+      product: BrowserEngine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.santhoshbalaji.oriv.ios.dev
+        PRODUCT_NAME: Oriv-Mobile-Dev
+        PRODUCT_MODULE_NAME: OrivMobile
+        DEVELOPMENT_TEAM: ''
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: Apple Development
+        CODE_SIGN_ENTITLEMENTS: Apps/iOS/Mobile.entitlements
+        GENERATE_INFOPLIST_FILE: true
+        TARGETED_DEVICE_FAMILY: '1,2'
+        MARKETING_VERSION: 0.6.0
+        CURRENT_PROJECT_VERSION: '6'
+        INFOPLIST_KEY_CFBundleDisplayName: Oriv-Dev
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        BrowserDevelopment:
+          CODE_SIGN_ENTITLEMENTS: Apps/iOS/BrowserDevelopment.entitlements
+        ContinuityDevelopment:
+          CODE_SIGN_ENTITLEMENTS: Apps/iOS/Continuity.entitlements
+        ContinuityRelease:
+          PRODUCT_BUNDLE_IDENTIFIER: com.santhoshbalaji.oriv.ios
+          PRODUCT_NAME: Oriv-Mobile
+          INFOPLIST_KEY_CFBundleDisplayName: Oriv
+          CODE_SIGN_ENTITLEMENTS: Apps/iOS/ContinuityRelease.entitlements
+    info:
+      path: Apps/iOS/Resources/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSCameraUsageDescription: Allow websites you choose to use your camera.
+        NSMicrophoneUsageDescription: Allow websites you choose to use your microphone.
+        NSLocationWhenInUseUsageDescription: Allow websites you choose to use your
+          location.
+        NSPhotoLibraryUsageDescription: Choose photos to upload to a website.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoadsInWebContent: true
+        CFBundleURLTypes:
+        - CFBundleURLName: Web addresses
+          CFBundleURLSchemes:
+          - http
+          - https
+        OrivBuildChannel: "$(ORIV_BUILD_CHANNEL)"
+        OrivContinuityContainer: "$(ORIV_CONTINUITY_CONTAINER)"
+        NSUserActivityTypes:
+        - "$(ORIV_HANDOFF_ACTIVITY)"
+        UISupportedInterfaceOrientations:
+        - UIInterfaceOrientationPortrait
+        - UIInterfaceOrientationLandscapeLeft
+        - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+        - UIInterfaceOrientationPortrait
+        - UIInterfaceOrientationPortraitUpsideDown
+        - UIInterfaceOrientationLandscapeLeft
+        - UIInterfaceOrientationLandscapeRight
   BrowserMacTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [Tests/BrowserMacTests]
+    sources:
+    - Tests/BrowserMacTests
+    - Tests/BrowserCompatibilityTests
     dependencies:
-      - target: PersonalBrowser
-      - package: BrowserKit
-        product: BrowserCore
-      - package: BrowserKit
-        product: BrowserEngine
+    - target: PersonalBrowser
+    - package: BrowserKit
+      product: BrowserCore
+    - package: BrowserKit
+      product: BrowserEngine
     settings:
       base:
-        GENERATE_INFOPLIST_FILE: YES
-        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Oriv.app/Contents/MacOS/Oriv
-        BUNDLE_LOADER: $(TEST_HOST)
+        GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/$(ORIV_APP_NAME).app/Contents/MacOS/$(ORIV_APP_NAME)"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  OrivMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+    - Tests/BrowserCompatibilityTests
+    dependencies:
+    - target: OrivMobile
+    - package: BrowserKit
+      product: BrowserCore
+    - package: BrowserKit
+      product: BrowserEngine
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Oriv-Mobile-Dev.app/Oriv-Mobile-Dev"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
+  OrivReleaseMac:
+    build:
+      targets:
+        PersonalBrowser: all
+    run:
+      config: ContinuityRelease
+    archive:
+      config: ContinuityRelease
+  OrivReleaseMobile:
+    build:
+      targets:
+        OrivMobile: all
+    run:
+      config: ContinuityRelease
+    archive:
+      config: ContinuityRelease
+  OrivContinuityMac:
+    build:
+      targets:
+        PersonalBrowser: all
+    run:
+      config: ContinuityDevelopment
+  OrivContinuityMobile:
+    build:
+      targets:
+        OrivMobile: all
+    run:
+      config: ContinuityDevelopment
+  OrivMobile:
+    build:
+      targets:
+        OrivMobile: all
+        OrivMobileTests:
+        - test
+    test:
+      targets:
+      - OrivMobileTests
+    run:
+      config: Debug
+  OrivBrowserMobile:
+    build:
+      targets:
+        OrivMobile: all
+    run:
+      config: BrowserDevelopment
   PersonalBrowser:
     build:
       targets:
         PersonalBrowser: all
-        BrowserMacTests: [test]
+        BrowserMacTests:
+        - test
     test:
-      targets: [BrowserMacTests]
+      targets:
+      - BrowserMacTests
       environmentVariables:
         BROWSER_TESTING: '1'

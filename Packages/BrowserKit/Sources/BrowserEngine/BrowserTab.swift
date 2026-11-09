@@ -10,32 +10,49 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public private(set) var documentRevision = 0
     public private(set) var title: String
     public private(set) var url: URL?
+    public private(set) var content: TabContent
     public private(set) var isLoading = false
     public private(set) var progress = 0.0
     public private(set) var canGoBack = false
     public private(set) var canGoForward = false
     public private(set) var errorMessage: String?
     public private(set) var hasLoaded = false
+    public private(set) var isPinned: Bool
+    public private(set) var pageZoom: Double = 1
+    public private(set) var findResult: Bool?
+    public private(set) var mediaSuspended = false
+    public private(set) var isProfileActive = true
+    public private(set) var isCapturingCamera = false
+    public private(set) var isCapturingMicrophone = false
+    public private(set) var hasOnlySecureContent = false
+    public private(set) var hasEditedFields = false
 
     @ObservationIgnored public var onChange: (() -> Void)?
     @ObservationIgnored public var onVisit: ((URL, String) -> Void)?
     @ObservationIgnored public var onWebViewCreated: ((WKWebView) -> Void)?
     @ObservationIgnored public var onDownload: ((WKDownload) -> Void)?
     @ObservationIgnored public var onExternalURL: ((URL) -> Void)?
+    @ObservationIgnored public var onOpenLink: ((URL, Bool) -> Void)?
+    @ObservationIgnored public var onAuthentication: ((URLAuthenticationChallenge, @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) -> Void)?
     @ObservationIgnored private var backingWebView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private let configuration: WKWebViewConfiguration
     @ObservationIgnored private let adBlocker: AdBlocker?
+    @ObservationIgnored private let settings: BrowserSettings?
     @ObservationIgnored private var policyGeneration = 0
     @ObservationIgnored private var isClosed = false
 
     public init(record: TabRecord = TabRecord(), isPrivate: Bool = false,
                 configuration: WKWebViewConfiguration? = nil, dataStore: WKWebsiteDataStore = .default(),
-                adBlocker: AdBlocker? = nil) {
+                adBlocker: AdBlocker? = nil, settings: BrowserSettings? = nil) {
         id = record.id
         title = record.title
         url = record.url
+        content = configuration != nil ? .web : record.content
+        isPinned = record.isPinned
         self.isPrivate = isPrivate
+        self.settings = settings
+        pageZoom = settings?.defaultZoom ?? 1
         self.configuration = configuration ?? WKWebViewConfiguration()
         self.adBlocker = adBlocker
         if configuration == nil { self.configuration.websiteDataStore = dataStore }
@@ -47,15 +64,38 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         self.configuration.userContentController = contentController
         BrowserWebConfiguration.apply(to: self.configuration)
         super.init()
+        let world = WKContentWorld.world(name: "OrivTabState")
+        contentController.add(EditedFieldHandler(tab: self), contentWorld: world, name: "editedField")
+        contentController.addUserScript(WKUserScript(source: """
+            (() => {
+            if (window.orivEditTracking) return;
+            window.orivEditTracking = true;
+            let reported = false;
+            function reportEdit(event) {
+                if (!reported && event.isTrusted && (event.target.matches('input,textarea,select') || event.target.isContentEditable)) {
+                    reported = true; window.webkit.messageHandlers.editedField.postMessage(true);
+                }
+            }
+            document.addEventListener('input', reportEdit, true);
+            document.addEventListener('change', reportEdit, true);
+            })();
+            """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
     }
 
     public var record: TabRecord {
         let restorableURL = url.flatMap { AddressResolver.isWebURL($0) ? $0 : nil }
-        return TabRecord(id: id, title: restorableURL == nil ? "New tab" : title, url: restorableURL)
+        return TabRecord(id: id, title: restorableURL == nil ? "New tab" : title,
+                         url: restorableURL, isPinned: isPinned,
+                         content: restorableURL == nil ? .home : .web)
     }
-    public var displayTitle: String { title.isEmpty ? (url?.host ?? "New tab") : title }
+    public var displayTitle: String {
+        // Presentation only: the legacy stored home title remains unchanged in record.
+        if url == nil && (title.isEmpty || title == "New tab") { return "New Tab" }
+        return title.isEmpty ? (url?.host ?? "New Tab") : title
+    }
     public var hostname: String { url?.host ?? (isPrivate ? "Private browsing" : "Start page") }
-    public var isSecure: Bool { url?.scheme == "https" }
+
+    public var isSecure: Bool { url?.scheme == "https" && hasOnlySecureContent && !isLoading && errorMessage == nil }
     public var isInstantiated: Bool { backingWebView != nil }
 
     public var webView: WKWebView {
@@ -64,6 +104,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         // navigation callback. Install the opener session's prepared protection now.
         adBlocker?.applyPrepared(to: configuration.userContentController, url: url, isPrivate: isPrivate)
         let view = WKWebView(frame: .zero, configuration: configuration)
+        view.pageZoom = pageZoom
         view.navigationDelegate = self
         view.allowsBackForwardNavigationGestures = true
         #if DEBUG
@@ -76,9 +117,14 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             view.observe(\.isLoading, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
             view.observe(\.estimatedProgress, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
             view.observe(\.canGoBack, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
-            view.observe(\.canGoForward, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } }
+            view.observe(\.canGoForward, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
+            view.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
+            view.observe(\.cameraCaptureState, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
+            view.observe(\.microphoneCaptureState, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } }
         ]
         onWebViewCreated?(view)
+        applySiteSettings()
+        view.setAllMediaPlaybackSuspended(mediaSuspended || !isProfileActive, completionHandler: nil)
         return view
     }
 
@@ -91,6 +137,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func navigate(to destination: URL) {
         guard AddressResolver.isWebURL(destination) else { return }
         errorMessage = nil
+        content = .web
         url = destination
         title = destination.host ?? "Website"
         hasLoaded = true
@@ -107,12 +154,34 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         else if let url { navigate(to: url) }
     }
     public func stop() { backingWebView?.stopLoading(); isLoading = false }
-    public func zoomIn() { webView.pageZoom = min(webView.pageZoom + 0.1, 3) }
-    public func zoomOut() { webView.pageZoom = max(webView.pageZoom - 0.1, 0.5) }
-    public func resetZoom() { backingWebView?.pageZoom = 1 }
-    public func find(_ text: String) {
-        guard !text.isEmpty else { return }
-        backingWebView?.find(text, configuration: WKFindConfiguration()) { _ in }
+    public func reloadFromOrigin() { errorMessage = nil; backingWebView?.reloadFromOrigin() }
+    public func zoomIn() { setZoom(pageZoom + 0.1) }
+    public func zoomOut() { setZoom(pageZoom - 0.1) }
+    public func resetZoom() { setZoom(1) }
+    private func setZoom(_ value: Double) { pageZoom = min(max((value * 100).rounded() / 100, 0.5), 3); backingWebView?.pageZoom = pageZoom }
+    public func setPinned(_ value: Bool) { isPinned = value; onChange?() }
+    public func find(_ text: String, backwards: Bool = false, caseSensitive: Bool = false) {
+        guard !text.isEmpty else { findResult = nil; return }
+        let options = WKFindConfiguration(); options.backwards = backwards; options.caseSensitive = caseSensitive; options.wraps = true
+        backingWebView?.find(text, configuration: options) { [weak self] result in self?.findResult = result.matchFound }
+    }
+    public func clearFind() { findResult = nil }
+    public func toggleMediaSuspension() { mediaSuspended.toggle(); backingWebView?.setAllMediaPlaybackSuspended(mediaSuspended || !isProfileActive, completionHandler: nil) }
+    public func setProfileActive(_ active: Bool) {
+        isProfileActive = active
+        if !active { stopCapture() }
+        backingWebView?.setAllMediaPlaybackSuspended(mediaSuspended || !active, completionHandler: nil)
+    }
+    public func stopCapture() {
+        backingWebView?.setCameraCaptureState(.none, completionHandler: nil)
+        backingWebView?.setMicrophoneCaptureState(.none, completionHandler: nil)
+    }
+    public func applySiteSettings() {
+        guard let view = backingWebView else { return }
+        let rule = settings?.rule(for: url, isPrivate: isPrivate) ?? SiteRule()
+        view.configuration.preferences.javaScriptCanOpenWindowsAutomatically = rule.allowsAutomaticPopups
+        if rule.camera == .block { view.setCameraCaptureState(.none, completionHandler: nil) }
+        if rule.microphone == .block { view.setMicrophoneCaptureState(.none, completionHandler: nil) }
     }
     public func dismissError() { errorMessage = nil }
 
@@ -123,6 +192,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         backingWebView?.navigationDelegate = nil
         backingWebView?.uiDelegate = nil
         observations.removeAll()
+        configuration.userContentController.removeScriptMessageHandler(forName: "editedField", contentWorld: .world(name: "OrivTabState"))
         backingWebView = nil
     }
 
@@ -148,6 +218,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         progress = view.estimatedProgress
         canGoBack = view.canGoBack
         canGoForward = view.canGoForward
+        hasOnlySecureContent = view.hasOnlySecureContent
+        isCapturingCamera = view.cameraCaptureState != .none
+        isCapturingMicrophone = view.microphoneCaptureState != .none
         onChange?()
     }
 
@@ -155,8 +228,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         documentRevision += 1
         errorMessage = nil
         hasLoaded = true
+        findResult = nil
         refresh()
     }
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { hasEditedFields = false; refresh(); applySiteSettings() }
+    fileprivate func recordFieldEdit() { if !isClosed { hasEditedFields = true } }
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         refresh()
         if let url, AddressResolver.isWebURL(url) { onVisit?(url, displayTitle) }
@@ -186,6 +262,12 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
         let scheme = url.scheme?.lowercased() ?? ""
+        if ["http", "https"].contains(scheme), !AddressResolver.isWebURL(url) { decisionHandler(.cancel); return }
+        #if os(macOS)
+        if navigationAction.navigationType == .linkActivated, navigationAction.modifierFlags.contains(.command), AddressResolver.isWebURL(url) {
+            onOpenLink?(url, navigationAction.modifierFlags.contains(.shift)); decisionHandler(.cancel); return
+        }
+        #endif
         if ["http", "https", "about", "blob", "data"].contains(scheme) {
             let policy: WKNavigationActionPolicy = navigationAction.shouldPerformDownload ? .download : .allow
             guard navigationAction.targetFrame?.isMainFrame == true, let adBlocker else {
@@ -226,5 +308,20 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         onDownload?(download)
+    }
+    public func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+                        completionHandler: @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let method = challenge.protectionSpace.authenticationMethod
+        guard [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLAuthenticationMethodDefault].contains(method),
+              let onAuthentication else { completionHandler(.performDefaultHandling, nil); return }
+        onAuthentication(challenge, completionHandler)
+    }
+}
+
+@MainActor private final class EditedFieldHandler: NSObject, WKScriptMessageHandler {
+    weak var tab: BrowserTab?
+    init(tab: BrowserTab) { self.tab = tab }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.body as? Bool == true { tab?.recordFieldEdit() }
     }
 }

@@ -78,6 +78,13 @@ public final class AdBlocker {
         onChange?()
     }
 
+    public func applyRegularExceptions(_ incoming: Set<String>) {
+        guard incoming.count <= 1_000, incoming.allSatisfy({ host in
+            host.count <= 253 && URL(string: "https://" + host).flatMap(Self.host) == host
+        }), regularExceptions != incoming else { return }
+        regularExceptions = incoming
+        defaults?.set(incoming.sorted(), forKey: "adBlockingExceptions"); onChange?()
+    }
     public func endPrivateSession() { privateExceptions.removeAll() }
 
     public func prepare() async throws {

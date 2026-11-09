@@ -1,84 +1,61 @@
 import BrowserCore
 import BrowserEngine
 import SwiftUI
-import UserNotifications
 
 @main
 struct PersonalBrowserApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var controller = BrowserController()
-    @AppStorage("browserAppearance") private var appearance: BrowserAppearance = .system
+    @Environment(\.scenePhase) private var phase
+    @State private var profiles = BrowserProfiles()
+    private var controller: BrowserController { profiles.controller }
+    private var appearance: BrowserAppearance { controller.appearance }
 
     var body: some Scene {
-        Window("Oriv", id: "browser") {
-            BrowserWindow(controller: controller)
-                .modifier(NotificationRouting(controller: controller, delegate: appDelegate))
-                .onOpenURL { url in controller.openExternal(url) }
+        Window(AppIdentity.name, id: "browser") {
+            BrowserWindow(controller: controller, profiles: profiles)
+                .id(profiles.active.id)
+                .onAppear { appDelegate.controller = controller; appDelegate.profiles = profiles }
+                .modifier(BrowserHandoff(continuity: profiles.continuity, session: controller.session, profile: profiles.active, open: profiles.openContinuityPage))
+                .onChange(of: phase, initial: true) { _, value in profiles.continuity.setForeground(value == .active) }
+                .onOpenURL { url in profiles.handleIncomingURL(url) }
                 .frame(minWidth: 760, minHeight: 520)
-                .tint(Theme.accent)
-                .preferredColorScheme(appearance.colorScheme)
+                .browserAppearance(appearance)
         }
         .defaultSize(width: 1250, height: 820)
         .windowToolbarStyle(.unified)
-        .commands { BrowserCommands(controller: controller) }
-
-        Window("Oriv Workspace", id: "workspace") {
-            WorkspaceView(controller: controller)
-                .modifier(NotificationRouting(controller: controller, delegate: appDelegate))
-                .tint(Theme.accent).preferredColorScheme(appearance.colorScheme)
-        }
-        .defaultSize(width: 1180, height: 800)
-        .windowToolbarStyle(.unified)
+        .commands { BrowserCommands(controller: controller, profiles: profiles) }
 
         Settings {
-            AppearanceSettings(appearance: $appearance, adBlocker: controller.session.adBlocker)
-                .preferredColorScheme(appearance.colorScheme).tint(Theme.accent)
+            AppearanceSettings(appearance: Binding(get: { controller.appearance }, set: { controller.appearance = $0 }), controller: controller, profiles: profiles)
+                .id(profiles.active.id)
+                .browserAppearance(appearance)
         }
     }
 }
 
-private struct NotificationRouting: ViewModifier {
-    let controller: BrowserController
-    let delegate: AppDelegate
-    @Environment(\.openWindow) private var openWindow
-    func body(content: Content) -> some View {
-        content.onAppear {
-            delegate.connect(controller: controller) { openWindow(id: "workspace") }
-        }
-    }
-}
-
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var controller: BrowserController?
-    private var pendingItemID: UUID?
-    private var openWorkspace: (() -> Void)?
-    func connect(controller: BrowserController, openWorkspace: @escaping () -> Void) {
-        self.controller = controller
-        self.openWorkspace = openWorkspace
-        routePendingReminder()
+    weak var profiles: BrowserProfiles?
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        if let directory = VisualSnapshots.directory { Task { await VisualSnapshots.run(into: directory) }; return }
+        #endif
+        Task { await BrowserUpgradeCleanup.retireOldAlerts() }
     }
-    func openReminder(itemID: UUID) {
-        pendingItemID = itemID
-        routePendingReminder()
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let controllers = profiles?.allControllers ?? controller.map { [$0] } ?? []
+        let downloads = controllers.contains { $0.downloads.hasActiveDownloads }
+        let edited = controllers.contains { $0.session.tabs.contains(where: \.hasEditedFields) }
+        guard downloads || edited else { return .terminateNow }
+        let alert = NSAlert(); alert.messageText = "Quit Oriv?"
+        alert.informativeText = (downloads ? "Active downloads will stop and cannot resume after quitting. " : "") + (edited ? "Some pages have edited fields. Oriv cannot determine whether the websites saved them." : "")
+        alert.addButton(withTitle: "Keep browsing"); alert.addButton(withTitle: "Quit")
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
-    private func routePendingReminder() {
-        guard let id = pendingItemID, let controller, let openWorkspace else { return }
-        pendingItemID = nil
-        controller.showWorkspace(itemID: id)
-        // Keep the scene action after windows close; observation in a closed view cannot route a notification.
-        openWorkspace()
+    func applicationWillTerminate(_ notification: Notification) {
+        if let profiles { profiles.saveAll(); profiles.shutdown() }
+        else { controller?.session.saveNow(); controller?.downloads.shutdown() }
     }
-    func applicationDidFinishLaunching(_ notification: Notification) { UNUserNotificationCenter.current().delegate = self }
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification) async -> UNNotificationPresentationOptions { [.banner, .sound] }
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let raw = response.notification.request.content.userInfo["itemID"] as? String, let id = UUID(uuidString: raw) else { return }
-        await MainActor.run {
-            self.openReminder(itemID: id)
-            NSApp.activate()
-        }
-    }
-    func applicationWillTerminate(_ notification: Notification) { controller?.session.saveNow() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { sender.windows.first(where: { $0.identifier?.rawValue == "browser" })?.makeKeyAndOrderFront(nil) }

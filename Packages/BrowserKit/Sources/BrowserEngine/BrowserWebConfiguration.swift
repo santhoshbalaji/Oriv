@@ -1,10 +1,12 @@
 import WebKit
 
-/// Public WebKit settings shared by Mac and the future iPhone interface.
+/// Public WebKit settings shared by the Mac and iPhone interfaces.
 /// Apply before constructing the view, including views created for window.open.
 @MainActor
 enum BrowserWebConfiguration {
     static func apply(to configuration: WKWebViewConfiguration) {
+        configuration.preferences.isFraudulentWebsiteWarningEnabled = true
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.preferences.isElementFullscreenEnabled = true
         configuration.preferences.isSiteSpecificQuirksModeEnabled = true
         // Throttle idle, detached tabs without suspending active media or networking.
@@ -20,6 +22,7 @@ enum BrowserWebConfiguration {
         configuration.applicationNameForUserAgent = "Version/\(BrowserRuntime.safariCompatibilityVersion) Safari/605.1.15"
         #endif
         #if os(iOS)
+        configuration.applicationNameForUserAgent = "Version/\(BrowserRuntime.safariCompatibilityVersion) Safari/604.1"
         configuration.allowsInlineMediaPlayback = true
         configuration.allowsPictureInPictureMediaPlayback = true
         #endif

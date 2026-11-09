@@ -37,5 +37,13 @@
 	</dict>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>$(ORIV_HANDOFF_ACTIVITY)</string>
+	</array>
+	<key>OrivBuildChannel</key>
+	<string>$(ORIV_BUILD_CHANNEL)</string>
+	<key>OrivContinuityContainer</key>
+	<string>$(ORIV_CONTINUITY_CONTAINER)</string>
 </dict>
 </plist>

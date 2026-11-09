@@ -51,7 +51,7 @@ public struct SessionFileStore: Sendable {
         let data = try encoder.encode(snapshot.sanitized())
         // Keep the last valid session; a damaged primary never replaces the backup.
         if !discardPrevious, let oldData = try? Data(contentsOf: fileURL),
-           let old = try? JSONDecoder().decode(BrowserSnapshot.self, from: oldData), old.version == 1 {
+           let old = try? JSONDecoder().decode(BrowserSnapshot.self, from: oldData), (1...3).contains(old.version) {
             try oldData.write(to: backupURL, options: [.atomic])
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
         }
@@ -64,8 +64,12 @@ public struct SessionFileStore: Sendable {
 
     private func decode(_ url: URL) throws -> BrowserSnapshot {
         let data = try Data(contentsOf: url)
+        // Inspect the version before decoding destinations unknown to this build. A newer
+        // valid session must not silently fall back to an older backup.
+        struct Header: Decodable { let version: Int }
+        let version = try JSONDecoder().decode(Header.self, from: data).version
+        guard (1...3).contains(version) else { throw SessionFileError.unsupportedVersion(version) }
         let snapshot = try JSONDecoder().decode(BrowserSnapshot.self, from: data)
-        guard snapshot.version == 1 else { throw SessionFileError.unsupportedVersion(snapshot.version) }
         return snapshot.sanitized()
     }
 }

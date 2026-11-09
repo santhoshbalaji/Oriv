@@ -1,13 +1,38 @@
 import Foundation
-import ProductivityKit
 import WebKit
 
+public enum CaptureKind: String, Codable, CaseIterable, Sendable {
+    case readable = "Readable text", selection = "Selected passage", partial = "Partial capture", link = "Link only"
+}
+
+public struct PageCapture: Identifiable, Sendable {
+    public let id: UUID
+    public let url: URL
+    public var title: String
+    public var text: String
+    public var selection: String
+    public var kind: CaptureKind
+    public var explanation: String
+    public let capturedAt: Date
+    public init(url: URL, title: String, text: String = "", selection: String = "", kind: CaptureKind = .link,
+                explanation: String = "", capturedAt: Date = .now) {
+        id = UUID(); self.url = url; self.title = title; self.text = text; self.selection = selection
+        self.kind = kind; self.explanation = explanation; self.capturedAt = capturedAt
+    }
+}
+
+public enum ReaderError: LocalizedError {
+    case unavailable(String)
+    public var errorDescription: String? { if case .unavailable(let message) = self { return message }; return nil }
+}
+
 public enum PageCaptureService {
-    /// User-initiated, main-document extraction. Never reads input values, storage, cookies or other tabs.
-    @MainActor public static func capture(_ tab: BrowserTab) async throws -> PageCapture {
-        guard !tab.isPrivate else { throw WorkspaceError.unavailable("Private pages aren’t saved to the workspace.") }
+    /// Explicit, transient on-device reading. The result is never persisted or sent to a service.
+    @MainActor public static func readerText(_ tab: BrowserTab) async throws -> PageCapture { try await extract(tab) }
+
+    @MainActor private static func extract(_ tab: BrowserTab) async throws -> PageCapture {
         guard let url = tab.url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""), !tab.isLoading else {
-            throw WorkspaceError.unavailable("Wait for the page to finish loading, then save it.")
+            throw ReaderError.unavailable("Wait for the page to finish loading, then open reading view.")
         }
         let revision = tab.documentRevision
         let result: [String: Any]
@@ -16,21 +41,21 @@ public enum PageCaptureService {
                 contentWorld: .defaultClient) as? [String: Any] ?? [:]
         } catch {
             guard tab.url == url, tab.documentRevision == revision, !tab.isLoading else {
-                throw WorkspaceError.unavailable("The page changed during capture. Save the current page again.")
+                throw ReaderError.unavailable("The page changed during capture. Open reading view again.")
             }
-            return PageCapture(url: url, title: tab.displayTitle, explanation: "Readable text wasn’t available. You can still save the link and a note.")
+            return PageCapture(url: url, title: tab.displayTitle, explanation: "Readable text wasn’t available. Try again after the page finishes loading.")
         }
         guard tab.url == url, tab.documentRevision == revision, !tab.isLoading,
               result["url"] as? String == url.absoluteString else {
-            throw WorkspaceError.unavailable("The page changed during capture. Save the current page again.")
+            throw ReaderError.unavailable("The page changed during capture. Open reading view again.")
         }
         let text = result["text"] as? String ?? ""
         let selection = result["selection"] as? String ?? ""
         let partial = result["partial"] as? Bool ?? false
         return PageCapture(url: url, title: tab.displayTitle, text: text, selection: selection,
             kind: text.isEmpty ? .link : partial ? .partial : .readable,
-            explanation: text.isEmpty ? "No readable text was found. Save the link or add your own context."
-                : partial ? "Some content was omitted or the capture reached its size limit. Review the saved text."
+            explanation: text.isEmpty ? "No readable text was found. Try another page."
+                : partial ? "Some content was omitted or the capture reached its size limit. Some text may be missing."
                 : "Text from the loaded page. Images, embedded pages and form fields aren’t included.")
     }
 

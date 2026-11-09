@@ -3,11 +3,14 @@ import SwiftUI
 
 /// An AppKit field provides reliable menu-driven focus and selection inside NSToolbar.
 struct AddressField: NSViewRepresentable {
+    @Environment(\.browserTheme) private var theme
     @Binding var text: String
     @Binding var isEditing: Bool
+    var placeholder = "Search or enter website"
     let focusRequest: Int
     let submit: () -> Bool
     let cancel: () -> Void
+    var moveSelection: (Int) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -16,7 +19,7 @@ struct AddressField: NSViewRepresentable {
         field.isBezeled = false
         field.drawsBackground = false
         field.font = .systemFont(ofSize: 13)
-        field.placeholderString = "Search or enter website"
+        field.placeholderString = placeholder
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         field.usesSingleLineMode = true
@@ -31,6 +34,10 @@ struct AddressField: NSViewRepresentable {
 
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
+        field.textColor = theme.isT3Code ? NSColor(theme.text) : .labelColor
+        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
+            .foregroundColor: theme.isT3Code ? NSColor(theme.fieldText) : NSColor.placeholderTextColor
+        ])
         if field.stringValue != text { field.stringValue = text }
         guard focusRequest > 0, context.coordinator.lastFocusRequest != focusRequest else { return }
         context.coordinator.lastFocusRequest = focusRequest
@@ -56,6 +63,8 @@ struct AddressField: NSViewRepresentable {
             parent.text = field.stringValue
         }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.moveDown(_:)) { parent.moveSelection(1); return true }
+            if selector == #selector(NSResponder.moveUp(_:)) { parent.moveSelection(-1); return true }
             if selector == #selector(NSResponder.insertNewline(_:)) {
                 parent.text = control.stringValue
                 if parent.submit() {

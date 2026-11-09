@@ -88,3 +88,46 @@ struct SessionTests {
         #expect(result.selectedTabID == id)
     }
 }
+
+@Suite("Native tab durability")
+struct NativeTabRecordTests {
+    @Test func migratesLegacyTabsWithoutInventingNativeDestinations() throws {
+        let a = UUID(), b = UUID()
+        let data = Data("""
+        {"version":1,"tabs":[{"id":"\(a)","title":"Start"},{"id":"\(b)","title":"Page","url":"https://example.com","isPinned":true}],"selectedTabID":"\(b)","bookmarks":[],"history":[]}
+        """.utf8)
+        let legacy = try JSONDecoder().decode(BrowserSnapshot.self, from: data)
+        #expect(legacy.tabs[0].content == .home)
+        #expect(legacy.tabs[1].content == .web)
+        #expect(legacy.tabs[1].isPinned)
+        #expect(legacy.selectedTabID == b)
+    }
+    @Test func removesRetiredDestinationsAndPreservesWebTabsAndBookmarks() throws {
+        let webID = UUID(), removedID = UUID(), bookmark = Bookmark(title: "Saved", url: URL(string: "https://example.com")!)
+        let original = BrowserSnapshot(tabs: [TabRecord(id: webID, title: "Page", url: bookmark.url, isPinned: true)], bookmarks: [bookmark])
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        var tabs = try #require(json["tabs"] as? [[String: Any]])
+        for kind in ["workspace", "dashboard", "conversation"] {
+            tabs.append(["id": removedID.uuidString, "title": "Retired", "content": [kind: [:]]])
+        }
+        json["tabs"] = tabs; json["version"] = 2; json["selectedTabID"] = removedID.uuidString; json.removeValue(forKey: "legacyBookmarksImported")
+        let decoded = try JSONDecoder().decode(BrowserSnapshot.self, from: JSONSerialization.data(withJSONObject: json)).sanitized()
+        #expect(decoded.tabs.count == 1)
+        #expect(decoded.tabs[0].id == webID)
+        #expect(decoded.tabs[0].isPinned)
+        #expect(decoded.selectedTabID == webID)
+        #expect(decoded.bookmarks == [bookmark])
+        #expect(decoded.legacyBookmarksImported == nil)
+    }
+    @Test func futureDestinationFormatCannotSilentlyRollBackToBackup() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SessionFileStore(fileURL: root.appendingPathComponent("session.json"))
+        try store.save(BrowserSnapshot(tabs: [TabRecord()]))
+        try store.save(BrowserSnapshot(tabs: [TabRecord(title: "Page", url: URL(string: "https://example.com"))]))
+        let future = Data("{\"version\":99,\"tabs\":[{\"content\":{\"unknownFutureType\":{}}}]}".utf8)
+        try future.write(to: store.fileURL)
+        #expect(throws: SessionFileError.self) { try store.load() }
+        #expect(try Data(contentsOf: store.fileURL) == future)
+    }
+}

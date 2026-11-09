@@ -1,28 +1,46 @@
 # Contributing to Oriv
 
-Oriv is an early native Mac browser and productivity workspace. Check the [README](README.md) for implemented features and boundaries before proposing changes; the iPhone interface and iCloud sync are future work.
+Oriv currently focuses on a privacy-first, performance-optimized native browser for Mac and iPhone. See the [README](README.md) and [browser priorities](docs/browser-quality.md). Productivity and AI features are outside the current scope.
 
-## Development
+Oriv is developed and maintained by [Santhosh Balaji S](https://github.com/santhoshbalaji), currently the sole maintainer.
 
-Use a Mac with macOS 26 or later and Xcode 26 or later. The current release was built with Xcode 27. Open `PersonalBrowser.xcodeproj` and run the `PersonalBrowser` scheme. The generated project is checked in. When changing targets or project configuration, edit `project.yml` and regenerate with XcodeGen.
+Use macOS 26 or later, Swift 6 and an appropriate Xcode installation. `project.yml` is the source of truth; run `xcodegen generate` after changing configuration or adding files. The generated project is checked in.
 
-The project defaults to ad-hoc local signing. It shares the installed application's bundle identifier; use a separate macOS test account or change the development bundle identifier if you need complete isolation from an installed Oriv session.
+Debug Mac builds use `local.personalbrowser.qa`; the installed release uses `local.personalbrowser.mac`. Preserve existing app identities and browser storage. Build without installing when reviewing changes. `scripts/run-mac.sh` explicitly installs/opens Oriv-Dev; `scripts/install-dev.sh` installs without opening and keeps the previous bundle under `build/dev-install-backups`.
 
-Run shared tests with:
+Run `./scripts/check-browser.sh`. It covers package tests, native Mac fixtures, scope boundaries, signatures/entitlements and whitespace. Build the `OrivMobile` simulator scheme as well for shared/interface changes. Report skipped tests, local results, remote CI, signing, installation and publication separately. Do not count compilation as live account, physical-device or standards acceptance.
+
+Protect private state: no private tabs, form values, cookies, credentials or page content in logs, screenshots or fixtures. Use synthetic data. Do not introduce remote suggestions, telemetry or provider requests without an explicit product decision. Test persistence/migration changes against old, damaged and future formats; unknown data must be preserved.
+
+See [manual testing](docs/testing.md), [architecture](docs/architecture.md) and [dependency notices](THIRD_PARTY_NOTICES.md). Keep keys, tokens, certificates, provisioning profiles, databases, generated app bundles and personal browser data out of source control.
+
+## Local signing setup
+
+All committed `DEVELOPMENT_TEAM` settings and distribution-template `teamID` values are blank. Use your own Apple development team for signed builds. Keep account names, team IDs, signing certificates, device identifiers and account history out of commits and public QA notes.
+
+Ordinary Debug builds do not require a development team. Build without signing or installing:
 
 ```sh
-swift test --package-path Packages/BrowserKit
+xcodebuild -project PersonalBrowser.xcodeproj -scheme PersonalBrowser \
+  -configuration Debug -destination 'platform=macOS' \
+  -derivedDataPath build/mac CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivMobile \
+  -configuration Debug -destination 'generic/platform=iOS' \
+  -derivedDataPath build/mobile CODE_SIGNING_ALLOWED=NO build
 ```
 
-Native integration tests need the loopback fixture server. Follow the README's verification commands. Video rendering tests require an unlocked desktop with the test window visible; report visibility-related skips separately from passes.
+For a signed build, set `ORIV_DEVELOPMENT_TEAM` locally and pass it as a build override. The shell check fails clearly if it is unset. An alternative is an untracked xcconfig under the ignored `build/` directory, supplied with `xcodebuild -xcconfig`; never commit the local value.
 
-## Changes and reports
+```sh
+: "${ORIV_DEVELOPMENT_TEAM:?Set ORIV_DEVELOPMENT_TEAM to your own development team}"
+xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivContinuityMac \
+  -configuration ContinuityDevelopment -destination 'platform=macOS' \
+  -derivedDataPath build/continuity-mac \
+  DEVELOPMENT_TEAM="$ORIV_DEVELOPMENT_TEAM" build
+xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivContinuityMobile \
+  -configuration ContinuityDevelopment -destination 'generic/platform=iOS' \
+  -derivedDataPath build/continuity-mobile \
+  DEVELOPMENT_TEAM="$ORIV_DEVELOPMENT_TEAM" build
+```
 
-- Preserve normal/private browsing boundaries, immutable captured content and recoverable user data.
-- Use public Apple APIs and keep AppKit-specific code in the Mac application layer.
-- Follow [the design system](docs/design-system.md), including native navigation/controls and readable content surfaces.
-- Describe the problem, resulting behavior and relevant validation in pull requests. Add regression coverage when changing privacy, persistence or browser behavior.
-- Include OS/app versions and reproducible steps in bug reports. Use synthetic pages and accounts; do not post passwords, tokens, personal browsing history or unredacted system notifications.
-- Never commit signing certificates, provisioning profiles, local session databases, build outputs or raw QA captures.
-
-Contributions are provided under this project's MIT license. Keep third-party attribution and applicable license notices with any new dependency or asset.
+Configure the capabilities and container association for your own team as described in [browser continuity](docs/browser-continuity.md#build-configuration). Bundle and CloudKit identifiers are public application configuration, not account credentials. The templates under `Config/Distribution/` contain no team selection; copy a needed template to ignored `build/`, set its `teamID` locally, and use that copy. Do not populate the committed templates. `scripts/package-mac.sh` uses local ad-hoc signing by default and accepts an optional `ORIV_SIGNING_IDENTITY` environment override.

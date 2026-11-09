@@ -7,6 +7,7 @@ import re
 import argparse
 import html
 import json
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / 'scripts' / 'fixtures'
@@ -19,6 +20,70 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>{title}</title
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/standards-worker.js':
+            body = b'''self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
+            self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+            self.addEventListener('message', event => event.waitUntil((async () => {
+              const cache = await caches.open('oriv-worker-regression');
+              await cache.put('/worker-result', new Response('worker-cache-ok'));
+              event.ports[0].postMessage(await (await cache.match('/worker-result')).text());
+            })()));'''
+            self.send_bytes(body, 'text/javascript')
+            return
+        if path == '/standards':
+            self.send_bytes((FIXTURES / 'standards.html').read_bytes(), 'text/html; charset=utf-8')
+            return
+        if path == '/standards-data':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            if parse_qs(urlsplit(self.path).query).get('cors') == ['1']:
+                self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+            return
+        if path == '/standards-csp':
+            body = b'<html><title>CSP fixture</title><script>window.blockedScriptExecuted=true</script><h1>Content policy</h1></html>'
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'none'")
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers(); self.wfile.write(body)
+            return
+        if path == '/quality':
+            self.page('Browser quality fixture', '<article><h2>Quiet browser testing</h2><p>Alpha beta Alpha. Search, read and save this synthetic page.</p><p>No personal information is used.</p><input id="draft" aria-label="Test draft"><a href="/two" target="_blank" id="new-tab">Open second tab</a><a href="/large-download">Download test data</a></article>')
+            return
+        if path == '/basic-auth':
+            if self.headers.get('Authorization') != 'Basic dGVzdDpwYXNz':
+                self.send_response(401)
+                self.send_header('WWW-Authenticate', 'Basic realm="Oriv local fixture"')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            self.page('Authenticated fixture', '<p id="authenticated">Synthetic test credentials accepted.</p>')
+            return
+        if path == '/large-download':
+            length = 8 * 1024 * 1024
+            match = re.fullmatch(r'bytes=(\d+)-', self.headers.get('Range', ''))
+            start = int(match.group(1)) if match else 0
+            if start >= length:
+                self.send_error(416); return
+            self.send_response(206 if match else 200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Disposition', 'attachment; filename="quality-download.bin"')
+            self.send_header('Content-Length', str(length - start))
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('ETag', '"oriv-quality-v1"')
+            self.send_header('Last-Modified', 'Mon, 26 Oct 2026 00:00:00 GMT')
+            if match: self.send_header('Content-Range', f'bytes {start}-{length - 1}/{length}')
+            self.end_headers()
+            try:
+                for position in range(start, length, 65536):
+                    self.wfile.write(b'Q' * min(65536, length - position))
+                    self.wfile.flush()
+                    time.sleep(0.03)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         if path == '/login':
             self.page('AutoFill check', '''<p>Local form. Nothing is submitted or saved.</p>
             <form onsubmit="return false"><section>

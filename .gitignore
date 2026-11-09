@@ -6,6 +6,8 @@ DerivedData/
 *.log
 xcuserdata/
 .DS_Store
+__pycache__/
+*.pyc
 # Local QA can include browsing history, system notifications and third-party media.
 docs/qa/
 
