@@ -5,6 +5,13 @@ public struct SessionLoadResult: Sendable {
     public var recoveredFromBackup: Bool
 }
 
+/// A synchronous durability boundary, also usable by isolated counting/failing stores.
+public protocol BrowserSessionStore {
+    func load() throws -> SessionLoadResult
+    /// Returns true only when the primary was written. Discard still removes the backup on a no-op.
+    @discardableResult func save(_ snapshot: BrowserSnapshot, discardPrevious: Bool) throws -> Bool
+}
+
 public enum SessionFileError: LocalizedError {
     case unsupportedVersion(Int)
     case unreadable
@@ -18,7 +25,7 @@ public enum SessionFileError: LocalizedError {
 }
 
 /// Platform-independent storage. Only non-private records may be passed here.
-public struct SessionFileStore: Sendable {
+public struct SessionFileStore: Sendable, BrowserSessionStore {
     public let fileURL: URL
     public var backupURL: URL { fileURL.appendingPathExtension("backup") }
 
@@ -44,22 +51,38 @@ public struct SessionFileStore: Sendable {
         }
     }
 
-    public func save(_ snapshot: BrowserSnapshot, discardPrevious: Bool = false) throws {
-        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    public static func encodedSnapshot(_ snapshot: BrowserSnapshot) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(snapshot.sanitized())
+        return try encoder.encode(snapshot.sanitized())
+    }
+
+    @discardableResult public func save(_ snapshot: BrowserSnapshot, discardPrevious: Bool = false) throws -> Bool {
+        let data = try Self.encodedSnapshot(snapshot)
+        let oldData = try? Data(contentsOf: fileURL)
+        // Protect a newer format even if it appeared after the session was loaded.
+        struct Header: Decodable { let version: Int }
+        if let oldData, let header = try? JSONDecoder().decode(Header.self, from: oldData),
+           !(1...3).contains(header.version) { throw SessionFileError.unsupportedVersion(header.version) }
+        if oldData == data {
+            if discardPrevious { try discardBackup() }
+            return false
+        }
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Keep the last valid session; a damaged primary never replaces the backup.
-        if !discardPrevious, let oldData = try? Data(contentsOf: fileURL),
+        if !discardPrevious, let oldData,
            let old = try? JSONDecoder().decode(BrowserSnapshot.self, from: oldData), (1...3).contains(old.version) {
             try oldData.write(to: backupURL, options: [.atomic])
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
         }
         try data.write(to: fileURL, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-        if discardPrevious && FileManager.default.fileExists(atPath: backupURL.path) {
-            try FileManager.default.removeItem(at: backupURL)
-        }
+        if discardPrevious { try discardBackup() }
+        return true
+    }
+
+    private func discardBackup() throws {
+        if FileManager.default.fileExists(atPath: backupURL.path) { try FileManager.default.removeItem(at: backupURL) }
     }
 
     private func decode(_ url: URL) throws -> BrowserSnapshot {

@@ -157,6 +157,10 @@ public struct ContinuityReplica: Codable, Sendable {
         for entry in history where ContinuityRecord.safeURL(entry.url) && !historyWasCleared(profile.id, entry.visitedAt) {
             let key = ContinuityRecord.historyKey(profile.id, entry.id)
             if records[key] == nil { try put(key, .history(profile.id, entry), seed: true) }
+            else if case .history = records[key]?.payload {
+                // Late document titles update the existing visit, never a deletion tombstone.
+                try put(key, .history(profile.id, entry))
+            }
         }
         try pruneHistory()
         let tabKeys = Set(regularTabs.filter { $0.url.map(ContinuityRecord.safeURL) == true }.map { ContinuityRecord.tabKey(profile.id, deviceID, $0.id) })

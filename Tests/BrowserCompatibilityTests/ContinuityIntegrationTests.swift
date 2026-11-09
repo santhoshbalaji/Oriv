@@ -135,4 +135,55 @@ import WebKit
         XCTAssertTrue(mac.history.isEmpty); XCTAssertTrue(phone.history.isEmpty)
         XCTAssertFalse(String(decoding: try JSONEncoder().encode(Array(transport.records.values)), as: UTF8.self).contains("old-history"))
     }
+    func testHistoryTitleCorrectionSyncsAsSameVisitWithoutDuplicatesOrResurrection() async throws {
+        let transport = MemoryContinuityTransport(), mac = session(), phone = session()
+        let first = continuity(transport, session: mac), second = continuity(transport, session: phone)
+        defer { first.shutdown(); second.shutdown(); mac.shutdown(); phone.shutdown() }
+        let tab = mac.addTab(url: URL(string: "https://example.test/late-title")!, load: false)
+        tab.onVisit?(tab.url!, "example.test")
+        let visit = try XCTUnwrap(mac.history.first)
+        first.setEnabled(true); await first.syncNow(); second.setEnabled(true); await second.syncNow()
+        XCTAssertEqual(phone.history, [visit])
+        tab.onTitleChange?(tab.url!, "Final page title")
+        await first.syncNow(); await second.syncNow(); await first.syncNow()
+        XCTAssertEqual(phone.history.count, 1); XCTAssertEqual(phone.history[0].title, "Final page title")
+        XCTAssertEqual(phone.history[0].id, visit.id); XCTAssertEqual(phone.history[0].visitedAt, visit.visitedAt)
+        XCTAssertEqual(mac.history, phone.history)
+        phone.removeHistory(visit.id); await second.syncNow(); await first.syncNow()
+        tab.onTitleChange?(tab.url!, "After removal")
+        await first.syncNow(); await second.syncNow()
+        XCTAssertTrue(mac.history.isEmpty); XCTAssertTrue(phone.history.isEmpty)
+    }
+    func testOptInAppearanceSyncUsesEachProfileSourceIndependently() async throws {
+        let transport = MemoryContinuityTransport(), work = BrowserProfile(name: "Work")
+        let profiles: [BrowserProfile] = [.personal, work]
+        let mac = [BrowserProfile.personalID: session(), work.id: session()]
+        let phone = [BrowserProfile.personalID: session(), work.id: session()]
+        var macAppearance = [BrowserProfile.personalID: "Light", work.id: "Dark"]
+        var phoneAppearance = [BrowserProfile.personalID: "T3 Code", work.id: "System"]
+        let first = BrowserContinuity(root: nil, deviceName: "Mac", transportFactory: { transport })
+        let second = BrowserContinuity(root: nil, deviceName: "Phone", transportFactory: { transport })
+        defer { first.shutdown(); second.shutdown(); mac.values.forEach { $0.shutdown() }; phone.values.forEach { $0.shutdown() } }
+        first.configure(profiles: { profiles }, source: { profile in
+            let session = mac[profile.id]!
+            return ContinuitySource(session: session, preferences: { ContinuityPreferences.snapshot(session: session, appearance: macAppearance[profile.id]!) }, applyPreferences: { values in
+                ContinuityPreferences.apply(values, session: session) { macAppearance[profile.id] = $0 }
+            })
+        }, importProfiles: { _ in })
+        second.configure(profiles: { profiles }, source: { profile in
+            let session = phone[profile.id]!
+            return ContinuitySource(session: session, preferences: { ContinuityPreferences.snapshot(session: session, appearance: phoneAppearance[profile.id]!) }, applyPreferences: { values in
+                ContinuityPreferences.apply(values, session: session) { phoneAppearance[profile.id] = $0 }
+            })
+        }, importProfiles: { _ in })
+        await first.syncNow(); await second.syncNow()
+        XCTAssertEqual(transport.fetches, 0); XCTAssertEqual(phoneAppearance[work.id], "System")
+        first.setEnabled(true); await first.syncNow(); second.setEnabled(true); await second.syncNow()
+        XCTAssertEqual(phoneAppearance, macAppearance)
+        macAppearance[work.id] = "T3 Code"
+        await first.syncNow(); await second.syncNow()
+        XCTAssertEqual(phoneAppearance[work.id], "T3 Code"); XCTAssertEqual(phoneAppearance[BrowserProfile.personalID], "Light")
+        XCTAssertEqual(second.state.preferences(for: work.id)["appearance"], "T3 Code")
+    }
+
 }

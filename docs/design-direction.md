@@ -4,7 +4,7 @@ The current direction is a privacy-first, performance-conscious native browser o
 
 The authoritative interaction rules are in [the browser design system](design-system.md). [Appearance](appearance.md) defines the shared T3 Code palette. The Mac uses a sidebar and native toolbar; the iPhone uses one browser screen with focused sheets. They share session behavior and theme roles while retaining platform-specific layouts.
 
-The earlier Workspace design is retired from the active product. Browser profiles isolate local tabs, bookmarks, history, website logins and preferences. No cross-device sync, tasks, AI, dashboards or source-monitoring status should appear until those products are separately designed and implemented.
+The earlier Workspace design is retired from the active product. Browser profiles isolate local tabs, bookmarks, history, website logins and preferences. Optional Mac and iPhone continuity is implemented as opt-in, metadata-only sync through iCloud in a configured Continuity build: profile identity, regular tabs, bookmarks, history and allowlisted profile preferences. Website logins, cookies and passwords stay on the device inside their profile and are not synced. Tasks, AI, dashboards and source-monitoring status remain outside the active product. See [browser continuity](browser-continuity.md).
 
 The current UX implementation addresses the observed privacy indicators, edited-form closing, large-text appearance picker, address suggestions, mobile navigation, Library grouping, data controls and feedback. Bottom-address placement and collapsing chrome remain design experiments requiring real-phone testing. They are not implied by the shared dark palette.
 

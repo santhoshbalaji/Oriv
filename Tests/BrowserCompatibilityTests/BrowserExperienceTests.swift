@@ -73,6 +73,17 @@ import WebKit
         try await wait { !tab.isLoading && !session.requiresCloseConfirmation(tab.id) }
         XCTAssertFalse(session.requiresCloseConfirmation(UUID()))
     }
+    func testLateDocumentTitleKVOUpdatesExistingHistoryVisit() async throws {
+        let session = session(); defer { session.shutdown() }
+        let tab = try XCTUnwrap(session.selectedTab)
+        tab.navigate(to: URL(string: "http://127.0.0.1:8768/quality")!)
+        try await wait { !tab.isLoading && session.history.first?.title == "Browser quality fixture" }
+        let visit = try XCTUnwrap(session.history.first)
+        _ = try await tab.webView.evaluateJavaScript("document.title = 'Title delivered after finish'; true")
+        try await wait { session.history.first?.title == "Title delivered after finish" }
+        XCTAssertEqual(session.history.count, 1); XCTAssertEqual(session.history[0].id, visit.id)
+        XCTAssertEqual(session.history[0].visitedAt, visit.visitedAt)
+    }
     private func wait(_ predicate: () -> Bool) async throws {
         let end = Date.now.addingTimeInterval(20)
         while !predicate() && Date.now < end { try await Task.sleep(for: .milliseconds(40)) }

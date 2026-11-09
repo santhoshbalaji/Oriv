@@ -106,6 +106,53 @@ struct ContinuityTests {
         #expect(state.records[ContinuityRecord.historyKey(profile.id, entries.last!.id)]?.payload == nil)
         #expect(state.history(for: profile.id).first == newer)
     }
+    @Test func correctedHistoryTitleUpdatesSameRecordAndConverges() throws {
+        var mac = ContinuityReplica(deviceName: "Mac"), phone = ContinuityReplica(deviceName: "Phone")
+        let entry = HistoryEntry(title: "example.test", url: URL(string: "https://example.test/late")!)
+        try capture(&mac, [], history: [entry])
+        try phone.merge(Array(mac.records.values))
+        let key = ContinuityRecord.historyKey(profile.id, entry.id)
+        let oldCounter = mac.records[key]!.counter
+        var corrected = entry; corrected.title = "Late page title"
+        try capture(&mac, [], history: [corrected])
+        #expect(mac.records[key]!.counter > oldCounter)
+        #expect(!mac.seedKeys.contains(key))
+        try phone.merge(Array(mac.records.values))
+        #expect(phone.history(for: profile.id) == [corrected])
+        let counter = phone.counter
+        try capture(&phone, [], history: [corrected])
+        #expect(phone.counter == counter)
+        try mac.merge(Array(phone.records.values))
+        #expect(mac.history(for: profile.id) == [corrected])
+    }
+    @Test func correctedHistoryTitleCannotResurrectDeletedOrClearedVisit() throws {
+        var state = ContinuityReplica(deviceName: "Mac")
+        var entry = HistoryEntry(title: "Host", url: URL(string: "https://example.test/deleted")!)
+        try capture(&state, [], history: [entry])
+        try state.removeHistory(profile: profile.id, id: entry.id)
+        entry.title = "Arrived after deletion"
+        try capture(&state, [], history: [entry])
+        #expect(state.history(for: profile.id).isEmpty)
+        entry = HistoryEntry(title: "Before clear", url: entry.url)
+        try capture(&state, [], history: [entry])
+        try state.clearHistory(profile: profile.id, since: .distantPast)
+        entry.title = "Arrived after clear"
+        try capture(&state, [], history: [entry])
+        #expect(state.history(for: profile.id).isEmpty)
+    }
+    @Test func appearanceIsAllowlistedAndSyncedIndependentlyPerProfile() throws {
+        #expect(ContinuityRecord.preferenceKeys.contains("appearance"))
+        let work = BrowserProfile(name: "Work")
+        var mac = ContinuityReplica(deviceName: "Mac"), phone = ContinuityReplica(deviceName: "Phone")
+        try capture(&mac, [], preferences: ["appearance": "Light"])
+        try mac.capture(profile: work, bookmarks: [], history: [], regularTabs: [], preferences: ["appearance": "Dark"])
+        try phone.merge(Array(mac.records.values))
+        #expect(phone.preferences(for: profile.id)["appearance"] == "Light")
+        #expect(phone.preferences(for: work.id)["appearance"] == "Dark")
+        let key = ContinuityRecord.preferenceKey(work.id, "appearance")
+        #expect(key == "preference.\(work.id).appearance")
+        #expect(phone.records[key]?.payload == .preference(work.id, key: "appearance", value: "Dark"))
+    }
     @Test func accountBindingNeverMovesDataBetweenAccounts() throws {
         var state = ContinuityReplica(deviceName: "Mac")
         try state.bindAccount("one"); try state.bindAccount("one")

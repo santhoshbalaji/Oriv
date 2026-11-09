@@ -4,7 +4,7 @@ Oriv is a privacy-first native browser for Mac and iPhone. The active interface 
 
 ## Appearance and typography
 
-The shared palette and components live in `Apps/macOS/Views/Theme.swift` and are compiled into both apps. **T3 Code** is the default for new profiles. System, Light and Dark remain available. The choice belongs to the current profile on the current device; it is not an account-wide or synced preference. See [Appearance](appearance.md) for the exact palette and website-color behavior.
+The shared palette and components live in `Apps/macOS/Views/Theme.swift` and are compiled into both apps. **T3 Code** is the default for new profiles. System, Light and Dark remain available. The choice belongs to the current profile. When the user enables continuity on their devices in a configured Continuity build, appearance syncs for that same profile across Mac and iPhone. The continuity allowlist includes `appearance`, keyed as `preference.<profile UUID>.appearance`; different profiles retain independent choices. With continuity off, the choice stays local. Website logins, cookies and passwords remain on the device inside the profile and are never synced. See [Appearance](appearance.md) for the exact palette and website-color behavior.
 
 Use semantic theme roles instead of hardcoded colors. Main text belongs in address fields; secondary text belongs on the canvas or surface. Increased Contrast brightens foreground accents, secondary text and boundaries. Filled primary buttons retain a darker fill so white labels remain readable. Selection also has a checkmark or a leading indicator. Private browsing uses text and glasses, independently of the connection-security icon.
 

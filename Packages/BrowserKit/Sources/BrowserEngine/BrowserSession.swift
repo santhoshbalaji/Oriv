@@ -9,7 +9,7 @@ public final class BrowserSession {
     public let settings: BrowserSettings
     public let websiteData: WebsiteDataManager
     public private(set) var tabs: [BrowserTab] = []
-    public private(set) var selectedTabID: UUID?
+    public private(set) var selectedTabID: UUID? { didSet { updateTabSelection() } }
     public private(set) var bookmarks: [Bookmark] = []
     public private(set) var history: [HistoryEntry] = []
     public private(set) var persistenceNotice: String?
@@ -30,7 +30,8 @@ public final class BrowserSession {
     @ObservationIgnored public var onContinuityChange: (() -> Void)?
     @ObservationIgnored public var onContinuityHistoryRemoved: ((UUID) -> Void)?
     @ObservationIgnored public var onContinuityHistoryCleared: ((Date) -> Void)?
-    @ObservationIgnored private let store: SessionFileStore?
+    @ObservationIgnored private let store: (any BrowserSessionStore)?
+    @ObservationIgnored private var lastSavedData: Data?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     private var legacyBookmarksImported = false
     private var importingLegacyBookmarks = false
@@ -39,7 +40,7 @@ public final class BrowserSession {
     @ObservationIgnored private let regularDataStore: WKWebsiteDataStore
     @ObservationIgnored private var privateDataStore: WKWebsiteDataStore?
 
-    public init(store: SessionFileStore? = nil, dataStore: WKWebsiteDataStore = .default(),
+    public init(store: (any BrowserSessionStore)? = nil, dataStore: WKWebsiteDataStore = .default(),
                 adBlocker: AdBlocker = AdBlocker(), settings: BrowserSettings = BrowserSettings()) {
         self.store = store
         self.adBlocker = adBlocker
@@ -70,7 +71,10 @@ public final class BrowserSession {
         }
         adBlocker.onChange = { [weak self] in self?.tabs.forEach { $0.refreshContentBlocking() } }
         settings.onRulesChanged = { [weak self] in self?.tabs.forEach { $0.applySiteSettings() } }
+        updateTabSelection()
     }
+
+    private func updateTabSelection() { tabs.forEach { $0.setSelected($0.id == selectedTabID) } }
 
     public func activateSelectedTab() { if let selectedTab { didSelectTab?(selectedTab); selectedTab.activate() } }
 
@@ -190,20 +194,62 @@ public final class BrowserSession {
 
     /// All suggestions are local to this profile. Private queries see only private open tabs.
     public func suggestions(for query: String, isPrivate: Bool) -> [BrowserSuggestion] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return [] }
-        var candidates = tabs.filter { $0.isPrivate == isPrivate }.compactMap { tab in
-            tab.url.map { BrowserSuggestion(title: tab.displayTitle, url: $0, tabID: tab.id) }
+        struct Candidate {
+            var suggestion: BrowserSuggestion
+            var titles: [String]
+            var bookmarked = false
+            var visitedAt = Date.distantPast
+        }
+        var candidates: [URL: Candidate] = [:]
+        // Choose a stable tab identity even if several open tabs share a URL.
+        for tab in tabs.filter({ $0.isPrivate == isPrivate }).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            guard let url = tab.url, AddressResolver.isWebURL(url) else { continue }
+            if candidates[url] == nil {
+                candidates[url] = Candidate(suggestion: BrowserSuggestion(title: tab.displayTitle, url: url, tabID: tab.id), titles: [])
+            }
+            candidates[url]?.titles.append(tab.displayTitle)
         }
         if !isPrivate {
-            candidates += bookmarks.map { BrowserSuggestion(title: $0.title, url: $0.url) }
-            candidates += history.map { BrowserSuggestion(title: $0.title, url: $0.url) }
+            for bookmark in bookmarks {
+                if candidates[bookmark.url] == nil {
+                    candidates[bookmark.url] = Candidate(suggestion: BrowserSuggestion(title: bookmark.title, url: bookmark.url), titles: [])
+                }
+                candidates[bookmark.url]?.titles.append(bookmark.title)
+                candidates[bookmark.url]?.bookmarked = true
+            }
+            for entry in history {
+                if candidates[entry.url] == nil {
+                    candidates[entry.url] = Candidate(suggestion: BrowserSuggestion(title: entry.title, url: entry.url), titles: [])
+                }
+                candidates[entry.url]?.titles.append(entry.title)
+                let latestVisit = max(candidates[entry.url]!.visitedAt, entry.visitedAt)
+                candidates[entry.url]?.visitedAt = latestVisit
+            }
         }
-        var seen = Set<URL>()
-        return Array(candidates.filter {
-            ($0.title.localizedCaseInsensitiveContains(query) || $0.url.absoluteString.localizedCaseInsensitiveContains(query))
-                && seen.insert($0.url).inserted
-        }.prefix(5))
+        let hostQuery = query.hasPrefix("www.") ? String(query.dropFirst(4)) : query
+        func tier(_ candidate: Candidate) -> Int? {
+            let url = candidate.suggestion.url
+            var host = url.host?.lowercased() ?? ""
+            if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
+            let hostPrefix = !hostQuery.isEmpty && (host.hasPrefix(hostQuery) || host.split(separator: ".").contains { $0.hasPrefix(hostQuery) })
+            let titlePrefix = candidate.titles.contains { title in
+                title.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains { $0.hasPrefix(query) }
+            }
+            if candidate.suggestion.tabID != nil && (hostPrefix || titlePrefix || url.absoluteString.lowercased().hasPrefix(query)) { return 0 }
+            if hostPrefix { return 1 }
+            if titlePrefix { return 2 }
+            if url.absoluteString.lowercased().contains(query) || candidate.titles.contains(where: { $0.lowercased().contains(query) }) { return 3 }
+            return nil
+        }
+        return candidates.values.compactMap { candidate in tier(candidate).map { (candidate, $0) } }
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+                if lhs.0.bookmarked != rhs.0.bookmarked { return lhs.0.bookmarked }
+                if lhs.0.visitedAt != rhs.0.visitedAt { return lhs.0.visitedAt > rhs.0.visitedAt }
+                return lhs.0.suggestion.url.absoluteString < rhs.0.suggestion.url.absoluteString
+            }.prefix(5).map { $0.0.suggestion }
     }
 
     public func isBookmarked(_ url: URL?) -> Bool {
@@ -270,8 +316,16 @@ public final class BrowserSession {
 
     public func saveNow(discardPrevious: Bool = false) {
         saveTask?.cancel()
-        guard canPersist else { return }
-        do { try store?.save(snapshot(), discardPrevious: discardPrevious); onContinuityChange?() }
+        guard canPersist, !isShutDown else { return }
+        do {
+            let snapshot = snapshot()
+            let data = try SessionFileStore.encodedSnapshot(snapshot)
+            // A privacy deletion must still reach the store to discard an older backup.
+            guard discardPrevious || data != lastSavedData else { return }
+            let wrote = try store?.save(snapshot, discardPrevious: discardPrevious) ?? false
+            if store != nil { lastSavedData = data }
+            if wrote { onContinuityChange?() }
+        }
         catch { persistenceNotice = "Your session could not be saved: \(error.localizedDescription)" }
     }
 
@@ -281,7 +335,12 @@ public final class BrowserSession {
         guard self.bookmarks != bookmarks || self.history != history else { return }
         let oldBookmarks = self.bookmarks, oldHistory = self.history
         self.bookmarks = bookmarks; self.history = history
-        do { try store?.save(snapshot(), discardPrevious: true) }
+        do {
+            let snapshot = snapshot()
+            let data = try SessionFileStore.encodedSnapshot(snapshot)
+            try store?.save(snapshot, discardPrevious: true)
+            if store != nil { lastSavedData = data }
+        }
         catch { self.bookmarks = oldBookmarks; self.history = oldHistory; throw error }
     }
 
@@ -299,7 +358,17 @@ public final class BrowserSession {
         let tab = BrowserTab(record: record, isPrivate: isPrivate, configuration: configuration,
                              dataStore: isPrivate ? privateDataStore! : regularDataStore, adBlocker: adBlocker, settings: settings)
         tab.setProfileActive(isProfileActive)
-        tab.onChange = { [weak self] in self?.scheduleSave() }
+        tab.onChange = { [weak self, weak tab] in
+            guard tab?.isPrivate == false else { return }
+            self?.scheduleSave()
+        }
+        tab.onTitleChange = { [weak self, weak tab] url, title in
+            guard let self, tab?.isPrivate == false, self.history.first?.url == url,
+                  self.history[0].title != title else { return }
+            // A title correction is the same visit: retain its UUID and recency.
+            self.history[0].title = title
+            self.scheduleSave()
+        }
         tab.onVisit = { [weak self, weak tab] url, title in
             guard let self, let tab, !tab.isPrivate else { return }
             self.history.removeAll { $0.url == url }

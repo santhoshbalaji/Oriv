@@ -1,6 +1,6 @@
 # Appearance
 
-Mac and iPhone offer **System**, **Light**, **Dark** and **T3 Code**. Choose one under **Settings → Appearance** on Mac or **Page options → Settings → Theme** on iPhone. The choice is saved for the current browser profile on that device. New profiles default to T3 Code; an existing explicit appearance preference is preserved.
+Mac and iPhone offer **System**, **Light**, **Dark** and **T3 Code**. Choose one under **Settings → Appearance** on Mac or **Page options → Settings → Theme** on iPhone. The choice is saved for the current browser profile and syncs for that same profile across the user’s devices when continuity is enabled in a configured Continuity build. With continuity off, it remains local. New profiles default to T3 Code; an existing explicit appearance preference is preserved.
 
 T3 Code is a dark-only theme based on the installed T3 Code Nightly `0.1.7-nightly.20261103.4119` built-in dark palette. The shared implementation is `Apps/macOS/Views/Theme.swift`, compiled into both application targets.
 

@@ -29,6 +29,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     @ObservationIgnored public var onChange: (() -> Void)?
     @ObservationIgnored public var onVisit: ((URL, String) -> Void)?
+    @ObservationIgnored public var onTitleChange: ((URL, String) -> Void)?
     @ObservationIgnored public var onWebViewCreated: ((WKWebView) -> Void)?
     @ObservationIgnored public var onDownload: ((WKDownload) -> Void)?
     @ObservationIgnored public var onExternalURL: ((URL) -> Void)?
@@ -41,6 +42,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored private let settings: BrowserSettings?
     @ObservationIgnored private var policyGeneration = 0
     @ObservationIgnored private var isClosed = false
+    @ObservationIgnored private var lastVisitedURL: URL?
+    @ObservationIgnored private var isSelected = false
+    @ObservationIgnored private var contentProcessTerminated = false
+    @ObservationIgnored private var pendingNavigationMethod: String?
+    @ObservationIgnored private var committedNavigationMethod: String?
+    @ObservationIgnored private var lastAutomaticReload: TimeInterval?
+    // Internal seams exercise real delegate paths without killing a WebKit process or replaying a form.
+    @ObservationIgnored var recoveryClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    @ObservationIgnored var createWebView: (WKWebViewConfiguration) -> WKWebView = { WKWebView(frame: .zero, configuration: $0) }
 
     public init(record: TabRecord = TabRecord(), isPrivate: Bool = false,
                 configuration: WKWebViewConfiguration? = nil, dataStore: WKWebsiteDataStore = .default(),
@@ -103,7 +113,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         // A popup can execute in its initial about:blank document before a
         // navigation callback. Install the opener session's prepared protection now.
         adBlocker?.applyPrepared(to: configuration.userContentController, url: url, isPrivate: isPrivate)
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = createWebView(configuration)
         view.pageZoom = pageZoom
         view.navigationDelegate = self
         view.allowsBackForwardNavigationGestures = true
@@ -130,12 +140,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     /// Restored background tabs stay dormant until selected.
     public func activate() {
+        recoverContentProcessIfPossible()
         guard !hasLoaded, let url else { return }
         navigate(to: url)
     }
 
     public func navigate(to destination: URL) {
         guard AddressResolver.isWebURL(destination) else { return }
+        let previous = record
+        lastVisitedURL = nil
+        contentProcessTerminated = false
         errorMessage = nil
         content = .web
         url = destination
@@ -143,7 +157,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         hasLoaded = true
         isLoading = true
         webView.load(URLRequest(url: destination))
-        onChange?()
+        if record != previous { onChange?() }
     }
 
     public func goBack() { errorMessage = nil; backingWebView?.goBack() }
@@ -159,7 +173,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func zoomOut() { setZoom(pageZoom - 0.1) }
     public func resetZoom() { setZoom(1) }
     private func setZoom(_ value: Double) { pageZoom = min(max((value * 100).rounded() / 100, 0.5), 3); backingWebView?.pageZoom = pageZoom }
-    public func setPinned(_ value: Bool) { isPinned = value; onChange?() }
+    public func setPinned(_ value: Bool) {
+        let previous = record
+        isPinned = value
+        if record != previous { onChange?() }
+    }
     public func find(_ text: String, backwards: Bool = false, caseSensitive: Bool = false) {
         guard !text.isEmpty else { findResult = nil; return }
         let options = WKFindConfiguration(); options.backwards = backwards; options.caseSensitive = caseSensitive; options.wraps = true
@@ -171,6 +189,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         isProfileActive = active
         if !active { stopCapture() }
         backingWebView?.setAllMediaPlaybackSuspended(mediaSuspended || !active, completionHandler: nil)
+        if active { recoverContentProcessIfPossible() }
+    }
+    func setSelected(_ selected: Bool) {
+        isSelected = selected
+        if selected { recoverContentProcessIfPossible() }
     }
     public func stopCapture() {
         backingWebView?.setCameraCaptureState(.none, completionHandler: nil)
@@ -210,6 +233,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     private func refresh() {
         guard let view = backingWebView else { return }
+        refresh(from: view)
+    }
+
+    func refresh(from view: WKWebView) {
+        guard !isClosed else { return }
+        let previous = record
+        let previousTitle = title
         // Display the actual document URL even for about/blob pages. Never leave an
         // earlier HTTPS origin in the address bar after the document has changed.
         if let current = view.url { url = current }
@@ -221,7 +251,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         hasOnlySecureContent = view.hasOnlySecureContent
         isCapturingCamera = view.cameraCaptureState != .none
         isCapturingMicrophone = view.microphoneCaptureState != .none
-        onChange?()
+        if record != previous { onChange?() }
+        if title != previousTitle, let url, url == lastVisitedURL, !isPrivate {
+            onTitleChange?(url, displayTitle)
+        }
     }
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -229,13 +262,24 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         errorMessage = nil
         hasLoaded = true
         findResult = nil
-        refresh()
+        refresh(from: webView)
     }
-    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { hasEditedFields = false; refresh(); applySiteSettings() }
-    fileprivate func recordFieldEdit() { if !isClosed { hasEditedFields = true } }
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        committedNavigationMethod = pendingNavigationMethod
+        pendingNavigationMethod = nil
+        contentProcessTerminated = false
+        lastVisitedURL = nil
+        hasEditedFields = false
+        refresh(from: webView)
+        applySiteSettings()
+    }
+    func recordFieldEdit() { if !isClosed { hasEditedFields = true } }
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        refresh()
-        if let url, AddressResolver.isWebURL(url) { onVisit?(url, displayTitle) }
+        refresh(from: webView)
+        if let url, AddressResolver.isWebURL(url), !isPrivate {
+            lastVisitedURL = url
+            onVisit?(url, displayTitle)
+        }
     }
     public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
         adBlocker?.applyPrepared(to: webView.configuration.userContentController,
@@ -246,8 +290,31 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { handle(error) }
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard !isClosed else { return }
         isLoading = false
+        contentProcessTerminated = true
         errorMessage = "This tab’s website process stopped. Reload to continue."
+        recoverContentProcessIfPossible()
+    }
+
+    private func recoverContentProcessIfPossible() {
+        // Reload the existing view in its original (including ephemeral private) store.
+        // No tab, navigation record, history entry or continuity record is exported here.
+        guard contentProcessTerminated, isSelected, isProfileActive, !isClosed,
+              !hasEditedFields, (pendingNavigationMethod ?? committedNavigationMethod) == "GET",
+              committedNavigationMethod != "POST", let view = backingWebView,
+              view.url.map(AddressResolver.isWebURL) == true else { return }
+        let now = recoveryClock()
+        guard lastAutomaticReload.map({ now - $0 >= 30 }) ?? true else { return }
+        lastAutomaticReload = now
+        contentProcessTerminated = false
+        errorMessage = nil
+        isLoading = true
+        view.reload()
+    }
+
+    func recordAllowedMainFrameNavigation(_ request: URLRequest) {
+        pendingNavigationMethod = request.httpMethod?.uppercased() ?? "GET"
     }
     private func handle(_ error: Error) {
         let nsError = error as NSError
@@ -270,7 +337,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #endif
         if ["http", "https", "about", "blob", "data"].contains(scheme) {
             let policy: WKNavigationActionPolicy = navigationAction.shouldPerformDownload ? .download : .allow
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame == true
             guard navigationAction.targetFrame?.isMainFrame == true, let adBlocker else {
+                if isMainFrame && policy == .allow { recordAllowedMainFrameNavigation(navigationAction.request) }
                 decisionHandler(policy); return
             }
             policyGeneration += 1
@@ -282,6 +351,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                         decisionHandler(.cancel); return
                     }
                     adBlocker.applyPrepared(to: webView.configuration.userContentController, url: url, isPrivate: self.isPrivate)
+                    if policy == .allow { self.recordAllowedMainFrameNavigation(navigationAction.request) }
                     decisionHandler(policy)
                 } catch {
                     guard let self, !self.isClosed, self.policyGeneration == generation else {
