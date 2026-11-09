@@ -5,6 +5,7 @@ import WebKit
 
 @MainActor @Observable
 public final class BrowserSession {
+    public let isExternalPrivate: Bool
     public let adBlocker: AdBlocker
     public let settings: BrowserSettings
     public let websiteData: WebsiteDataManager
@@ -36,22 +37,25 @@ public final class BrowserSession {
     private var legacyBookmarksImported = false
     private var importingLegacyBookmarks = false
     private var isShutDown = false
+    private var appliedOpenRequests: Set<UUID> = []
     private var recentlyClosed: [TabRecord] = []
     @ObservationIgnored private let regularDataStore: WKWebsiteDataStore
     @ObservationIgnored private var privateDataStore: WKWebsiteDataStore?
 
     public init(store: (any BrowserSessionStore)? = nil, dataStore: WKWebsiteDataStore = .default(),
-                adBlocker: AdBlocker = AdBlocker(), settings: BrowserSettings = BrowserSettings()) {
-        self.store = store
+                adBlocker: AdBlocker = AdBlocker(), settings: BrowserSettings = BrowserSettings(), externalPrivate: Bool = false) {
+        isExternalPrivate = externalPrivate
+        self.store = externalPrivate ? nil : store
         self.adBlocker = adBlocker
         self.settings = settings
         websiteData = WebsiteDataManager(store: dataStore)
         regularDataStore = dataStore
-        if let store {
+        if let store, !externalPrivate {
             do {
                 let result = try store.load()
                 if let snapshot = result.snapshot {
                     legacyBookmarksImported = snapshot.legacyBookmarksImported == true
+                    appliedOpenRequests = snapshot.appliedOpenRequests ?? []
                     bookmarks = snapshot.bookmarks
                     history = snapshot.history
                     tabs = (settings.restoreTabs ? snapshot.tabs : snapshot.tabs.filter(\.isPinned)).map { makeTab(record: $0) }
@@ -65,7 +69,7 @@ public final class BrowserSession {
             }
         }
         if tabs.isEmpty {
-            let tab = makeTab()
+            let tab = makeTab(isPrivate: externalPrivate)
             tabs = [tab]
             selectedTabID = tab.id
         }
@@ -129,7 +133,10 @@ public final class BrowserSession {
             adBlocker.endPrivateSession()
             settings.endPrivateSession()
         }
-        if tabs.isEmpty { addTab() }
+        if tabs.isEmpty {
+            selectedTabID = nil
+            if !isExternalPrivate { addTab() }
+        }
         else if selectedTabID == id {
             selectTab(tabs[min(index, tabs.count - 1)].id)
             if selectedTabID == id { addTab() }
@@ -311,7 +318,7 @@ public final class BrowserSession {
     public func snapshot() -> BrowserSnapshot {
         let records = tabs.filter { !$0.isPrivate }.map(\.record)
         let selected = records.contains { $0.id == selectedTabID } ? selectedTabID : records.first?.id
-        return BrowserSnapshot(tabs: records, selectedTabID: selected, bookmarks: bookmarks, history: history, legacyBookmarksImported: legacyBookmarksImported)
+        return BrowserSnapshot(tabs: records, selectedTabID: selected, bookmarks: bookmarks, history: history, legacyBookmarksImported: legacyBookmarksImported, appliedOpenRequests: appliedOpenRequests)
     }
 
     public func saveNow(discardPrevious: Bool = false) {
@@ -327,6 +334,31 @@ public final class BrowserSession {
             if wrote { onContinuityChange?() }
         }
         catch { persistenceNotice = "Your session could not be saved: \(error.localizedDescription)" }
+    }
+
+    /// Save the receipt atomically with the new regular tab, before activating its WebView.
+    /// If the replica tombstone write fails, recovery observes this receipt and never opens a duplicate,
+    /// even if the user has since closed the delivered tab or disabled session restoration.
+    @discardableResult public func applyOpenRequest(_ request: ContinuityOpenRequest) throws -> Bool {
+        _ = try request.validated()
+        guard canPersist, !isExternalPrivate else { throw ContinuityError.invalidData }
+        guard !appliedOpenRequests.contains(request.id) else { return false }
+        let previousSelection = selectedTabID
+        // Request bodies are untrusted. Even a request UUID colliding with an existing tab
+        // must append a distinct tab, never create duplicate identities or replace that page.
+        let tabID = tabs.contains { $0.id == request.id } ? UUID() : request.id
+        let tab = makeTab(record: TabRecord(id: tabID, title: request.title, url: request.url))
+        tabs.append(tab); appliedOpenRequests.insert(request.id); selectedTabID = tab.id
+        do {
+            let snapshot = snapshot()
+            try store?.save(snapshot, discardPrevious: false)
+            if store != nil { lastSavedData = try SessionFileStore.encodedSnapshot(snapshot) }
+        } catch {
+            tabs.removeAll { $0 === tab }; appliedOpenRequests.remove(request.id); selectedTabID = previousSelection
+            tab.close(); throw error
+        }
+        if isProfileActive { tab.activate() }
+        return true
     }
 
     /// Never replaces local tabs, website state or edited forms when receiving cloud changes.
@@ -354,7 +386,9 @@ public final class BrowserSession {
 
     private func makeTab(record: TabRecord = TabRecord(), isPrivate: Bool = false,
                          configuration: WKWebViewConfiguration? = nil) -> BrowserTab {
+        let isPrivate = isPrivate || isExternalPrivate
         if isPrivate && privateDataStore == nil { privateDataStore = .nonPersistent() }
+        if isExternalPrivate { configuration?.websiteDataStore = privateDataStore! }
         let tab = BrowserTab(record: record, isPrivate: isPrivate, configuration: configuration,
                              dataStore: isPrivate ? privateDataStore! : regularDataStore, adBlocker: adBlocker, settings: settings)
         tab.setProfileActive(isProfileActive)

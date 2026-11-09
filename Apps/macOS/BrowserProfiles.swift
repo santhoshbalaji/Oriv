@@ -13,6 +13,17 @@ import Observation
     var notice: String?
     var showManager = false
     var pendingSelection: UUID?
+    private(set) var externalPrivate: BrowserController?
+    var externalSourceName: String?
+    var externalBannerVisible = true
+    var externalMoveProfileID = BrowserProfile.personalID
+    @ObservationIgnored var showRegularWindow: (() -> Void)?
+    @ObservationIgnored var showExternalWindow: (() -> Void)?
+    @ObservationIgnored var closeExternalWindow: (() -> Void)?
+    @ObservationIgnored private let linkDefaults: UserDefaults?
+    var openExternalLinksPrivately: Bool {
+        didSet { linkDefaults?.set(openExternalLinksPrivately, forKey: ExternalLinkRouting.defaultsKey) }
+    }
     private(set) var controller: BrowserController
     @ObservationIgnored private var controllers: [UUID: BrowserController] = [:]
     @ObservationIgnored private let store: ProfileRegistryStore?
@@ -21,11 +32,13 @@ import Observation
     var active: BrowserProfile { registry.profiles.first { $0.id == registry.activeID } ?? .personal }
     var available: [BrowserProfile] { registry.profiles.filter { $0.archivedAt == nil } }
     var archived: [BrowserProfile] { registry.profiles.filter { $0.archivedAt != nil } }
-    var allControllers: [BrowserController] { Array(controllers.values) }
+    var allControllers: [BrowserController] { Array(controllers.values) + (externalPrivate.map { [$0] } ?? []) }
 
     init(rootDirectory: URL? = nil, testing: Bool? = nil) {
         let isTesting = testing ?? (ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1")
         self.testing = isTesting
+        linkDefaults = isTesting ? nil : .standard
+        openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: isTesting ? nil : .standard)
         root = rootDirectory ?? (isTesting ? nil : URL.applicationSupportDirectory.appendingPathComponent("PersonalBrowser", isDirectory: true))
         continuity = BrowserContinuity(root: root, deviceName: "Mac")
         store = root.map { ProfileRegistryStore(fileURL: $0.appendingPathComponent("profiles.json")) }
@@ -45,7 +58,14 @@ import Observation
             guard let self else { return }
             try self.commit(self.registry.importingContinuity(incoming))
         })
-
+        continuity.didOpenRequest = { [weak self] profileID, tabID in
+            guard let self else { return }
+            self.perform {
+                try self.select(profileID); self.controller.session.selectTab(tabID)
+                self.showRegularWindow?()
+                NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" })?.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 
     private func commit(_ next: ProfileRegistry) throws {
@@ -159,7 +179,36 @@ import Observation
             }
         }
     }
-    func handleIncomingURL(_ url: URL) { controller.openExternal(url) }
+    func handleIncomingURL(_ url: URL, sourceName: String? = nil) {
+        guard ExternalLinkRouting.accepts(url) else { return }
+        guard openExternalLinksPrivately else { controller.openExternal(url); return }
+        if externalPrivate == nil {
+            let context = BrowserController(profile: nil, testing: testing)
+            // The private-only session starts with an empty private tab. Replace it on first arrival.
+            let initial = context.session.selectedTabID
+            context.session.addTab(url: url, isPrivate: true)
+            if let initial { context.session.closeTab(initial) }
+            externalPrivate = context
+            context.session.onContinuityChange = nil
+        } else { externalPrivate?.session.addTab(url: url, isPrivate: true) }
+        externalSourceName = sourceName
+        externalMoveProfileID = active.id
+        externalBannerVisible = true
+        showExternalWindow?()
+    }
+    func moveExternalTab() throws {
+        guard let context = externalPrivate, let tab = context.session.selectedTab,
+              let url = ExternalLinkRouting.movableURL(tab.url) else { return }
+        try select(externalMoveProfileID)
+        controller.session.addTab(url: url)
+        showRegularWindow?()
+        NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" })?.makeKeyAndOrderFront(nil)
+        context.session.closeTab(tab.id)
+        if context.session.tabs.isEmpty { closeExternalWindow?(); endExternalPrivate() }
+    }
+    func endExternalPrivate() {
+        externalPrivate?.shutdown(); externalPrivate = nil
+    }
 }
 
 private enum BrowserProfileOperationError: LocalizedError {

@@ -6,7 +6,7 @@ import WebKit
 
 @MainActor @Observable
 final class BrowserController {
-    let profile: BrowserProfile
+    let profile: BrowserProfile?
     @ObservationIgnored private let profileDefaults: UserDefaults?
     var appearance: BrowserAppearance { didSet { profileDefaults?.set(appearance.rawValue, forKey: "browserAppearance") } }
     let session: BrowserSession
@@ -29,21 +29,21 @@ final class BrowserController {
     @ObservationIgnored private var bookmarkMigration: Task<Void, Never>?
     @ObservationIgnored private var adapters: [UUID: MacWebUIDelegate] = [:]
 
-    init(profile: BrowserProfile = .personal, rootDirectory: URL? = nil, testing: Bool? = nil, websiteStore: WKWebsiteDataStore? = nil) {
+    init(profile: BrowserProfile? = .personal, rootDirectory: URL? = nil, testing: Bool? = nil, websiteStore: WKWebsiteDataStore? = nil) {
         self.profile = profile
         let isTesting = testing ?? (ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1")
         let root = rootDirectory ?? URL.applicationSupportDirectory.appendingPathComponent("PersonalBrowser", isDirectory: true)
-        let applicationSupport = profile.directory(in: root)
+        let applicationSupport = profile?.directory(in: root) ?? root
         let bundleID = Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac"
-        let defaults: UserDefaults? = isTesting ? nil : profile.isPersonal ? .standard : UserDefaults(suiteName: profile.defaultsName(bundleID: bundleID)!)
+        let defaults: UserDefaults? = isTesting || profile == nil ? nil : profile!.isPersonal ? .standard : UserDefaults(suiteName: profile!.defaultsName(bundleID: bundleID)!)
         profileDefaults = defaults
         compactSidebar = defaults?.bool(forKey: "compactSidebar") ?? false
         appearance = defaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:)) ?? .t3Code
-        let persistent = !isTesting || rootDirectory != nil
+        let persistent = profile != nil && (!isTesting || rootDirectory != nil)
         session = BrowserSession(store: persistent ? SessionFileStore(fileURL: applicationSupport.appendingPathComponent("session.json")) : nil,
-                                 dataStore: websiteStore ?? (isTesting ? .nonPersistent() : profile.isPersonal ? .default() : WKWebsiteDataStore(forIdentifier: profile.id)),
-                                 adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults))
+                                 dataStore: websiteStore ?? (isTesting || profile == nil ? .nonPersistent() : profile!.isPersonal ? .default() : WKWebsiteDataStore(forIdentifier: profile!.id)),
+                                 adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil)
         if persistent {
             bookmarkMigration = Task { [weak session] in
                 await session?.importLegacyBookmarks(from: applicationSupport.appendingPathComponent("workspace.sqlite"))
@@ -95,6 +95,11 @@ final class BrowserController {
     func focusAddress() { addressFocusRequest += 1 }
     func closeTabOrPanel() {
         // A browser shortcut must never close a background tab while Settings is active.
+        if session.isExternalPrivate {
+            if library != nil { library = nil }
+            else if let id = session.selectedTabID { requestCloseTab(id) }
+            return
+        }
         let window = NSApp.keyWindow
         if library != nil, window?.identifier?.rawValue == "browser" || window?.sheetParent?.identifier?.rawValue == "browser" {
             library = nil

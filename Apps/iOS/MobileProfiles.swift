@@ -7,9 +7,17 @@ import BrowserEngine
     let continuity: BrowserContinuity
     private(set) var current: MobileController
     private(set) var profiles: [BrowserProfile]
+    private(set) var externalPrivate: MobileController?
+    private(set) var lastRegularProfileID: UUID
+    var externalBannerVisible = true
+    var externalMoveProfileID = BrowserProfile.personalID
+    var openExternalLinksPrivately: Bool {
+        didSet { UserDefaults.standard.set(openExternalLinksPrivately, forKey: ExternalLinkRouting.defaultsKey) }
+    }
     @ObservationIgnored private var controllers: [UUID: MobileController] = [:]
     init() {
         let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1"
+        openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: testing ? nil : .standard)
         continuity = BrowserContinuity(root: testing ? nil : URL.applicationSupportDirectory.appendingPathComponent("Oriv"), deviceName: "iPhone")
         // Compatibility with the earlier mobile profile-name list, without accessing any cloud service.
         struct LegacyProfile: Decodable { let id: UUID; let name: String }
@@ -21,16 +29,22 @@ import BrowserEngine
         let known: [BrowserProfile] = [personal] + saved.filter { ProfileRegistry.validName($0.name) && seen.insert($0.id).inserted }
         let selected = (UserDefaults.standard.string(forKey: "BrowserProfileID") ?? UserDefaults.standard.string(forKey: "WorkspaceProfileID")).flatMap(UUID.init(uuidString:))
         profiles = known
-        current = MobileController(profile: known.first { $0.id == selected && $0.archivedAt == nil } ?? .personal)
-        controllers[current.profileID] = current
+        let initialProfile = known.first { $0.id == selected && $0.archivedAt == nil } ?? .personal
+        lastRegularProfileID = initialProfile.id
+        current = MobileController(profile: initialProfile)
+        controllers[current.profileID!] = current
         continuity.configure(profiles: { [weak self] in self?.profiles.filter { $0.archivedAt == nil } ?? [] }, source: { [weak self] profile in
             guard let self else { return nil }
             return self.obtain(profile).continuitySource
         }, importProfiles: { [weak self] incoming in
             guard let self else { return }
-            var registry = ProfileRegistry(); registry.profiles = self.profiles; registry.activeID = self.current.profileID
+            var registry = ProfileRegistry(); registry.profiles = self.profiles; registry.activeID = self.lastRegularProfileID
             self.profiles = try registry.importingContinuity(incoming).profiles; self.persist()
         })
+        continuity.didOpenRequest = { [weak self] profileID, tabID in
+            guard let self, let profile = self.profiles.first(where: { $0.id == profileID }) else { return }
+            self.current.sheet = nil; self.select(profile); self.current.session.selectTab(tabID)
+        }
     }
     private func obtain(_ profile: BrowserProfile) -> MobileController {
         if let existing = controllers[profile.id] { return existing }
@@ -40,7 +54,7 @@ import BrowserEngine
     func openContinuityPage(_ page: ContinuityPage) {
         current.perform {
             if !profiles.contains(where: { $0.id == page.profile.id }) {
-                var registry = ProfileRegistry(); registry.profiles = profiles; registry.activeID = current.profileID
+                var registry = ProfileRegistry(); registry.profiles = profiles; registry.activeID = lastRegularProfileID
                 profiles = try registry.importingContinuity([page.profile]).profiles; persist()
             }
             guard let profile = profiles.first(where: { $0.id == page.profile.id }), profile.archivedAt == nil else { throw ProfileError.protectedProfile }
@@ -53,6 +67,7 @@ import BrowserEngine
         if !profiles.contains(where: { $0.id == profile.id }) { profiles.append(profile) }
         let next = obtain(profile)
         controllers[profile.id] = next; current = next
+        lastRegularProfileID = profile.id
         UserDefaults.standard.set(profile.id.uuidString, forKey: "BrowserProfileID")
         persist()
         current.foreground()
@@ -70,7 +85,7 @@ import BrowserEngine
         }
     }
     func archive(_ id: UUID) {
-        guard id != current.profileID, let index = profiles.firstIndex(where: { $0.id == id }), !profiles[index].isPersonal else { return }
+        guard id != lastRegularProfileID, let index = profiles.firstIndex(where: { $0.id == id }), !profiles[index].isPersonal else { return }
         if let controller = controllers[id] {
             for tab in controller.session.tabs.filter(\.isPrivate) { controller.session.closeTab(tab.id) }
             controller.background()
@@ -86,6 +101,39 @@ import BrowserEngine
         continuity.profilesChanged()
     }
     func foreground() { current.foreground(); continuity.setForeground(true) }
-    func background() { controllers.values.forEach { $0.background() }; continuity.setForeground(false) }
-    func route(_ url: URL) { current.route(url) }
+    func background() { controllers.values.forEach { $0.background() }; externalPrivate?.background(); continuity.setForeground(false) }
+    func route(_ url: URL) {
+        guard ExternalLinkRouting.accepts(url) else { return }
+        guard openExternalLinksPrivately else {
+            if current.profileID == nil, let profile = profiles.first(where: { $0.id == lastRegularProfileID }) { select(profile) }
+            current.route(url); return
+        }
+        current.sheet = nil; current.background()
+        if externalPrivate == nil {
+            let context = MobileController(profile: nil)
+            let initial = context.session.selectedTabID
+            context.session.addTab(url: url, isPrivate: true, load: false)
+            if let initial { context.session.closeTab(initial) }
+            externalPrivate = context
+        } else { externalPrivate?.session.addTab(url: url, isPrivate: true, load: false) }
+        current = externalPrivate!; current.foreground()
+        externalMoveProfileID = lastRegularProfileID; externalBannerVisible = true
+    }
+    func showExternalPrivate() {
+        guard let externalPrivate else { return }
+        current.sheet = nil; current.background(); current = externalPrivate; current.foreground()
+    }
+    func moveExternalTab() {
+        guard let context = externalPrivate, let tab = context.session.selectedTab,
+              let url = ExternalLinkRouting.movableURL(tab.url),
+              let profile = profiles.first(where: { $0.id == externalMoveProfileID && $0.archivedAt == nil }) else { return }
+        select(profile); current.session.addTab(url: url)
+        context.session.closeTab(tab.id)
+        if context.session.tabs.isEmpty { context.session.shutdown(); externalPrivate = nil }
+    }
+    func finishExternalGroupIfEmpty() {
+        guard let context = externalPrivate, context.session.tabs.isEmpty else { return }
+        if let profile = profiles.first(where: { $0.id == lastRegularProfileID }) { select(profile) }
+        context.session.shutdown(); externalPrivate = nil
+    }
 }

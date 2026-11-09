@@ -78,15 +78,17 @@ public struct BrowserSnapshot: Codable, Equatable, Sendable {
     public var bookmarks: [Bookmark]
     public var history: [HistoryEntry]
     public var legacyBookmarksImported: Bool?
+    public var appliedOpenRequests: Set<UUID>?
 
     public init(tabs: [TabRecord] = [], selectedTabID: UUID? = nil,
-                bookmarks: [Bookmark] = [], history: [HistoryEntry] = [], legacyBookmarksImported: Bool = false) {
+                bookmarks: [Bookmark] = [], history: [HistoryEntry] = [], legacyBookmarksImported: Bool = false, appliedOpenRequests: Set<UUID> = []) {
         version = 3
         self.tabs = tabs
         self.selectedTabID = selectedTabID
         self.bookmarks = bookmarks
         self.history = history
         self.legacyBookmarksImported = legacyBookmarksImported
+        self.appliedOpenRequests = appliedOpenRequests
     }
 
     public func sanitized() -> BrowserSnapshot {

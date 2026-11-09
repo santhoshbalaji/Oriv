@@ -69,7 +69,7 @@ public extension ContinuityTransport {
             return try await fetch(allowZoneCreation: false)
         }
         // Keep the old cache/token if any page fails. A partial download must never look like deletion.
-        let decoded = try next.values.map(decode)
+        let decoded = try next.values.compactMap(decode)
         server = next; token = nextToken
         return decoded
     }
@@ -77,7 +77,7 @@ public extension ContinuityTransport {
         var changes: [CKRecord] = []
         for value in values {
             if let existing = server[value.id] {
-                let remote = try decode(existing)
+                guard let remote = try decode(existing) else { continue }
                 if remote == value || remote.supersedes(value) { continue }
             }
             let record = server[value.id]?.copy() as? CKRecord ?? CKRecord(recordType: "BrowserRecordV1", recordID: CKRecord.ID(recordName: value.id, zoneID: zone))
@@ -98,17 +98,17 @@ public extension ContinuityTransport {
                 case .failure(let error):
                     if let cloud = error as? CKError, cloud.code == .serverRecordChanged,
                        let current = cloud.serverRecord {
-                        conflicts.append(try decode(current)); server[current.recordID.recordName] = current
+                        if let decoded = try decode(current) { conflicts.append(decoded) }; server[current.recordID.recordName] = current
                     } else { throw error }
                 }
             }
         }
         return conflicts
     }
-    private func decode(_ record: CKRecord) throws -> ContinuityRecord {
+    private func decode(_ record: CKRecord) throws -> ContinuityRecord? {
         guard record.recordType == "BrowserRecordV1", let data = record.encryptedValues["body"] as? Data,
               data.count < 200_000 else { throw ContinuityError.invalidData }
-        let value = try JSONDecoder().decode(ContinuityRecord.self, from: data).validated()
+        guard let value = try ContinuityRecord.decodeIfKnown(from: data) else { return nil }
         guard value.id == record.recordID.recordName else { throw ContinuityError.invalidData }
         return value
     }

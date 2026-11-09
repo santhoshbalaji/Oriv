@@ -15,15 +15,22 @@ struct MobileBrowserView: View {
     @State private var findText = ""
     @FocusState private var findFocused: Bool
     private var tab: BrowserTab? { controller.session.selectedTab }
-    private var profileName: String { profiles.profiles.first { $0.id == controller.profileID }?.name ?? "Personal" }
+    private var showsExternalPrivateBar: Bool { controller.session.isExternalPrivate && profiles.externalBannerVisible }
+    private var profileName: String { profiles.profiles.first { $0.id == controller.profileID }?.name ?? "External Private Tabs" }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 addressBar
+                if showsExternalPrivateBar {
+                    ExternalPrivateBar(sourceName: nil, profiles: profiles.profiles.filter { $0.archivedAt == nil },
+                        selection: Binding(get: { profiles.externalMoveProfileID }, set: { profiles.externalMoveProfileID = $0 }),
+                        canMove: ExternalLinkRouting.movableURL(tab?.url) != nil,
+                        move: { profiles.moveExternalTab() }, dismiss: { profiles.externalBannerVisible = false })
+                }
                 if let tab, tab.isLoading { ProgressView(value: tab.progress).tint(theme.accent).accessibilityLabel("Loading page") }
                 // Shown while editing too, so a new private tab never looks like a regular one.
-                if tab?.isPrivate == true && (tab?.url != nil || editingAddress) {
+                if tab?.isPrivate == true && !showsExternalPrivateBar && (tab?.url != nil || editingAddress) {
                     Label("Private", systemImage: "eyeglasses").font(.footnote.weight(.medium)).foregroundStyle(theme.privateAccent)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.bottom, OrivSpacing.xs)
                         .accessibilityElement(children: .combine)
@@ -40,6 +47,7 @@ struct MobileBrowserView: View {
                     await Task.yield()
                     consumeFocusRequest()
                 }
+                .onChange(of: controller.session.tabs.count) { _, _ in profiles.finishExternalGroupIfEmpty() }
                 .onChange(of: tab?.id) { _, _ in finding = false; findText = ""; editingAddress = false }
                 .sheet(item: $controller.sheet, onDismiss: consumeFocusRequest) { sheet in
                     Group {
@@ -105,6 +113,7 @@ struct MobileBrowserView: View {
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
     @ViewBuilder private var notices: some View {
+        if let notice = profiles.continuity.notice { ContinuityNotice(text: notice) }
         if let notice = controller.session.persistenceNotice {
             HStack { Text(notice).font(.footnote); Spacer(); if controller.session.canPersist { Button("Dismiss") { controller.session.dismissNotice() } } }
                 .padding(.horizontal, OrivSpacing.large).padding(.vertical, 10).background(theme.surface)
@@ -210,9 +219,10 @@ struct MobileBrowserView: View {
             Button { controller.sheet = .tabs } label: {
                 Text("\(controller.session.tabs.count)").font(.footnote.weight(.semibold)).monospacedDigit()
                     .frame(minWidth: 22, minHeight: 22).overlay { RoundedRectangle(cornerRadius: OrivRadius.compact).strokeBorder(lineWidth: 1.5) }
-            }.accessibilityLabel("Tabs, \(controller.session.tabs.count) open, profile \(profileName)").accessibilityIdentifier("browserTabs").frame(maxWidth: .infinity, minHeight: 48)
+            }.accessibilityLabel("Tabs, \(controller.session.tabs.count) open, \(controller.profileID == nil ? "External Private Tabs" : "profile " + profileName)").accessibilityIdentifier("browserTabs").frame(maxWidth: .infinity, minHeight: 48)
             Menu {
                 Button(controller.session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: controller.session.isBookmarked(tab?.url) ? "bookmark.fill" : "bookmark") { controller.session.toggleBookmark() }.disabled(tab?.url == nil || tab?.isPrivate == true)
+                SendPageMenu(continuity: profiles.continuity, session: controller.session, profile: profiles.profiles.first { $0.id == controller.profileID })
                 Button("Share", systemImage: "square.and.arrow.up") { controller.sheet = .share }.disabled(tab?.url == nil)
                 Button("Find on Page", systemImage: "magnifyingglass") { finding = true; findFocused = true }.disabled(tab?.url == nil)
                 if let tab, tab.url != nil {
@@ -228,6 +238,13 @@ struct MobileBrowserView: View {
                     Button("New Tab", systemImage: "plus") { controller.newTab() }
                     Button("New Private Tab", systemImage: "eyeglasses") { controller.newTab(isPrivate: true) }
                     if controller.session.canReopenTab { Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { controller.session.reopenClosedTab() } }
+                }
+                if controller.session.isExternalPrivate {
+                    Button("Return to Profile", systemImage: "person.crop.circle") {
+                        if let profile = profiles.profiles.first(where: { $0.id == profiles.lastRegularProfileID }) { profiles.select(profile) }
+                    }
+                } else if profiles.externalPrivate != nil {
+                    Button("External Private Tabs", systemImage: "eyeglasses") { profiles.showExternalPrivate() }
                 }
                 Section { Button("Settings", systemImage: "gearshape") { controller.sheet = .settings } }
             } label: { Label("Page options and settings", systemImage: "ellipsis").frame(maxWidth: .infinity, minHeight: 48) }

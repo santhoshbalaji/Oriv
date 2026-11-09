@@ -109,4 +109,67 @@ import XCTest
         try profiles.select(work.id)
         XCTAssertEqual(profiles.active.id, work.id)
     }
+    func testExternalLinksReuseProfilelessPrivateContextAndMoveCurrentURL() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let personal = profiles.controller
+        let originalPersonalTabs = personal.session.tabs.map(\.id)
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        try profiles.select(work.id)
+        let workController = profiles.controller
+        let bookmark = Bookmark(title: "Work only", url: URL(string: "https://example.test/saved")!)
+        workController.session.importBookmarks([bookmark])
+        var opened = 0, closed = 0
+        profiles.showExternalWindow = { opened += 1 }; profiles.closeExternalWindow = { closed += 1 }
+        profiles.handleIncomingURL(URL(string: "https://example.test/original")!, sourceName: "Test App")
+        let context = try XCTUnwrap(profiles.externalPrivate)
+        XCTAssertNil(context.profile)
+        XCTAssertTrue(context.session.tabs.allSatisfy(\.isPrivate))
+        XCTAssertEqual(profiles.externalMoveProfileID, work.id)
+        XCTAssertTrue(context.session.bookmarks.isEmpty); XCTAssertTrue(context.session.history.isEmpty)
+        let store = try XCTUnwrap(context.session.selectedTab).webView.configuration.websiteDataStore
+        XCTAssertFalse(store.isPersistent)
+        profiles.handleIncomingURL(URL(string: "https://example.test/second")!)
+        XCTAssertTrue(profiles.externalPrivate === context); XCTAssertEqual(context.session.tabs.count, 2); XCTAssertEqual(opened, 2)
+        XCTAssertTrue(context.session.selectedTab?.webView.configuration.websiteDataStore === store)
+        let current = URL(string: "https://example.test/after-navigation")!
+        context.session.setProfileActive(false)
+        context.session.selectedTab?.navigate(to: current)
+        profiles.externalMoveProfileID = BrowserProfile.personalID
+        let movedPrivateID = try XCTUnwrap(context.session.selectedTabID)
+        try profiles.moveExternalTab()
+        XCTAssertFalse(context.session.tabs.contains { $0.id == movedPrivateID })
+        XCTAssertEqual(personal.session.tabs.count, originalPersonalTabs.count + 1)
+        XCTAssertTrue(originalPersonalTabs.allSatisfy { id in personal.session.tabs.contains { $0.id == id } })
+        XCTAssertTrue(personal.session.tabs.allSatisfy { !$0.isPrivate })
+        XCTAssertTrue(profiles.controller === personal); XCTAssertEqual(personal.session.selectedTab?.url, current)
+        XCTAssertFalse(personal.session.selectedTab?.isPrivate ?? true)
+        XCTAssertEqual(context.session.tabs.count, 1)
+        profiles.externalMoveProfileID = work.id
+        try profiles.moveExternalTab()
+        XCTAssertNil(profiles.externalPrivate); XCTAssertEqual(closed, 1)
+        XCTAssertTrue(context.session.tabs.isEmpty); XCTAssertNil(context.session.selectedTabID)
+        XCTAssertEqual(workController.session.bookmarks, [bookmark]); XCTAssertTrue(workController.session.history.isEmpty)
+    }
+    func testExternalSettingOffPreservesRegularRouteAndBadSchemesNeverMove() throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        profiles.openExternalLinksPrivately = false
+        let url = URL(string: "https://example.test/regular")!
+        profiles.handleIncomingURL(url)
+        XCTAssertNil(profiles.externalPrivate); XCTAssertEqual(profiles.controller.session.selectedTab?.url, url)
+        XCTAssertFalse(profiles.controller.session.selectedTab?.isPrivate ?? true)
+        profiles.openExternalLinksPrivately = true
+        profiles.handleIncomingURL(URL(string: "file:///tmp/synthetic")!)
+        XCTAssertNil(profiles.externalPrivate)
+        profiles.handleIncomingURL(URL(string: "https://example.test/private")!)
+        let context = try XCTUnwrap(profiles.externalPrivate)
+        context.session.addTab(load: false)
+        let count = profiles.controller.session.tabs.count
+        try profiles.moveExternalTab()
+        XCTAssertEqual(profiles.controller.session.tabs.count, count)
+        XCTAssertNotNil(profiles.externalPrivate)
+        XCTAssertTrue(context.session.snapshot().tabs.isEmpty)
+    }
+
 }

@@ -19,7 +19,7 @@ struct BrowserSidebar: View {
     }
     private var rail: some View {
         VStack(spacing: 14) {
-            if let profiles { ProfileMenu(profiles: profiles, compact: true, iconOnly: true).frame(width: 26, height: 30) }
+            if let profiles, !session.isExternalPrivate { ProfileMenu(profiles: profiles, compact: true, iconOnly: true).frame(width: 26, height: 30) }
             Button { controller.newTab() } label: { Image(systemName: "plus").frame(width: 36, height: 30) }.accessibilityLabel("New tab")
             Button { controller.library = .bookmarks } label: { Image(systemName: "bookmark").frame(width: 36, height: 30) }.accessibilityLabel("Bookmarks")
             Divider()
@@ -48,7 +48,7 @@ struct BrowserSidebar: View {
     }
     private var expanded: some View {
         VStack(spacing: 0) {
-            if let profiles {
+            if let profiles, !session.isExternalPrivate {
                 ProfileMenu(profiles: profiles).fixedSize().frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).frame(height: 40)
                 if let notice = profiles.notice { Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 18).padding(.bottom, OrivSpacing.small) }
             }

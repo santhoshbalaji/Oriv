@@ -39,6 +39,10 @@ struct AppearanceSettings: View {
         @Bindable var settings = controller.session.settings
         return Form {
             Section("Browsing") {
+                if let profiles {
+                    Toggle("Open Links from Other Apps Privately", isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
+                    Text("External links open signed out, separate from every profile. Move a page to a profile when you choose.").font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                }
                 Picker("Search engine", selection: $settings.searchEngine) {
                     ForEach(SearchEngine.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -74,7 +78,7 @@ struct AppearanceSettings: View {
 
     private var appearancePanel: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text("Appearance for the \(controller.profile.name) profile").font(.system(size: 13)).foregroundStyle(theme.secondaryText)
+            Text("Appearance for the \(controller.profile?.name ?? "Private") profile").font(.system(size: 13)).foregroundStyle(theme.secondaryText)
             HStack(spacing: 12) {
                 ForEach(BrowserAppearance.allCases) { choice in
                     Button { appearance = choice } label: {

@@ -75,6 +75,39 @@ import WebKit
         privateProfiles.controller.newTab(isPrivate: true)
         await capture("mac-03-private-start", directory, size, key: activate) { BrowserWindow(controller: privateProfiles.controller, profiles: privateProfiles) }
 
+        // Real routing and Move, using only ephemeral profiles and synthetic page content.
+        let externalProfiles = BrowserProfiles(testing: true)
+        let originalTabs = externalProfiles.controller.session.tabs.map(\.id)
+        externalProfiles.handleIncomingURL(URL(string: "https://fixture.example/external")!, sourceName: "Example App")
+        if let external = externalProfiles.externalPrivate, let privateTab = external.session.selectedTab {
+            let privateID = privateTab.id
+            privateTab.webView.loadHTMLString(fixturePage(scheme: "https"), baseURL: URL(string: "https://fixture.example/external"))
+            try? await Task.sleep(for: .milliseconds(800))
+            await capture("mac-12-external-private", directory, size, key: activate, compositeWeb: privateTab.webView) {
+                BrowserWindow(controller: external, profiles: externalProfiles)
+            }
+            var closedEmptyWindow = false
+            externalProfiles.closeExternalWindow = { closedEmptyWindow = true }
+            do { try externalProfiles.moveExternalTab() }
+            catch { manifest.failures.append("external Move: \(error)") }
+            let destination = externalProfiles.controller.session
+            if !external.session.tabs.isEmpty || external.session.selectedTabID != nil
+                || externalProfiles.externalPrivate != nil || !closedEmptyWindow
+                || destination.tabs.contains(where: { $0.id == privateID || $0.isPrivate })
+                || !originalTabs.allSatisfy({ id in destination.tabs.contains { $0.id == id } })
+                || destination.tabs.count != originalTabs.count + 1 {
+                manifest.failures.append("external Move did not close the private tab/window or preserve destination tabs")
+            }
+            if let moved = destination.selectedTab {
+                moved.webView.loadHTMLString(fixturePage(scheme: "https"), baseURL: URL(string: "https://fixture.example/external"))
+                try? await Task.sleep(for: .milliseconds(800))
+                await capture("mac-13-external-moved-to-personal", directory, size, key: activate, compositeWeb: moved.webView) {
+                    BrowserWindow(controller: externalProfiles.controller, profiles: externalProfiles)
+                }
+            }
+        } else { manifest.failures.append("external route did not create its private context") }
+        externalProfiles.shutdown()
+
         let compact = seededProfiles()
         compact.controller.compactSidebar = true
         await capture("mac-04-compact-sidebar", directory, size, key: activate) { BrowserWindow(controller: compact.controller, profiles: compact) }

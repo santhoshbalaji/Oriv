@@ -7,7 +7,7 @@ import WebKit
 @MainActor @Observable final class MobileController {
     let session: BrowserSession
     let downloads = MobileDownloads()
-    let profileID: UUID
+    let profileID: UUID?
     @ObservationIgnored private let profileDefaults: UserDefaults?
     var appearance: BrowserAppearance { didSet { profileDefaults?.set(appearance.rawValue, forKey: "browserAppearance") } }
     var sheet: MobileSheet?
@@ -16,17 +16,17 @@ import WebKit
     @ObservationIgnored private var bookmarkMigration: Task<Void, Never>?
     @ObservationIgnored private var delegates: [UUID: MobileWebDelegate] = [:]
 
-    init(profile: BrowserProfile = .personal) {
+    init(profile: BrowserProfile? = .personal) {
         let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1"
-        profileID = profile.id
-        let root = profile.directory(in: URL.applicationSupportDirectory.appendingPathComponent("Oriv", isDirectory: true))
-        let defaults: UserDefaults? = testing ? nil : profile.isPersonal ? .standard : UserDefaults(suiteName: profile.defaultsName(bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile")!)
+        profileID = profile?.id
+        let root = profile?.directory(in: URL.applicationSupportDirectory.appendingPathComponent("Oriv", isDirectory: true))
+        let defaults: UserDefaults? = testing || profile == nil ? nil : profile!.isPersonal ? .standard : UserDefaults(suiteName: profile!.defaultsName(bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile")!)
         profileDefaults = defaults
         appearance = defaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:)) ?? .t3Code
-        session = BrowserSession(store: testing ? nil : SessionFileStore(fileURL: root.appendingPathComponent("session.json")),
-            dataStore: testing ? .nonPersistent() : profile.isPersonal ? .default() : WKWebsiteDataStore(forIdentifier: profileID),
-            adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults))
-        if !testing {
+        session = BrowserSession(store: testing || root == nil ? nil : SessionFileStore(fileURL: root!.appendingPathComponent("session.json")),
+            dataStore: testing || profile == nil ? .nonPersistent() : profile!.isPersonal ? .default() : WKWebsiteDataStore(forIdentifier: profile!.id),
+            adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil)
+        if !testing, let root {
             bookmarkMigration = Task { [weak session] in
                 await session?.importLegacyBookmarks(from: root.appendingPathComponent("workspace.sqlite"))
             }
@@ -71,7 +71,7 @@ import WebKit
         guard AddressResolver.isWebURL(url) else { return }
         session.addTab(url: url); sheet = nil
     }
-    func foreground() { session.setProfileActive(true) }
+    func foreground() { session.setProfileActive(true); session.activateSelectedTab() }
     func background() { session.saveNow(); session.setProfileActive(false) }
 }
 

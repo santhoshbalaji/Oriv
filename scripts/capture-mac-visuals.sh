@@ -46,6 +46,7 @@ if status != 0: problems.append(f"snapshot app exited with status {status}")
 problems += [f"scene failed: {f}" for f in m["failures"]]
 expected = {
     "mac-01-start", "mac-02-start-empty", "mac-03-private-start", "mac-04-compact-sidebar",
+    "mac-12-external-private", "mac-13-external-moved-to-personal",
     "mac-06-loaded-https", "mac-07-loaded-http", "mac-08-suggestions-keyboard", "mac-09-suggestions-similar",
     *["mac-10-library-" + pane for pane in ("bookmarks", "history", "other-devices")],
     *["mac-11-settings-" + pane for pane in ("general", "profiles", "continuity", "appearance", "privacy", "passwords", "about")],

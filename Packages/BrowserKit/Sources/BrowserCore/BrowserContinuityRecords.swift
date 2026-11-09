@@ -9,6 +9,7 @@ public enum ContinuityPayload: Codable, Equatable, Sendable {
     case preference(UUID, key: String, value: String)
     case tab(UUID, device: UUID, tab: TabRecord, position: Int)
     case device(ContinuityDevice)
+    case openRequest(ContinuityOpenRequest)
 }
 
 public struct ContinuityProfile: Codable, Equatable, Sendable, Identifiable {
@@ -25,6 +26,32 @@ public struct ContinuityDevice: Codable, Equatable, Sendable, Identifiable {
     public var name: String
     public var updatedAt: Date
     public init(id: UUID, name: String, updatedAt: Date = .now) { self.id = id; self.name = name; self.updatedAt = updatedAt }
+}
+
+/// A one-shot request. Its identity is also the receiver's durable application receipt.
+public struct ContinuityOpenRequest: Codable, Equatable, Sendable, Identifiable {
+    public var id: UUID
+    public var targetDeviceID: UUID
+    public var sourceDeviceID: UUID
+    public var sourceDeviceName: String
+    public var url: URL
+    public var title: String
+    public var profileID: UUID
+    public var createdAt: Date
+    public init(id: UUID = UUID(), targetDeviceID: UUID, sourceDeviceID: UUID, sourceDeviceName: String,
+                url: URL, title: String, profileID: UUID, createdAt: Date = .now) {
+        self.id = id; self.targetDeviceID = targetDeviceID; self.sourceDeviceID = sourceDeviceID
+        self.sourceDeviceName = sourceDeviceName; self.url = url; self.title = title; self.profileID = profileID; self.createdAt = createdAt
+    }
+    public func isExpired(at now: Date = .now) -> Bool { now.timeIntervalSince(createdAt) >= 7 * 24 * 60 * 60 }
+    public func targets(_ device: UUID, at now: Date = .now) -> Bool { targetDeviceID == device && !isExpired(at: now) }
+    public func validated() throws -> Self {
+        guard targetDeviceID != sourceDeviceID, ContinuityRecord.safeURL(url), title.count <= 4_000,
+              !sourceDeviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              sourceDeviceName.count <= 80, sourceDeviceName.rangeOfCharacter(from: .controlCharacters) == nil,
+              createdAt.timeIntervalSince1970.isFinite else { throw ContinuityError.invalidData }
+        return self
+    }
 }
 
 public struct ContinuityRecord: Codable, Equatable, Sendable, Identifiable {
@@ -46,7 +73,7 @@ public struct ContinuityRecord: Codable, Equatable, Sendable, Identifiable {
         guard version == 1 else { throw ContinuityError.newerFormat }
         guard id.count <= 240, counter > 0, counter < Int64.max - 100_000 else { throw ContinuityError.invalidData }
         let parts = id.split(separator: ".")
-        let sizes = ["profile": 2, "bookmark": 3, "history": 3, "clear": 3, "preference": 3, "tab": 4, "device": 2]
+        let sizes = ["profile": 2, "bookmark": 3, "history": 3, "clear": 3, "preference": 3, "tab": 4, "device": 2, "open": 2]
         guard let first = parts.first, sizes[String(first)] == parts.count,
               UUID(uuidString: String(parts[1])) != nil else { throw ContinuityError.invalidData }
         if first != "preference", parts.count > 2 {
@@ -70,10 +97,39 @@ public struct ContinuityRecord: Codable, Equatable, Sendable, Identifiable {
         case .device(let value):
             guard id == Self.deviceKey(value.id), !value.name.isEmpty, value.name.count <= 80,
                   value.updatedAt.timeIntervalSince1970.isFinite else { throw ContinuityError.invalidData }
+        case .openRequest(let value):
+            guard id == Self.openRequestKey(value.id), writer == value.sourceDeviceID else { throw ContinuityError.invalidData }
+            _ = try value.validated()
         case nil: break
         }
         return self
     }
+    /// Inspect the encrypted body before decoding the closed Swift enum. Unknown kinds are ignored,
+    /// while malformed known records still reject the complete batch. Never turn an unknown body into a tombstone.
+    public static func decodeIfKnown(from data: Data) throws -> Self? {
+        struct Key: CodingKey {
+            var stringValue: String
+            var intValue: Int? { nil }
+            init?(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { return nil }
+        }
+        struct Kind: Decodable {
+            let name: String
+            init(from decoder: Decoder) throws {
+                let keys = try decoder.container(keyedBy: Key.self).allKeys
+                guard keys.count == 1, let key = keys.first else { throw ContinuityError.invalidData }
+                name = key.stringValue
+            }
+        }
+        struct Header: Decodable { let id: String; let version: Int; let payload: Kind? }
+        let header = try JSONDecoder().decode(Header.self, from: data)
+        let prefixes: Set<String> = ["profile", "bookmark", "history", "clear", "preference", "tab", "device", "open"]
+        let kinds: Set<String> = ["profile", "bookmark", "history", "historyClear", "preference", "tab", "device", "openRequest"]
+        guard let prefix = header.id.split(separator: ".").first, prefixes.contains(String(prefix)),
+              header.payload.map({ kinds.contains($0.name) }) ?? true else { return nil }
+        return try JSONDecoder().decode(Self.self, from: data).validated()
+    }
+    public static func openRequestKey(_ id: UUID) -> String { "open.\(id)" }
     public static let preferenceKeys: Set<String> = ["appearance", "searchEngine", "restoreTabs", "defaultZoom", "adBlockingMode", "adBlockingExceptions", "siteRules"]
     public static func safeURL(_ url: URL) -> Bool { AddressResolver.isWebURL(url) && url.absoluteString.utf8.count <= 16_384 }
     public static func profileKey(_ id: UUID) -> String { "profile.\(id)" }
@@ -227,6 +283,19 @@ public struct ContinuityReplica: Codable, Sendable {
         Dictionary(records.values.compactMap { record in
             if case .preference(let owner, let key, let value) = record.payload, owner == profile { return (key, value) }; return nil
         }, uniquingKeysWith: { a, _ in a })
+    }
+    public func openRequests(targeting device: UUID, at now: Date = .now) -> [ContinuityOpenRequest] {
+        records.values.compactMap { record in
+            if case .openRequest(let request) = record.payload, request.targets(device, at: now) { return request }
+            return nil
+        }.sorted { $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt }
+    }
+    public mutating func expireOpenRequests(at now: Date = .now) throws {
+        let expired = records.values.compactMap { record -> String? in
+            if case .openRequest(let request) = record.payload, request.isExpired(at: now) { return record.id }
+            return nil
+        }
+        for key in expired { try put(key, nil) }
     }
     public var profiles: [ContinuityProfile] { records.values.compactMap { if case .profile(let value) = $0.payload { return value }; return nil }.sorted { $0.id.uuidString < $1.id.uuidString } }
     public var devices: [ContinuityDevice] { records.values.compactMap { if case .device(let value) = $0.payload { return value }; return nil }.sorted { $0.name < $1.name } }

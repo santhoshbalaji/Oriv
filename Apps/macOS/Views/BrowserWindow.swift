@@ -20,15 +20,29 @@ struct BrowserWindow: View {
     @FocusState private var findFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     private var session: BrowserSession { controller.session }
     private var tab: BrowserTab? { session.selectedTab }
+    private var showsExternalPrivateBar: Bool { session.isExternalPrivate && profiles?.externalBannerVisible == true }
     private var compact: Bool { controller.compactSidebar }
     private var addressWidth: CGFloat { min(760, max(230, windowWidth - 470)) }
 
     var body: some View {
         routedContent
-        .onAppear { session.activateSelectedTab(); syncAddress(); if tab?.url == nil { controller.focusAddress() } }
+        .focusedSceneValue(\.browserController, controller)
+        .onAppear {
+            session.activateSelectedTab(); syncAddress(); if tab?.url == nil { controller.focusAddress() }
+            if !session.isExternalPrivate {
+                profiles?.showRegularWindow = { openWindow(id: "browser") }
+                profiles?.showExternalWindow = { openWindow(id: "external-private") }
+                profiles?.closeExternalWindow = { dismissWindow(id: "external-private") }
+                if profiles?.externalPrivate != nil { openWindow(id: "external-private") }
+            }
+        }
+        .onChange(of: session.tabs.count) { _, count in
+            if session.isExternalPrivate && count == 0 { dismissWindow(id: "external-private"); profiles?.endExternalPrivate() }
+        }
         .onChange(of: address) { _, _ in suggestionIndex = nil }
         .onChange(of: session.selectedTabID) { _, _ in addressFocused = false; syncAddress(); showFind = false; showSiteInfo = false; showProtection = false }
         .onChange(of: tab?.url) { _, _ in if !addressFocused { syncAddress() } }
@@ -51,7 +65,7 @@ struct BrowserWindow: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { windowWidth = $0 }
         .toolbar(removing: .title)
-        .navigationTitle(profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
+        .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .toolbar { browserToolbar }
         .overlay(alignment: .top) {
             if addressFocused && !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -135,6 +149,7 @@ struct BrowserWindow: View {
                     Button("New Private Tab", systemImage: "eyeglasses") { controller.newTab(isPrivate: true) }
                     Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { session.reopenClosedTab() }.disabled(!session.canReopenTab)
                     Divider()
+                    if let profiles { SendPageMenu(continuity: profiles.continuity, session: session, profile: controller.profile) }
                     Button("Read Page Text", systemImage: "doc.text") { controller.openReader() }.disabled(tab?.url == nil)
                     Button("Ad Blocking", systemImage: "shield.lefthalf.filled") { showProtection = true }
                     Button("Password AutoFill Help", systemImage: "key") { showPasswords = true }
@@ -172,10 +187,17 @@ struct BrowserWindow: View {
 
     private var page: some View {
             VStack(spacing: 0) {
+                if showsExternalPrivateBar, let profiles {
+                    ExternalPrivateBar(sourceName: profiles.externalSourceName, profiles: profiles.available,
+                        selection: Binding(get: { profiles.externalMoveProfileID }, set: { profiles.externalMoveProfileID = $0 }),
+                        canMove: ExternalLinkRouting.movableURL(tab?.url) != nil,
+                        move: { profiles.perform { try profiles.moveExternalTab() } }, dismiss: { profiles.externalBannerVisible = false })
+                }
                 if session.canUndoBookmarkRemoval {
                     HStack { Text("Bookmark removed").foregroundStyle(theme.secondaryText); Spacer(); Button("Undo") { session.undoBookmarkRemoval() }.buttonStyle(.borderless); Button("Dismiss", systemImage: "xmark") { session.dismissBookmarkUndo() }.labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(theme.secondaryText) }
                         .font(OrivType.detail).padding(.horizontal, OrivSpacing.large).frame(height: 32).background(theme.surface)
                 }
+                if let notice = profiles?.continuity.notice { ContinuityNotice(text: notice) }
                 if let notice = controller.browserNotice {
                     noticeBar(notice, symbol: "checkmark.circle", isWarning: false) { controller.browserNotice = nil }
                 }
@@ -185,7 +207,7 @@ struct BrowserWindow: View {
                     }
                 }
                 // The private start page explains itself; loaded private pages keep this persistent cue.
-                if tab?.isPrivate == true && tab?.url != nil {
+                if tab?.isPrivate == true && !showsExternalPrivateBar && tab?.url != nil {
                     HStack(spacing: 6) {
                         Image(systemName: "eyeglasses")
                         Text("Private browsing")

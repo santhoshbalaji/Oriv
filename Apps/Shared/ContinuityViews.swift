@@ -152,3 +152,41 @@ struct BrowserHandoff: ViewModifier {
             }
     }
 }
+
+struct SendPageMenu: View {
+    let continuity: BrowserContinuity
+    let session: BrowserSession
+    let profile: BrowserProfile?
+    private var page: ContinuityPage? {
+        guard let profile, let tab = session.selectedTab else { return nil }
+        return ContinuityPage(url: tab.url, title: tab.title, profile: profile, isPrivate: tab.isPrivate)
+    }
+    var body: some View {
+        if continuity.canSendPage, let page {
+            if continuity.otherDevices.count == 1, let device = continuity.otherDevices.first {
+                Button("Open on \(device.name)", systemImage: "paperplane") { continuity.sendPage(page, to: device.id) }
+            } else {
+                #if os(macOS)
+                Menu("Open on iPhone", systemImage: "paperplane") { destinations(page) }
+                #else
+                Menu("Open on Mac", systemImage: "paperplane") { destinations(page) }
+                #endif
+            }
+        }
+    }
+    private func destinations(_ page: ContinuityPage) -> some View {
+        ForEach(continuity.otherDevices) { device in
+            Button(device.name) { continuity.sendPage(page, to: device.id) }
+        }
+    }
+}
+
+struct ContinuityNotice: View {
+    @Environment(\.browserTheme) private var theme
+    let text: String
+    var body: some View {
+        Label(text, systemImage: "checkmark.circle").font(OrivType.detail).foregroundStyle(theme.text)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(OrivSpacing.medium).background(theme.surface)
+            .accessibilityElement(children: .combine).accessibilityAddTraits(.updatesFrequently)
+    }
+}

@@ -8,7 +8,7 @@ struct MobileSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var controller: MobileController
     let profiles: MobileProfiles
-    private var profileName: String { profiles.profiles.first { $0.id == controller.profileID }?.name ?? "Personal" }
+    private var profileName: String { profiles.profiles.first { $0.id == controller.profileID }?.name ?? "None (Private)" }
     var body: some View {
         @Bindable var settings = controller.session.settings
         Form {
@@ -17,12 +17,13 @@ struct MobileSettingsView: View {
                     LabeledContent { Text(profileName).foregroundStyle(theme.secondaryText) } label: { rowLabel("Profile", "person.crop.circle", theme) }
                 }
                 NavigationLink { ContinuitySettingsView(continuity: profiles.continuity) } label: { rowLabel("Mac & iPhone", "laptopcomputer.and.iphone", theme) }
-                NavigationLink { MobileAppearanceSettings(appearance: $controller.appearance, profileName: profileName) } label: {
+                NavigationLink { MobileAppearanceSettings(appearance: $controller.appearance, profileName: controller.profileID == nil ? nil : profileName) } label: {
                     LabeledContent { Text(controller.appearance.rawValue).foregroundStyle(theme.secondaryText) } label: { rowLabel("Appearance", "circle.lefthalf.filled", theme) }
                 }.accessibilityIdentifier("appearanceSettings")
             }.listRowBackground(theme.row)
             Section {
                 Picker("Search engine", selection: $settings.searchEngine) { ForEach(SearchEngine.allCases) { Text($0.rawValue).tag($0) } }.id(controller.appearance)
+                Toggle("Open Links from Other Apps Privately", isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
                 Toggle("Restore tabs", isOn: $settings.restoreTabs).tint(theme.accent)
             } header: { Text("Browsing") } footer: {
                 Text("Suggestions stay on this device; searches are sent only when you submit them. Private tabs are never restored.")
@@ -66,11 +67,11 @@ struct MobileAppearanceSettings: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.dynamicTypeSize) private var typeSize
     @Binding var appearance: BrowserAppearance
-    let profileName: String
+    let profileName: String?
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("For the \(profileName) profile.").font(.callout).foregroundStyle(theme.secondaryText)
+                Text(profileName.map { "For the \($0) profile." } ?? "For this private session.").font(.callout).foregroundStyle(theme.secondaryText)
                 LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 155), spacing: OrivSpacing.large)], spacing: OrivSpacing.large) {
                     ForEach(BrowserAppearance.allCases) { choice in
                         Button { appearance = choice } label: {

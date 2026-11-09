@@ -17,13 +17,24 @@ struct PersonalBrowserApp: App {
                 .onAppear { appDelegate.controller = controller; appDelegate.profiles = profiles }
                 .modifier(BrowserHandoff(continuity: profiles.continuity, session: controller.session, profile: profiles.active, open: profiles.openContinuityPage))
                 .onChange(of: phase, initial: true) { _, value in profiles.continuity.setForeground(value == .active) }
-                .onOpenURL { url in profiles.handleIncomingURL(url) }
+                .onOpenURL { url in profiles.handleIncomingURL(url, sourceName: AppDelegate.externalSourceName) }
                 .frame(minWidth: 760, minHeight: 520)
                 .browserAppearance(appearance)
         }
         .defaultSize(width: 1250, height: 820)
         .windowToolbarStyle(.unified)
-        .commands { BrowserCommands(controller: controller, profiles: profiles) }
+        .commands { BrowserCommands(regularController: controller, profiles: profiles) }
+
+        Window("Oriv — Private", id: "external-private") {
+            Group {
+                if let context = profiles.externalPrivate {
+                    BrowserWindow(controller: context, profiles: profiles)
+                        .frame(minWidth: 760, minHeight: 520).browserAppearance(context.appearance)
+                        .onDisappear { profiles.endExternalPrivate() }
+                }
+            }
+        }.defaultSize(width: 1100, height: 760).windowToolbarStyle(.unified)
+        .defaultLaunchBehavior(.suppressed).restorationBehavior(.disabled)
 
         Settings {
             AppearanceSettings(appearance: Binding(get: { controller.appearance }, set: { controller.appearance = $0 }), controller: controller, profiles: profiles)
@@ -34,6 +45,15 @@ struct PersonalBrowserApp: App {
 }
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Only attribute an active URL Apple event with a resolvable sender process.
+    static var externalSourceName: String? {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventClass == AEEventClass(kInternetEventClass), event.eventID == AEEventID(kAEGetURL),
+              let sender = event.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr)),
+              let app = NSRunningApplication(processIdentifier: pid_t(sender.int32Value)),
+              app.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
+        return app.localizedName
+    }
     weak var controller: BrowserController?
     weak var profiles: BrowserProfiles?
     func applicationDidFinishLaunching(_ notification: Notification) {

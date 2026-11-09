@@ -19,6 +19,9 @@ import Observation
     public private(set) var accountVerified = false
     public let isConfigured: Bool
     public let activityType: String
+    public private(set) var notice: String?
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    @ObservationIgnored public var didOpenRequest: ((UUID, UUID) -> Void)?
     @ObservationIgnored private let store: ContinuityStore?
     @ObservationIgnored private let transportFactory: () -> any ContinuityTransport
     @ObservationIgnored private var transport: (any ContinuityTransport)?
@@ -32,6 +35,7 @@ import Observation
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var foreground = false
     @ObservationIgnored private var needsSync = false
+    @ObservationIgnored private var immediateSyncNeeded = false
     @ObservationIgnored private var observedSources: Set<UUID> = []
     public init(root: URL?, deviceName: String, containerIdentifier: String? = nil, activityType: String = "com.santhoshbalaji.oriv.dev.browsing",
                 transportFactory: (() -> any ContinuityTransport)? = nil) {
@@ -78,6 +82,29 @@ import Observation
                 }
             }
         } else { refreshLocal() }
+    }
+    public var otherDevices: [ContinuityDevice] { state.devices.filter { $0.id != state.deviceID } }
+    public var canSendPage: Bool { state.enabled && isConfigured && canSave && accountVerified && !otherDevices.isEmpty }
+    @discardableResult public func sendPage(_ page: ContinuityPage, to deviceID: UUID) -> Bool {
+        guard canSendPage, getProfiles().contains(where: { $0.id == page.profile.id }),
+              let device = otherDevices.first(where: { $0.id == deviceID }) else { return false }
+        do {
+            let request = ContinuityOpenRequest(targetDeviceID: deviceID, sourceDeviceID: state.deviceID,
+                sourceDeviceName: state.deviceName, url: page.url, title: page.title, profileID: page.profile.id)
+            try state.put(ContinuityRecord.openRequestKey(request.id), .openRequest(request)); try persist()
+            showNotice("Sent to \(device.name)")
+            // A send bypasses the normal two-second local-edit debounce.
+            if isSyncing { needsSync = true; immediateSyncNeeded = true }
+            else { task?.cancel(); task = Task { [weak self] in await self?.syncNow() } }
+            return true
+        } catch { status = error.localizedDescription; return false }
+    }
+    private func showNotice(_ text: String) {
+        notice = text; noticeTask?.cancel()
+        noticeTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+            self?.notice = nil
+        }
     }
     public func requestSync() {
         guard state.enabled, canSave, isConfigured else { return }
@@ -147,7 +174,15 @@ import Observation
     public func syncNow() async {
         guard state.enabled, canSave, isConfigured, !isSyncing else { return }
         isSyncing = true; needsSync = false
-        defer { isSyncing = false; if needsSync { requestSync() } }
+        defer {
+            isSyncing = false
+            if needsSync {
+                if immediateSyncNeeded {
+                    immediateSyncNeeded = false
+                    task = Task { [weak self] in await self?.syncNow() }
+                } else { requestSync() }
+            }
+        }
         let epoch = generation
         status = "Syncing with iCloud…"
         do {
@@ -172,15 +207,15 @@ import Observation
             guard state.enabled, generation == epoch else { return }
             try state.bindAccount(fetchedAccount)
             // Capture edits made while awaiting the server before merging its response.
-            try captureAll(); try state.merge(remote)
-            state.pendingApplication = true; try persist(); try applyIncoming()
+            try captureAll(); try state.merge(remote); try state.expireOpenRequests()
+            state.pendingApplication = true; try persist(); try applyIncoming(allowOpenRequests: true)
             // Check the account again immediately before uploading.
             try state.bindAccount(try await transport.accountIdentifier())
             guard state.enabled, generation == epoch else { return }
             let conflicts = try await transport.push(Array(state.records.values))
             guard state.enabled, generation == epoch else { return }
             if !conflicts.isEmpty {
-                try captureAll(); try state.merge(conflicts); state.pendingApplication = true; try persist(); try applyIncoming()
+                try captureAll(); try state.merge(conflicts); try state.expireOpenRequests(); state.pendingApplication = true; try persist(); try applyIncoming(allowOpenRequests: true)
                 status = "Changes merged. Finishing sync…"; requestSync(); return
             }
             state.seedKeys = []; state.lastSync = .now; try persist(); status = needsSync ? "Local changes waiting to sync…" : "Up to date"
@@ -191,7 +226,7 @@ import Observation
             if case ContinuityError.accountChanged = error { transport?.cancel(); transport = nil }
         }
     }
-    private func applyIncoming() throws {
+    private func applyIncoming(allowOpenRequests: Bool = false) throws {
         guard !applying else { return }
         applying = true; defer { applying = false }
         try importProfiles(state.profiles)
@@ -202,6 +237,21 @@ import Observation
             try source.session.applyContinuity(bookmarks: state.bookmarks(for: profile.id), history: state.history(for: profile.id))
             source.applyPreferences(state.preferences(for: profile.id))
             state.observedBookmarks[profile.id] = source.session.bookmarks
+        }
+        // Requests are only applied after this sync has verified the bound account. A recovered
+        // metadata journal may be replayed earlier, but must not navigate before verification.
+        if allowOpenRequests && accountVerified && state.enabled {
+            try state.expireOpenRequests()
+            for request in state.openRequests(targeting: state.deviceID) {
+                // Same rule as Other Devices: import missing identities from synced profiles;
+                // an archived profile stays archived, with delivery pending until restored/expired.
+                guard getProfiles().contains(where: { $0.id == request.profileID }),
+                      let source = sources[request.profileID] else { continue }
+                let opened = try source.session.applyOpenRequest(request)
+                try state.put(ContinuityRecord.openRequestKey(request.id), nil)
+                try persist()
+                if opened, let tabID = source.session.selectedTabID { didOpenRequest?(request.profileID, tabID); showNotice("Opened from \(request.sourceDeviceName)") }
+            }
         }
         state.pendingApplication = false; try persist()
         // Newly received profiles get normal local-change observers after the transaction.
@@ -218,7 +268,7 @@ import Observation
         do { try action() } catch { status = error.localizedDescription }
     }
     public func shutdown() {
-        generation += 1; task?.cancel(); timer?.cancel(); task = nil; timer = nil; transport?.cancel(); transport = nil
+        generation += 1; task?.cancel(); timer?.cancel(); noticeTask?.cancel(); task = nil; timer = nil; transport?.cancel(); transport = nil
         for source in sources.values {
             source.session.onContinuityChange = nil; source.session.onContinuityHistoryRemoved = nil; source.session.onContinuityHistoryCleared = nil
         }
