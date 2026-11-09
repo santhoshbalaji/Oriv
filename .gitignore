@@ -34,3 +34,5 @@ session.backup.json
 .agents/
 .codex/
 .aws/
+.publication-denylist
+/Config/Local.xcconfig

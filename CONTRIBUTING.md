@@ -29,7 +29,15 @@ xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivMobile \
   -derivedDataPath build/mobile CODE_SIGNING_ALLOWED=NO build
 ```
 
-For a signed build, set `ORIV_DEVELOPMENT_TEAM` locally and pass it as a build override. The shell check fails clearly if it is unset. An alternative is an untracked xcconfig under the ignored `build/` directory, supplied with `xcodebuild -xcconfig`; never commit the local value.
+For a signed build, create the ignored `Config/Local.xcconfig`: put your team ID here as a `DEVELOPMENT_TEAM` assignment; never commit it. Supply this file explicitly to Xcode or `xcodebuild -xcconfig Config/Local.xcconfig`. It is not included in the generated project, so regeneration never copies local values into tracked settings:
+
+```sh
+xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivContinuityMobile \
+  -configuration ContinuityDevelopment -destination 'generic/platform=iOS' \
+  -derivedDataPath build/continuity-mobile -xcconfig Config/Local.xcconfig build
+```
+
+Alternatively, set `ORIV_DEVELOPMENT_TEAM` locally and pass it as a build override. The shell check fails clearly if it is unset:
 
 ```sh
 : "${ORIV_DEVELOPMENT_TEAM:?Set ORIV_DEVELOPMENT_TEAM to your own development team}"
@@ -44,3 +52,15 @@ xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivContinuityMobile \
 ```
 
 Configure the capabilities and container association for your own team as described in [browser continuity](docs/browser-continuity.md#build-configuration). Bundle and CloudKit identifiers are public application configuration, not account credentials. The templates under `Config/Distribution/` contain no team selection; copy a needed template to ignored `build/`, set its `teamID` locally, and use that copy. Do not populate the committed templates. `scripts/package-mac.sh` uses local ad-hoc signing by default and accepts an optional `ORIV_SIGNING_IDENTITY` environment override.
+
+## Public repository rules
+
+Never commit Apple account names or roles, team names or IDs, signing identities, provisioning/device lists, personal emails, device names, absolute personal paths, private browsing/QA notes, or account-specific distribution and submission status. Keep other people's names out of published material. The maintainer attribution, noreply Git identities, synthetic example addresses, reusable technical guidance and licensing belong in public source. Use synthetic fixtures and screenshots.
+
+Keep sensitive build/deploy values in the ignored `Config/Local.xcconfig`, ignored local files under `build/`, or local environment variables. Keep personal and operational release records local. Never stage these files with force-add or copy their values into generated projects, patches, commit messages, CI logs or published artifacts.
+
+Run `python3 scripts/check-public-safety.py` to check tracked working files; `scripts/check-browser.sh` runs the same guard in CI. Before pushing, run `python3 scripts/check-public-safety.py --range origin/main..HEAD`. The range mode checks every outgoing commit's full tree, patch (including deletions), message and author/committer identities; a tip such as `--range HEAD` checks its entire history. Empty team settings and explicit local environment references are allowed. Diagnostics withhold matched values.
+
+Optionally create the ignored `.publication-denylist` at the repository root, with one sensitive literal term per line (case insensitive). Blank lines and lines starting with `#` are ignored. Add private names, account/team names and other local-only terms there; never commit the denylist itself. Automated patterns cannot identify every person's name or private screenshot, so review all published content as well.
+
+Run `./scripts/install-pre-push-hook.sh` if you want the local outgoing-commit check before every push. Installation is opt-in and refuses to overwrite an unrelated hook. It handles existing/new refs and deletions without fetching or publishing extra refs. Hooks and the local denylist are not installed by CI or automatically for contributors.

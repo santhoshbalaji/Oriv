@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+python3 scripts/check-public-safety.py
 python3 scripts/check-browser-scope.py
 python3 scripts/check-contrast.py
 mkdir -p build
