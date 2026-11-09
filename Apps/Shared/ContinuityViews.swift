@@ -9,7 +9,8 @@ struct ContinuitySettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Sync with iCloud", isOn: Binding(get: { continuity.state.enabled }, set: continuity.setEnabled)).tint(theme.accent)
+                // Wrap actor-isolated setters to avoid Xcode 26's method-reference reabstraction crash.
+                Toggle("Sync with iCloud", isOn: Binding(get: { continuity.state.enabled }, set: { continuity.setEnabled($0) })).tint(theme.accent)
                     .disabled(!continuity.isConfigured || !continuity.canSave)
                     .accessibilityIdentifier("continuityEnabled")
                 Text("Keep bookmarks, history, profiles, regular tabs and browser preferences available on your Mac and iPhone.")
@@ -33,7 +34,7 @@ struct ContinuitySettingsView: View {
                         .accessibilityLabel("Device name").onSubmit { continuity.setDeviceName(deviceName) }
                 }
                 Button("Save Device Name") { continuity.setDeviceName(deviceName) }.disabled(deviceName == continuity.state.deviceName || deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || deviceName.count > 80)
-                Toggle("Handoff", isOn: Binding(get: { continuity.isConfigured && continuity.state.handoffEnabled }, set: continuity.setHandoff)).tint(theme.accent)
+                Toggle("Handoff", isOn: Binding(get: { continuity.isConfigured && continuity.state.handoffEnabled }, set: { continuity.setHandoff($0) })).tint(theme.accent)
                     .disabled(!continuity.isConfigured || !continuity.canSave)
                 Text("Continue your current regular page on a nearby device signed in to the same Apple Account. Opens a new tab in the matching profile.").font(.caption).foregroundStyle(theme.secondaryText)
             }.listRowBackground(theme.surface)
