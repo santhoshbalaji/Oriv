@@ -4,9 +4,12 @@ import SwiftUI
 /// An AppKit field provides reliable menu-driven focus and selection inside NSToolbar.
 struct AddressField: NSViewRepresentable {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var text: String
     @Binding var isEditing: Bool
     var placeholder = "Search or enter website"
+    var displayText: String? = nil
+    var foreground: Color? = nil
     let focusRequest: Int
     let submit: () -> Bool
     let cancel: () -> Void
@@ -20,7 +23,7 @@ struct AddressField: NSViewRepresentable {
         field.drawsBackground = false
         field.font = .systemFont(ofSize: 13)
         field.placeholderString = placeholder
-        field.lineBreakMode = .byTruncatingTail
+        field.lineBreakMode = .byTruncatingMiddle
         field.maximumNumberOfLines = 1
         field.usesSingleLineMode = true
         field.focusRingType = .none
@@ -34,11 +37,17 @@ struct AddressField: NSViewRepresentable {
 
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
-        field.textColor = theme.isT3Code ? NSColor(theme.text) : .labelColor
+        field.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
+        field.textColor = foreground.map(NSColor.init) ?? (theme.isT3Code ? NSColor(theme.text) : .labelColor)
         field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .foregroundColor: theme.isT3Code ? NSColor(theme.fieldText) : NSColor.placeholderTextColor
+            .foregroundColor: foreground.map(NSColor.init) ?? (theme.isT3Code ? NSColor(theme.fieldText) : NSColor.placeholderTextColor)
         ])
-        if field.stringValue != text { field.stringValue = text }
+        (field as? FocusAwareAddressField)?.editingText = text
+        let editing = field.currentEditor() != nil
+        let value = editing ? text : (displayText ?? text)
+        if field.stringValue != value { field.stringValue = value }
+        field.alignment = editing || displayText == nil ? .left : .center
+        field.setAccessibilityValue(text)
         guard focusRequest > 0, context.coordinator.lastFocusRequest != focusRequest else { return }
         context.coordinator.lastFocusRequest = focusRequest
         DispatchQueue.main.async {
@@ -53,7 +62,13 @@ struct AddressField: NSViewRepresentable {
         var lastFocusRequest = 0
         init(_ parent: AddressField) { self.parent = parent }
         func controlTextDidBeginEditing(_ notification: Notification) { parent.isEditing = true }
-        func controlTextDidEndEditing(_ notification: Notification) { parent.isEditing = false }
+        func controlTextDidEndEditing(_ notification: Notification) {
+            parent.isEditing = false
+            if let field = notification.object as? NSTextField {
+                field.stringValue = parent.displayText ?? parent.text
+                field.alignment = parent.displayText == nil ? .left : .center
+            }
+        }
         func control(_ control: NSControl, textShouldEndEditing fieldEditor: NSText) -> Bool {
             parent.isEditing = false
             return true
@@ -85,11 +100,27 @@ struct AddressField: NSViewRepresentable {
     }
 }
 
-private final class FocusAwareAddressField: NSTextField {
+final class FocusAwareAddressField: NSTextField {
+    var editingText = ""
     var focusBegan: (() -> Void)?
     override func becomeFirstResponder() -> Bool {
+        // Restore the complete address before AppKit creates its field editor.
+        // Merely selecting the compact host would make a click edit the wrong URL.
+        stringValue = editingText
+        alignment = .left
         let accepted = super.becomeFirstResponder()
-        if accepted { DispatchQueue.main.async { [weak self] in self?.focusBegan?() } }
+        if accepted {
+            DispatchQueue.main.async { [weak self] in
+                self?.focusBegan?()
+                self?.currentEditor()?.selectAll(nil)
+            }
+        }
         return accepted
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let wasEditing = currentEditor() != nil
+        super.mouseDown(with: event)
+        if !wasEditing { currentEditor()?.selectAll(nil) }
     }
 }

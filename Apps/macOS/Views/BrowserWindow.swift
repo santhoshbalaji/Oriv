@@ -5,8 +5,12 @@ import WebKit
 
 struct BrowserWindow: View {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
     @Bindable var controller: BrowserController
     var profiles: BrowserProfiles? = nil
+    var initialPageMenu = false
     @State private var windowWidth: CGFloat = 1250
     @State private var address = ""
     @State private var findText = ""
@@ -17,6 +21,9 @@ struct BrowserWindow: View {
     @State private var findCaseSensitive = false
     @State private var addressFocused = false
     @State private var suggestionIndex: Int?
+    @State private var pageChrome = PageChrome()
+    @State private var showTabs = false
+    @State private var showPageMenu = false
     @FocusState private var findFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
@@ -26,12 +33,22 @@ struct BrowserWindow: View {
     private var tab: BrowserTab? { session.selectedTab }
     private var showsExternalPrivateBar: Bool { session.isExternalPrivate && profiles?.externalBannerVisible == true }
     private var compact: Bool { controller.compactSidebar }
-    private var addressWidth: CGFloat { min(760, max(230, windowWidth - 470)) }
+    private var addressWidth: CGFloat { min(640, max(230, windowWidth - 500)) }
+    private var compactAddress: String? { tab?.url.flatMap(URLDisplay.site) }
+    private var compactAddressWidth: CGFloat? {
+        guard !addressFocused, let compactAddress else { return nil }
+        let width = (compactAddress as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
+        return min(ceil(width) + 4, max(60, addressWidth - 180))
+    }
+    private var toolbarTheme: Theme { pageChrome.isDark ? theme : .classic }
+    private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark) }
+    private var privateCue: Color { pageChrome.contrasting(pageChrome.isDark ? Color(red: 0.733, green: 0.522, blue: 0.961) : Color(red: 0.537, green: 0.267, blue: 0.671)) }
 
     var body: some View {
         routedContent
         .focusedSceneValue(\.browserController, controller)
         .onAppear {
+            showPageMenu = initialPageMenu
             session.activateSelectedTab(); syncAddress(); if tab?.url == nil { controller.focusAddress() }
             if !session.isExternalPrivate {
                 profiles?.showRegularWindow = { openWindow(id: "browser") }
@@ -46,6 +63,7 @@ struct BrowserWindow: View {
         .onChange(of: address) { _, _ in suggestionIndex = nil }
         .onChange(of: session.selectedTabID) { _, _ in addressFocused = false; syncAddress(); showFind = false; showSiteInfo = false; showProtection = false }
         .onChange(of: tab?.url) { _, _ in if !addressFocused { syncAddress() } }
+        .onChange(of: controller.addressFocusRequest) { _, _ in showPageMenu = false }
         .onChange(of: controller.findRequest) { _, _ in showFind = true; findFocused = true }
         .onChange(of: controller.findNextRequest) { _, _ in
             showFind = true
@@ -54,19 +72,34 @@ struct BrowserWindow: View {
         }
         .onChange(of: controller.passwordsGuideRequest) { _, _ in showPasswords = true }
         .onChange(of: scenePhase) { _, phase in if phase != .active { session.saveNow() } }
+        .task(id: "\(tab?.id.uuidString ?? "none")-\(tab?.url != nil || tab?.hasLoaded == true)") { pageChrome.observe(tab.flatMap { $0.url != nil || $0.hasLoaded ? $0.webView : nil }, isPrivate: tab?.isPrivate == true) }
+        .onDisappear { pageChrome.observe(nil) }
     }
 
     private var shell: some View {
         HStack(spacing: 0) {
             BrowserSidebar(controller: controller, profiles: profiles, compact: compact)
                 .frame(width: compact ? 56 : 212)
-            Divider()
+                .padding(8)
+            // Extend the page colour, never a mirrored copy of the page's text.
             page
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { windowWidth = $0 }
         .toolbar(removing: .title)
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .toolbar { browserToolbar }
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .toolbarColorScheme(pageChrome.isDark ? .dark : .light, for: .windowToolbar)
+        .background(pageChrome.color, ignoresSafeAreaEdges: [])
+        .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion))
+        .overlay(alignment: .topTrailing) {
+            if showPageMenu {
+                ZStack(alignment: .topTrailing) {
+                    Color.clear.contentShape(Rectangle()).onTapGesture { showPageMenu = false }
+                    pageActionsPanel.padding(12)
+                }
+            }
+        }
         .overlay(alignment: .top) {
             if addressFocused && !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 addressSuggestions.frame(width: addressWidth).padding(.top, OrivSpacing.xs)
@@ -75,34 +108,52 @@ struct BrowserWindow: View {
     }
 
     @ToolbarContentBuilder private var browserToolbar: some ToolbarContent {
-            ToolbarItemGroup(placement: .navigation) {
+            ToolbarItem(placement: .navigation) {
                 Button {
                     controller.compactSidebar.toggle()
                 } label: { Image(systemName: "sidebar.left") }
                     .help(compact ? "Expand sidebar" : "Compact sidebar").accessibilityLabel("Toggle sidebar")
                     .keyboardShortcut("s", modifiers: [.command, .option])
-                Button { tab?.goBack() } label: { Image(systemName: "chevron.left") }
+                    .buttonStyle(.plain).frame(width: 36, height: 32).modifier(chromeGlass)
+                    .foregroundStyle(pageChrome.foreground)
+                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+            }.sharedBackgroundVisibility(.hidden)
+            ToolbarSpacer(.fixed, placement: .navigation)
+            ToolbarItem(placement: .navigation) {
+                HStack(spacing: 2) {
+                Button { tab?.goBack() } label: { Image(systemName: "chevron.left").frame(width: 28, height: 28) }
                     .disabled(tab?.canGoBack != true).help("Back (⌘[)").accessibilityLabel("Back")
-                Button { tab?.goForward() } label: { Image(systemName: "chevron.right") }
+                    .foregroundStyle(pageChrome.foreground)
+                Button { tab?.goForward() } label: { Image(systemName: "chevron.right").frame(width: 28, height: 28) }
                     .disabled(tab?.canGoForward != true).help("Forward (⌘])").accessibilityLabel("Forward")
-            }
+                    .foregroundStyle(pageChrome.foreground)
+                }.buttonStyle(MacChromeButtonStyle()).padding(.horizontal, 6).frame(height: 32)
+                    .modifier(chromeGlass)
+                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+            }.sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 7) {
+                    if tab?.isPrivate == true {
+                        Image(systemName: "eyeglasses").font(OrivType.detail)
+                            .foregroundStyle(privateCue).accessibilityLabel("Private browsing")
+                    }
                     if let tab, tab.url != nil {
                         let cue = ConnectionCue(tab)
                         Button { showSiteInfo.toggle() } label: {
                             HStack(spacing: OrivSpacing.xs) {
                                 Image(systemName: cue.symbol)
                                 if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
-                            }.font(OrivType.detail).foregroundStyle(cue.color(theme)).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
+                            }.font(OrivType.detail).foregroundStyle(pageChrome.foreground).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
                         }.buttonStyle(.plain).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
                             .popover(isPresented: $showSiteInfo) { SiteInformationView(session: session, tab: tab) }
                     } else {
-                        Image(systemName: tab?.isPrivate == true ? "eyeglasses" : "magnifyingglass").font(OrivType.detail)
-                            .foregroundStyle(tab?.isPrivate == true ? theme.privateAccent : theme.secondaryText).accessibilityHidden(true)
+                        Image(systemName: "magnifyingglass").font(OrivType.detail)
+                            .foregroundStyle(pageChrome.foreground).accessibilityHidden(true)
                     }
                     AddressField(text: $address, isEditing: $addressFocused,
                                  placeholder: "Search or enter website",
+                                 displayText: compactAddress,
+                                 foreground: pageChrome.foreground,
                                  focusRequest: controller.addressFocusRequest, submit: {
                             if let index = suggestionIndex, suggestions.indices.contains(index) { chooseSuggestion(suggestions[index]); return true }
                             controller.navigate(address)
@@ -111,56 +162,110 @@ struct BrowserWindow: View {
                             guard !suggestions.isEmpty else { return }
                             suggestionIndex = min(suggestions.count - 1, max(0, (suggestionIndex ?? (offset > 0 ? -1 : suggestions.count)) + offset))
                         })
-                        .frame(height: 20)
-                    if tab?.url != nil {
-                        if let tab, tab.pageZoom != 1 {
-                            Button { tab.resetZoom() } label: {
-                                Text("\(Int(tab.pageZoom * 100))%").font(.caption2).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
-                            }.buttonStyle(.plain).accessibilityLabel("Reset Page Zoom").accessibilityValue("\(Int(tab.pageZoom * 100)) percent").help("Reset Page Zoom")
-                        }
-                        Button { tab?.isLoading == true ? tab?.stop() : tab?.reload() } label: {
-                            Image(systemName: tab?.isLoading == true ? "xmark" : "arrow.clockwise")
-                                .font(OrivType.detail).frame(width: 24, height: 24)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(tab?.isLoading == true ? "Stop loading" : "Reload page")
-                        .help(tab?.isLoading == true ? "Stop loading" : "Reload (⌘R)")
-                    }
+                        .frame(width: compactAddressWidth, height: 20)
+                        .frame(maxWidth: compactAddressWidth == nil ? .infinity : nil)
                 }
-                .padding(.leading, OrivSpacing.medium).padding(.trailing, tab?.url == nil ? 12 : 4)
-                .frame(width: addressWidth, height: 28)
+                .padding(.horizontal, tab?.pageZoom != 1 && tab?.url != nil ? 72 : 36)
+                .frame(width: addressWidth, height: 32)
+                .overlay(alignment: .trailing) {
+                    HStack(spacing: 4) {
+                        if tab?.url != nil {
+                            if let tab, tab.pageZoom != 1 {
+                                Button { tab.resetZoom() } label: {
+                                    Text("\(Int(tab.pageZoom * 100))%").font(.caption2).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
+                                }.buttonStyle(.plain).accessibilityLabel("Reset Page Zoom").accessibilityValue("\(Int(tab.pageZoom * 100)) percent").help("Reset Page Zoom")
+                            }
+                            Button { tab?.isLoading == true ? tab?.stop() : tab?.reload() } label: {
+                                Image(systemName: tab?.isLoading == true ? "xmark" : "arrow.clockwise")
+                                    .font(OrivType.detail).frame(width: 24, height: 24)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(tab?.isLoading == true ? "Stop loading" : "Reload page")
+                            .help(tab?.isLoading == true ? "Stop loading" : "Reload (⌘R)")
+                        }
+                    }.padding(.trailing, 4)
+                }
+                .foregroundStyle(pageChrome.foreground)
+                .modifier(chromeGlass)
+                .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+                .environment(\.browserTheme, toolbarTheme)
                 .overlay {
                     Capsule().strokeBorder(addressFocused ? theme.accent : .clear, lineWidth: 1.5)
                 }
             }
-            ToolbarItemGroup(placement: .primaryAction) {
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: 2) {
                 if controller.downloads.hasActiveDownloads {
                     Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
                         .labelStyle(.iconOnly).help("View downloads in progress")
                 }
-                Button { controller.saveCurrentPage() } label: {
-                    Image(systemName: session.isBookmarked(tab?.url) ? "bookmark.fill" : "bookmark")
+                if let url = tab?.url {
+                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(pageChrome.foreground) }
+                        .help("Share Page").accessibilityLabel("Share Page")
                 }
-                .disabled(tab?.url == nil || tab?.isPrivate == true)
-                .accessibilityLabel("Toggle bookmark")
-                .help("Toggle bookmark (⌘D)")
-                Menu {
-                    Button("New Tab", systemImage: "plus") { controller.newTab() }
-                    Button("New Private Tab", systemImage: "eyeglasses") { controller.newTab(isPrivate: true) }
-                    Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { session.reopenClosedTab() }.disabled(!session.canReopenTab)
-                    Divider()
-                    if let profiles { SendPageMenu(continuity: profiles.continuity, session: session, profile: controller.profile) }
-                    Button("Read Page Text", systemImage: "doc.text") { controller.openReader() }.disabled(tab?.url == nil)
-                    Button("Ad Blocking", systemImage: "shield.lefthalf.filled") { showProtection = true }
-                    Button("Password AutoFill Help", systemImage: "key") { showPasswords = true }
-                } label: { Image(systemName: "ellipsis") }.help("Browser actions").accessibilityLabel("Browser actions")
+                Button { controller.newTab() } label: { Image(systemName: "plus").frame(width: 28, height: 28).foregroundStyle(pageChrome.foreground) }
+                    .help("New Tab (⌘T)").accessibilityLabel("New Tab")
+                Button { showTabs = true } label: { Image(systemName: "square.on.square").frame(width: 28, height: 28).foregroundStyle(pageChrome.foreground) }
+                    .help("Tab Overview").accessibilityLabel("Tab Overview")
+                }.buttonStyle(MacChromeButtonStyle()).padding(.horizontal, 6).frame(height: 32)
+                    .modifier(chromeGlass)
+                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+            }.sharedBackgroundVisibility(.hidden)
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarItem(placement: .primaryAction) {
+                Button { showPageMenu.toggle() } label: { Image(systemName: "ellipsis") }
+                    .help("Browser actions").accessibilityLabel("Browser actions")
+                    .foregroundStyle(pageChrome.foreground)
+                    .buttonStyle(.plain).frame(width: 36, height: 32).modifier(chromeGlass)
+                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
                     .popover(isPresented: $showPasswords) { PasswordsGuide(compact: true) }
                     .popover(isPresented: $showProtection) { AdBlockingPopover(session: session) }
-            }
+            }.sharedBackgroundVisibility(.hidden)
+    }
+
+    private var pageActionsPanel: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(tab?.displayTitle ?? "Oriv").font(.headline).lineLimit(2).padding(8)
+                    Button("New Tab", systemImage: "plus") { showPageMenu = false; controller.newTab() }
+                    Button("New Private Tab", systemImage: "eyeglasses") { showPageMenu = false; controller.newTab(isPrivate: true) }
+                    Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { showPageMenu = false; session.reopenClosedTab() }.disabled(!session.canReopenTab)
+                    Divider()
+                    if let profiles { SendPageMenu(continuity: profiles.continuity, session: session, profile: controller.profile) }
+                    Button(session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: "bookmark") { showPageMenu = false; controller.saveCurrentPage() }
+                        .disabled(tab?.url == nil || tab?.isPrivate == true)
+                    Button("Find on Page", systemImage: "magnifyingglass") { showPageMenu = false; showFind = true; findFocused = true }.disabled(tab?.url == nil)
+                    Button("Zoom In", systemImage: "plus.magnifyingglass") { showPageMenu = false; tab?.zoomIn() }.disabled(tab?.url == nil)
+                    Button("Zoom Out", systemImage: "minus.magnifyingglass") { showPageMenu = false; tab?.zoomOut() }.disabled(tab?.url == nil)
+                    Button("Reset Page Zoom") { showPageMenu = false; tab?.resetZoom() }.disabled(tab?.url == nil)
+                    Button("Read Page Text", systemImage: "doc.text") { showPageMenu = false; controller.openReader() }.disabled(tab?.url == nil)
+                    Button("Ad Blocking", systemImage: "shield.lefthalf.filled") { showPageMenu = false; showProtection = true }
+                    Button("Password AutoFill Help", systemImage: "key") { showPageMenu = false; showPasswords = true }
+        }
+        .buttonStyle(PageMenuButtonStyle()).labelStyle(.titleAndIcon).font(OrivType.body)
+        .padding(16).frame(width: 282, alignment: .leading)
+        .foregroundStyle(theme.text).browserGlass(radius: 22)
+        .focusSection().onExitCommand { showPageMenu = false }
     }
 
     private var panels: some View {
         shell
+        .sheet(isPresented: $showTabs) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack { Text("Tabs").font(.title2); Spacer(); Button("Done") { showTabs = false }.keyboardShortcut(.cancelAction) }
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))]) {
+                        ForEach(session.orderedTabs) { item in
+                            Button { session.selectTab(item.id); showTabs = false } label: {
+                                PageRowContent(title: item.displayTitle, url: item.url, isPrivate: item.isPrivate)
+                                    .padding(16).frame(maxWidth: .infinity, minHeight: 90)
+                                    .background(theme.surface, in: .rect(cornerRadius: 12))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }
+            }.padding(24).frame(width: 760, height: 500)
+        }
+        .onChange(of: controller.library) { _, value in if value != nil { showPageMenu = false } }
         .sheet(item: $controller.library) { section in
             LibraryView(controller: controller, profiles: profiles, section: section)
         }
@@ -215,7 +320,7 @@ struct BrowserWindow: View {
                     }
                     .font(OrivType.caption.weight(.medium)).foregroundStyle(theme.privateAccent)
                     .padding(.horizontal, OrivSpacing.large).frame(height: 24)
-                    .background(theme.privateAccent.opacity(0.08))
+                    .background(theme.field)
                     .accessibilityElement(children: .combine)
                 }
                 if showFind {
@@ -263,11 +368,19 @@ struct BrowserWindow: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(theme.canvas)
+            .background(pageChrome.color, ignoresSafeAreaEdges: [])
     }
 
     @ViewBuilder private func tabContent(_ tab: BrowserTab) -> some View {
-        if tab.url != nil || tab.hasLoaded { WebPageView(tab: tab) }
+        if tab.url != nil || tab.hasLoaded {
+            WebPageView(tab: tab)
+                .overlay(alignment: .top) {
+                    if pageChrome.hasScrolled && !reduceTransparency && !captureReduceTransparency {
+                        LinearGradient(colors: [pageChrome.color, pageChrome.color.opacity(0)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 20).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+        }
         else { StartPage(controller: controller, isPrivate: tab.isPrivate) }
     }
 
@@ -294,6 +407,41 @@ struct BrowserWindow: View {
             if !isWarning || session.canPersist { Button("Dismiss", action: dismiss).buttonStyle(.borderless) }
         }
         .padding(10).background(isWarning ? Color.yellow.opacity(0.12) : theme.surface)
+    }
+}
+
+/// Clear native glass preserves the page hue. A lightly biased backing keeps the
+/// chosen black/white foreground readable even when scrolled imagery passes below.
+/// The sidebar and iPhone retain their own material.
+private struct MacAddressGlass: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    let color: Color
+    let isDark: Bool
+    static let contrastBias = 0.12
+    static let backingOpacity = 0.96
+    func body(content: Content) -> some View {
+        if reduceTransparency || captureReduceTransparency || contrast == .increased {
+            content.background(color, in: Capsule())
+                .overlay { Capsule().strokeBorder(.primary.opacity(0.2), lineWidth: 1) }
+        } else {
+            content
+                .background {
+                    Capsule().fill(color)
+                        .overlay { Capsule().fill((isDark ? Color.black : .white).opacity(Self.contrastBias)) }
+                        .opacity(Self.backingOpacity)
+                }
+                .glassEffect(.clear, in: Capsule())
+        }
+    }
+}
+
+/// Disabled navigation keeps its disabled action/AX state without reducing the
+/// glyph's contrast against a page of arbitrary colour.
+private struct MacChromeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.contentShape(Rectangle())
     }
 }
 
@@ -327,5 +475,13 @@ struct AddressSuggestionList: View {
         }.font(OrivType.body).padding(6).background(theme.surface, in: .rect(cornerRadius: OrivRadius.medium))
             .overlay { RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.separator) }
             .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
+    }
+}
+
+private struct PageMenuButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+            .padding(.horizontal, 8).contentShape(Rectangle())
+            .background(configuration.isPressed ? Color.white.opacity(0.1) : .clear, in: .rect(cornerRadius: 8))
     }
 }

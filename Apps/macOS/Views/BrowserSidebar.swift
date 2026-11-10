@@ -15,7 +15,8 @@ struct BrowserSidebar: View {
     }
 
     var body: some View {
-        Group { if compact { rail } else { expanded } }.background(theme.canvas)
+        Group { if compact { rail } else { expanded } }
+            .browserGlass(radius: 20)
     }
     private var rail: some View {
         VStack(spacing: 14) {

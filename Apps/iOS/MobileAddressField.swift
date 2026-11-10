@@ -17,7 +17,12 @@ struct MobileAddressField: UIViewRepresentable {
         case .large: .large
         case .xLarge: .extraLarge
         case .xxLarge: .extraExtraLarge
-        default: .extraExtraExtraLarge
+        case .xxxLarge: .extraExtraExtraLarge
+        case .accessibility1: .accessibilityMedium
+        case .accessibility2: .accessibilityLarge
+        case .accessibility3: .accessibilityExtraLarge
+        case .accessibility4: .accessibilityExtraExtraLarge
+        default: .accessibilityExtraExtraExtraLarge
         }
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }

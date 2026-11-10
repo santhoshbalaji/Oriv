@@ -89,8 +89,8 @@ targets:
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent: true
         CODE_SIGN_ENTITLEMENTS: Apps/macOS/PersonalBrowser.entitlements
         ENABLE_HARDENED_RUNTIME: true
-        MARKETING_VERSION: 0.7.0
-        CURRENT_PROJECT_VERSION: '7'
+        MARKETING_VERSION: 0.8.0
+        CURRENT_PROJECT_VERSION: '8'
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: local.personalbrowser.qa
@@ -146,8 +146,8 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Apps/iOS/Mobile.entitlements
         GENERATE_INFOPLIST_FILE: true
         TARGETED_DEVICE_FAMILY: '1,2'
-        MARKETING_VERSION: 0.7.0
-        CURRENT_PROJECT_VERSION: '7'
+        MARKETING_VERSION: 0.8.0
+        CURRENT_PROJECT_VERSION: '8'
         INFOPLIST_KEY_CFBundleDisplayName: Oriv-Dev
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:

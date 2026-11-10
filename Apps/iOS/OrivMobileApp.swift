@@ -1,5 +1,6 @@
 import SwiftUI
 import BrowserEngine
+import BrowserCore
 
 @main struct OrivMobileApp: App {
     @State private var profiles = MobileProfiles()
@@ -9,7 +10,7 @@ import BrowserEngine
     #endif
     var body: some Scene {
         WindowGroup {
-            MobileRootView(controller: profiles.current, profiles: profiles).id(profiles.current.profileID).browserAppearance(profiles.current.appearance)
+            MobileRootView(controller: profiles.current, profiles: profiles).id(profiles.current.profileID).browserAppearance(profiles.current.appearance, followsPage: true)
                 .modifier(BrowserHandoff(continuity: profiles.continuity, session: profiles.current.session,
                     profile: profiles.profiles.first { $0.id == profiles.current.profileID } ?? .personal, open: profiles.openContinuityPage))
                 .onAppear {
@@ -19,6 +20,20 @@ import BrowserEngine
                     // default browser. Repeat the argument to check grouped incoming links.
                     if !routedSimulatorLinks {
                         routedSimulatorLinks = true
+                        if let mode = ChromeVisualFixture.mode {
+                            if mode == "private" { profiles.route(URL(string: "https://docs.example.com/designing-calm-interfaces")!) }
+                            let current = profiles.current.session
+                            Task { @MainActor in
+                                // Let the routed view attach before loading its local document.
+                                try? await Task.sleep(for: .milliseconds(500))
+                                for i in 0..<(mode == "private" ? 1 : 4) {
+                                    let tab = i == 0 ? current.selectedTab! : current.addTab(select: false, load: false)
+                                    tab.stop(); tab.dismissError()
+                                    tab.webView.frame = CGRect(x: 0, y: 0, width: 440, height: 880)
+                                    tab.webView.loadHTMLString(ChromeVisualFixture.html(dark: mode == "dark" || i == 2, card: i), baseURL: URL(string: "https://docs.example.com/designing-calm-interfaces"))
+                                }
+                            }
+                        }
                         let arguments = ProcessInfo.processInfo.arguments
                         for index in arguments.indices where arguments[index] == "--oriv-external-url" && index + 1 < arguments.count {
                             if let url = URL(string: arguments[index + 1]) { profiles.route(url) }

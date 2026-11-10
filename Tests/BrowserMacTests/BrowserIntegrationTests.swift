@@ -108,7 +108,7 @@ final class BrowserIntegrationTests: XCTestCase {
         window.collectionBehavior = [.moveToActiveSpace]
         window.center()
         window.contentView = view
-        NSApplication.shared.activate()
+        NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
         return window

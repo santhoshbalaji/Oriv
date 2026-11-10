@@ -22,6 +22,7 @@ struct PersonalBrowserApp: App {
                 .browserAppearance(appearance)
         }
         .defaultSize(width: 1250, height: 820)
+        .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands { BrowserCommands(regularController: controller, profiles: profiles) }
 
@@ -33,7 +34,7 @@ struct PersonalBrowserApp: App {
                         .onDisappear { profiles.endExternalPrivate() }
                 }
             }
-        }.defaultSize(width: 1100, height: 760).windowToolbarStyle(.unified)
+        }.defaultSize(width: 1100, height: 760).windowStyle(.hiddenTitleBar).windowToolbarStyle(.unified)
         .defaultLaunchBehavior(.suppressed).restorationBehavior(.disabled)
 
         Settings {

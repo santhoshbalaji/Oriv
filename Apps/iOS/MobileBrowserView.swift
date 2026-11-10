@@ -13,6 +13,12 @@ struct MobileBrowserView: View {
     @State private var consumedFocusRequest = 0
     @State private var finding = false
     @State private var findText = ""
+    @State private var pageChrome = PageChrome()
+    @State private var minimized = false
+    @State private var barHeight: CGFloat = 64
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
     @FocusState private var findFocused: Bool
     private var tab: BrowserTab? { controller.session.selectedTab }
     private var showsExternalPrivateBar: Bool { controller.session.isExternalPrivate && profiles.externalBannerVisible }
@@ -20,39 +26,51 @@ struct MobileBrowserView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                addressBar
-                if showsExternalPrivateBar {
-                    ExternalPrivateBar(sourceName: nil, profiles: profiles.profiles.filter { $0.archivedAt == nil },
-                        selection: Binding(get: { profiles.externalMoveProfileID }, set: { profiles.externalMoveProfileID = $0 }),
-                        canMove: ExternalLinkRouting.movableURL(tab?.url) != nil,
-                        move: { profiles.moveExternalTab() }, dismiss: { profiles.externalBannerVisible = false })
+            GeometryReader { geometry in
+                ZStack {
+                    pageChrome.color.ignoresSafeArea()
+                    if editingAddress {
+                        suggestions.background(theme.canvas)
+                            .safeAreaBar(edge: .bottom) { addressEditor }
+                    } else {
+                        page(top: geometry.safeAreaInsets.top, bottom: geometry.safeAreaInsets.bottom + barHeight)
+                            .ignoresSafeArea(.container, edges: [.top, .bottom])
+                            .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+                            .scrollEdgeEffectHidden(reduceTransparency, for: [.top, .bottom])
+                            .safeAreaBar(edge: .bottom) {
+                                bottomChrome.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
+                            }
+                            .overlay(alignment: .top) {
+                                VStack(spacing: 0) { notices; if finding { findBar } }
+                            }
+                    }
                 }
-                if let tab, tab.isLoading { ProgressView(value: tab.progress).tint(theme.accent).accessibilityLabel("Loading page") }
-                // Shown while editing too, so a new private tab never looks like a regular one.
-                if tab?.isPrivate == true && !showsExternalPrivateBar && (tab?.url != nil || editingAddress) {
-                    Label("Private", systemImage: "eyeglasses").font(.footnote.weight(.medium)).foregroundStyle(theme.privateAccent)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.bottom, OrivSpacing.xs)
-                        .accessibilityElement(children: .combine)
+                .overlay(alignment: .top) {
+                    if !editingAddress {
+                        statusBackdrop.frame(height: geometry.safeAreaInsets.top + 20)
+                            .offset(y: -geometry.safeAreaInsets.top)
+                            .allowsHitTesting(false).accessibilityHidden(true)
+                    }
                 }
-                if !editingAddress {
-                    notices
-                    if finding { findBar }
-                    page
-                    browserToolbar
-                } else { suggestions }
-            }.background(theme.canvas).toolbar(.hidden, for: .navigationBar)
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            .preferredColorScheme(editingAddress || tab?.url == nil ? controller.appearance.colorScheme : (pageChrome.isDark ? .dark : .light))
+            .task(id: "\(tab?.id.uuidString ?? "none")-\(tab?.url != nil || tab?.hasLoaded == true)") { pageChrome.observe(tab.flatMap { $0.url != nil || $0.hasLoaded ? $0.webView : nil }) }
+            .onDisappear { pageChrome.observe(nil) }
                 .onAppear { controller.session.activateSelectedTab() }
                 .task(id: controller.addressFocusRequest) {
                     await Task.yield()
                     consumeFocusRequest()
                 }
                 .onChange(of: controller.session.tabs.count) { _, _ in profiles.finishExternalGroupIfEmpty() }
-                .onChange(of: tab?.id) { _, _ in finding = false; findText = ""; editingAddress = false }
-                .sheet(item: $controller.sheet, onDismiss: consumeFocusRequest) { sheet in
+                .onChange(of: tab?.id) { _, _ in finding = false; findText = ""; editingAddress = false; minimized = false }
+                .fullScreenCover(isPresented: Binding(get: { controller.sheet == .tabs }, set: { if !$0 { controller.sheet = nil } }), onDismiss: consumeFocusRequest) {
+                    MobileTabsView(controller: controller, profiles: profiles).browserAppearance(controller.appearance)
+                }
+                .sheet(item: Binding(get: { controller.sheet == .tabs ? nil : controller.sheet }, set: { controller.sheet = $0 }), onDismiss: consumeFocusRequest) { sheet in
                     Group {
                     switch sheet {
-                    case .tabs: MobileTabsView(controller: controller, profileName: profileName, profiles: profiles.profiles.filter { $0.archivedAt == nil }.count)
+                    case .tabs: MobileTabsView(controller: controller, profiles: profiles)
                     case .library: MobileLibraryView(controller: controller, profiles: profiles)
                     case .settings: NavigationStack { MobileSettingsView(controller: controller, profiles: profiles) }
                     case .site: if let tab { NavigationStack { MobileSiteSettings(session: controller.session, tab: tab) } }
@@ -72,45 +90,102 @@ struct MobileBrowserView: View {
         if tab?.url == nil { beginAddressEditing() }
     }
 
-    private var addressBar: some View {
-        VStack(spacing: OrivSpacing.small) {
-            if editingAddress {
-                CappedAddressEditor(text: $address, editing: $editingAddress, submit: submitAddress)
-                    .padding(.horizontal, OrivSpacing.medium).background(theme.field, in: .rect(cornerRadius: OrivRadius.large))
-                HStack {
-                    Spacer(); Button("Cancel") { editingAddress = false; address = tab?.url?.absoluteString ?? "" }
-                }
-            } else {
-                HStack(spacing: OrivSpacing.xs) {
-                    if let tab, tab.url != nil {
-                        let cue = ConnectionCue(tab)
-                        Button { controller.sheet = .site } label: {
-                            HStack(spacing: OrivSpacing.xs) {
-                                Image(systemName: cue.symbol)
-                                if cue == .notSecure { Text(cue.label).font(.subheadline.weight(.medium)).lineLimit(1).layoutPriority(1) }
-                            }.font(.subheadline).foregroundStyle(cue.color(theme))
-                                .frame(minWidth: 44, minHeight: 44).padding(.leading, cue == .notSecure ? 10 : 0).contentShape(Rectangle())
-                        }.accessibilityLabel("\(cue.label). Site settings").accessibilityShowsLargeContentViewer()
-                    } else {
-                        Image(systemName: tab?.isPrivate == true ? "eyeglasses" : "magnifyingglass").font(.subheadline)
-                            .foregroundStyle(tab?.isPrivate == true ? theme.privateAccent : theme.secondaryText).frame(width: 44, height: 44).accessibilityHidden(true)
-                    }
-                    Button(action: beginAddressEditing) {
-                        Text(tab?.url?.host() ?? (tab?.isPrivate == true ? "Private search or address" : "Search or enter address"))
-                            .font(.body).foregroundStyle(tab?.url == nil ? theme.secondaryText : theme.text).lineLimit(1).truncationMode(.middle)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityIdentifier("browserAddressDisplay").accessibilityShowsLargeContentViewer()
-                        .accessibilityLabel("Address and search, \(tab?.url?.absoluteString ?? (tab?.isPrivate == true ? "private tab" : "new tab"))")
-                    if tab?.url != nil {
-                        Button(tab?.isLoading == true ? "Stop" : "Reload", systemImage: tab?.isLoading == true ? "xmark" : "arrow.clockwise") {
-                            tab?.isLoading == true ? tab?.stop() : tab?.reload()
-                        }.labelStyle(.iconOnly).font(.subheadline).foregroundStyle(theme.secondaryText).frame(width: 44, height: 44)
-                    }
-                }.padding(.horizontal, 2).background(theme.field, in: .rect(cornerRadius: OrivRadius.large))
+    private var bottomChrome: some View {
+        VStack(spacing: 8) {
+            if showsExternalPrivateBar {
+                ExternalPrivateBar(sourceName: nil, profiles: profiles.profiles.filter { $0.archivedAt == nil },
+                    selection: Binding(get: { profiles.externalMoveProfileID }, set: { profiles.externalMoveProfileID = $0 }),
+                    canMove: ExternalLinkRouting.movableURL(tab?.url) != nil,
+                    move: { profiles.moveExternalTab() }, dismiss: { profiles.externalBannerVisible = false })
             }
-        }.padding(.horizontal, OrivSpacing.medium).padding(.vertical, OrivSpacing.small)
-            // Like Safari, the address bar stops growing at the largest standard size; long-press shows the large content viewer.
-            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            if minimized && !typeSize.isAccessibilitySize && !finding {
+                Button {
+                    setMinimized(false)
+                } label: {
+                    HStack(spacing: 5) {
+                        if tab?.isPrivate == true { Image(systemName: "eyeglasses").foregroundStyle(theme.privateAccent) }
+                        if let tab, ConnectionCue(tab) == .notSecure { Text("Not secure").foregroundStyle(theme.warning) }
+                        Text(tab?.hostname ?? "Oriv").lineLimit(1)
+                    }.font(.caption.weight(.medium)).foregroundStyle(theme.text)
+                        .padding(.horizontal, 16).frame(minHeight: 32).browserGlass()
+                        .frame(minHeight: 44).contentShape(Capsule())
+                }.buttonStyle(.plain).accessibilityLabel("\(tab?.isPrivate == true ? "Private browsing. " : "")Expand browser controls, \(tab?.hostname ?? "Oriv")")
+                    .accessibilityIdentifier("browserCompactAddress")
+            } else {
+                GlassEffectContainer(spacing: 8) {
+                    if typeSize.isAccessibilitySize {
+                        VStack(spacing: 8) {
+                            addressCapsule
+                            HStack { backButton; Spacer(); pageMenu.frame(width: 48, height: 48).browserGlass() }
+                        }
+                    } else {
+                        HStack(spacing: 8) {
+                            backButton
+                            addressCapsule
+                            pageMenu.frame(width: 48, height: 48).browserGlass()
+                        }
+                    }
+                }.padding(.horizontal, typeSize.isAccessibilitySize ? 12 : 24)
+            }
+        }.padding(.vertical, 8).foregroundStyle(theme.text)
+            .environment(\.colorScheme, .dark)
+    }
+
+    private var backButton: some View {
+        Button { tab?.goBack() } label: {
+            Image(systemName: "chevron.left").font(.system(size: 21, weight: .medium)).frame(width: 48, height: 48)
+        }.disabled(tab?.canGoBack != true).buttonStyle(.plain).browserGlass().accessibilityLabel("Back")
+    }
+
+    private var statusBackdrop: some View {
+        Rectangle().fill(reduceTransparency ? AnyShapeStyle(pageChrome.color) : AnyShapeStyle(.ultraThinMaterial))
+            .overlay(pageChrome.color.opacity(reduceTransparency ? 1 : 0.65))
+            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.68), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+    }
+
+    private var addressCapsule: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Button { controller.sheet = .site } label: {
+                    Image(systemName: tab?.isPrivate == true ? "eyeglasses" : (tab.map { ConnectionCue($0).symbol } ?? "magnifyingglass"))
+                        .font(.system(size: 20))
+                        .foregroundStyle(tab?.isPrivate == true ? theme.privateAccent : theme.text)
+                        .frame(width: 44, height: 48)
+                }.disabled(tab?.url == nil).accessibilityLabel("\(tab?.isPrivate == true ? "Private browsing. " : "")\(tab.map { ConnectionCue($0).label } ?? "New tab"). Site settings")
+                Button(action: beginAddressEditing) {
+                    Text(tab?.url?.host() ?? (tab?.isPrivate == true ? "Private search" : "Search or address"))
+                        .font(.body).foregroundStyle(theme.text).lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: .infinity, minHeight: 48).contentShape(Rectangle())
+                }.accessibilityIdentifier("browserAddressDisplay").accessibilityShowsLargeContentViewer()
+                    .accessibilityLabel("Address and search, \(tab?.url?.absoluteString ?? (tab?.isPrivate == true ? "private tab" : "new tab"))")
+                Button(tab?.isLoading == true ? "Stop" : "Reload", systemImage: tab?.isLoading == true ? "xmark" : "arrow.clockwise") {
+                    tab?.isLoading == true ? tab?.stop() : tab?.reload()
+                }.labelStyle(.iconOnly).font(.system(size: 20)).frame(width: 44, height: 48).disabled(tab?.url == nil)
+            }
+            if let tab, ConnectionCue(tab) == .notSecure {
+                Text("Not secure").font(.caption.weight(.medium)).foregroundStyle(theme.warning).padding(.bottom, 6)
+            }
+        }.padding(.vertical, typeSize.isAccessibilitySize ? 8 : 0).buttonStyle(.plain).browserGlass()
+    }
+
+    private var addressEditor: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                if tab?.isPrivate == true { Image(systemName: "eyeglasses").font(.system(size: 20)).foregroundStyle(theme.privateAccent).accessibilityLabel("Private") }
+                CappedAddressEditor(text: $address, editing: $editingAddress, submit: submitAddress)
+            }.padding(.horizontal, 14).padding(.vertical, 4).browserGlass()
+            Button {
+                editingAddress = false; address = tab?.url?.absoluteString ?? ""
+            } label: { Image(systemName: "xmark").font(.system(size: 20)).frame(width: 48, height: 48) }
+                .buttonStyle(.plain).browserGlass().accessibilityLabel("Cancel address editing")
+        }.foregroundStyle(theme.text).padding(12).background(theme.canvas)
+            .environment(\.colorScheme, .dark)
+    }
+
+    private func setMinimized(_ value: Bool) {
+        guard !typeSize.isAccessibilitySize else { minimized = false; return }
+        if reduceMotion { minimized = value }
+        else { withAnimation(.easeInOut(duration: 0.2)) { minimized = value } }
     }
     @ViewBuilder private var notices: some View {
         if let notice = profiles.continuity.notice { ContinuityNotice(text: notice) }
@@ -135,11 +210,16 @@ struct MobileBrowserView: View {
             }
         }.padding(OrivSpacing.medium).background(theme.surface)
     }
-    @ViewBuilder private var page: some View {
+    @ViewBuilder private func page(top: CGFloat, bottom: CGFloat) -> some View {
         if let tab, tab.url != nil {
             if let error = tab.errorMessage {
                 ContentUnavailableView { Label("Page could not load", systemImage: "network.slash") } description: { Text(error) } actions: { Button("Try Again") { tab.reload() } }
-            } else { MobileWebView(webView: tab.webView).id(tab.id) }
+                    .background(theme.canvas).environment(\.colorScheme, controller.appearance.colorScheme ?? .dark)
+            } else { MobileWebView(webView: tab.webView, topInset: top, bottomInset: bottom, reduceTransparency: reduceTransparency, onScroll: { offset, down in
+                if offset < 40 { setMinimized(false) }
+                else if offset > 120 && down && !showsExternalPrivateBar { setMinimized(true) }
+                else if !down { setMinimized(false) }
+            }).id(tab.id) }
         } else { home }
     }
     private var otherProfiles: Bool { profiles.profiles.filter { $0.archivedAt == nil }.count > 1 }
@@ -206,21 +286,12 @@ struct MobileBrowserView: View {
             }.padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).scrollDismissesKeyboard(.interactively)
     }
-    private var browserToolbar: some View {
-        HStack(spacing: 0) {
-            Button("Back", systemImage: "chevron.left") { tab?.goBack() }.disabled(tab?.canGoBack != true)
-                .frame(maxWidth: .infinity, minHeight: 48)
-            Button("Forward", systemImage: "chevron.right") { tab?.goForward() }.disabled(tab?.canGoForward != true)
-                .frame(maxWidth: .infinity, minHeight: 48)
-            Button { controller.sheet = .library } label: {
-                Image(systemName: controller.downloads.hasActivity ? "arrow.down.circle" : "book")
-                    .foregroundStyle(controller.downloads.hasActivity ? theme.accentText : theme.text)
-            }.accessibilityLabel(controller.downloads.hasActivity ? "Library, downloads available" : "Library").frame(maxWidth: .infinity, minHeight: 48)
-            Button { controller.sheet = .tabs } label: {
-                Text("\(controller.session.tabs.count)").font(.footnote.weight(.semibold)).monospacedDigit()
-                    .frame(minWidth: 22, minHeight: 22).overlay { RoundedRectangle(cornerRadius: OrivRadius.compact).strokeBorder(lineWidth: 1.5) }
-            }.accessibilityLabel("Tabs, \(controller.session.tabs.count) open, \(controller.profileID == nil ? "External Private Tabs" : "profile " + profileName)").accessibilityIdentifier("browserTabs").frame(maxWidth: .infinity, minHeight: 48)
+    private var pageMenu: some View {
             Menu {
+                Button("Forward", systemImage: "chevron.right") { tab?.goForward() }.disabled(tab?.canGoForward != true)
+                Button("Tabs (\(controller.session.tabs.count))", systemImage: "square.on.square") { controller.sheet = .tabs }
+                Button(controller.downloads.hasActivity ? "Library, downloads available" : "Library", systemImage: "book") { controller.sheet = .library }
+                Button("Site Settings", systemImage: "slider.horizontal.3") { controller.sheet = .site }.disabled(tab?.url == nil)
                 Button(controller.session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: controller.session.isBookmarked(tab?.url) ? "bookmark.fill" : "bookmark") { controller.session.toggleBookmark() }.disabled(tab?.url == nil || tab?.isPrivate == true)
                 SendPageMenu(continuity: profiles.continuity, session: controller.session, profile: profiles.profiles.first { $0.id == controller.profileID })
                 Button("Share", systemImage: "square.and.arrow.up") { controller.sheet = .share }.disabled(tab?.url == nil)
@@ -247,11 +318,9 @@ struct MobileBrowserView: View {
                     Button("External Private Tabs", systemImage: "eyeglasses") { profiles.showExternalPrivate() }
                 }
                 Section { Button("Settings", systemImage: "gearshape") { controller.sheet = .settings } }
-            } label: { Label("Page options and settings", systemImage: "ellipsis").frame(maxWidth: .infinity, minHeight: 48) }
-        // Toolbar glyphs keep their compact geometry; the count above uses scalable footnote text.
-        }.labelStyle(.iconOnly).font(.system(size: 18)).tint(theme.text).padding(.horizontal, OrivSpacing.small).background(theme.chrome)
+            } label: { Label("Page options and settings", systemImage: "ellipsis").labelStyle(.iconOnly).font(.system(size: 22, weight: .semibold)).frame(width: 48, height: 48).contentShape(Circle()) }.accessibilityIdentifier("browserPageMenu")
     }
-    private func beginAddressEditing() { address = tab?.url?.absoluteString ?? ""; editingAddress = true }
+    private func beginAddressEditing() { minimized = false; address = tab?.url?.absoluteString ?? ""; editingAddress = true }
     private func submitAddress() {
         do { try controller.session.navigate(address); editingAddress = false }
         catch { controller.message = error.localizedDescription }
@@ -264,12 +333,6 @@ private struct MobilePageShare: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [url, webView], applicationActivities: nil) }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
-private struct MobileWebView: UIViewRepresentable {
-    let webView: WKWebView
-    func makeUIView(context: Context) -> WKWebView { webView }
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
-}
-
 /// Read the capped environment inside the address bar, rather than scaling at the screen root.
 private struct CappedAddressEditor: View {
     @Binding var text: String

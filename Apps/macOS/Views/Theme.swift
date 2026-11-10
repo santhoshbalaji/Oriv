@@ -143,24 +143,26 @@ extension EnvironmentValues {
 
 private struct BrowserAppearanceModifier: ViewModifier {
     let appearance: BrowserAppearance
+    var followsPage = false
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     func body(content: Content) -> some View {
         let theme = appearance.theme.respecting(contrast)
         content.environment(\.browserTheme, theme)
-            .preferredColorScheme(appearance.colorScheme)
+            .preferredColorScheme(followsPage ? nil : appearance.colorScheme)
             // macOS 27 uses tint for Form picker values and text buttons, just as iOS does.
             // Text controls inherit accentText; fills, focus and selection opt in to accent/controlFill.
             .tint(theme.accentText).accentColor(theme.accentText)
+            #if os(macOS)
+            .background(theme.canvas, ignoresSafeAreaEdges: [])
+            #else
             .background(theme.canvas)
+            #endif
             .transaction { transaction in
                 if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
             }
-            #if os(macOS)
-            .toolbarBackground(theme.chrome, for: .windowToolbar)
-            .toolbarBackground((theme.isT3Code || reduceTransparency) ? .visible : .automatic, for: .windowToolbar)
-            #else
+            #if os(iOS)
             .toolbarBackground(theme.chrome, for: .navigationBar, .tabBar)
             .toolbarBackground((theme.isT3Code || reduceTransparency) ? .visible : .automatic, for: .navigationBar, .tabBar)
             #endif
@@ -176,8 +178,8 @@ private struct RowTitleLines: ViewModifier {
 extension View {
     func rowTitleLines() -> some View { modifier(RowTitleLines()) }
 
-    func browserAppearance(_ appearance: BrowserAppearance) -> some View {
-        modifier(BrowserAppearanceModifier(appearance: appearance))
+    func browserAppearance(_ appearance: BrowserAppearance, followsPage: Bool = false) -> some View {
+        modifier(BrowserAppearanceModifier(appearance: appearance, followsPage: followsPage))
     }
 }
 

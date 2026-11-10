@@ -44,8 +44,9 @@ import WebKit
         } catch {
             fputs("snapshot directory unavailable: \(error)\n", stderr); exit(2)
         }
-        if activate { NSApp.activate() }
-        await renderScenes(into: directory, activate: activate)
+        if activate { NSApp.setActivationPolicy(.regular); NSApp.activate() }
+        if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
+        else { await renderScenes(into: directory, activate: activate) }
         manifest.finishedAt = Date()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -156,6 +157,65 @@ import WebKit
         }
     }
 
+    private static func renderGlassScenes(into directory: URL, activate: Bool) async {
+        let requested = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"] ?? "all"
+        for mode in ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "private", "reduced", "insecure"] where requested == "all" || mode == requested {
+            let profiles = BrowserProfiles(testing: true)
+            var controller = profiles.controller
+            if mode == "private" {
+                profiles.handleIncomingURL(URL(string: "https://docs.example.com/designing-calm-interfaces")!, sourceName: "Example App")
+                controller = profiles.externalPrivate!
+            }
+            let tab = controller.session.selectedTab!
+            let address = "\(mode == "insecure" ? "http" : "https")://docs.example.com/designing-calm-interfaces"
+            var html = ChromeVisualFixture.html(dark: mode.hasPrefix("dark") || mode.hasPrefix("theme") || mode == "private")
+            if mode.hasPrefix("theme") { html = html.replacingOccurrences(of: "#111111", with: "#1F6F5C") }
+            if mode == "private" { html = html.replacingOccurrences(of: "#111111", with: "#000000") }
+            tab.webView.loadHTMLString(html, baseURL: URL(string: address))
+            if mode != "private" {
+                for (card, path) in [(1, "room"), (2, "materials")] {
+                    let url = URL(string: "https://docs.example.com/\(path)")!
+                    let backgroundTab = controller.session.addTab(url: url, select: false, load: false)
+                    backgroundTab.webView.loadHTMLString(ChromeVisualFixture.html(card: card), baseURL: url)
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(900))
+            await capture("mac-glass-\(mode)", directory, CGSize(width: 1440, height: 848), key: activate, settle: 1_400, compositeWeb: tab.webView,
+                          expectedFields: ["addressField": mode == "focused" ? address : "docs.example.com"],
+                          prepare: { window in
+                if mode.hasSuffix("scrolled") {
+                    _ = try? await tab.webView.evaluateJavaScript("window.scrollTo(0, 560)")
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                if mode == "focused" {
+                    // Exercise the same focus request as the real Command-L menu item.
+                    controller.focusAddress()
+                    try? await Task.sleep(for: .milliseconds(500))
+                    if let editor = window.firstResponder as? NSTextView,
+                       editor.string == address, editor.selectedRange() == NSRange(location: 0, length: (address as NSString).length) {} else {
+                        manifest.failures.append("focused address did not select the complete URL")
+                    }
+                }
+                let geometry = (try? await tab.webView.evaluateJavaScript("({scrollY:window.scrollY,headerTop:document.querySelector('header').getBoundingClientRect().top})")) as? [String: Any] ?? [:]
+                let scrollY = (geometry["scrollY"] as? NSNumber)?.doubleValue ?? -1
+                if mode.hasSuffix("scrolled") ? scrollY < 500 : abs(scrollY) > 1 {
+                    manifest.failures.append("\(mode): unexpected scroll position \(scrollY)")
+                }
+                let webFrame = tab.webView.convert(tab.webView.bounds, to: nil)
+                let metrics: [String: Any] = ["scroll": geometry, "obscuredTop": tab.webView.obscuredContentInsets.top,
+                    "webTopInWindow": webFrame.maxY, "contentLayoutTop": window.contentLayoutRect.maxY,
+                    "titlebarTransparent": window.titlebarAppearsTransparent, "separatorStyle": window.titlebarSeparatorStyle.rawValue]
+                if let data = try? JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: directory.appendingPathComponent("mac-glass-\(mode)-geometry.json"))
+                }
+            }) {
+                BrowserWindow(controller: controller, profiles: profiles, initialPageMenu: mode == "menu")
+                    .environment(\.chromeReduceTransparencyOverride, mode == "reduced")
+            }
+            profiles.shutdown()
+        }
+    }
+
     private static func fixturePage(scheme: String) -> String {
         """
         <!doctype html><html><head><meta name=viewport content="width=device-width"><title>Visual check article</title>
@@ -204,16 +264,22 @@ import WebKit
     private static func capture<Content: View>(_ name: String, _ directory: URL, _ size: CGSize, key: Bool, settle: Int = 900,
                                                compositeWeb webView: WKWebView? = nil, toolbarStyle: NSWindow.ToolbarStyle = .unified,
                                                expectedFields: [String: String] = [:],
+                                               prepare: (NSWindow) async -> Void = { _ in },
                                                @ViewBuilder content: () -> Content) async {
         let hosting = NSHostingController(rootView: content().browserAppearance(.t3Code))
         hosting.sceneBridgingOptions = [.toolbars, .title]
+        let liveGlass = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"]?.isEmpty == false
+        var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+        if liveGlass { style.insert(.fullSizeContentView) }
         let window = OffscreenWindow(contentRect: CGRect(origin: .zero, size: size),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+                              styleMask: style, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        // Capture stable geometry, without an inferred WindowServer opening animation.
+        window.animationBehavior = .none
         window.toolbarStyle = toolbarStyle
         window.contentViewController = hosting
         window.setContentSize(size)
-        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
+        window.setFrameOrigin(liveGlass ? NSPoint(x: 40, y: 60) : NSPoint(x: -30_000, y: -30_000))
         if key {
             // Closing the previous key window can deactivate the app, so activate for every scene.
             NSApp.activate(ignoringOtherApps: true)
@@ -228,22 +294,43 @@ import WebKit
             window.makeKeyAndOrderFront(nil)
             try? await Task.sleep(for: .milliseconds(150))
         }
+        await prepare(window)
         window.displayIfNeeded()
         if key && !window.isKeyWindow { manifest.failures.append("\(name): requested an active window but it did not become key") }
-        guard let frame = window.contentView?.superview,
-              let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else {
-            manifest.failures.append("\(name): no window frame to render"); return
-        }
         func fields(in view: NSView) -> [NSTextField] {
             ((view as? NSTextField).map { [$0] } ?? []) + view.subviews.flatMap { fields(in: $0) }
         }
         for (identifier, expected) in expectedFields {
-            let matches = fields(in: frame).filter { $0.accessibilityIdentifier() == identifier }
-            // SwiftUI's macOS 27 Form editor may be an NSTextView rather than NSTextField.
+            let matches = window.contentView.map { fields(in: $0.superview ?? $0) }?.filter { $0.accessibilityIdentifier() == identifier } ?? []
             let actual = matches.count == 1 ? matches.first?.stringValue : (window.firstResponder as? NSTextView)?.string
             if actual != expected {
                 manifest.failures.append("\(name): \(identifier) missing or contaminated (expected \(expected.debugDescription), actual \(actual.debugDescription))")
             }
+        }
+        if liveGlass {
+            let request: [String: Any] = ["windowID": window.windowNumber, "pid": ProcessInfo.processInfo.processIdentifier, "name": name]
+            let requestURL = directory.appendingPathComponent("capture-request.json")
+            let resultURL = directory.appendingPathComponent("\(name)-live.png")
+            if let requestData = try? JSONSerialization.data(withJSONObject: request) { try? requestData.write(to: requestURL, options: .atomic) }
+            for _ in 0..<100 {
+                if FileManager.default.fileExists(atPath: resultURL.path) { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard let data = try? Data(contentsOf: resultURL), let image = NSBitmapImageRep(data: data) else {
+                manifest.failures.append("\(name): owned-window capture missing"); return
+            }
+            try? data.write(to: directory.appendingPathComponent("\(name).png"))
+            try? FileManager.default.removeItem(at: requestURL)
+            try? FileManager.default.removeItem(at: resultURL)
+            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            manifest.scenes.append(Scene(name: name, file: "\(name).png", width: image.pixelsWide, height: image.pixelsHigh,
+                sha256: digest, keyWindow: window.isKeyWindow,
+                note: "WindowServer capture of owned dev window \(window.windowNumber), pid \(ProcessInfo.processInfo.processIdentifier); no cacheDisplay"))
+            return
+        }
+        guard let frame = window.contentView?.superview,
+              let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else {
+            manifest.failures.append("\(name): no window frame to render"); return
         }
         frame.layoutSubtreeIfNeeded()
         frame.needsDisplay = true
@@ -257,6 +344,7 @@ import WebKit
                 let rect = webView.convert(webView.bounds, to: frame)
                 NSGraphicsContext.saveGraphicsState()
                 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+                NSBezierPath(rect: rect.intersection(frame.convert(window.contentLayoutRect, from: nil))).addClip()
                 image.draw(in: rect)
                 NSGraphicsContext.restoreGraphicsState()
                 note = "web content composited from WKWebView.takeSnapshot"
@@ -265,14 +353,16 @@ import WebKit
                 manifest.limitations.append("\(name): web content could not be composited")
             }
         }
-        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+        let data = bitmap.representation(using: .png, properties: [:])
+        guard let data else {
             manifest.failures.append("\(name): PNG encoding failed"); return
         }
         let file = "\(name).png"
         do { try data.write(to: directory.appendingPathComponent(file)) }
         catch { manifest.failures.append("\(name): \(error.localizedDescription)"); return }
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        manifest.scenes.append(Scene(name: name, file: file, width: bitmap.pixelsWide, height: bitmap.pixelsHigh,
+        let dimensions = NSBitmapImageRep(data: data)!
+        manifest.scenes.append(Scene(name: name, file: file, width: dimensions.pixelsWide, height: dimensions.pixelsHigh,
                                      sha256: digest, keyWindow: capturedKeyWindow, note: note))
     }
 }

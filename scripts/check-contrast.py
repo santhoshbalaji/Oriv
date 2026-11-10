@@ -80,6 +80,34 @@ for mode in ("light", "dark"):
         for surface, background in surfaces.items():
             checks.append((f"Classic {mode}", token, colour, surface, background, 4.5))
 
+# Chrome's app-owned backing is composited ahead of the system glass. Check its
+# worst cases against both page extremes, using the actual opacity from the source.
+chrome = (ROOT / "Apps/Shared/BrowserChrome.swift").read_text()
+opacity = float(re.search(r"theme.field.opacity\((0\.\d+)\)", chrome).group(1))
+for page in ("FFFFFF", "000000"):
+    backing = "".join(f"{round(int(t3['field'][i:i+2], 16) * opacity + int(page[i:i+2], 16) * (1-opacity)):02X}" for i in (0, 2, 4))
+    for token in ("text", "secondaryText", "accentText", "warning", "privateAccent"):
+        checks.append(("Glass chrome", token, t3[token], "backing over #" + page, backing, 4.5))
+checks.append(("Brand fill", "white label", "FFFFFF", "accent fill", t3["accent"], 4.5))
+
+# Mac page chrome chooses black/white from the band's WCAG luminance. Read the
+# actual contrast backing constants and check RGB cube samples, every neutral,
+# and the owner's distinct theme colour against both possible content extremes.
+mac = (ROOT / "Apps/macOS/Views/BrowserWindow.swift").read_text()
+assert "foregroundThreshold = sqrt(1.05 * 0.05) - 0.05" in chrome
+bias = float(re.search(r"static let contrastBias = ([0-9.]+)", mac).group(1))
+backing_opacity = float(re.search(r"static let backingOpacity = ([0-9.]+)", mac).group(1))
+page_colours = {f"{r:02X}{g:02X}{b:02X}" for r in range(0, 256, 17) for g in range(0, 256, 17) for b in range(0, 256, 17)}
+page_colours.update(f"{c:02X}{c:02X}{c:02X}" for c in range(256))
+page_colours.update(("1F6F5C", "FBFBF9", "111111"))
+for page in sorted(page_colours):
+    dark = luminance(page) < (1.05 * 0.05) ** 0.5 - 0.05
+    foreground = "FFFFFF" if dark else "000000"
+    checks.append(("Mac page band / reduced chrome", "foreground", foreground, "page", page, 4.5))
+    for content in (0, 255):
+        backing = "".join(f"{round((int(page[i:i+2], 16) * (1-bias) + (0 if dark else 255) * bias) * backing_opacity + content * (1-backing_opacity)):02X}" for i in (0, 2, 4))
+        checks.append(("Mac glass backing", "foreground", foreground, "page #" + page, backing, 4.5))
+
 failures = 0
 for theme, token, colour, surface, background, minimum in checks:
     value = ratio(colour, background)

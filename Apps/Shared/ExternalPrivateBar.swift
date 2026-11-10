@@ -22,8 +22,7 @@ struct ExternalPrivateBar: View {
             #endif
             .font(OrivType.detail)
             .padding(OrivSpacing.medium)
-            // Solid surfaces and no animated transitions also respect Reduce Transparency/Motion.
-            .background(theme.surface, in: .rect(cornerRadius: OrivRadius.large))
+            .browserGlass(radius: 24)
             .padding(.horizontal, OrivSpacing.large)
             .padding(.vertical, OrivSpacing.small)
     }

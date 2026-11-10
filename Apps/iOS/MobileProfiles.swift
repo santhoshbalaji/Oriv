@@ -16,19 +16,19 @@ import BrowserEngine
     }
     @ObservationIgnored private var controllers: [UUID: MobileController] = [:]
     init() {
-        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1"
+        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1" || ChromeVisualFixture.mode != nil
         openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: testing ? nil : .standard)
         continuity = BrowserContinuity(root: testing ? nil : URL.applicationSupportDirectory.appendingPathComponent("Oriv"), deviceName: "iPhone")
         // Compatibility with the earlier mobile profile-name list, without accessing any cloud service.
         struct LegacyProfile: Decodable { let id: UUID; let name: String }
-        let stored = UserDefaults.standard.data(forKey: "OrivMobileProfiles").flatMap { try? JSONDecoder().decode([BrowserProfile].self, from: $0) }
-        let legacy = UserDefaults.standard.data(forKey: "OrivMobileLibraries").flatMap { try? JSONDecoder().decode([LegacyProfile].self, from: $0) } ?? []
+        let stored = (testing ? nil : UserDefaults.standard.data(forKey: "OrivMobileProfiles")).flatMap { try? JSONDecoder().decode([BrowserProfile].self, from: $0) }
+        let legacy = (testing ? nil : UserDefaults.standard.data(forKey: "OrivMobileLibraries")).flatMap { try? JSONDecoder().decode([LegacyProfile].self, from: $0) } ?? []
         let saved = stored ?? legacy.map { BrowserProfile(id: $0.id, name: $0.name) }
         var seen: Set<UUID> = [BrowserProfile.personalID]
         let personal = saved.first { $0.isPersonal } ?? .personal
         let known: [BrowserProfile] = [personal] + saved.filter { ProfileRegistry.validName($0.name) && seen.insert($0.id).inserted }
-        let selected = (UserDefaults.standard.string(forKey: "BrowserProfileID") ?? UserDefaults.standard.string(forKey: "WorkspaceProfileID")).flatMap(UUID.init(uuidString:))
-        profiles = known
+        let selected = (testing ? nil : (UserDefaults.standard.string(forKey: "BrowserProfileID") ?? UserDefaults.standard.string(forKey: "WorkspaceProfileID"))).flatMap(UUID.init(uuidString:))
+        profiles = ChromeVisualFixture.mode != nil ? [.personal, BrowserProfile(name: "Work")] : known
         let initialProfile = known.first { $0.id == selected && $0.archivedAt == nil } ?? .personal
         lastRegularProfileID = initialProfile.id
         current = MobileController(profile: initialProfile)
@@ -68,7 +68,7 @@ import BrowserEngine
         let next = obtain(profile)
         controllers[profile.id] = next; current = next
         lastRegularProfileID = profile.id
-        UserDefaults.standard.set(profile.id.uuidString, forKey: "BrowserProfileID")
+        if ChromeVisualFixture.mode == nil { UserDefaults.standard.set(profile.id.uuidString, forKey: "BrowserProfileID") }
         persist()
         current.foreground()
     }
@@ -97,6 +97,7 @@ import BrowserEngine
         profiles[index].archivedAt = nil; persist()
     }
     private func persist() {
+        guard ChromeVisualFixture.mode == nil else { return }
         if let data = try? JSONEncoder().encode(profiles) { UserDefaults.standard.set(data, forKey: "OrivMobileProfiles") }
         continuity.profilesChanged()
     }

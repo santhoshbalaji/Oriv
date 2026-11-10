@@ -17,7 +17,7 @@ import WebKit
     @ObservationIgnored private var delegates: [UUID: MobileWebDelegate] = [:]
 
     init(profile: BrowserProfile? = .personal) {
-        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1"
+        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1" || ChromeVisualFixture.mode != nil
         profileID = profile?.id
         let root = profile?.directory(in: URL.applicationSupportDirectory.appendingPathComponent("Oriv", isDirectory: true))
         let defaults: UserDefaults? = testing || profile == nil ? nil : profile!.isPersonal ? .standard : UserDefaults(suiteName: profile!.defaultsName(bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile")!)

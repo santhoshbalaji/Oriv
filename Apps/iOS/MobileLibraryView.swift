@@ -1,6 +1,7 @@
 import SwiftUI
 import BrowserCore
 import BrowserEngine
+import WebKit
 
 struct MobileLibraryView: View {
     @Environment(\.browserTheme) private var theme
@@ -77,26 +78,40 @@ struct MobileTabsView: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.dismiss) private var dismiss
     let controller: MobileController
-    let profileName: String
-    var profiles = 1
+    let profiles: MobileProfiles
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var query = ""
     @State private var closing: UUID?
     private var matches: [BrowserTab] { controller.session.orderedTabs.filter { query.isEmpty || $0.displayTitle.localizedCaseInsensitiveContains(query) || $0.hostname.localizedCaseInsensitiveContains(query) } }
     var body: some View {
         NavigationStack {
-            List {
-                tabSection(matches.contains(where: \.isPrivate) ? "Tabs" : nil, privateMode: false)
-                if matches.contains(where: \.isPrivate) { tabSection("Private", privateMode: true) }
-                if matches.isEmpty { BrowserEmptyState(query.isEmpty ? "No open tabs" : "No results for “\(query)”.").listRowBackground(theme.row).listRowSeparator(.hidden) }
+            ScrollView {
+                LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 22) {
+                    tabSection(matches.contains(where: \.isPrivate) ? "Tabs" : nil, privateMode: false)
+                    if matches.contains(where: \.isPrivate) { tabSection("Private", privateMode: true) }
+                }.padding(16)
+                if matches.isEmpty { BrowserEmptyState(query.isEmpty ? "No open tabs" : "No results for “\(query)”.") }
                 if controller.session.canReopenTab {
-                    Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { controller.session.reopenClosedTab(); dismiss() }.listRowBackground(theme.row)
+                    Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { controller.session.reopenClosedTab() }.padding()
                 }
-            }.orivListStyle(theme).navigationTitle(profiles > 1 ? "Tabs · \(profileName)" : "Tabs").navigationBarTitleDisplayMode(.inline)
+            }.background(theme.canvas).navigationTitle("Tabs").navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $query, prompt: "Search tabs")
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-                    ToolbarItem(placement: .primaryAction) {
-                        Menu { Button("New Tab") { controller.newTab() }; Button("New Private Tab") { controller.newTab(isPrivate: true) } } label: { Label("New Tab", systemImage: "plus") }
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            Button("New Private Tab", systemImage: "eyeglasses") { controller.newTab(isPrivate: true) }
+                            Button("Library", systemImage: "book") { controller.sheet = .library }
+                        } label: { Image(systemName: "ellipsis").font(.system(size: 22)).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Tab actions")
+                    }
+                    ToolbarItem(placement: .bottomBar) {
+                        Button { controller.newTab() } label: { Image(systemName: "plus").font(.system(size: 22)).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("New Tab")
+                    }
+                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    ToolbarItem(placement: .bottomBar) { profilePicker }.sharedBackgroundVisibility(.hidden)
+                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    ToolbarItem(placement: .bottomBar) {
+                        Button { dismiss() } label: { Image(systemName: "checkmark").font(.system(size: 22)).foregroundStyle(.white).frame(minWidth: 44, minHeight: 44) }
+                            .buttonStyle(.glassProminent).tint(theme.controlFill).accessibilityLabel("Done")
                     }
                 }
                 .alert("Close a page with edited fields?", isPresented: Binding(get: { closing != nil }, set: { if !$0 { closing = nil } })) {
@@ -105,24 +120,57 @@ struct MobileTabsView: View {
                 } message: { Text("Oriv cannot determine whether the website saved your edits. Closing this tab may lose them.") }
         }
     }
+    @ViewBuilder private var profilePicker: some View {
+        let available = profiles.profiles.filter { $0.archivedAt == nil }
+        if available.count == 2 && controller.profileID != nil && !typeSize.isAccessibilitySize {
+            Picker("Profile", selection: Binding(get: { controller.profileID ?? BrowserProfile.personalID }, set: { id in
+                if let profile = available.first(where: { $0.id == id }) { switchProfile(profile) }
+            })) {
+                ForEach(available) { profile in Text(profile.name).tag(profile.id) }
+            }.pickerStyle(.segmented).frame(width: 194, height: 44).accessibilityLabel("Profile")
+        } else {
+            Menu {
+                ForEach(available) { profile in
+                    Button(profile.name, systemImage: profile.symbol.rawValue) { switchProfile(profile) }
+                }
+                if profiles.externalPrivate != nil { Button("External Private Tabs", systemImage: "eyeglasses") { dismiss(); profiles.showExternalPrivate() } }
+            } label: {
+                Text(available.first { $0.id == controller.profileID }?.name ?? "Private")
+                    .font(.body).dynamicTypeSize(...DynamicTypeSize.xxxLarge).lineLimit(1).frame(minHeight: 44).padding(.horizontal, 8)
+            }.accessibilityLabel("Switch Profile").browserGlass()
+        }
+    }
+    private func switchProfile(_ profile: BrowserProfile) {
+        guard controller.profileID != profile.id else { return }
+        // Dismiss before changing the profile that owns this presentation.
+        dismiss()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            profiles.select(profile)
+            profiles.current.sheet = .tabs
+        }
+    }
     private func tabSection(_ title: String?, privateMode: Bool) -> some View {
         Section {
-            let shown = matches.filter { $0.isPrivate == privateMode }
-            let context = URLDisplay.Context(shown.compactMap { tab in tab.url.map { (tab.displayTitle, $0) } })
-            ForEach(shown) { tab in
-                HStack(spacing: OrivSpacing.small) {
+            ForEach(matches.filter { $0.isPrivate == privateMode }) { tab in
+                VStack(spacing: 8) {
                     Button { controller.session.selectTab(tab.id); dismiss() } label: {
-                        PageRowContent(title: tab.displayTitle, url: tab.url, context: context,
-                                       titleWeight: controller.session.selectedTabID == tab.id ? .semibold : .regular,
-                                       isPrivate: tab.isPrivate, isSelected: controller.session.selectedTabID == tab.id,
-                                       accessory: controller.session.selectedTabID == tab.id ? .selected : .none)
-                            .frame(minHeight: 44).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityAddTraits(controller.session.selectedTabID == tab.id ? [.isSelected] : [])
-                    Button { close(tab) } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 44, height: 44) }
-                        .buttonStyle(.borderless).foregroundStyle(theme.secondaryText).accessibilityLabel("Close \(tab.displayTitle)")
-                }.listRowBackground(theme.row).swipeActions { Button("Close", role: .destructive) { close(tab) } }
+                        MobileTabThumbnail(tab: tab)
+                            .frame(height: typeSize.isAccessibilitySize ? 220 : 240)
+                            .clipShape(.rect(cornerRadius: 18))
+                            .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(controller.session.selectedTabID == tab.id ? theme.accent : theme.separator, lineWidth: controller.session.selectedTabID == tab.id ? 2 : 1) }
+                    }.buttonStyle(.plain).accessibilityLabel("Open \(tab.displayTitle)")
+                        .accessibilityAddTraits(controller.session.selectedTabID == tab.id ? [.isSelected] : [])
+                        .overlay(alignment: .topTrailing) {
+                            Button { close(tab) } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 44, height: 44) }
+                                .buttonStyle(.plain).foregroundStyle(theme.text).browserGlass().padding(6).accessibilityLabel("Close \(tab.displayTitle)")
+                        }
+                    Label(tab.displayTitle, systemImage: tab.isPrivate ? "eyeglasses" : "globe")
+                        .font(.footnote.weight(.medium)).foregroundStyle(tab.isPrivate ? theme.privateAccent : theme.text)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 2).frame(maxWidth: .infinity)
+                }
             }
-        } header: { if let title { Text(title) } }
+        } header: { if let title { Text(title).font(.headline).foregroundStyle(privateMode ? theme.privateAccent : theme.secondaryText).frame(maxWidth: .infinity, alignment: .leading) } }
     }
     private func close(_ tab: BrowserTab) {
         if controller.session.requiresCloseConfirmation(tab.id) { closing = tab.id }
@@ -158,4 +206,28 @@ struct MobileDownloadsView: View {
 /// Library and settings rows: quiet icons, primary text.
 func rowLabel(_ title: String, _ symbol: String, _ theme: Theme) -> some View {
     Label { Text(title).foregroundStyle(theme.text) } icon: { Image(systemName: symbol).foregroundStyle(theme.secondaryText) }
+}
+
+/// Snapshots only already-loaded tabs; never creates a WebView or starts background loads.
+private struct MobileTabThumbnail: View {
+    @Environment(\.browserTheme) private var theme
+    let tab: BrowserTab
+    @State private var image: UIImage?
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                theme.surface
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height, alignment: .top).clipped()
+                } else {
+                    VStack(spacing: 16) { SiteIdentity(url: tab.url, size: 48, isPrivate: tab.isPrivate); Text(tab.displayTitle).font(.headline).multilineTextAlignment(.center).foregroundStyle(theme.text) }.padding()
+                }
+            }
+        }.accessibilityHidden(true)
+            .task(id: tab.documentRevision) {
+                guard tab.hasLoaded else { return }
+                let configuration = WKSnapshotConfiguration(); configuration.snapshotWidth = 360
+                image = try? await tab.webView.takeSnapshot(configuration: configuration)
+            }
+    }
 }
