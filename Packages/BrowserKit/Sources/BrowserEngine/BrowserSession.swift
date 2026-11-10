@@ -20,7 +20,15 @@ public final class BrowserSession {
     public var canReopenTab: Bool { !recentlyClosed.isEmpty }
     public var canUndoBookmarkRemoval: Bool { removedBookmark != nil }
     private var removedBookmark: (bookmark: Bookmark, index: Int)?
-    public var orderedTabs: [BrowserTab] { tabs.filter { !$0.isPrivate && $0.isPinned } + tabs.filter { !$0.isPrivate && !$0.isPinned } + tabs.filter(\.isPrivate) }
+    public var orderedTabs: [BrowserTab] { [false, true].flatMap { mode in
+        tabs.filter { $0.isPrivate == mode && $0.isPinned } + tabs.filter { $0.isPrivate == mode && !$0.isPinned }
+    } }
+    /// Newest first, memory only. Private tabs never enter this list.
+    public var recentlyClosedTabs: [TabRecord] { recentlyClosed.reversed() }
+    public var tabsInSelectedMode: [BrowserTab] {
+        guard let selectedTab else { return [] }
+        return orderedTabs.filter { $0.isPrivate == selectedTab.isPrivate }
+    }
 
     @ObservationIgnored public var configureWebView: ((WKWebView, BrowserTab) -> Void)?
     @ObservationIgnored public var handleDownload: ((WKDownload) -> Void)?
@@ -121,6 +129,24 @@ public final class BrowserSession {
         selectTab(ordered[(current + offset + ordered.count) % ordered.count].id)
     }
 
+    /// The phone capsule has hard boundaries, unlike the Mac keyboard cycler.
+    public func tabSwipeTarget(_ direction: Int) -> TabSwipeTarget {
+        let peers = tabsInSelectedMode
+        guard abs(direction) == 1, let current = peers.firstIndex(where: { $0.id == selectedTabID }) else { return .boundary }
+        let next = current + direction
+        if peers.indices.contains(next) { return .tab(peers[next].id) }
+        return next == peers.count ? .newTab : .boundary
+    }
+
+    public func commitTabSwipe(_ direction: Int, from source: UUID) {
+        guard isProfileActive, selectedTabID == source, let selectedTab else { return }
+        switch tabSwipeTarget(direction) {
+        case .tab(let id): selectTab(id)
+        case .newTab: addTab(isPrivate: selectedTab.isPrivate)
+        case .boundary: break
+        }
+    }
+
     public func closeTab(_ id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[index]
@@ -156,9 +182,21 @@ public final class BrowserSession {
     public func moveTab(_ id: UUID, offset: Int) {
         guard let source = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[source]
-        let peers = tabs.indices.filter { tabs[$0].isPrivate == tab.isPrivate && tabs[$0].isPinned == tab.isPinned }
-        guard let position = peers.firstIndex(of: source), peers.indices.contains(position + offset) else { return }
-        tabs.swapAt(source, peers[position + offset]); scheduleSave()
+        var peers = tabs.filter { $0.isPrivate == tab.isPrivate && $0.isPinned == tab.isPinned }
+        guard let position = peers.firstIndex(where: { $0.id == id }), peers.indices.contains(position + offset) else { return }
+        peers.insert(peers.remove(at: position), at: position + offset)
+        var next = peers.makeIterator()
+        tabs = tabs.map { $0.isPrivate == tab.isPrivate && $0.isPinned == tab.isPinned ? next.next()! : $0 }
+        scheduleSave()
+    }
+    /// A drag cannot move a tab across pin or privacy sections.
+    public func moveTab(_ id: UUID, to target: UUID) {
+        guard let tab = tabs.first(where: { $0.id == id }),
+              let destination = tabs.first(where: { $0.id == target }),
+              tab.isPrivate == destination.isPrivate, tab.isPinned == destination.isPinned else { return }
+        let peers = orderedTabs.filter { $0.isPrivate == tab.isPrivate && $0.isPinned == tab.isPinned }
+        guard let source = peers.firstIndex(where: { $0.id == id }), let end = peers.firstIndex(where: { $0.id == target }) else { return }
+        moveTab(id, offset: end - source)
     }
     public func closeOtherTabs(_ id: UUID, toRight: Bool = false) {
         let ordered = orderedTabs
@@ -174,7 +212,12 @@ public final class BrowserSession {
     }
 
     public func reopenClosedTab() {
-        guard var record = recentlyClosed.popLast() else { return }
+        guard let id = recentlyClosed.last?.id else { return }
+        reopenClosedTab(id)
+    }
+    public func reopenClosedTab(_ id: UUID) {
+        guard let index = recentlyClosed.lastIndex(where: { $0.id == id }) else { return }
+        var record = recentlyClosed.remove(at: index)
         record.id = UUID()
         let tab = makeTab(record: record)
         tabs.append(tab)
@@ -388,7 +431,8 @@ public final class BrowserSession {
                          configuration: WKWebViewConfiguration? = nil) -> BrowserTab {
         let isPrivate = isPrivate || isExternalPrivate
         if isPrivate && privateDataStore == nil { privateDataStore = .nonPersistent() }
-        if isExternalPrivate { configuration?.websiteDataStore = privateDataStore! }
+        // A supplied popup configuration must stay in this session and mode too.
+        configuration?.websiteDataStore = isPrivate ? privateDataStore! : regularDataStore
         let tab = BrowserTab(record: record, isPrivate: isPrivate, configuration: configuration,
                              dataStore: isPrivate ? privateDataStore! : regularDataStore, adBlocker: adBlocker, settings: settings)
         tab.setProfileActive(isProfileActive)
@@ -422,6 +466,10 @@ public final class BrowserSession {
         }
         return tab
     }
+}
+
+public enum TabSwipeTarget: Equatable, Sendable {
+    case tab(UUID), newTab, boundary
 }
 
 public struct BrowserSuggestion: Identifiable, Equatable, Sendable {

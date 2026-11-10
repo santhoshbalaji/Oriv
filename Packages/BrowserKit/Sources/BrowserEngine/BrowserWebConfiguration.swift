@@ -22,6 +22,7 @@ enum BrowserWebConfiguration {
         configuration.applicationNameForUserAgent = "Version/\(BrowserRuntime.safariCompatibilityVersion) Safari/605.1.15"
         #endif
         #if os(iOS)
+        configuration.ignoresViewportScaleLimits = true
         configuration.applicationNameForUserAgent = "Version/\(BrowserRuntime.safariCompatibilityVersion) Safari/604.1"
         configuration.allowsInlineMediaPlayback = true
         configuration.allowsPictureInPictureMediaPlayback = true

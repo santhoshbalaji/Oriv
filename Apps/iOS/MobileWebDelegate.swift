@@ -7,6 +7,15 @@ import Observation
 @MainActor final class MobileWebDelegate: NSObject, WKUIDelegate {
     weak var session: BrowserSession?
     weak var tab: BrowserTab?
+    var contextCancellation: MobileGestureCancellation?
+    weak var controller: MobileController?
+    var touchedImageURL: URL?
+    var touchedImageLinkURL: URL?
+    var touchedImageRevision: Int?
+    var touchedImageTime: TimeInterval = 0
+    var imageTransfers: [UUID: MobileImageTransfer] = [:]
+    var imageMenuInteraction: UIEditMenuInteraction?
+    var imageMenuTarget: (image: URL, link: URL?, revision: Int)?
     init(session: BrowserSession, tab: BrowserTab) { self.session = session; self.tab = tab }
     static var presenter: UIViewController? {
         var controller = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }

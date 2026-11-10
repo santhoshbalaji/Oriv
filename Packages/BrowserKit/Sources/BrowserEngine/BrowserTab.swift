@@ -2,6 +2,9 @@ import BrowserCore
 import Foundation
 import Observation
 import WebKit
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor @Observable
 public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
@@ -117,6 +120,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         view.pageZoom = pageZoom
         view.navigationDelegate = self
         view.allowsBackForwardNavigationGestures = true
+        #if os(iOS)
+        view.isFindInteractionEnabled = true
+        let refresh = UIRefreshControl()
+        refresh.addTarget(self, action: #selector(pullToRefresh), for: .valueChanged)
+        view.scrollView.refreshControl = refresh
+        view.scrollView.alwaysBounceVertical = true
+        #endif
         #if DEBUG
         view.isInspectable = true
         #endif
@@ -162,12 +172,26 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     public func goBack() { errorMessage = nil; backingWebView?.goBack() }
     public func goForward() { errorMessage = nil; backingWebView?.goForward() }
+    public func go(to item: WKBackForwardListItem) {
+        guard let view = backingWebView,
+              (view.backForwardList.backList + view.backForwardList.forwardList).contains(where: { $0 === item }) else { return }
+        errorMessage = nil; view.go(to: item)
+    }
+    #if os(iOS)
+    @objc private func pullToRefresh() { reload() }
+    public func showFind() { webView.findInteraction?.presentFindNavigator(showingReplace: false) }
+    #endif
+    private func endRefreshing() {
+        #if os(iOS)
+        backingWebView?.scrollView.refreshControl?.endRefreshing()
+        #endif
+    }
     public func reload() {
         errorMessage = nil
         if backingWebView?.url != nil { backingWebView?.reload() }
         else if let url { navigate(to: url) }
     }
-    public func stop() { backingWebView?.stopLoading(); isLoading = false }
+    public func stop() { backingWebView?.stopLoading(); isLoading = false; endRefreshing() }
     public func reloadFromOrigin() { errorMessage = nil; backingWebView?.reloadFromOrigin() }
     public func zoomIn() { setZoom(pageZoom + 0.1) }
     public func zoomOut() { setZoom(pageZoom - 0.1) }
@@ -192,6 +216,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if active { recoverContentProcessIfPossible() }
     }
     func setSelected(_ selected: Bool) {
+        #if os(iOS)
+        if !selected {
+            backingWebView?.findInteraction?.searchText = nil
+            backingWebView?.findInteraction?.dismissFindNavigator()
+            backingWebView?.endEditing(true)
+            // Removing the interaction also handles a tab switch during the
+            // navigator's presentation animation, when dismiss alone is ignored.
+            backingWebView?.isFindInteractionEnabled = false
+        } else { backingWebView?.isFindInteractionEnabled = true }
+        #endif
         isSelected = selected
         if selected { recoverContentProcessIfPossible() }
     }
@@ -209,6 +243,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func dismissError() { errorMessage = nil }
 
     public func close() {
+        endRefreshing()
+        #if os(iOS)
+        backingWebView?.findInteraction?.dismissFindNavigator()
+        #endif
         isClosed = true
         policyGeneration += 1
         backingWebView?.stopLoading()
@@ -258,6 +296,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        #if os(iOS)
+        webView.findInteraction?.dismissFindNavigator()
+        #endif
         documentRevision += 1
         errorMessage = nil
         hasLoaded = true
@@ -275,6 +316,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     func recordFieldEdit() { if !isClosed { hasEditedFields = true } }
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        endRefreshing()
         refresh(from: webView)
         if let url, AddressResolver.isWebURL(url), !isPrivate {
             lastVisitedURL = url
@@ -290,6 +332,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { handle(error) }
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        endRefreshing()
         guard !isClosed else { return }
         isLoading = false
         contentProcessTerminated = true
@@ -317,6 +360,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         pendingNavigationMethod = request.httpMethod?.uppercased() ?? "GET"
     }
     private func handle(_ error: Error) {
+        endRefreshing()
         let nsError = error as NSError
         // Cancelled navigation and downloads are not failed page loads.
         guard !(nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled),

@@ -13,6 +13,7 @@ import WebKit
     var sheet: MobileSheet?
     var addressFocusRequest = 0
     var message: String?
+    weak var profiles: MobileProfiles?
     @ObservationIgnored private var bookmarkMigration: Task<Void, Never>?
     @ObservationIgnored private var delegates: [UUID: MobileWebDelegate] = [:]
 
@@ -38,13 +39,15 @@ import WebKit
         }
         session.configureWebView = { [weak self] view, tab in
             guard let self else { return }
-            let adapter = MobileWebDelegate(session: session, tab: tab); delegates[tab.id] = adapter; view.uiDelegate = adapter
+            let adapter = MobileWebDelegate(session: session, tab: tab); adapter.controller = self
+            delegates[tab.id] = adapter; view.uiDelegate = adapter
+            adapter.installContextTracking(on: view)
             tab.onAuthentication = { [weak adapter] challenge, completion in
                 guard let adapter else { completion(.cancelAuthenticationChallenge, nil); return }
                 adapter.authenticate(challenge, completion: completion)
             }
         }
-        session.didCloseTab = { [weak self] id in self?.delegates.removeValue(forKey: id) }
+        session.didCloseTab = { [weak self] id in self?.delegates.removeValue(forKey: id)?.invalidate() }
         session.handleDownload = { [weak self] download in self?.downloads.begin(download) }
         session.handleExternalURL = { url in
             let alert = UIAlertController(title: "Open another app?", message: url.absoluteString, preferredStyle: .alert)
@@ -81,6 +84,6 @@ import WebKit
 }
 
 enum MobileSheet: String, Identifiable {
-    case library, tabs, settings, site, share
+    case library, bookmarks, tabs, settings, site, share
     var id: String { rawValue }
 }

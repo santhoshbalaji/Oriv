@@ -10,7 +10,9 @@
 		0357009812885FF0B19657D3 /* ReaderTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533C5DAE7CFB6D359A25545D /* ReaderTextTests.swift */; };
 		07216EACB663590159E7131D /* BrowserProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B49CA585737E61C6728DA8B /* BrowserProfiles.swift */; };
 		07E201A47EA21356D3102ABA /* OrivMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F008A13B3EE4CBDD05D43B88 /* OrivMobileApp.swift */; };
+		0839F2044504332C06A33245 /* TabGestureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2916BFF9F5765BBDBBAEEBEA /* TabGestureTests.swift */; };
 		09158F2AEC38C69C2ADDCAC2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 98BDFB485ABEF60DCDF58E3D /* Assets.xcassets */; };
+		0B5F27F565E4F42DDD5926FB /* MobileWebContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6215CF329063B5A50942ED /* MobileWebContext.swift */; };
 		0E75252E311FD499EA36C3A7 /* WebPlatformTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 120F9B0C7EEA13735FE3C076 /* WebPlatformTests.swift */; };
 		106A42F99B3A5EF44311ECB5 /* PasswordsGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CCB6084F43851D0C48939A /* PasswordsGuide.swift */; };
 		10C007A2BF43AE19562B9990 /* ChromeVisualFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DF54583C3541540EA2CB50 /* ChromeVisualFixture.swift */; };
@@ -28,6 +30,7 @@
 		53D0B836C586B199621467C6 /* ConnectionCue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 622E0BCB491BAEDF28CB58AA /* ConnectionCue.swift */; };
 		561B51679203CC8B5F6FDA6C /* ContinuityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01487988A72673134598152 /* ContinuityViews.swift */; };
 		59337D0A449E203EA95C50A8 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B442D594891DC82B3D250D /* DownloadManager.swift */; };
+		615A3935B7F734D15C9634B7 /* MobileTabGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49034B6881539C2265F47BA9 /* MobileTabGrid.swift */; };
 		64EB6A1476930170121E7014 /* MobileBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D3D6DD2CC3B34533791479 /* MobileBrowserView.swift */; };
 		65961C6DB232A25C9FF766DB /* BrowserEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 7524B3DDE79509C3D54EC5D0 /* BrowserEngine */; };
 		65AD36DEF9669FF6AB650D55 /* BrowserCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5B8411B41460F9EB78D76787 /* BrowserCore */; };
@@ -42,6 +45,7 @@
 		856D2A9BA7D98AB4C6704BF9 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8397FA3C0661857919FA445F /* MobileRootView.swift */; };
 		8701DFFD06629E8A4530C1A1 /* WebPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB76D8DF92E50B12564B1B4 /* WebPageView.swift */; };
 		883A32727BE3AA309D860C76 /* BrowserEngineeringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11518C9B56976D35E872267C /* BrowserEngineeringTests.swift */; };
+		8B17AAB4B375BEEB08E7BA92 /* MobileGestureIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8663F5C5D65B7617EA913F /* MobileGestureIntegrationTests.swift */; };
 		8E64517E9011D47708DE5982 /* VisualSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF7ED141C3ADBFB83171F90D /* VisualSnapshots.swift */; };
 		93400DAF7E8757E7847996A2 /* ChromeVisualFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DF54583C3541540EA2CB50 /* ChromeVisualFixture.swift */; };
 		94D05FD072A47C87027D64E6 /* ContinuityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01487988A72673134598152 /* ContinuityViews.swift */; };
@@ -53,6 +57,7 @@
 		A514E488AB50D0308E845646 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 98BDFB485ABEF60DCDF58E3D /* Assets.xcassets */; };
 		A56BF89B9713036A9A972AB9 /* BrowserCore in Frameworks */ = {isa = PBXBuildFile; productRef = A02C69FDC5057F49DD04C6C1 /* BrowserCore */; };
 		B3098FFB19E9637DF1CB511A /* BrowserEmptyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D9EDC99D580A3F7CA455F0 /* BrowserEmptyState.swift */; };
+		B67C9174151DD01C0ACAEF6D /* MobileTabActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D28834443837551BCE2149 /* MobileTabActions.swift */; };
 		B80F36D66D097FE6DC30B91B /* BrowserWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B580B217F14BCBD3EB221E6 /* BrowserWindow.swift */; };
 		B8B298A837E3C433E865C676 /* MobileWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C78856EC2DB2D0C977AA88 /* MobileWebView.swift */; };
 		BEE1F4F33087B56DAD736006 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 510FEC9B1B9E6E53BD6B1D0D /* LibraryView.swift */; };
@@ -106,22 +111,27 @@
 /* Begin PBXFileReference section */
 		042D301C9B932584788A342C /* MacWebUIDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWebUIDelegate.swift; sourceTree = "<group>"; };
 		07E01AFCC14310BF5EE1A60D /* ContinuityRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ContinuityRelease.entitlements; sourceTree = "<group>"; };
+		0D8663F5C5D65B7617EA913F /* MobileGestureIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileGestureIntegrationTests.swift; sourceTree = "<group>"; };
 		0EA0AA22268D1C3635A65D38 /* MobileController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileController.swift; sourceTree = "<group>"; };
 		0FF5732ED0D6A94A4A805EDB /* MobileProfiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileProfiles.swift; sourceTree = "<group>"; };
 		11518C9B56976D35E872267C /* BrowserEngineeringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEngineeringTests.swift; sourceTree = "<group>"; };
 		120F9B0C7EEA13735FE3C076 /* WebPlatformTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPlatformTests.swift; sourceTree = "<group>"; };
 		12CAAA24DB8987B27A3552F8 /* StartPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartPage.swift; sourceTree = "<group>"; };
+		15D28834443837551BCE2149 /* MobileTabActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTabActions.swift; sourceTree = "<group>"; };
 		16EA6FC078DC2D217EEDE63C /* ProfileIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileIntegrationTests.swift; sourceTree = "<group>"; };
 		18F96811A76DF4DF9A811A80 /* BrowserController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserController.swift; sourceTree = "<group>"; };
 		1B49CA585737E61C6728DA8B /* BrowserProfiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserProfiles.swift; sourceTree = "<group>"; };
 		23D22D3C8E0E2E8C0A91E90B /* ContinuityIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityIntegrationTests.swift; sourceTree = "<group>"; };
 		27B442D594891DC82B3D250D /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		289DC7D08D4FB51E06534E42 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		2916BFF9F5765BBDBBAEEBEA /* TabGestureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGestureTests.swift; sourceTree = "<group>"; };
 		2B580B217F14BCBD3EB221E6 /* BrowserWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindow.swift; sourceTree = "<group>"; };
 		324BE85EA541CBE4D23483CA /* BrowserChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChromeTests.swift; sourceTree = "<group>"; };
 		3724E0FB2115CE38A1205D0B /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
 		442FDE219EF9488DDE1FCC4B /* ApplePasswords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplePasswords.swift; sourceTree = "<group>"; };
+		49034B6881539C2265F47BA9 /* MobileTabGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTabGrid.swift; sourceTree = "<group>"; };
 		4B7F11694D94F444AF84C378 /* BrowserChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChrome.swift; sourceTree = "<group>"; };
+		4E6215CF329063B5A50942ED /* MobileWebContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWebContext.swift; sourceTree = "<group>"; };
 		4FD9844F6F3B8861C2940D30 /* AddressField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressField.swift; sourceTree = "<group>"; };
 		50662FD1B526D56CB7C16DD8 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		510FEC9B1B9E6E53BD6B1D0D /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
@@ -214,6 +224,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2ABC70E7E9D3976AD2BD7961 /* BrowserEngineTests */ = {
+			isa = PBXGroup;
+			children = (
+				2916BFF9F5765BBDBBAEEBEA /* TabGestureTests.swift */,
+			);
+			path = BrowserEngineTests;
+			sourceTree = "<group>";
+		};
 		37DD78743ACD02B88C2BF9CC /* BrowserCompatibilityTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -223,6 +241,14 @@
 				120F9B0C7EEA13735FE3C076 /* WebPlatformTests.swift */,
 			);
 			path = BrowserCompatibilityTests;
+			sourceTree = "<group>";
+		};
+		3D17D699CA4B723BA4BC45A1 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				2ABC70E7E9D3976AD2BD7961 /* BrowserEngineTests */,
+			);
+			path = Tests;
 			sourceTree = "<group>";
 		};
 		45EB55BFBD7EACD4C4CE1076 /* Apps */ = {
@@ -265,6 +291,7 @@
 			children = (
 				37DD78743ACD02B88C2BF9CC /* BrowserCompatibilityTests */,
 				6A3DCCFD77C3887EDEC031BA /* BrowserMacTests */,
+				AA6CF49ACE14509A0A857252 /* MobileGestureTests */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -295,6 +322,7 @@
 			isa = PBXGroup;
 			children = (
 				AC772707C4EA905455485D42 /* BrowserKit */,
+				D0C6DCA9FD0B66F4FEBBCD5B /* BrowserKit */,
 			);
 			path = Packages;
 			sourceTree = "<group>";
@@ -331,12 +359,23 @@
 				0FF5732ED0D6A94A4A805EDB /* MobileProfiles.swift */,
 				8397FA3C0661857919FA445F /* MobileRootView.swift */,
 				9B55CCF3D8EAB4AC5F798DBC /* MobileSettingsView.swift */,
+				15D28834443837551BCE2149 /* MobileTabActions.swift */,
+				49034B6881539C2265F47BA9 /* MobileTabGrid.swift */,
+				4E6215CF329063B5A50942ED /* MobileWebContext.swift */,
 				E63E0F58A636EE934D8784B2 /* MobileWebDelegate.swift */,
 				D4C78856EC2DB2D0C977AA88 /* MobileWebView.swift */,
 				F008A13B3EE4CBDD05D43B88 /* OrivMobileApp.swift */,
 				9C9CA0DB9B8A29FDA218CF1F /* Resources */,
 			);
 			path = iOS;
+			sourceTree = "<group>";
+		};
+		AA6CF49ACE14509A0A857252 /* MobileGestureTests */ = {
+			isa = PBXGroup;
+			children = (
+				0D8663F5C5D65B7617EA913F /* MobileGestureIntegrationTests.swift */,
+			);
+			path = MobileGestureTests;
 			sourceTree = "<group>";
 		};
 		BC1B4880079C97AABB679556 /* Products */ = {
@@ -348,6 +387,14 @@
 				65AAB65D9489FD4B74BEE7F6 /* PersonalBrowser.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		D0C6DCA9FD0B66F4FEBBCD5B /* BrowserKit */ = {
+			isa = PBXGroup;
+			children = (
+				3D17D699CA4B723BA4BC45A1 /* Tests */,
+			);
+			path = BrowserKit;
 			sourceTree = "<group>";
 		};
 		E55A46009DA4F5DFA6B92F12 /* Views */ = {
@@ -599,6 +646,9 @@
 				33A0329D7E1BF2C590AEEB63 /* MobileProfiles.swift in Sources */,
 				856D2A9BA7D98AB4C6704BF9 /* MobileRootView.swift in Sources */,
 				8544B5F37368DE473C29AF82 /* MobileSettingsView.swift in Sources */,
+				B67C9174151DD01C0ACAEF6D /* MobileTabActions.swift in Sources */,
+				615A3935B7F734D15C9634B7 /* MobileTabGrid.swift in Sources */,
+				0B5F27F565E4F42DDD5926FB /* MobileWebContext.swift in Sources */,
 				84C1C9DDC34F94C3847CD531 /* MobileWebDelegate.swift in Sources */,
 				B8B298A837E3C433E865C676 /* MobileWebView.swift in Sources */,
 				07E201A47EA21356D3102ABA /* OrivMobileApp.swift in Sources */,
@@ -614,6 +664,8 @@
 				D3F8FD8F11F278F0CE7B252B /* BrowserEngineeringTests.swift in Sources */,
 				EBBB853DFB1C54D477E84F94 /* BrowserExperienceTests.swift in Sources */,
 				C1A3E239D72F569DD0194B34 /* ContinuityIntegrationTests.swift in Sources */,
+				8B17AAB4B375BEEB08E7BA92 /* MobileGestureIntegrationTests.swift in Sources */,
+				0839F2044504332C06A33245 /* TabGestureTests.swift in Sources */,
 				FCF760999DE5767561FB3975 /* WebPlatformTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -661,7 +713,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/ContinuityRelease.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -670,7 +722,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile";
@@ -687,7 +739,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/Mobile.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -696,7 +748,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios.dev;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
@@ -920,7 +972,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/PersonalBrowser.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -934,7 +986,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.qa;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";
@@ -949,7 +1001,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/ContinuityRelease.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -963,7 +1015,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.mac;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";
@@ -979,7 +1031,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/Mobile.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -988,7 +1040,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios.dev;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
@@ -1181,7 +1233,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/PersonalBrowser.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -1195,7 +1247,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.mac;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";
@@ -1228,7 +1280,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/Continuity.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -1237,7 +1289,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios.dev;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
@@ -1254,7 +1306,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/BrowserDevelopment.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -1263,7 +1315,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios.dev;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
@@ -1349,7 +1401,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/Continuity.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -1363,7 +1415,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.mac.dev;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";
@@ -1378,7 +1430,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/PersonalBrowser.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -1392,7 +1444,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.10.0;
 				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.mac;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";

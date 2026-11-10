@@ -32,6 +32,12 @@ import BrowserCore
                                     tab.webView.frame = CGRect(x: 0, y: 0, width: 440, height: 880)
                                     tab.webView.loadHTMLString(ChromeVisualFixture.html(dark: mode == "dark" || i == 2, card: i), baseURL: URL(string: "\(mode == "insecure" ? "http" : "https")://docs.example.com/designing-calm-interfaces"))
                                 }
+                                if mode == "gestures" {
+                                    let url = URL(string: "http://127.0.0.1:8768/gestures")!
+                                    current.selectedTab?.navigate(to: url)
+                                    for i in 0..<12 { current.addTab(url: URL(string: "http://127.0.0.1:8768/two?tab=\(i)"), select: false, load: false) }
+                                    current.addTab(url: url, isPrivate: true, select: false, load: false)
+                                }
                             }
                         }
                         if let url = ChromeVisualFixture.liveURL { try? profiles.current.session.navigate(url.absoluteString) }

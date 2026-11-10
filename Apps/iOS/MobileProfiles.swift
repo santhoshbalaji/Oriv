@@ -12,8 +12,9 @@ import BrowserEngine
     var externalBannerVisible = true
     var externalMoveProfileID = BrowserProfile.personalID
     var openExternalLinksPrivately: Bool {
-        didSet { UserDefaults.standard.set(openExternalLinksPrivately, forKey: ExternalLinkRouting.defaultsKey) }
+        didSet { if !isEphemeral { UserDefaults.standard.set(openExternalLinksPrivately, forKey: ExternalLinkRouting.defaultsKey) } }
     }
+    @ObservationIgnored private let isEphemeral: Bool
     @ObservationIgnored private var controllers: [UUID: MobileController] = [:]
     init() {
         #if DEBUG && targetEnvironment(simulator)
@@ -22,6 +23,7 @@ import BrowserEngine
         let liveCapture = false
         #endif
         let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1" || ChromeVisualFixture.mode != nil || liveCapture
+        isEphemeral = testing
         openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: testing ? nil : .standard)
         continuity = BrowserContinuity(root: testing ? nil : URL.applicationSupportDirectory.appendingPathComponent("Oriv"), deviceName: "iPhone")
         // Compatibility with the earlier mobile profile-name list, without accessing any cloud service.
@@ -38,6 +40,7 @@ import BrowserEngine
         lastRegularProfileID = initialProfile.id
         current = MobileController(profile: initialProfile)
         controllers[current.profileID!] = current
+        current.profiles = self
         continuity.configure(profiles: { [weak self] in self?.profiles.filter { $0.archivedAt == nil } ?? [] }, source: { [weak self] profile in
             guard let self else { return nil }
             return self.obtain(profile).continuitySource
@@ -54,6 +57,7 @@ import BrowserEngine
     private func obtain(_ profile: BrowserProfile) -> MobileController {
         if let existing = controllers[profile.id] { return existing }
         let created = MobileController(profile: profile); created.session.setProfileActive(false)
+        created.profiles = self
         controllers[profile.id] = created; return created
     }
     func openContinuityPage(_ page: ContinuityPage) {
@@ -73,7 +77,7 @@ import BrowserEngine
         let next = obtain(profile)
         controllers[profile.id] = next; current = next
         lastRegularProfileID = profile.id
-        if ChromeVisualFixture.mode == nil { UserDefaults.standard.set(profile.id.uuidString, forKey: "BrowserProfileID") }
+        if !isEphemeral { UserDefaults.standard.set(profile.id.uuidString, forKey: "BrowserProfileID") }
         persist()
         current.foreground()
     }
@@ -102,7 +106,7 @@ import BrowserEngine
         profiles[index].archivedAt = nil; persist()
     }
     private func persist() {
-        guard ChromeVisualFixture.mode == nil else { return }
+        guard !isEphemeral else { return }
         if let data = try? JSONEncoder().encode(profiles) { UserDefaults.standard.set(data, forKey: "OrivMobileProfiles") }
         continuity.profilesChanged()
     }
@@ -136,6 +140,26 @@ import BrowserEngine
         select(profile); current.session.addTab(url: url)
         context.session.closeTab(tab.id)
         if context.session.tabs.isEmpty { context.session.shutdown(); externalPrivate = nil }
+    }
+    /// Only the address moves. Cookies, history and private data stores stay with their profile.
+    func move(_ tab: BrowserTab, from source: MobileController, to profile: BrowserProfile) {
+        guard source.profileID != profile.id, profile.archivedAt == nil,
+              let url = tab.url, ExternalLinkRouting.movableURL(url) != nil else { return }
+        let target = obtain(profile)
+        target.session.addTab(url: url, isPrivate: tab.isPrivate, load: false)
+        source.session.closeTab(tab.id)
+        if source === externalPrivate, source.session.tabs.isEmpty {
+            source.session.shutdown(); externalPrivate = nil
+        }
+        source.sheet = nil
+        select(profile)
+    }
+    func open(_ url: URL, in profile: BrowserProfile, isPrivate: Bool) {
+        guard ExternalLinkRouting.movableURL(url) != nil, profile.archivedAt == nil else { return }
+        current.sheet = nil
+        let target = obtain(profile)
+        target.session.addTab(url: url, isPrivate: isPrivate, load: false)
+        select(profile)
     }
     func finishExternalGroupIfEmpty() {
         guard let context = externalPrivate, context.session.tabs.isEmpty else { return }

@@ -41,6 +41,8 @@
 	<string>Allow websites you choose to use your location.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Allow websites you choose to use your microphone.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save images you choose from websites to Photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose photos to upload to a website.</string>
 	<key>NSUserActivityTypes</key>

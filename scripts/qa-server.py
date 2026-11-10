@@ -49,6 +49,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(body)))
             self.end_headers(); self.wfile.write(body)
             return
+        if path == '/gestures':
+            self.send_bytes((FIXTURES / 'gestures.html').read_bytes(), 'text/html; charset=utf-8')
+            return
+        if path == '/short-gestures':
+            self.send_bytes(b'<html><meta name="viewport" content="width=device-width"><title>Short Gesture Page</title><body><h1>Short page</h1><a href="/gestures">Gesture Lab</a><p>Pull to refresh this short page.</p><p id="loaded"></p><script>document.getElementById("loaded").textContent="Loaded "+new Date().toLocaleTimeString()</script></body></html>', 'text/html; charset=utf-8')
+            return
+        if path == '/gesture-image.png':
+            self.send_bytes((ROOT / 'Apps/macOS/Resources/Assets.xcassets/OrivMark.imageset/OrivMark.png').read_bytes(), 'image/png')
+            return
         if path == '/quality':
             self.page('Browser quality fixture', '<article><h2>Quiet browser testing</h2><p>Alpha beta Alpha. Search, read and save this synthetic page.</p><p>No personal information is used.</p><input id="draft" aria-label="Test draft"><a href="/two" target="_blank" id="new-tab">Open second tab</a><a href="/large-download">Download test data</a></article>')
             return
