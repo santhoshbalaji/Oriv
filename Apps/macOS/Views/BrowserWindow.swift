@@ -415,7 +415,7 @@ struct BrowserWindow: View {
 /// Clear native glass preserves the page hue. A lightly biased backing keeps the
 /// chosen black/white foreground readable even when scrolled imagery passes below.
 /// The sidebar and iPhone retain their own material.
-private struct MacAddressGlass: ViewModifier {
+struct MacAddressGlass: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
@@ -424,21 +424,25 @@ private struct MacAddressGlass: ViewModifier {
     var adaptive = false
     static let contrastBias = 0.12
     static let backingOpacity = 0.96
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var solid: Bool { reduceTransparency || captureReduceTransparency || contrast == .increased }
     func body(content: Content) -> some View {
-        if reduceTransparency || captureReduceTransparency || contrast == .increased {
-            content.background(color, in: Capsule())
-                .overlay { Capsule().strokeBorder((isDark ? Color.white : .black).opacity(contrast == .increased ? 0.8 : 0.35), lineWidth: 1) }
-        } else if adaptive {
-            content.glassEffect(.regular, in: Capsule())
-        } else {
-            content
-                .background {
-                    Capsule().fill(color)
-                        .overlay { Capsule().fill((isDark ? Color.black : .white).opacity(Self.contrastBias)) }
-                        .opacity(Self.backingOpacity)
+        // Keep content in one structural branch. Replacing it recreates the
+        // AppKit field/coordinator and can replay a previous Command-L request.
+        content
+            .background {
+                Capsule().fill(color)
+                    .overlay { Capsule().fill((isDark ? Color.black : .white).opacity(solid ? 0 : Self.contrastBias)) }
+                    .opacity(solid ? 1 : (adaptive ? 0 : Self.backingOpacity))
+            }
+            .glassEffect(solid ? .identity : (adaptive ? .regular : .clear.tint(color.opacity(0.25))), in: Capsule())
+            .overlay {
+                if solid {
+                    Capsule().strokeBorder((isDark ? Color.white : .black).opacity(contrast == .increased ? 0.8 : 0.35), lineWidth: 1)
                 }
-                .glassEffect(.clear.tint(color.opacity(0.25)), in: Capsule())
-        }
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: adaptive)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: color)
     }
 }
 

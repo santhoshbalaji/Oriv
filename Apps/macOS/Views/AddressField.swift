@@ -111,8 +111,11 @@ final class FocusAwareAddressField: NSTextField {
         let accepted = super.becomeFirstResponder()
         if accepted {
             DispatchQueue.main.async { [weak self] in
-                self?.focusBegan?()
-                self?.currentEditor()?.selectAll(nil)
+                // A toolbar update can finish editing before this callback runs.
+                // Never restore the editing state after the responder has left.
+                guard let self, let editor = self.currentEditor() else { return }
+                self.focusBegan?()
+                editor.selectAll(nil)
             }
         }
         return accepted

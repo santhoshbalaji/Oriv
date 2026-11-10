@@ -226,6 +226,7 @@ import WebKit
             guard let url = URL(string: address), url.scheme == "https" else { continue }
             let profiles = BrowserProfiles(testing: true)
             let tab = profiles.controller.session.addTab(url: url, select: true)
+            if url.host == "fixture.invalid" { tab.webView.loadHTMLString(ChromeVisualFixture.html(), baseURL: url) }
             tab.webView.appearance = NSAppearance(named: darkIndices.contains(index + 1) ? .darkAqua : .aqua)
             try? await Task.sleep(for: .milliseconds(500))
             let name = "mac-glass-site\(index + 1)"
@@ -254,6 +255,9 @@ import WebKit
                     return String(format: "#%02x%02x%02x", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
                 }
                 let dom = (try? await web.evaluateJavaScript("({title:document.title,href:location.href,theme:[...document.querySelectorAll('meta[name=theme-color]')].map(m=>({content:m.content,media:m.media})),html:getComputedStyle(document.documentElement).backgroundColor,body:getComputedStyle(document.body).backgroundColor,scrollY,top:document.elementFromPoint(innerWidth/2,1)?.tagName})")) as? [String: Any] ?? [:]
+                if ProcessInfo.processInfo.environment["ORIV_SCROLL_EVIDENCE"] == "1" {
+                    await scrollEvidence(web, controller: profiles.controller, window: window, name: name, directory: directory)
+                }
                 let metrics: [String: Any] = ["requested": address, "url": web.url?.absoluteString ?? "none", "error": tab.errorMessage ?? "none",
                     "theme": hex(web.themeColor), "underPage": hex(web.underPageBackgroundColor), "band": hex(window.backgroundColor),
                     "obscuredTop": web.obscuredContentInsets.top, "dom": dom, "edgeSelection": edge, "isLoading": web.isLoading]
@@ -262,6 +266,49 @@ import WebKit
                 }
             }) { BrowserWindow(controller: profiles.controller, profiles: profiles) }
             profiles.shutdown()
+        }
+    }
+
+    /// Opt-in in-process input and model telemetry; never posts system input.
+    private static func scrollEvidence(_ web: WKWebView, controller: BrowserController, window: NSWindow, name: String, directory: URL) async {
+        var chrome: PageChrome?
+        PageChrome.diagnosticObserver = { chrome = $0 }
+        defer { PageChrome.diagnosticObserver = nil }
+        // Obtain the window's existing model without replacing the production view.
+        _ = try? await web.evaluateJavaScript("window.dispatchEvent(new Event('resize'))")
+        try? await Task.sleep(for: .milliseconds(1200))
+        controller.focusAddress()
+        try? await Task.sleep(for: .milliseconds(150))
+        window.makeFirstResponder(web)
+        var rows: [[String: Any]] = []
+        for (sequence, positions, delay) in [
+            ("slow", [0.0,2,0,2,0,2,0,12,18,8,4,2,0,2,0], 100),
+            ("fast", [0.0,30,0,30,0,30,0,30,0], 16),
+            ("bounce", [0.0,-8,2,-4,2,0,-10,14,8,2,-6,0], 60)
+        ] {
+            for (index, y) in positions.enumerated() {
+                if let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: Int32(index.isMultiple(of: 2) ? -4 : 4), wheel2: 0, wheel3: 0) {
+                    event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                    event.setIntegerValueField(.scrollWheelEventScrollPhase, value: sequence == "fast" ? 0 : (index == 0 ? 1 : 2))
+                    event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: sequence == "fast" ? 2 : 0)
+                    if let native = NSEvent(cgEvent: event) { web.scrollWheel(with: native) }
+                }
+                _ = try? await web.evaluateJavaScript("window.scrollTo(0, \(y))")
+                try? await Task.sleep(for: .milliseconds(delay))
+                let actual = (try? await web.evaluateJavaScript("scrollY")) as? Double ?? -999
+                rows.append(["sequence": sequence, "index": index, "requestedY": y, "actualY": actual,
+                    "time": ProcessInfo.processInfo.systemUptime, "scrolled": chrome?.hasScrolled ?? false,
+                    "under": chrome?.showsContentUnderChrome ?? false, "luminance": chrome?.luminance ?? -1,
+                    "editing": (window.firstResponder as? NSTextView) != nil,
+                    "focusRequest": controller.addressFocusRequest])
+            }
+            try? await Task.sleep(for: .milliseconds(350))
+        }
+        _ = try? await web.evaluateJavaScript("window.scrollTo(0,0)")
+        window.makeFirstResponder(web)
+        try? await Task.sleep(for: .milliseconds(800))
+        if let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: directory.appendingPathComponent("\(name)-scroll.json"))
         }
     }
 

@@ -55,7 +55,7 @@ trap cleanup EXIT
 
 if [[ "$GLASS" == 1 ]]; then
   /usr/bin/open -n -W --env BROWSER_TESTING=1 --env ORIV_VISUAL_SNAPSHOTS=1 \
-    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
+    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
     "$APP" > "$DERIVED.run.log" 2>&1 &
 else
   BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" \
@@ -94,7 +94,7 @@ STATUS=0; wait $PID || STATUS=$?
 [[ -f "$SRC/manifest.json" ]] || { cat "$DERIVED.run.log" >&2; echo "no manifest produced (exit $STATUS)" >&2; exit 1; }
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 cp -p "$SRC"/manifest.json "$SRC"/*.png "$OUT"/ 2>/dev/null || true
-if [[ "$GLASS" == 1 ]]; then cp -p "$SRC"/*-geometry.json "$OUT"/; fi
+if [[ "$GLASS" == 1 ]]; then cp -p "$SRC"/*-geometry.json "$OUT"/; for scroll_file in "$SRC"/*-scroll.json(N); do cp -p "$scroll_file" "$OUT"/; done; fi
 
 python3 -I - "$OUT" "$RUN_ID" "$STATUS" "$GLASS" <<'PY'
 import datetime, hashlib, json, os, struct, sys

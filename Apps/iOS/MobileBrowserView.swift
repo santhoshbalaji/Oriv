@@ -49,6 +49,7 @@ struct MobileBrowserView: View {
             GeometryReader { geometry in
                 ZStack {
                     pageChrome.color.ignoresSafeArea()
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: pageChrome.color)
                     if editingAddress {
                         suggestions.background(theme.canvas)
                             .safeAreaBar(edge: .bottom) { addressEditor }
@@ -61,7 +62,7 @@ struct MobileBrowserView: View {
                             .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
                             .scrollEdgeEffectHidden(reduceTransparency, for: [.top, .bottom])
                             .safeAreaBar(edge: .bottom) {
-                                if !nativeFinding { bottomChrome.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 } }
+                                if !nativeFinding { bottomChrome.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: pageChrome.isDark).onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 } }
                             }
                             .overlay(alignment: .top) {
                                 VStack(spacing: 0) { notices }
@@ -265,6 +266,8 @@ struct MobileBrowserView: View {
 
     private var statusBackdrop: some View {
         pageChrome.color.opacity(extendsTopColor ? 1 : 0)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: extendsTopColor)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: pageChrome.color)
     }
 
     private var addressCapsule: some View {

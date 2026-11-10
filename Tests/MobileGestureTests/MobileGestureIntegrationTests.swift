@@ -8,6 +8,36 @@ import WebKit
     private func session() -> BrowserSession {
         BrowserSession(dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil))
     }
+    func testChromeHysteresisKeepsTopJitterOutAndPreservesCachedBand() async throws {
+        let s = session(); defer { s.shutdown() }
+        let tab = try XCTUnwrap(s.selectedTab), web = tab.webView, chrome = PageChrome()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let controller = UIViewController(); controller.view = MobileWebHost(webView: web)
+        let window = UIWindow(windowScene: scene); window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { chrome.observe(nil); window.isHidden = true; previous?.makeKeyAndVisible() }
+        web.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
+        web.loadHTMLString("<meta name='viewport' content='width=device-width'><style>body{margin:0;height:5000px;background:#6600cc}</style><p>Boundary fixture</p>", baseURL: URL(string: "https://fixture.invalid"))
+        for _ in 0..<100 { if !web.isLoading && web.url != nil { break }; try await Task.sleep(for: .milliseconds(50)) }
+        chrome.observe(web)
+        for _ in 0..<100 { if chrome.sampleCount > 0 { break }; try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertGreaterThan(chrome.sampleCount, 0)
+        let band = chrome.color
+        for y in [2,0,2,0,8,2,0] {
+            _ = try await web.evaluateJavaScript("window.scrollTo(0, \(y))")
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertFalse(chrome.hasScrolled); XCTAssertEqual(chrome.color, band)
+        }
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,30)")
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertTrue(chrome.hasScrolled); XCTAssertTrue(chrome.showsContentUnderChrome)
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,2)")
+        try await Task.sleep(for: .milliseconds(200)); XCTAssertTrue(chrome.hasScrolled)
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,0)")
+        try await Task.sleep(for: .milliseconds(250)); XCTAssertFalse(chrome.hasScrolled)
+        XCTAssertEqual(chrome.color, band)
+    }
+
     func testNativeRefreshEndsOnFinishFailureCancelAndShortPagesBounce() throws {
         let s = session(); defer { s.shutdown() }
         let tab = try XCTUnwrap(s.selectedTab), view = tab.webView

@@ -1,4 +1,5 @@
 import AppKit
+import BrowserEngine
 import SwiftUI
 import WebKit
 import XCTest
@@ -87,6 +88,22 @@ import XCTest
         _ = try await web.evaluateJavaScript("window.scrollTo(0, 300)")
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertFalse(chrome.hasScrolled)
+    }
+
+    func testNativeFallbackPaintAlsoWaitsForStableConfirmation() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.loadHTMLString("<body style='background:transparent;height:3000px'>Transparent canvas</body>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        web.underPageBackgroundColor = NSColor(srgbRed: 0.1, green: 0.3, blue: 0.7, alpha: 1)
+        chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
+        let cached = chrome.color
+        web.underPageBackgroundColor = NSColor(srgbRed: 0.8, green: 0.1, blue: 0.2, alpha: 1)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(chrome.color, cached, "Native fallback KVO must not bypass paint stability")
+        try await wait { NSColor(chrome.color).usingColorSpace(.sRGB)!.redComponent > 0.7 }
+        chrome.observe(nil)
     }
 
     func testPrivatePageAlwaysUsesCanvasDespiteLiveEdgeChanges() async throws {
@@ -234,7 +251,7 @@ import XCTest
         XCTAssertFalse(chrome.isDark)
         let before = chrome.sampleCount
         _ = try await web.evaluateJavaScript("document.querySelector('header').style.cssText='position:sticky;top:0;background:transparent';document.body.style.background='#1f6f5c'")
-        try await wait { chrome.sampleCount > before }
+        try await wait { chrome.sampleCount > before && NSColor(chrome.color).usingColorSpace(.sRGB)!.greenComponent < 0.5 }
         XCTAssertNil(chrome.sampledTop)
         XCTAssertEqual(NSColor(chrome.color).usingColorSpace(.sRGB)!.greenComponent, 111.0/255, accuracy: 0.002)
     }
@@ -266,7 +283,7 @@ import XCTest
         XCTAssertTrue(chrome.isDark)
         let before = chrome.sampleCount
         _ = try await web.evaluateJavaScript("document.querySelector('aside').style.width='100px';window.dispatchEvent(new Event('resize'))")
-        try await wait { chrome.sampleCount > before }
+        try await wait { chrome.sampleCount > before && chrome.sampledTop == nil }
         XCTAssertNil(chrome.sampledTop, "A narrow fixed widget must not tint the full toolbar")
         XCTAssertFalse(chrome.isDark)
     }
@@ -345,6 +362,84 @@ import XCTest
         XCTAssertFalse(chrome.showsContentUnderChrome)
     }
 
+    func testScrollingDoesNotReplayAddressFocusAcrossChromeModes() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let controller = profiles.controller
+        let tab = try XCTUnwrap(controller.session.selectedTab)
+        let url = "https://docs.example.com/scroll-focus?q=complete#address"
+        tab.webView.loadHTMLString("<style>body{margin:0;height:5000px;background:white}</style><p>Scroll focus fixture</p>", baseURL: URL(string: url))
+        try await wait { !tab.webView.isLoading && tab.url != nil }
+        let state = AddressTestState(text: url)
+        let chrome = PageChrome()
+        let hosting = NSHostingController(rootView: ScrollAddressTestView(state: state, tab: tab, chrome: chrome).browserAppearance(.t3Code))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1200, height: 800),
+                              styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.toolbarStyle = .unified
+        window.contentViewController = hosting
+        defer { window.close() }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        try await Task.sleep(for: .milliseconds(1200))
+        func field(in view: NSView) -> NSTextField? {
+            if let f = view as? NSTextField, f.accessibilityIdentifier() == "addressField" { return f }
+            return view.subviews.lazy.compactMap { field(in: $0) }.first
+        }
+        func rootView() -> NSView { window.contentView!.superview ?? window.contentView! }
+        state.focusRequest += 1
+        try await wait { field(in: rootView())?.currentEditor() != nil }
+        window.makeFirstResponder(tab.webView)
+        try await wait { field(in: rootView())?.stringValue == "docs.example.com" }
+        let original = try XCTUnwrap(field(in: rootView()))
+        let request = state.focusRequest
+        var sawNativeScroll = false
+        for toolbar in [false, true] {
+            for momentum in [false, true] {
+                for (phaseIndex, delta) in [-20.0, -40, 30, 30].enumerated() {
+                    let point = toolbar ? original.convert(NSPoint(x: 10, y: 10), to: nil) : tab.webView.convert(NSPoint(x: 300, y: 300), to: nil)
+                    let event = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(delta), wheel2: 0, wheel3: 0))
+                    let screen = window.convertPoint(toScreen: point)
+                    event.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
+                    event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                    event.setIntegerValueField(.scrollWheelEventScrollPhase, value: momentum ? 0 : (phaseIndex == 0 ? 1 : (phaseIndex == 3 ? 4 : 2)))
+                    event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum ? (phaseIndex == 0 ? 1 : (phaseIndex == 3 ? 3 : 2)) : 0)
+                    let native = try XCTUnwrap(NSEvent(cgEvent: event))
+                    let expectedPhase: NSEvent.Phase = phaseIndex == 0 ? .began : (phaseIndex == 3 ? .ended : .changed)
+                    XCTAssertEqual(momentum ? native.momentumPhase : native.phase, expectedPhase)
+                    // In-process delivery only; never post global/shell UI events.
+                    let beforeWheel = (try await tab.webView.evaluateJavaScript("scrollY")) as? Double ?? 0
+                    let recipient = toolbar ? original : (tab.webView.hitTest(NSPoint(x: 300, y: 300)) ?? tab.webView)
+                    recipient.scrollWheel(with: native)
+                    try await Task.sleep(for: .milliseconds(100))
+                    let afterWheel = (try await tab.webView.evaluateJavaScript("scrollY")) as? Double ?? 0
+                    if !toolbar && abs(afterWheel - beforeWheel) > 1 { sawNativeScroll = true }
+                    print("In-process wheel: toolbar=\(toolbar), momentum=\(momentum), recipient=\(type(of: recipient)), before=\(beforeWheel), after=\(afterWheel)")
+                    // Ensure both chrome identities are exercised even on an occluded test host.
+                    _ = try await tab.webView.evaluateJavaScript("window.scrollTo(0, \(delta < 0 ? 40 : 0))")
+                    try await Task.sleep(for: .milliseconds(350))
+                    let current = try XCTUnwrap(field(in: rootView()))
+                    XCTAssertNil(current.currentEditor(), "Scrolling must not edit the address (toolbar=\(toolbar), momentum=\(momentum))")
+                    XCTAssertEqual(current.stringValue, "docs.example.com")
+                    XCTAssertTrue(current === original, "Chrome mode updates must preserve the native address field")
+                    XCTAssertEqual(state.focusRequest, request)
+                    XCTAssertEqual(tab.url?.absoluteString, url)
+                    XCTAssertEqual(state.text, url)
+                    XCTAssertFalse(state.editing)
+                }
+            }
+        }
+        XCTAssertTrue(sawNativeScroll, "Native wheel delivery must actually move WebKit before any scripted boundary adjustment")
+        let click = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: original.convert(NSPoint(x: 20, y: 12), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let release = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: click.locationInWindow, modifierFlags: [], timestamp: click.timestamp + 0.01, windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+        NSApp.postEvent(release, atStart: true)
+        original.mouseDown(with: click)
+        try await wait { original.currentEditor()?.string == url }
+        window.makeFirstResponder(tab.webView)
+        try await wait { original.stringValue == "docs.example.com" }
+        state.focusRequest += 1
+        try await wait { field(in: rootView())?.currentEditor()?.string == url }
+    }
+
     private func samplingWindow(_ web: WKWebView) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -380,5 +475,18 @@ private struct AddressTestView: View {
         AddressField(text: $state.text, isEditing: $state.editing, displayText: "docs.example.com",
                      focusRequest: state.focusRequest, submit: { true }, cancel: {})
             .frame(width: 500, height: 32)
+    }
+}
+
+private struct ScrollAddressTestView: View {
+    @Bindable var state: AddressTestState
+    let tab: BrowserEngine.BrowserTab
+    @Bindable var chrome: PageChrome
+    var body: some View {
+        VStack {
+            AddressTestView(state: state)
+                .modifier(MacAddressGlass(color: chrome.color, isDark: chrome.isDark, adaptive: chrome.showsContentUnderChrome))
+            WebPageView(tab: tab, chrome: chrome, contentUnderChrome: chrome.showsContentUnderChrome)
+        }.onAppear { chrome.observe(tab.webView) }.onDisappear { chrome.observe(nil) }
     }
 }

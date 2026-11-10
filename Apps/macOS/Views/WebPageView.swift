@@ -120,7 +120,7 @@ struct BrowserTitlebar: NSViewRepresentable {
                 transitionTimer = nil
                 return
             }
-            let progress = min(1, (Date.timeIntervalSinceReferenceDate - transitionStart) / 0.18)
+            let progress = min(1, (Date.timeIntervalSinceReferenceDate - transitionStart) / 0.2)
             let fraction = progress * progress * (3 - 2 * progress)
             window.backgroundColor = transitionSource.blended(withFraction: fraction, of: target)
             if progress >= 1 {

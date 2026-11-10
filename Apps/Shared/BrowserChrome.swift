@@ -24,6 +24,9 @@ private typealias PlatformColor = UIColor
     @ObservationIgnored private var dimmingLayer = false
     #if DEBUG
     private(set) var sampleCount = 0
+    static var diagnosticObserver: ((PageChrome) -> Void)?
+    @ObservationIgnored private var diagnosticFrames: [[String: Any]] = []
+    @ObservationIgnored private var diagnosticValues: [String: Any] = [:]
     #endif
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private weak var webView: WKWebView?
@@ -35,11 +38,23 @@ private typealias PlatformColor = UIColor
     @ObservationIgnored private var privatePage = false
     @ObservationIgnored private var installed = false
     @ObservationIgnored private var scrollRevision = 0
+    @ObservationIgnored private var scrollState = ChromeScrollState()
+    @ObservationIgnored private var scrollTask: Task<Void, Never>?
+    private struct Band: Equatable, Sendable {
+        let edge: ChromeColor?
+        let body: ChromeColor?
+        let html: ChromeColor?
+        let underPage: ChromeColor?
+        let dimming: Bool
+    }
+    @ObservationIgnored private var stableBand = ChromeStableValue<Band>()
+    @ObservationIgnored private var bandTask: Task<Void, Never>?
     private static let contentWorld = WKContentWorld.world(name: "OrivPageChrome")
     var foreground: Color { isDark ? .white : .black }
 
     func observe(_ view: WKWebView?, isPrivate: Bool = false) {
         sampleTask?.cancel(); sampleTask = nil
+        resetTransitions()
         if let old = webView {
             old.configuration.userContentController.removeScriptMessageHandler(forName: "chromeEdge", contentWorld: Self.contentWorld)
             old.evaluateJavaScript("window.__orivChromeStop?.(); void 0", in: nil, in: Self.contentWorld) { _ in }
@@ -58,6 +73,7 @@ private typealias PlatformColor = UIColor
                 Task { @MainActor [weak self] in
                     guard let self, self.webView === view else { return }
                     if loading {
+                        self.resetTransitions()
                         self.generation += 1; self.sampledTop = nil; self.bodyBackground = nil; self.htmlBackground = nil; self.dimmingLayer = false; self.hasScrolled = false
                         self.installed = false; self.sampleTask?.cancel()
                     }
@@ -101,7 +117,7 @@ private typealias PlatformColor = UIColor
         let neutral = Self.rgba(UIColor.systemBackground.resolvedColor(with: webView.traitCollection)) ?? ChromeColor(1, 1, 1)
         #endif
         apply(ChromeColorSelection.select(edge: sampledTop, body: bodyBackground, html: htmlBackground, isDimming: dimmingLayer,
-              underPage: Self.rgba(webView.underPageBackgroundColor), neutral: privatePage ? canvas : neutral, isPrivate: privatePage))
+              underPage: stableBand.value != nil ? stableBand.value?.underPage : Self.rgba(webView.underPageBackgroundColor), neutral: privatePage ? canvas : neutral, isPrivate: privatePage))
     }
 
     private func sample(_ web: WKWebView, generation request: Int) async {
@@ -130,13 +146,26 @@ private typealias PlatformColor = UIColor
             guard let c = values[key] as? [Double], c.count == 4 else { return nil }
             return ChromeColor(c[0], c[1], c[2], alpha: c[3])
         }
-        bodyBackground = decode("body"); htmlBackground = decode("html")
-        sampledTop = decode("edge"); dimmingLayer = values["dimming"] as? Bool ?? false
-        hasScrolled = (values["scrollY"] as? Double ?? 0) > 1
+        let offset = values["scrollY"] as? Double ?? 0
+        // Rubber band snapshots are not new viewport paint. Preserve the last
+        // band and mode until WebKit reports a real document position again.
+        guard offset.isFinite, offset >= 0 else { return }
+        updateScroll(offset)
+        let band = Band(edge: decode("edge"), body: decode("body"), html: decode("html"),
+                        underPage: webView.flatMap { Self.rgba($0.underPageBackgroundColor) }, dimming: values["dimming"] as? Bool ?? false)
+        if stableBand.update(band, at: ProcessInfo.processInfo.systemUptime) {
+            bodyBackground = band.body; htmlBackground = band.html
+            sampledTop = band.edge; dimmingLayer = band.dimming
+        }
+        scheduleBandConfirmation()
         #if DEBUG
         sampleCount += 1
         #endif
         refresh()
+        #if DEBUG
+        diagnosticValues = values
+        recordDiagnostics()
+        #endif
         #if DEBUG && targetEnvironment(simulator)
         if ChromeVisualFixture.liveURL != nil,
            let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]) {
@@ -233,23 +262,24 @@ private typealias PlatformColor = UIColor
         web.evaluateJavaScript("""
             (() => {
                 window.__orivChromeStop?.();
-                let timer, deadline, previous, edgeTimer, lastEdge = -Infinity;
+                let timer, deadline, edgeTimer, lastEdge = -Infinity;
                 const readEdge = () => { const inset = \(web.obscuredContentInsets.top), viewWidth = innerWidth;
                     \(Self.edgeScript)
                 };
                 const sendEdge = () => { clearTimeout(edgeTimer); edgeTimer = null; lastEdge = performance.now();
                     window.webkit.messageHandlers.chromeEdge.postMessage({edge:readEdge()}); };
                 const send = () => { clearTimeout(timer); clearTimeout(deadline); timer = deadline = null;
-                    window.webkit.messageHandlers.chromeEdge.postMessage({sample:true, scrolled:window.scrollY > 1}); };
+                    window.webkit.messageHandlers.chromeEdge.postMessage({sample:true}); };
                 const changed = () => { clearTimeout(timer); timer = setTimeout(send, 220);
                     if (!deadline) deadline = setTimeout(send, 1000); };
-                const scroll = () => { const edge = window.scrollY > 1;
-                    // Atomic top/header/colour update at the boundary, without a
-                    // native JS round trip or the colour-acquisition debounce.
-                    // During scrolling cap the five public-DOM hit tests at 8 Hz.
-                    if (edge !== previous || performance.now() - lastEdge >= 125) { previous = edge; sendEdge(); }
+                const scroll = () => {
+                    if (window.scrollY < 0) return;
+                    // Swift owns the one hysteresis state machine. Mode changes
+                    // never invalidate cached paint or bypass the 8 Hz edge cap.
+                    window.webkit.messageHandlers.chromeEdge.postMessage({scrollY:window.scrollY});
+                    if (performance.now() - lastEdge >= 125) sendEdge();
                     else if (!edgeTimer) edgeTimer = setTimeout(sendEdge, 125 - (performance.now() - lastEdge));
-                    clearTimeout(timer); clearTimeout(deadline); deadline = null; timer = setTimeout(send, 220); };
+                };
                 const media = matchMedia('(prefers-color-scheme: dark)');
                 const observer = new MutationObserver(changed);
                 observer.observe(document.documentElement, {subtree:true, childList:true, attributes:true, attributeFilter:['style','class','content','media']});
@@ -276,8 +306,66 @@ private typealias PlatformColor = UIColor
             guard webView?.isLoading == false, edge["href"] as? String == webView?.url?.absoluteString else { return }
             scrollRevision += 1; accept(edge); return
         }
-        if let scrolled = body["scrolled"] as? Bool { hasScrolled = scrolled }
+        if let offset = body["scrollY"] as? Double { updateScroll(offset) }
         if body["sample"] as? Bool == true { refresh(); requestSample() }
+    }
+
+    #if DEBUG
+    private func recordDiagnostics() {
+        Self.diagnosticObserver?(self)
+        #if targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--oriv-chrome-diagnostics") {
+            let frame: [String: Any] = ["time": ProcessInfo.processInfo.systemUptime,
+                "scrollY": diagnosticValues["scrollY"] ?? 0, "scrolled": hasScrolled,
+                "under": showsContentUnderChrome, "luminance": luminance,
+                "edge": diagnosticValues["edge"] ?? NSNull(), "href": diagnosticValues["href"] ?? ""]
+            diagnosticFrames.append(frame)
+            if diagnosticFrames.count > 4000 { diagnosticFrames.removeFirst() }
+            if let data = try? JSONSerialization.data(withJSONObject: diagnosticFrames, options: [.sortedKeys]) {
+                try? data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("oriv-chrome-scroll.json"), options: .atomic)
+            }
+        }
+        #endif
+    }
+    #endif
+
+    private func resetTransitions() {
+        scrollTask?.cancel(); scrollTask = nil
+        bandTask?.cancel(); bandTask = nil
+        scrollState = ChromeScrollState()
+        stableBand = ChromeStableValue()
+    }
+
+    private func updateScroll(_ offset: Double) {
+        scrollState.update(offset: offset, at: ProcessInfo.processInfo.systemUptime)
+        hasScrolled = scrollState.isScrolled
+        guard let deadline = scrollState.deadline else { scrollTask?.cancel(); scrollTask = nil; return }
+        guard scrollTask == nil else { return }
+        let request = generation
+        scrollTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, deadline - ProcessInfo.processInfo.systemUptime)))
+            guard !Task.isCancelled, let self, self.generation == request else { return }
+            self.scrollTask = nil
+            self.scrollState.settle(at: ProcessInfo.processInfo.systemUptime)
+            self.hasScrolled = self.scrollState.isScrolled
+            #if DEBUG
+            self.recordDiagnostics()
+            #endif
+        }
+    }
+
+    private func scheduleBandConfirmation() {
+        guard let deadline = stableBand.deadline else { bandTask?.cancel(); bandTask = nil; return }
+        guard bandTask == nil else { return }
+        let request = generation
+        bandTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, deadline - ProcessInfo.processInfo.systemUptime)))
+            guard !Task.isCancelled, let self, self.generation == request, let web = self.webView else { return }
+            self.bandTask = nil
+            // Measure again before accepting a new sticky/header colour. A
+            // single transient result cannot replace the cached band.
+            await self.sample(web, generation: request)
+        }
     }
 
     private static func rgba(_ color: PlatformColor) -> ChromeColor? {
