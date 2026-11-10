@@ -55,14 +55,14 @@ trap cleanup EXIT
 
 if [[ "$GLASS" == 1 ]]; then
   /usr/bin/open -n -W --env BROWSER_TESTING=1 --env ORIV_VISUAL_SNAPSHOTS=1 \
-    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" \
+    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
     "$APP" > "$DERIVED.run.log" 2>&1 &
 else
   BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" \
     "$APP/Contents/MacOS/Oriv-Snapshots" > "$DERIVED.run.log" 2>&1 &
 fi
 PID=$!
-for _ in {1..240}; do
+for _ in $(seq 1 "${ORIV_CAPTURE_TICKS:-240}"); do
   kill -0 $PID 2>/dev/null || break
   if [[ "$GLASS" == 1 && -f "$SRC/capture-request.json" ]]; then
     python3 -I - "$SRC" "$APP" <<'CAPTURE'
@@ -113,6 +113,8 @@ expected = {
 }
 if sys.argv[4] == "1": expected = {"mac-glass-" + mode for mode in ("light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "private", "reduced", "insecure")}
 if sys.argv[4] == "1" and os.environ.get("ORIV_GLASS_SCENE", "all") != "all": expected = {"mac-glass-" + os.environ["ORIV_GLASS_SCENE"]}
+if os.environ.get("ORIV_LIVE_SITES"):
+    expected = {f"mac-glass-site{i+1}" for i, _ in enumerate(os.environ["ORIV_LIVE_SITES"].split(","))}
 if m["activated"] and sys.argv[4] != "1": expected.add("mac-05-start-inactive-window")
 actual = [scene["name"] for scene in m["scenes"]]
 if len(actual) != len(expected) or set(actual) != expected:
@@ -132,6 +134,7 @@ for scene in m["scenes"]:
     expected_key = m["activated"] and scene["name"] != "mac-05-start-inactive-window"
     if scene["keyWindow"] != expected_key: problems.append(f"window activation mismatch {scene['file']}")
 extra = {f for f in os.listdir(out) if f.endswith(".png")} - listed
+extra = {f for f in extra if not (os.environ.get("ORIV_LIVE_SITES") and f.endswith("-strip.png"))}
 if extra: problems.append(f"images not in manifest: {sorted(extra)}")
 for note in m["limitations"]: print(f"limitation: {note}")
 if problems:

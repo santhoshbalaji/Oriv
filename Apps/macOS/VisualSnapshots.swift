@@ -45,7 +45,8 @@ import WebKit
             fputs("snapshot directory unavailable: \(error)\n", stderr); exit(2)
         }
         if activate { NSApp.setActivationPolicy(.regular); NSApp.activate() }
-        if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
+        if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
         else { await renderScenes(into: directory, activate: activate) }
         manifest.finishedAt = Date()
         let encoder = JSONEncoder()
@@ -216,6 +217,54 @@ import WebKit
         }
     }
 
+    /// Opt-in network evidence in the isolated snapshot app. Third-party images
+    /// stay in temporary/build output, never in the public fixture resources.
+    private static func renderLiveSites(_ sites: String, into directory: URL, activate: Bool) async {
+        let darkIndices = Set((ProcessInfo.processInfo.environment["ORIV_LIVE_DARK_INDICES"] ?? "").split(separator: ",").compactMap { Int($0) })
+        let scrollIndices = Set((ProcessInfo.processInfo.environment["ORIV_LIVE_SCROLL_INDICES"] ?? "").split(separator: ",").compactMap { Int($0) })
+        for (index, address) in sites.split(separator: ",").map(String.init).enumerated() {
+            guard let url = URL(string: address), url.scheme == "https" else { continue }
+            let profiles = BrowserProfiles(testing: true)
+            let tab = profiles.controller.session.addTab(url: url, select: true)
+            tab.webView.appearance = NSAppearance(named: darkIndices.contains(index + 1) ? .darkAqua : .aqua)
+            try? await Task.sleep(for: .milliseconds(500))
+            let name = "mac-glass-site\(index + 1)"
+            await capture(name, directory, CGSize(width: 1440, height: 848), key: activate, compositeWeb: tab.webView, prepare: { window in
+                for _ in 0..<60 {
+                    if !tab.webView.isLoading { break }
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+                try? await Task.sleep(for: .seconds(3))
+                let web = tab.webView
+                if scrollIndices.contains(index + 1) {
+                    _ = try? await web.evaluateJavaScript("window.scrollTo(0,560)")
+                    try? await Task.sleep(for: .seconds(2))
+                }
+                let edge = (try? await web.callAsyncJavaScript(PageChrome.edgeScript,
+                    arguments: ["inset": web.obscuredContentInsets.top, "viewWidth": web.bounds.width],
+                    in: nil, contentWorld: .page)) as? [String: Any] ?? [:]
+                let config = WKSnapshotConfiguration()
+                config.rect = CGRect(x: 2, y: web.obscuredContentInsets.top + 1, width: web.bounds.width - 4, height: 6)
+                if let image = try? await web.takeSnapshot(configuration: config), let data = image.tiffRepresentation,
+                   let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) {
+                    try? png.write(to: directory.appendingPathComponent("\(name)-strip.png"))
+                }
+                func hex(_ color: NSColor?) -> String {
+                    guard let c = color?.usingColorSpace(.sRGB) else { return "none" }
+                    return String(format: "#%02x%02x%02x", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
+                }
+                let dom = (try? await web.evaluateJavaScript("({title:document.title,href:location.href,theme:[...document.querySelectorAll('meta[name=theme-color]')].map(m=>({content:m.content,media:m.media})),html:getComputedStyle(document.documentElement).backgroundColor,body:getComputedStyle(document.body).backgroundColor,scrollY,top:document.elementFromPoint(innerWidth/2,1)?.tagName})")) as? [String: Any] ?? [:]
+                let metrics: [String: Any] = ["requested": address, "url": web.url?.absoluteString ?? "none", "error": tab.errorMessage ?? "none",
+                    "theme": hex(web.themeColor), "underPage": hex(web.underPageBackgroundColor), "band": hex(window.backgroundColor),
+                    "obscuredTop": web.obscuredContentInsets.top, "dom": dom, "edgeSelection": edge, "isLoading": web.isLoading]
+                if let data = try? JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: directory.appendingPathComponent("\(name)-geometry.json"))
+                }
+            }) { BrowserWindow(controller: profiles.controller, profiles: profiles) }
+            profiles.shutdown()
+        }
+    }
+
     private static func fixturePage(scheme: String) -> String {
         """
         <!doctype html><html><head><meta name=viewport content="width=device-width"><title>Visual check article</title>
@@ -268,7 +317,7 @@ import WebKit
                                                @ViewBuilder content: () -> Content) async {
         let hosting = NSHostingController(rootView: content().browserAppearance(.t3Code))
         hosting.sceneBridgingOptions = [.toolbars, .title]
-        let liveGlass = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"]?.isEmpty == false
+        let liveGlass = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"]?.isEmpty == false || ProcessInfo.processInfo.environment["ORIV_LIVE_SITES"]?.isEmpty == false
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
         if liveGlass { style.insert(.fullSizeContentView) }
         let window = OffscreenWindow(contentRect: CGRect(origin: .zero, size: size),
@@ -295,6 +344,13 @@ import WebKit
             try? await Task.sleep(for: .milliseconds(150))
         }
         await prepare(window)
+        if key {
+            // The page may finish loading after another app takes activation.
+            // Reclaim only this capture app's own window immediately before evidence.
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .milliseconds(200))
+        }
         window.displayIfNeeded()
         if key && !window.isKeyWindow { manifest.failures.append("\(name): requested an active window but it did not become key") }
         func fields(in view: NSView) -> [NSTextField] {

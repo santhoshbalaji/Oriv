@@ -1,235 +1,343 @@
 import SwiftUI
 import WebKit
+import BrowserCore
 
 #if os(macOS)
-/// Window-local colour and scroll-edge observation. A computed background read is needed only if
-/// WebKit supplies neither an opaque theme colour nor an under-page colour.
+private typealias PlatformColor = NSColor
+#else
+private typealias PlatformColor = UIColor
+#endif
+
+/// Window-local Safari 26 style viewport-edge colour extension, using public APIs.
 @MainActor @Observable final class PageChrome {
     static let foregroundThreshold = sqrt(1.05 * 0.05) - 0.05
     var color: Color = Theme.t3Code.canvas
-    var isDark = true
+    private(set) var isDark = true
     private(set) var hasScrolled = false
+    /// Keep the canvas/header extension at the top; otherwise let native content
+    /// and the system scroll edge supply the backdrop. Private pages stay opaque.
+    var showsContentUnderChrome: Bool { hasScrolled && sampledTop == nil && !privatePage }
     private(set) var luminance = 0.0
+    private(set) var sampledTop: ChromeColor?
+    @ObservationIgnored private var bodyBackground: ChromeColor?
+    @ObservationIgnored private var htmlBackground: ChromeColor?
+    @ObservationIgnored private var dimmingLayer = false
+    #if DEBUG
+    private(set) var sampleCount = 0
+    #endif
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private weak var webView: WKWebView?
     @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var sampledBackground: NSColor?
-    @ObservationIgnored private var didRequestBackground = false
-    @ObservationIgnored private var didInstallScroll = false
+    @ObservationIgnored private var sampleTask: Task<Void, Never>?
+    @ObservationIgnored private var lastSample = Date.distantPast
+    @ObservationIgnored private var sampling = false
+    @ObservationIgnored private var resample = false
     @ObservationIgnored private var privatePage = false
+    @ObservationIgnored private var installed = false
+    @ObservationIgnored private var scrollRevision = 0
     private static let contentWorld = WKContentWorld.world(name: "OrivPageChrome")
-
     var foreground: Color { isDark ? .white : .black }
 
     func observe(_ view: WKWebView?, isPrivate: Bool = false) {
+        sampleTask?.cancel(); sampleTask = nil
         if let old = webView {
-            old.configuration.userContentController.removeScriptMessageHandler(forName: "scrollEdge", contentWorld: Self.contentWorld)
+            old.configuration.userContentController.removeScriptMessageHandler(forName: "chromeEdge", contentWorld: Self.contentWorld)
             old.evaluateJavaScript("window.__orivChromeStop?.(); void 0", in: nil, in: Self.contentWorld) { _ in }
         }
         observations.removeAll()
-        hasScrolled = false
-        didInstallScroll = false
-        privatePage = isPrivate
-        generation += 1
-        sampledBackground = nil
-        didRequestBackground = false
-        webView = view
-        guard let view else { apply(NSColor(Theme.t3Code.canvas)); return }
-        view.configuration.userContentController.add(PageChromeScrollHandler(owner: self), contentWorld: Self.contentWorld, name: "scrollEdge")
+        generation += 1; sampledTop = nil; bodyBackground = nil; htmlBackground = nil; dimmingLayer = false; hasScrolled = false; installed = false
+        sampling = false; resample = false; privatePage = isPrivate; webView = view
+        guard let view else { apply(Self.rgba(PlatformColor(Theme.t3Code.canvas))!); return }
+        view.configuration.userContentController.add(PageChromeScrollHandler(owner: self), contentWorld: Self.contentWorld, name: "chromeEdge")
         observations = [
-            view.observe(\.themeColor, options: [.new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.refresh() }
-            },
             view.observe(\.underPageBackgroundColor, options: [.new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.refresh() }
+                Task { @MainActor [weak self] in self?.refresh(); self?.requestSample() }
             },
-            view.observe(\.isLoading, options: [.new]) { [weak self] _, _ in
+            view.observe(\.isLoading, options: [.new]) { [weak self] view, change in
+                let loading = change.newValue ?? false
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.generation += 1
-                    self.sampledBackground = nil
-                    self.didRequestBackground = false
-                    self.didInstallScroll = false
-                    self.hasScrolled = false
-                    self.refresh()
+                    guard let self, self.webView === view else { return }
+                    if loading {
+                        self.generation += 1; self.sampledTop = nil; self.bodyBackground = nil; self.htmlBackground = nil; self.dimmingLayer = false; self.hasScrolled = false
+                        self.installed = false; self.sampleTask?.cancel()
+                    }
+                    self.refresh(); self.requestSample()
                 }
+            },
+            view.observe(\.url, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.refresh(); self?.requestSample() }
             }
         ]
-        refresh()
+        refresh(); requestSample()
     }
 
-    /// Semantic cues keep their hue when readable; otherwise retain their shape
-    /// and label with the same high-contrast foreground as the address.
     func contrasting(_ candidate: Color) -> Color {
-        guard let rgb = NSColor(candidate).usingColorSpace(.sRGB) else { return foreground }
-        let value = Self.relativeLuminance(rgb)
+        guard let rgb = Self.rgba(PlatformColor(candidate)) else { return foreground }
+        let value = rgb.luminance
         return (max(value, luminance) + 0.05) / (min(value, luminance) + 0.05) >= 4.5 ? candidate : foreground
     }
 
-    private func refresh() {
-        guard let webView else { return }
-        let canvas = NSColor(Theme.t3Code.canvas)
-        guard webView.url != nil else { apply(canvas); return }
-        installScrollObserver(webView)
-        guard !privatePage else { apply(canvas); return }
-        let page = Self.usable(webView.underPageBackgroundColor)
-        let theme = webView.themeColor.flatMap(Self.usable)
-        apply(theme ?? page ?? sampledBackground ?? canvas, over: page ?? sampledBackground ?? canvas)
-        guard theme == nil, page == nil, !webView.isLoading, !didRequestBackground else { return }
-        didRequestBackground = true
+    /// Called after native geometry/appearance changes too, including obscured insets.
+    func requestSample() {
+        guard let webView, webView.url != nil, !privatePage, !webView.isLoading else { return }
+        sampleTask?.cancel()
         let request = generation
-        Task { @MainActor [weak self, weak webView] in
-            guard let webView else { return }
-            // One background read, no polling or persistence. Never called for a private tab.
-            let value = try? await webView.evaluateJavaScript("""
-                (() => {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = canvas.height = 1;
-                    const ctx = canvas.getContext('2d');
-                    for (const node of [document.documentElement, document.body]) {
-                        if (!node) continue;
-                        ctx.fillStyle = getComputedStyle(node).backgroundColor;
-                        ctx.fillRect(0, 0, 1, 1);
-                    }
-                    const c = Array.from(ctx.getImageData(0, 0, 1, 1).data);
-                    return c[3] > 0 ? c : null;
-                })()
-                """)
-            guard let self, self.webView === webView, self.generation == request,
-                  let rgba = value as? [Double], rgba.count == 4 else { return }
-            self.sampledBackground = NSColor(srgbRed: rgba[0] / 255, green: rgba[1] / 255,
-                                            blue: rgba[2] / 255, alpha: rgba[3] / 255)
-            self.refresh()
+        let delay = max(0.22, 0.6 - Date().timeIntervalSince(lastSample))
+        sampleTask = Task { @MainActor [weak self, weak webView] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, let webView, self.webView === webView, self.generation == request else { return }
+            await self.sample(webView, generation: request)
         }
     }
 
-    private func installScrollObserver(_ webView: WKWebView) {
-        guard !webView.isLoading, !didInstallScroll else { return }
-        didInstallScroll = true
-        // Only two states cross the bridge, on threshold transitions. No scroll
-        // coordinates, page content, timers, colour reads, or persistent scripts.
-        webView.evaluateJavaScript("""
+    private func refresh() {
+        let canvas = Self.rgba(PlatformColor(Theme.t3Code.canvas))!
+        guard let webView, webView.url != nil else { apply(canvas); return }
+        installObserver(webView)
+        #if os(macOS)
+        var neutral = ChromeColor(0.94, 0.94, 0.94)
+        webView.effectiveAppearance.performAsCurrentDrawingAppearance { neutral = Self.rgba(PlatformColor.windowBackgroundColor) ?? neutral }
+        #else
+        let neutral = Self.rgba(UIColor.systemBackground.resolvedColor(with: webView.traitCollection)) ?? ChromeColor(1, 1, 1)
+        #endif
+        apply(ChromeColorSelection.select(edge: sampledTop, body: bodyBackground, html: htmlBackground, isDimming: dimmingLayer,
+              underPage: Self.rgba(webView.underPageBackgroundColor), neutral: privatePage ? canvas : neutral, isPrivate: privatePage))
+    }
+
+    private func sample(_ web: WKWebView, generation request: Int) async {
+        guard !sampling else { resample = true; return }
+        guard web.bounds.width > 16, web.bounds.height > web.obscuredContentInsets.top + 8 else { return }
+        sampling = true
+        lastSample = Date()
+        let revision = scrollRevision
+        // Normal tabs ignore theme-color. Query only computed backgrounds of the
+        // viewport-constrained edge and page canvas; text/images in ordinary flow
+        // must not accidentally become the chrome colour.
+        let result = try? await web.callAsyncJavaScript(Self.edgeScript,
+            arguments: ["inset": web.obscuredContentInsets.top, "viewWidth": web.bounds.width],
+            in: nil, contentWorld: Self.contentWorld)
+        guard self.webView === web else { return }
+        guard self.generation == request else { sampling = false; requestSample(); return }
+        guard scrollRevision == revision else { sampling = false; requestSample(); return }
+        let values = result as? [String: Any] ?? [:]
+        accept(values)
+        sampling = false
+        if resample { resample = false; requestSample() }
+    }
+
+    private func accept(_ values: [String: Any]) {
+        func decode(_ key: String) -> ChromeColor? {
+            guard let c = values[key] as? [Double], c.count == 4 else { return nil }
+            return ChromeColor(c[0], c[1], c[2], alpha: c[3])
+        }
+        bodyBackground = decode("body"); htmlBackground = decode("html")
+        sampledTop = decode("edge"); dimmingLayer = values["dimming"] as? Bool ?? false
+        hasScrolled = (values["scrollY"] as? Double ?? 0) > 1
+        #if DEBUG
+        sampleCount += 1
+        #endif
+        refresh()
+        #if DEBUG && targetEnvironment(simulator)
+        if ChromeVisualFixture.liveURL != nil,
+           let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("oriv-chrome-edge.json"), options: .atomic)
+        }
+        #endif
+    }
+
+    /// Public DOM approximation of WebKit's fixedContainerEdges. Five hit tests
+    /// avoid text/icon holes. Backgrounds on wide descendants of a fixed/sticky
+    /// container count too; fully transparent paint continues to the next layer.
+    static let edgeScript: String = {
+        #if DEBUG
+        let diagnosticSetup = """
+        const describe = el => ({tag:el.tagName, id:el.id, position:getComputedStyle(el).position,
+            background:getComputedStyle(el).backgroundColor, image:getComputedStyle(el).backgroundImage,
+            rect:{top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom,
+                  width:el.getBoundingClientRect().width}});
+        const hits = [];
+        """
+        let diagnosticHit = "hits.push(found ? describe(found.element) : null);"
+        let diagnosticResult = """
+        selected:winner ? describe(winner.element) : null, hits,
+        viewport:{top,y,width,nativeInset:inset,height:vv?.height || innerHeight}, title:document.title,
+        """
+        #else
+        let diagnosticSetup = "", diagnosticHit = "", diagnosticResult = ""
+        #endif
+        return """
+        const rgba = value => {
+            if (!value || !CSS.supports('color', value)) return null;
+            // Computed sRGB preserves the author's unpremultiplied channels.
+            // A canvas round trip can turn rgba(22,22,23,.8) into (23,23,23).
+            if (/^rgba?\\(/.test(value)) {
+                const n = value.match(/[0-9.]+/g).map(Number), a = n[3] ?? 1;
+                return a > 0 ? [n[0]/255, n[1]/255, n[2]/255, a] : null;
+            }
+            const c = document.createElement('canvas').getContext('2d');
+            c.fillStyle = value; c.fillRect(0, 0, 1, 1);
+            const p = c.getImageData(0, 0, 1, 1).data;
+            return p[3] ? [p[0]/255, p[1]/255, p[2]/255, p[3]/255] : null;
+        };
+        const vv = visualViewport;
+        const left = vv?.offsetLeft || 0, width = vv?.width || innerWidth;
+        // DOM viewport coordinates already exclude WKWebView's obscured/native
+        // content inset. Adding the inset again skips short mobile headers.
+        const top = vv?.offsetTop || 0;
+        const y = Math.min(top + 1, innerHeight - 1);
+        \(diagnosticSetup)
+        const votes = [];
+        for (const fraction of [.05, .25, .5, .75, .95]) {
+            let found = null;
+            for (const hit of document.elementsFromPoint(left + width * fraction, y)) {
+                let paint = null;
+                for (let el = hit; el && el !== document.documentElement; el = el.parentElement) {
+                    const s = getComputedStyle(el), r = el.getBoundingClientRect();
+                    if (s.visibility !== 'visible' || Number(s.opacity) < .01 || Number(s.zIndex) < 0) continue;
+                    const wide = r.width >= width * .9 && r.left <= left + width * .1 && r.right >= left + width * .9;
+                    if (wide && r.height > 10 && !paint) {
+                        paint = rgba(s.backgroundColor);
+                        if (paint) paint[3] *= Number(s.opacity);
+                    }
+                    if ((s.position === 'fixed' || s.position === 'sticky') && wide &&
+                        r.top <= top + 2 && r.bottom > y && r.height <= (vv?.height || innerHeight) * 1.05) {
+                        if (paint) {
+                            const dimming = r.height >= (vv?.height || innerHeight) * .9 && el.children.length === 0 && paint[3] < 1;
+                            found = {element:el, color:paint, dimming};
+                        }
+                        // A transparent constrained container may cover another
+                        // constrained layer; continue the hit stack when unpainted.
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+            \(diagnosticHit)
+            if (found) votes.push(found);
+        }
+        const winner = votes.find(v => votes.filter(w => w.element === v.element).length >= 3);
+        return {body:rgba(document.body && getComputedStyle(document.body).backgroundColor),
+            html:rgba(getComputedStyle(document.documentElement).backgroundColor),
+            edge:winner?.color || null, dimming:winner?.dimming || false,
+            \(diagnosticResult)
+            scrollY, href:location.href};
+        """
+    }()
+
+    private func installObserver(_ web: WKWebView) {
+        guard !web.isLoading, !installed, !privatePage else { return }
+        installed = true
+        // An isolated world sends invalidations and bounded computed edge state.
+        // Trailing debounce plus a 1s maximum wait handles SPA mutations without
+        // starving on animated pages. No script is persisted in the configuration.
+        web.evaluateJavaScript("""
             (() => {
                 window.__orivChromeStop?.();
-                let previous;
-                const update = () => {
-                    const scrolled = window.scrollY > 1;
-                    if (scrolled === previous) return;
-                    previous = scrolled;
-                    window.webkit.messageHandlers.scrollEdge.postMessage(scrolled);
+                let timer, deadline, previous, edgeTimer, lastEdge = -Infinity;
+                const readEdge = () => { const inset = \(web.obscuredContentInsets.top), viewWidth = innerWidth;
+                    \(Self.edgeScript)
                 };
-                window.addEventListener('scroll', update, {passive:true});
-                window.__orivChromeStop = () => window.removeEventListener('scroll', update);
-                update();
+                const sendEdge = () => { clearTimeout(edgeTimer); edgeTimer = null; lastEdge = performance.now();
+                    window.webkit.messageHandlers.chromeEdge.postMessage({edge:readEdge()}); };
+                const send = () => { clearTimeout(timer); clearTimeout(deadline); timer = deadline = null;
+                    window.webkit.messageHandlers.chromeEdge.postMessage({sample:true, scrolled:window.scrollY > 1}); };
+                const changed = () => { clearTimeout(timer); timer = setTimeout(send, 220);
+                    if (!deadline) deadline = setTimeout(send, 1000); };
+                const scroll = () => { const edge = window.scrollY > 1;
+                    // Atomic top/header/colour update at the boundary, without a
+                    // native JS round trip or the colour-acquisition debounce.
+                    // During scrolling cap the five public-DOM hit tests at 8 Hz.
+                    if (edge !== previous || performance.now() - lastEdge >= 125) { previous = edge; sendEdge(); }
+                    else if (!edgeTimer) edgeTimer = setTimeout(sendEdge, 125 - (performance.now() - lastEdge));
+                    clearTimeout(timer); clearTimeout(deadline); deadline = null; timer = setTimeout(send, 220); };
+                const media = matchMedia('(prefers-color-scheme: dark)');
+                const observer = new MutationObserver(changed);
+                observer.observe(document.documentElement, {subtree:true, childList:true, attributes:true, attributeFilter:['style','class','content','media']});
+                window.addEventListener('scroll', scroll, {passive:true, capture:true});
+                window.addEventListener('resize', changed);
+                window.addEventListener('pageshow', changed);
+                window.addEventListener('popstate', changed);
+                window.addEventListener('hashchange', changed);
+                document.addEventListener('load', changed, true);
+                media.addEventListener('change', changed);
+                window.__orivChromeStop = () => { clearTimeout(timer); clearTimeout(deadline); clearTimeout(edgeTimer); observer.disconnect();
+                    window.removeEventListener('scroll', scroll, true); window.removeEventListener('resize', changed);
+                    window.removeEventListener('pageshow', changed); window.removeEventListener('popstate', changed);
+                    window.removeEventListener('hashchange', changed); document.removeEventListener('load', changed, true);
+                    media.removeEventListener('change', changed); };
+                changed();
             })()
             """, in: nil, in: Self.contentWorld) { _ in }
     }
 
     fileprivate func receiveScroll(_ message: WKScriptMessage) {
-        guard message.webView === webView, message.frameInfo.isMainFrame,
-              let scrolled = message.body as? Bool else { return }
-        hasScrolled = scrolled
+        guard !privatePage, message.webView === webView, message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
+        if let edge = body["edge"] as? [String: Any] {
+            guard webView?.isLoading == false, edge["href"] as? String == webView?.url?.absoluteString else { return }
+            scrollRevision += 1; accept(edge); return
+        }
+        if let scrolled = body["scrolled"] as? Bool { hasScrolled = scrolled }
+        if body["sample"] as? Bool == true { refresh(); requestSample() }
     }
 
-    private static func usable(_ color: NSColor) -> NSColor? {
-        guard let rgb = color.usingColorSpace(.sRGB), rgb.alphaComponent > 0,
-              [rgb.redComponent, rgb.greenComponent, rgb.blueComponent, rgb.alphaComponent].allSatisfy({ $0.isFinite }) else { return nil }
-        return rgb
+    private static func rgba(_ color: PlatformColor) -> ChromeColor? {
+        #if os(macOS)
+        guard let c = color.usingColorSpace(.sRGB) else { return nil }
+        let rgba = ChromeColor(c.redComponent, c.greenComponent, c.blueComponent, alpha: c.alphaComponent)
+        #else
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard color.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        let rgba = ChromeColor(r, g, b, alpha: a)
+        #endif
+        return rgba.usable ? rgba : nil
     }
-
-    private func apply(_ color: NSColor, over background: NSColor = .black) {
-        let rgb = color.usingColorSpace(.sRGB) ?? .black
-        let base = background.usingColorSpace(.sRGB) ?? .black
-        let alpha = rgb.alphaComponent
-        let r = rgb.redComponent * alpha + base.redComponent * (1 - alpha)
-        let g = rgb.greenComponent * alpha + base.greenComponent * (1 - alpha)
-        let b = rgb.blueComponent * alpha + base.blueComponent * (1 - alpha)
-        let opaque = NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
-        luminance = Self.relativeLuminance(opaque)
-        isDark = luminance < Self.foregroundThreshold
-        self.color = Color(nsColor: opaque)
-    }
-
-    private static func relativeLuminance(_ rgb: NSColor) -> Double {
-        func linear(_ c: CGFloat) -> Double { c <= 0.04045 ? Double(c / 12.92) : pow(Double((c + 0.055) / 1.055), 2.4) }
-        return 0.2126 * linear(rgb.redComponent) + 0.7152 * linear(rgb.greenComponent) + 0.0722 * linear(rgb.blueComponent)
+    private func apply(_ rgb: ChromeColor) {
+        luminance = rgb.luminance; isDark = rgb.whiteForeground
+        color = Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue, opacity: 1)
     }
 }
 
 @MainActor private final class PageChromeScrollHandler: NSObject, WKScriptMessageHandler {
     weak var owner: PageChrome?
     init(owner: PageChrome) { self.owner = owner }
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        owner?.receiveScroll(message)
-    }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) { owner?.receiveScroll(message) }
 }
-#else
-/// Observe only the displayed page. No scripts, colour sampling, or persistence are involved.
-@MainActor @Observable final class PageChrome {
-    var color: Color = Theme.t3Code.chrome
-    var isDark = true
-    @ObservationIgnored private var observations: [NSKeyValueObservation] = []
-    @ObservationIgnored private weak var webView: WKWebView?
-
-    func observe(_ view: WKWebView?) {
-        observations.removeAll()
-        webView = view
-        guard let view else { color = Theme.t3Code.chrome; isDark = true; return }
-        observations = [
-            view.observe(\.themeColor, options: [.new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.refresh() }
-            },
-            view.observe(\.underPageBackgroundColor, options: [.new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.refresh() }
-            }
-        ]
-        refresh()
-    }
-
-    private func refresh() {
-        guard let webView else { return }
-        // Resolve alpha against the page background: a transparent theme colour must
-        // never turn the status bar into a black strip on an otherwise light page.
-        #if os(macOS)
-        let page = webView.underPageBackgroundColor.usingColorSpace(.sRGB) ?? .white
-        let tint = (webView.themeColor ?? page).usingColorSpace(.sRGB) ?? page
-        let a = tint.alphaComponent
-        let r = tint.redComponent * a + page.redComponent * (1 - a)
-        let g = tint.greenComponent * a + page.greenComponent * (1 - a)
-        let b = tint.blueComponent * a + page.blueComponent * (1 - a)
-        #else
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
-        var pr: CGFloat = 1, pg: CGFloat = 1, pb: CGFloat = 1, pa: CGFloat = 1
-        webView.underPageBackgroundColor.getRed(&pr, green: &pg, blue: &pb, alpha: &pa)
-        (webView.themeColor ?? webView.underPageBackgroundColor).getRed(&r, green: &g, blue: &b, alpha: &a)
-        r = r * a + pr * (1 - a); g = g * a + pg * (1 - a); b = b * a + pb * (1 - a)
-        #endif
-        color = Color(.sRGB, red: r, green: g, blue: b, opacity: 1)
-        func linear(_ c: CGFloat) -> Double { c <= 0.04045 ? Double(c / 12.92) : pow(Double((c + 0.055) / 1.055), 2.4) }
-        // Black or white status text: choose the larger WCAG contrast ratio.
-        isDark = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b) < 0.179
-    }
-}
-
-#endif
 
 /// Chrome alone uses glass. The dark backing bounds text contrast even over white
 /// pages; increased contrast and Reduce Transparency use the existing solid tokens.
+struct ChromePageTint { let color: Color; let isDark: Bool }
+private struct ChromePageTintKey: EnvironmentKey { static let defaultValue: ChromePageTint? = nil }
+extension EnvironmentValues {
+    var chromePageTint: ChromePageTint? {
+        get { self[ChromePageTintKey.self] }
+        set { self[ChromePageTintKey.self] = newValue }
+    }
+}
+
 private struct BrowserGlass: ViewModifier {
     @Environment(\.browserTheme) private var theme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
+    @Environment(\.chromePageTint) private var pageTint
     var radius: CGFloat
     func body(content: Content) -> some View {
         Group {
-            if reduceTransparency || captureReduceTransparency || contrast == .increased {
+            if let pageTint {
+                if reduceTransparency || captureReduceTransparency || contrast == .increased {
+                    content.background(pageTint.color, in: .rect(cornerRadius: radius))
+                        .overlay { RoundedRectangle(cornerRadius: radius).strokeBorder((pageTint.isDark ? Color.white : .black).opacity(contrast == .increased ? 0.8 : 0.35), lineWidth: 1) }
+                } else {
+                    content.background(pageTint.color.opacity(0.72), in: .rect(cornerRadius: radius))
+                        .glassEffect(.clear.tint(pageTint.color.opacity(0.3)), in: .rect(cornerRadius: radius))
+                }
+            } else if reduceTransparency || captureReduceTransparency || contrast == .increased {
                 content.background(theme.field, in: .rect(cornerRadius: radius))
             } else {
                 content.background(theme.field.opacity(0.96), in: .rect(cornerRadius: radius))
                     .glassEffect(.regular.tint(theme.chrome.opacity(0.2)), in: .rect(cornerRadius: radius))
             }
-        }.environment(\.colorScheme, .dark)
+        }.environment(\.colorScheme, pageTint.map { $0.isDark ? .dark : .light } ?? .dark)
     }
 }
 

@@ -5,6 +5,8 @@ import WebKit
 
 struct BrowserWindow: View {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
@@ -41,7 +43,9 @@ struct BrowserWindow: View {
         return min(ceil(width) + 4, max(60, addressWidth - 180))
     }
     private var toolbarTheme: Theme { pageChrome.isDark ? theme : .classic }
-    private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark) }
+    private var contentUnderChrome: Bool { pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
+    private var chromeForeground: Color { contentUnderChrome ? .primary : pageChrome.foreground }
+    private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark, adaptive: contentUnderChrome) }
     private var privateCue: Color { pageChrome.contrasting(pageChrome.isDark ? Color(red: 0.733, green: 0.522, blue: 0.961) : Color(red: 0.537, green: 0.267, blue: 0.671)) }
 
     var body: some View {
@@ -73,6 +77,7 @@ struct BrowserWindow: View {
         .onChange(of: controller.passwordsGuideRequest) { _, _ in showPasswords = true }
         .onChange(of: scenePhase) { _, phase in if phase != .active { session.saveNow() } }
         .task(id: "\(tab?.id.uuidString ?? "none")-\(tab?.url != nil || tab?.hasLoaded == true)") { pageChrome.observe(tab.flatMap { $0.url != nil || $0.hasLoaded ? $0.webView : nil }, isPrivate: tab?.isPrivate == true) }
+        .onChange(of: colorScheme) { _, _ in pageChrome.requestSample() }
         .onDisappear { pageChrome.observe(nil) }
     }
 
@@ -88,8 +93,8 @@ struct BrowserWindow: View {
         .toolbar(removing: .title)
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .toolbar { browserToolbar }
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        .toolbarColorScheme(pageChrome.isDark ? .dark : .light, for: .windowToolbar)
+        .toolbarBackgroundVisibility(contentUnderChrome ? .automatic : .hidden, for: .windowToolbar)
+        .toolbarColorScheme(contentUnderChrome ? colorScheme : (pageChrome.isDark ? .dark : .light), for: .windowToolbar)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion))
         .overlay(alignment: .topTrailing) {
@@ -115,7 +120,7 @@ struct BrowserWindow: View {
                     .help(compact ? "Expand sidebar" : "Compact sidebar").accessibilityLabel("Toggle sidebar")
                     .keyboardShortcut("s", modifiers: [.command, .option])
                     .buttonStyle(.plain).frame(width: 36, height: 32).modifier(chromeGlass)
-                    .foregroundStyle(pageChrome.foreground)
+                    .foregroundStyle(chromeForeground)
                     .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
             }.sharedBackgroundVisibility(.hidden)
             ToolbarSpacer(.fixed, placement: .navigation)
@@ -123,10 +128,10 @@ struct BrowserWindow: View {
                 HStack(spacing: 2) {
                 Button { tab?.goBack() } label: { Image(systemName: "chevron.left").frame(width: 28, height: 28) }
                     .disabled(tab?.canGoBack != true).help("Back (⌘[)").accessibilityLabel("Back")
-                    .foregroundStyle(pageChrome.foreground)
+                    .foregroundStyle(chromeForeground)
                 Button { tab?.goForward() } label: { Image(systemName: "chevron.right").frame(width: 28, height: 28) }
                     .disabled(tab?.canGoForward != true).help("Forward (⌘])").accessibilityLabel("Forward")
-                    .foregroundStyle(pageChrome.foreground)
+                    .foregroundStyle(chromeForeground)
                 }.buttonStyle(MacChromeButtonStyle()).padding(.horizontal, 6).frame(height: 32)
                     .modifier(chromeGlass)
                     .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
@@ -143,17 +148,17 @@ struct BrowserWindow: View {
                             HStack(spacing: OrivSpacing.xs) {
                                 Image(systemName: cue.symbol)
                                 if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
-                            }.font(OrivType.detail).foregroundStyle(pageChrome.foreground).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
+                            }.font(OrivType.detail).foregroundStyle(chromeForeground).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
                         }.buttonStyle(.plain).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
                             .popover(isPresented: $showSiteInfo) { SiteInformationView(session: session, tab: tab) }
                     } else {
                         Image(systemName: "magnifyingglass").font(OrivType.detail)
-                            .foregroundStyle(pageChrome.foreground).accessibilityHidden(true)
+                            .foregroundStyle(chromeForeground).accessibilityHidden(true)
                     }
                     AddressField(text: $address, isEditing: $addressFocused,
                                  placeholder: "Search or enter website",
                                  displayText: compactAddress,
-                                 foreground: pageChrome.foreground,
+                                 foreground: chromeForeground,
                                  focusRequest: controller.addressFocusRequest, submit: {
                             if let index = suggestionIndex, suggestions.indices.contains(index) { chooseSuggestion(suggestions[index]); return true }
                             controller.navigate(address)
@@ -185,7 +190,7 @@ struct BrowserWindow: View {
                         }
                     }.padding(.trailing, 4)
                 }
-                .foregroundStyle(pageChrome.foreground)
+                .foregroundStyle(chromeForeground)
                 .modifier(chromeGlass)
                 .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
                 .environment(\.browserTheme, toolbarTheme)
@@ -193,6 +198,7 @@ struct BrowserWindow: View {
                     Capsule().strokeBorder(addressFocused ? theme.accent : .clear, lineWidth: 1.5)
                 }
             }
+            .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 2) {
                 if controller.downloads.hasActiveDownloads {
@@ -200,12 +206,12 @@ struct BrowserWindow: View {
                         .labelStyle(.iconOnly).help("View downloads in progress")
                 }
                 if let url = tab?.url {
-                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(pageChrome.foreground) }
+                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                         .help("Share Page").accessibilityLabel("Share Page")
                 }
-                Button { controller.newTab() } label: { Image(systemName: "plus").frame(width: 28, height: 28).foregroundStyle(pageChrome.foreground) }
+                Button { controller.newTab() } label: { Image(systemName: "plus").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                     .help("New Tab (⌘T)").accessibilityLabel("New Tab")
-                Button { showTabs = true } label: { Image(systemName: "square.on.square").frame(width: 28, height: 28).foregroundStyle(pageChrome.foreground) }
+                Button { showTabs = true } label: { Image(systemName: "square.on.square").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                     .help("Tab Overview").accessibilityLabel("Tab Overview")
                 }.buttonStyle(MacChromeButtonStyle()).padding(.horizontal, 6).frame(height: 32)
                     .modifier(chromeGlass)
@@ -215,7 +221,7 @@ struct BrowserWindow: View {
             ToolbarItem(placement: .primaryAction) {
                 Button { showPageMenu.toggle() } label: { Image(systemName: "ellipsis") }
                     .help("Browser actions").accessibilityLabel("Browser actions")
-                    .foregroundStyle(pageChrome.foreground)
+                    .foregroundStyle(chromeForeground)
                     .buttonStyle(.plain).frame(width: 36, height: 32).modifier(chromeGlass)
                     .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
                     .popover(isPresented: $showPasswords) { PasswordsGuide(compact: true) }
@@ -373,13 +379,9 @@ struct BrowserWindow: View {
 
     @ViewBuilder private func tabContent(_ tab: BrowserTab) -> some View {
         if tab.url != nil || tab.hasLoaded {
-            WebPageView(tab: tab)
-                .overlay(alignment: .top) {
-                    if pageChrome.hasScrolled && !reduceTransparency && !captureReduceTransparency {
-                        LinearGradient(colors: [pageChrome.color, pageChrome.color.opacity(0)], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 20).allowsHitTesting(false).accessibilityHidden(true)
-                    }
-                }
+            WebPageView(tab: tab, chrome: pageChrome, contentUnderChrome: contentUnderChrome)
+                .scrollEdgeEffectStyle(.automatic, for: .top)
+
         }
         else { StartPage(controller: controller, isPrivate: tab.isPrivate) }
     }
@@ -419,12 +421,15 @@ private struct MacAddressGlass: ViewModifier {
     @Environment(\.colorSchemeContrast) private var contrast
     let color: Color
     let isDark: Bool
+    var adaptive = false
     static let contrastBias = 0.12
     static let backingOpacity = 0.96
     func body(content: Content) -> some View {
         if reduceTransparency || captureReduceTransparency || contrast == .increased {
             content.background(color, in: Capsule())
-                .overlay { Capsule().strokeBorder(.primary.opacity(0.2), lineWidth: 1) }
+                .overlay { Capsule().strokeBorder((isDark ? Color.white : .black).opacity(contrast == .increased ? 0.8 : 0.35), lineWidth: 1) }
+        } else if adaptive {
+            content.glassEffect(.regular, in: Capsule())
         } else {
             content
                 .background {
@@ -432,7 +437,7 @@ private struct MacAddressGlass: ViewModifier {
                         .overlay { Capsule().fill((isDark ? Color.black : .white).opacity(Self.contrastBias)) }
                         .opacity(Self.backingOpacity)
                 }
-                .glassEffect(.clear, in: Capsule())
+                .glassEffect(.clear.tint(color.opacity(0.25)), in: Capsule())
         }
     }
 }

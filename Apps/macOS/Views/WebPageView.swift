@@ -4,9 +4,11 @@ import WebKit
 
 struct WebPageView: NSViewRepresentable {
     let tab: BrowserTab
+    var chrome: PageChrome? = nil
+    var contentUnderChrome = false
 
     func makeNSView(context: Context) -> WebViewHost { WebViewHost(webView: tab.webView) }
-    func updateNSView(_ host: WebViewHost, context: Context) { host.attachIfWindowed(); host.needsLayout = true }
+    func updateNSView(_ host: WebViewHost, context: Context) { host.onGeometryChange = { chrome?.requestSample() }; host.clipsToBounds = !contentUnderChrome; host.attachIfWindowed(); host.needsLayout = true }
 }
 
 /// SwiftUI sizes this container. WebKit owns the child view's frame and can
@@ -14,6 +16,7 @@ struct WebPageView: NSViewRepresentable {
 /// See WebKit bug 313802 and WKWebView.fullscreenState's reparenting contract.
 final class WebViewHost: NSView {
     let webView: WKWebView
+    var onGeometryChange: (() -> Void)?
     private var fullscreenObservation: NSKeyValueObservation?
 
     init(webView: WKWebView) {
@@ -58,10 +61,11 @@ final class WebViewHost: NSView {
             let extensionHeight = abs(rect.maxY - window.contentLayoutRect.maxY) < 1
                 ? max(0, window.contentView!.bounds.height - window.contentLayoutRect.maxY) : 0
             let frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height + extensionHeight)
-            if webView.frame != frame { webView.frame = frame }
+            if webView.frame != frame { webView.frame = frame; onGeometryChange?() }
             let top = max(0, rect.maxY + extensionHeight - window.contentLayoutRect.maxY)
             if abs(webView.obscuredContentInsets.top - top) > 0.1 {
                 webView.obscuredContentInsets = NSEdgeInsets(top: top, left: 0, bottom: 0, right: 0)
+                onGeometryChange?()
             }
         } else { webView.frame = bounds }
     }

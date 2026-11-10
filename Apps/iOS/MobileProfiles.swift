@@ -16,7 +16,12 @@ import BrowserEngine
     }
     @ObservationIgnored private var controllers: [UUID: MobileController] = [:]
     init() {
-        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1" || ChromeVisualFixture.mode != nil
+        #if DEBUG && targetEnvironment(simulator)
+        let liveCapture = ChromeVisualFixture.liveURL != nil
+        #else
+        let liveCapture = false
+        #endif
+        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1" || ChromeVisualFixture.mode != nil || liveCapture
         openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: testing ? nil : .standard)
         continuity = BrowserContinuity(root: testing ? nil : URL.applicationSupportDirectory.appendingPathComponent("Oriv"), deviceName: "iPhone")
         // Compatibility with the earlier mobile profile-name list, without accessing any cloud service.

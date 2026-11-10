@@ -16,6 +16,11 @@ struct MobileBrowserView: View {
     @State private var pageChrome = PageChrome()
     @State private var minimized = false
     @State private var barHeight: CGFloat = 64
+    @State private var pageSystemScheme: ColorScheme = .light
+    private var solidChrome: Bool { reduceTransparency || contrast == .increased }
+    private var extendsTopColor: Bool { solidChrome || !pageChrome.showsContentUnderChrome }
+    private var displayDomain: String { tab?.url.flatMap(URLDisplay.site) ?? (tab?.isPrivate == true ? "Private search" : "Search or address") }
+    private var bottomForeground: Color { tab?.isPrivate == true ? theme.text : .primary }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
@@ -47,7 +52,7 @@ struct MobileBrowserView: View {
                 }
                 .overlay(alignment: .top) {
                     if !editingAddress {
-                        statusBackdrop.frame(height: geometry.safeAreaInsets.top + 20)
+                        statusBackdrop.frame(height: geometry.safeAreaInsets.top)
                             .offset(y: -geometry.safeAreaInsets.top)
                             .allowsHitTesting(false).accessibilityHidden(true)
                     }
@@ -55,7 +60,7 @@ struct MobileBrowserView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(editingAddress || tab?.url == nil ? controller.appearance.colorScheme : (pageChrome.isDark ? .dark : .light))
-            .task(id: "\(tab?.id.uuidString ?? "none")-\(tab?.url != nil || tab?.hasLoaded == true)") { pageChrome.observe(tab.flatMap { $0.url != nil || $0.hasLoaded ? $0.webView : nil }) }
+            .task(id: "\(tab?.id.uuidString ?? "none")-\(tab?.url != nil || tab?.hasLoaded == true)") { pageChrome.observe(tab.flatMap { $0.url != nil || $0.hasLoaded ? $0.webView : nil }, isPrivate: tab?.isPrivate == true) }
             .onDisappear { pageChrome.observe(nil) }
                 .onAppear { controller.session.activateSelectedTab() }
                 .task(id: controller.addressFocusRequest) {
@@ -104,10 +109,10 @@ struct MobileBrowserView: View {
                 } label: {
                     HStack(spacing: 5) {
                         if tab?.isPrivate == true { Image(systemName: "eyeglasses").foregroundStyle(theme.privateAccent) }
-                        if let tab, ConnectionCue(tab) == .notSecure { Text("Not secure").foregroundStyle(theme.warning) }
-                        Text(tab?.hostname ?? "Oriv").lineLimit(1)
-                    }.font(.caption.weight(.medium)).foregroundStyle(theme.text)
-                        .padding(.horizontal, 16).frame(minHeight: 32).browserGlass()
+                        if let tab, ConnectionCue(tab) == .notSecure { Text("Not secure").foregroundStyle(tab.isPrivate ? theme.warning : Color.primary) }
+                        Text(displayDomain).lineLimit(1)
+                    }.font(.caption.weight(.medium)).foregroundStyle(bottomForeground)
+                        .padding(.horizontal, 16).frame(minHeight: 32).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true))
                         .frame(minHeight: 44).contentShape(Capsule())
                 }.buttonStyle(.plain).accessibilityLabel("\(tab?.isPrivate == true ? "Private browsing. " : "")Expand browser controls, \(tab?.hostname ?? "Oriv")")
                     .accessibilityIdentifier("browserCompactAddress")
@@ -116,45 +121,43 @@ struct MobileBrowserView: View {
                     if typeSize.isAccessibilitySize {
                         VStack(spacing: 8) {
                             addressCapsule
-                            HStack { backButton; Spacer(); pageMenu.frame(width: 48, height: 48).browserGlass() }
+                            HStack { backButton; Spacer(); pageMenu.frame(width: 48, height: 48).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true)) }
                         }
                     } else {
                         HStack(spacing: 8) {
                             backButton
                             addressCapsule
-                            pageMenu.frame(width: 48, height: 48).browserGlass()
+                            pageMenu.frame(width: 48, height: 48).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true))
                         }
                     }
-                }.padding(.horizontal, typeSize.isAccessibilitySize ? 12 : 24)
+                }.padding(.horizontal, typeSize.isAccessibilitySize ? 12 : 34)
             }
-        }.padding(.vertical, 8).foregroundStyle(theme.text)
-            .environment(\.colorScheme, .dark)
+        }.padding(.top, 8).foregroundStyle(bottomForeground)
+            .environment(\.colorScheme, tab?.isPrivate == true ? .dark : pageSystemScheme)
     }
 
     private var backButton: some View {
         Button { tab?.goBack() } label: {
             Image(systemName: "chevron.left").font(.system(size: 21, weight: .medium)).frame(width: 48, height: 48)
-        }.disabled(tab?.canGoBack != true).buttonStyle(.plain).browserGlass().accessibilityLabel("Back")
+        }.disabled(tab?.canGoBack != true).buttonStyle(.plain).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true)).accessibilityLabel("Back")
     }
 
     private var statusBackdrop: some View {
-        Rectangle().fill(reduceTransparency ? AnyShapeStyle(pageChrome.color) : AnyShapeStyle(.ultraThinMaterial))
-            .overlay(pageChrome.color.opacity(reduceTransparency ? 1 : 0.65))
-            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.68), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+        pageChrome.color.opacity(extendsTopColor ? 1 : 0)
     }
 
     private var addressCapsule: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 Button { controller.sheet = .site } label: {
-                    Image(systemName: tab?.isPrivate == true ? "eyeglasses" : (tab.map { ConnectionCue($0).symbol } ?? "magnifyingglass"))
+                    Image(systemName: tab?.isPrivate == true ? "eyeglasses" : (tab.map { ConnectionCue($0) == .notSecure ? "exclamationmark.triangle" : "slider.horizontal.3" } ?? "magnifyingglass"))
                         .font(.system(size: 20))
-                        .foregroundStyle(tab?.isPrivate == true ? theme.privateAccent : theme.text)
+                        .foregroundStyle(tab?.isPrivate == true ? theme.privateAccent : Color.primary)
                         .frame(width: 44, height: 48)
                 }.disabled(tab?.url == nil).accessibilityLabel("\(tab?.isPrivate == true ? "Private browsing. " : "")\(tab.map { ConnectionCue($0).label } ?? "New tab"). Site settings")
                 Button(action: beginAddressEditing) {
-                    Text(tab?.url?.host() ?? (tab?.isPrivate == true ? "Private search" : "Search or address"))
-                        .font(.body).foregroundStyle(theme.text).lineLimit(1).truncationMode(.middle)
+                    Text(displayDomain)
+                        .font(.body).foregroundStyle(bottomForeground).lineLimit(1).truncationMode(.middle)
                         .frame(maxWidth: .infinity, minHeight: 48).contentShape(Rectangle())
                 }.accessibilityIdentifier("browserAddressDisplay").accessibilityShowsLargeContentViewer()
                     .accessibilityLabel("Address and search, \(tab?.url?.absoluteString ?? (tab?.isPrivate == true ? "private tab" : "new tab"))")
@@ -163,9 +166,9 @@ struct MobileBrowserView: View {
                 }.labelStyle(.iconOnly).font(.system(size: 20)).frame(width: 44, height: 48).disabled(tab?.url == nil)
             }
             if let tab, ConnectionCue(tab) == .notSecure {
-                Text("Not secure").font(.caption.weight(.medium)).foregroundStyle(theme.warning).padding(.bottom, 6)
+                Text("Not secure").font(.caption.weight(.medium)).foregroundStyle(tab.isPrivate ? theme.warning : Color.primary).padding(.bottom, 6)
             }
-        }.padding(.vertical, typeSize.isAccessibilitySize ? 8 : 0).buttonStyle(.plain).browserGlass()
+        }.padding(.vertical, typeSize.isAccessibilitySize ? 8 : 0).buttonStyle(.plain).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true))
     }
 
     private var addressEditor: some View {
@@ -215,7 +218,7 @@ struct MobileBrowserView: View {
             if let error = tab.errorMessage {
                 ContentUnavailableView { Label("Page could not load", systemImage: "network.slash") } description: { Text(error) } actions: { Button("Try Again") { tab.reload() } }
                     .background(theme.canvas).environment(\.colorScheme, controller.appearance.colorScheme ?? .dark)
-            } else { MobileWebView(webView: tab.webView, topInset: top, bottomInset: bottom, reduceTransparency: reduceTransparency, onScroll: { offset, down in
+            } else { MobileWebView(webView: tab.webView, chrome: pageChrome, topInset: top, bottomInset: bottom, reduceTransparency: solidChrome, onAppearanceChange: { pageSystemScheme = $0 ? .dark : .light }, onScroll: { offset, down in
                 if offset < 40 { setMinimized(false) }
                 else if offset > 120 && down && !showsExternalPrivateBar { setMinimized(true) }
                 else if !down { setMinimized(false) }
@@ -342,5 +345,23 @@ private struct CappedAddressEditor: View {
     var body: some View {
         MobileAddressField(text: $text, editing: $editing, submit: submit)
             .frame(height: height)
+    }
+}
+
+/// Untinted regular glass owns adaptation; never back it with the page's top colour.
+private struct MobileBottomGlass: ViewModifier {
+    @Environment(\.browserTheme) private var theme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    let isPrivate: Bool
+    func body(content: Content) -> some View {
+        if reduceTransparency || contrast == .increased {
+            content.background(isPrivate ? theme.field : Color(uiColor: .secondarySystemBackground), in: Capsule())
+                .overlay { Capsule().strokeBorder(Color.primary.opacity(contrast == .increased ? 0.8 : 0.35), lineWidth: 1) }
+        } else if isPrivate {
+            content.browserGlass()
+        } else {
+            content.glassEffect(.regular.interactive(), in: Capsule())
+        }
     }
 }

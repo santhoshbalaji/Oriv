@@ -13,6 +13,14 @@ enum ChromeVisualFixture {
         #endif
         return nil
     }
+    #if DEBUG && targetEnvironment(simulator)
+    static var liveURL: URL? {
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "--oriv-chrome-url"), i + 1 < args.count,
+           let url = URL(string: args[i + 1]), url.scheme == "https" { return url }
+        return nil
+    }
+    #endif
     #if DEBUG
 static func html(dark: Bool = false, card: Int = 0) -> String {
     let bg = dark ? "#111111" : "#fbfbf9", fg = dark ? "#f5f5f5" : "#1b2024", muted = dark ? "#b4b7bd" : "#535d65"

@@ -30,10 +30,11 @@ import BrowserCore
                                     let tab = i == 0 ? current.selectedTab! : current.addTab(select: false, load: false)
                                     tab.stop(); tab.dismissError()
                                     tab.webView.frame = CGRect(x: 0, y: 0, width: 440, height: 880)
-                                    tab.webView.loadHTMLString(ChromeVisualFixture.html(dark: mode == "dark" || i == 2, card: i), baseURL: URL(string: "https://docs.example.com/designing-calm-interfaces"))
+                                    tab.webView.loadHTMLString(ChromeVisualFixture.html(dark: mode == "dark" || i == 2, card: i), baseURL: URL(string: "\(mode == "insecure" ? "http" : "https")://docs.example.com/designing-calm-interfaces"))
                                 }
                             }
                         }
+                        if let url = ChromeVisualFixture.liveURL { try? profiles.current.session.navigate(url.absoluteString) }
                         let arguments = ProcessInfo.processInfo.arguments
                         for index in arguments.indices where arguments[index] == "--oriv-external-url" && index + 1 < arguments.count {
                             if let url = URL(string: arguments[index + 1]) { profiles.route(url) }

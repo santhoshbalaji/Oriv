@@ -5,26 +5,31 @@ import XCTest
 @testable import PersonalBrowser
 
 @MainActor final class BrowserChromeTests: XCTestCase {
-    func testThemeColorTracksLiveChangesAndStopsObservingPreviousTab() async throws {
+    func testThemeColorIgnoredAndBodyChangesDetachFromPreviousTab() async throws {
         let first = makeWebView(), second = makeWebView()
+        let firstWindow = samplingWindow(first), secondWindow = samplingWindow(second)
+        defer { firstWindow.close(); secondWindow.close() }
         let chrome = PageChrome()
         first.loadHTMLString("<meta name='theme-color' content='#ffffff'><body style='background:white'>Light</body>", baseURL: nil)
         second.loadHTMLString("<meta name='theme-color' content='#111111'><body style='background:#111111'>Dark</body>", baseURL: nil)
         try await wait { first.themeColor != nil && second.themeColor != nil }
         chrome.observe(first)
+        try await wait { !chrome.isDark }
         XCTAssertFalse(chrome.isDark)
-        _ = try await first.evaluateJavaScript("document.querySelector('meta').content = '#111111'")
+        _ = try await first.evaluateJavaScript("document.querySelector('meta').content = '#111111';document.body.style.background='#111111'")
         try await wait { chrome.isDark }
         chrome.observe(second)
-        _ = try await first.evaluateJavaScript("document.querySelector('meta').content = '#ffffff'")
+        try await wait { chrome.isDark }
+        _ = try await first.evaluateJavaScript("document.querySelector('meta').content = '#ffffff';document.body.style.background='#ffffff'")
         try await wait { (first.themeColor?.usingColorSpace(.sRGB)?.redComponent ?? 0) > 0.99 }
         XCTAssertTrue(chrome.isDark, "A background tab must not recolor the displayed chrome")
         chrome.observe(nil)
         XCTAssertTrue(chrome.isDark, "Start page resets to T3 chrome")
     }
 
-    func testPageWithoutThemeColorUsesUnderPageBackground() async throws {
+    func testPageWithoutThemeColorTracksComputedBodyBackground() async throws {
         let view = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(view); defer { window.close() }
         view.loadHTMLString("<body style='background:#ffffff'>Fallback</body>", baseURL: nil)
         try await wait { !view.isLoading && view.url != nil }
         chrome.observe(view)
@@ -33,29 +38,32 @@ import XCTest
         try await wait { chrome.isDark }
     }
 
-    func testThemeWinsOverBackgroundAndMidtoneUsesHighContrastForeground() async throws {
+    func testThemeIgnoredAndMidtoneUsesHighContrastForeground() async throws {
         let web = makeWebView(), chrome = PageChrome()
-        web.loadHTMLString("<meta name='theme-color' content='#1f6f5c'><body style='background:#ffffff'>Theme</body>", baseURL: nil)
-        try await wait { web.themeColor != nil }
+        let window = samplingWindow(web); defer { window.close() }
+        web.loadHTMLString("<meta name='theme-color' content='#ffffff'><body style='background:#1f6f5c'>Body</body>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
         chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
         let color = try XCTUnwrap(NSColor(chrome.color).usingColorSpace(.sRGB))
         XCTAssertEqual(color.redComponent, 31.0 / 255, accuracy: 0.002)
         XCTAssertEqual(color.greenComponent, 111.0 / 255, accuracy: 0.002)
         XCTAssertTrue(chrome.isDark)
         XCTAssertGreaterThanOrEqual(1.05 / (chrome.luminance + 0.05), 4.5)
         XCTAssertEqual(chrome.contrasting(chrome.color), chrome.foreground)
-        _ = try await web.evaluateJavaScript("document.querySelector('meta').content = '#808080'")
+        _ = try await web.evaluateJavaScript("document.querySelector('meta').content='#000000';document.body.style.background='#808080'")
         try await wait { !chrome.isDark }
         XCTAssertGreaterThanOrEqual((chrome.luminance + 0.05) / 0.05, 4.5)
     }
 
     func testComputedBackgroundFallbackAndCanvasWithoutColour() async throws {
         let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
         web.loadHTMLString("<body style='background:#1f6f5c'>Computed fallback</body>", baseURL: nil)
         try await wait { !web.isLoading && web.url != nil }
         web.underPageBackgroundColor = .clear
         chrome.observe(web)
-        try await wait { chrome.luminance > 0.05 }
+        try await wait { chrome.sampleCount > 0 }
         let color = try XCTUnwrap(NSColor(chrome.color).usingColorSpace(.sRGB))
         XCTAssertEqual(color.greenComponent, 111.0 / 255, accuracy: 0.002)
         chrome.observe(nil)
@@ -81,16 +89,17 @@ import XCTest
         XCTAssertFalse(chrome.hasScrolled)
     }
 
-    func testPrivatePageAlwaysUsesCanvasDespiteLiveThemeChanges() async throws {
+    func testPrivatePageAlwaysUsesCanvasDespiteLiveEdgeChanges() async throws {
         let web = makeWebView(), chrome = PageChrome()
         web.loadHTMLString("<meta name='theme-color' content='#ffffff'><body>Private</body>", baseURL: nil)
         try await wait { web.themeColor != nil }
         chrome.observe(web, isPrivate: true)
         XCTAssertEqual(chrome.luminance, 0)
-        _ = try await web.evaluateJavaScript("document.querySelector('meta').content = '#1f6f5c'")
+        _ = try await web.evaluateJavaScript("document.body.style.background='#ffffff';document.body.innerHTML=\"<header style='position:fixed;inset:0;background:red'></header>\"")
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(chrome.luminance, 0)
         XCTAssertTrue(chrome.isDark)
+        XCTAssertEqual(chrome.sampleCount, 0)
     }
 
     func testTransparentTitlebarHasNoDividerAndRemainsWindowLocal() {
@@ -181,17 +190,180 @@ import XCTest
         XCTAssertEqual(state.text, address, "Focusing must not replace the URL with its display host")
     }
 
+    func testFixedHeaderBeatsWhiteCanvasAndUpdatesAfterSPAMutation() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.loadHTMLString("<style>body{margin:0;background:white}header{position:fixed;top:0;width:100%;height:100px;background:#6600cc}</style><header>Header</header><main>Content</main>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
+        XCTAssertEqual(chrome.sampledTop?.red ?? -1, 0.4, accuracy: 0.01)
+        XCTAssertTrue(chrome.isDark)
+        _ = try await web.evaluateJavaScript("history.pushState({}, '', '#next');document.querySelector('header').style.background='#ffffff'")
+        try await wait { !chrome.isDark }
+        XCTAssertEqual(chrome.sampledTop?.red ?? -1, 1, accuracy: 0.01)
+        chrome.observe(nil)
+    }
+
+    func testStickyBecomesPinnedOnlyAfterScroll() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.loadHTMLString("<style>body{margin:0;height:3000px;background:white}header{position:sticky;top:0;height:100px;background:#6600cc}</style><div style='height:180px'>Intro</div><header>Header</header>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
+        XCTAssertNil(chrome.sampledTop)
+        XCTAssertFalse(chrome.isDark)
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,300)")
+        try await wait { chrome.hasScrolled && chrome.sampledTop != nil }
+        XCTAssertEqual(chrome.sampledTop?.blue ?? -1, 0.8, accuracy: 0.01)
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,0)")
+        try await wait { !chrome.hasScrolled && chrome.sampledTop == nil }
+        XCTAssertFalse(chrome.isDark)
+        chrome.observe(nil)
+    }
+
+    func testNonFixedHeaderFallsBackToBodyAndTransparentStickyFallsThrough() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.loadHTMLString("<style>body{margin:0;background:white}header{height:100px;background:#6600cc}</style><header>Header</header>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
+        XCTAssertNil(chrome.sampledTop)
+        XCTAssertFalse(chrome.isDark)
+        let before = chrome.sampleCount
+        _ = try await web.evaluateJavaScript("document.querySelector('header').style.cssText='position:sticky;top:0;background:transparent';document.body.style.background='#1f6f5c'")
+        try await wait { chrome.sampleCount > before }
+        XCTAssertNil(chrome.sampledTop)
+        XCTAssertEqual(NSColor(chrome.color).usingColorSpace(.sRGB)!.greenComponent, 111.0/255, accuracy: 0.002)
+    }
+
+    func testTranslucentHeaderClampsButDimmingOverlayComposites() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.loadHTMLString("<style>body{margin:0;background:white}header{position:fixed;inset:0 0 auto;height:80px;background:rgba(22,22,23,.8)}</style><header>Apple-like header</header>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
+        XCTAssertEqual(NSColor(chrome.color).usingColorSpace(.sRGB)!.redComponent, 22.0/255, accuracy: 0.002)
+        _ = try await web.evaluateJavaScript("const overlay=document.createElement('div');overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:10';document.body.append(overlay)")
+        try await wait { !chrome.isDark }
+        XCTAssertEqual(NSColor(chrome.color).usingColorSpace(.sRGB)!.redComponent, 0.75, accuracy: 0.005)
+        // A full-viewport dimmer must composite even at alpha >= .75.
+        _ = try await web.evaluateJavaScript("document.body.lastElementChild.style.background='rgba(0,0,0,.8)'")
+        try await wait { chrome.isDark }
+        XCTAssertEqual(NSColor(chrome.color).usingColorSpace(.sRGB)!.redComponent, 0.2, accuracy: 0.005)
+    }
+
+    func testTransparentStickyRevealsFixedLayerAndResizeInvalidates() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.loadHTMLString("<style>body{margin:0;background:white}aside{position:fixed;inset:0 0 auto;height:100px;background:#6600cc}header{position:sticky;top:0;height:100px;background:transparent}</style><aside></aside><header>Transparent</header>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.sampledTop != nil }
+        XCTAssertTrue(chrome.isDark)
+        let before = chrome.sampleCount
+        _ = try await web.evaluateJavaScript("document.querySelector('aside').style.width='100px';window.dispatchEvent(new Event('resize'))")
+        try await wait { chrome.sampleCount > before }
+        XCTAssertNil(chrome.sampledTop, "A narrow fixed widget must not tint the full toolbar")
+        XCTAssertFalse(chrome.isDark)
+    }
+
+    func testAppearanceChangesAndHtmlFallback() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.appearance = NSAppearance(named: .aqua)
+        web.loadHTMLString("<style>html{background:white}body{background:transparent}@media(prefers-color-scheme:dark){html{background:#111111}}</style><body>Appearance</body>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
+        XCTAssertFalse(chrome.isDark)
+        web.appearance = NSAppearance(named: .darkAqua)
+        try await wait { chrome.isDark }
+        XCTAssertEqual(NSColor(chrome.color).usingColorSpace(.sRGB)!.redComponent, 17.0/255, accuracy: 0.002)
+    }
+
+    func testNativeInsetDoesNotSkipShortHeaderAndUnloadedPrivateTabResets() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.obscuredContentInsets = NSEdgeInsets(top: 62, left: 0, bottom: 0, right: 0)
+        web.loadHTMLString("<style>body{margin:0;background:white}header{position:sticky;top:0;height:44px;background:#6600cc}</style><header>Short header</header>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
+        XCTAssertEqual(chrome.sampledTop?.blue ?? -1, 0.8, accuracy: 0.002)
+        chrome.observe(makeWebView(), isPrivate: true)
+        XCTAssertEqual(chrome.luminance, 0)
+        XCTAssertTrue(chrome.isDark)
+    }
+
+    func testScrollSamplingIsDebouncedAndDetached() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.loadHTMLString("<style>body{margin:0;height:3000px;background:#6600cc}</style>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
+        let initial = chrome.sampleCount
+        for _ in 0..<30 { chrome.requestSample() }
+        try await Task.sleep(for: .milliseconds(900))
+        XCTAssertLessThanOrEqual(chrome.sampleCount - initial, 2)
+        chrome.observe(nil)
+        let detached = chrome.sampleCount
+        _ = try await web.evaluateJavaScript("document.body.style.background='white';window.scrollTo(0,300)")
+        try await Task.sleep(for: .milliseconds(900))
+        XCTAssertEqual(chrome.sampleCount, detached)
+        XCTAssertFalse(chrome.hasScrolled)
+    }
+
+    func testScrolledContentBackdropCrossesTopAndStickyBoundaryAtomically() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { window.close() }
+        web.loadHTMLString("<style>body{margin:0;background:white;height:4000px}header{margin-top:200px;position:sticky;top:0;height:80px;background:#6600cc}</style><header>Sticky later</header>", baseURL: nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.sampleCount > 0 }
+        XCTAssertFalse(chrome.showsContentUnderChrome)
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,100)")
+        try await wait { chrome.showsContentUnderChrome }
+        XCTAssertNil(chrome.sampledTop)
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,300)")
+        try await wait { chrome.hasScrolled && chrome.sampledTop != nil }
+        XCTAssertFalse(chrome.showsContentUnderChrome)
+        XCTAssertEqual(chrome.sampledTop?.blue ?? -1, 0.8, accuracy: 0.002)
+        _ = try await web.evaluateJavaScript("document.querySelector('header').style.position='static';window.scrollTo(0,400)")
+        try await wait { chrome.showsContentUnderChrome }
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,0)")
+        try await wait { !chrome.hasScrolled }
+        XCTAssertFalse(chrome.showsContentUnderChrome)
+        XCTAssertFalse(chrome.isDark, "Returning to the top restores the white canvas in the same update")
+        chrome.observe(web, isPrivate: true)
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,300)")
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(chrome.showsContentUnderChrome)
+    }
+
+    private func samplingWindow(_ web: WKWebView) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = web
+        window.orderFrontRegardless()
+        return window
+    }
+
     private func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         return WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
     }
-    private func wait(_ condition: @escaping () -> Bool) async throws {
+    private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: @escaping () -> Bool) async throws {
         for _ in 0..<100 {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(50))
         }
-        XCTFail("Chrome observation did not settle")
+        XCTFail("Chrome observation did not settle", file: file, line: line)
     }
 }
 
