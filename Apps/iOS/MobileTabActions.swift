@@ -141,6 +141,7 @@ struct MobileAddressMenuSource: UIViewRepresentable {
     func updateUIView(_ button: MobileAddressMenuButton, context: Context) {
         button.tap = action
         button.tintColor = .label
+        button.accessibilityValue = tab?.isPrivate == true ? "Private browsing" : nil
         button.accessibilityIdentifier = compact ? "browserCompactAddress" : "browserAddressDisplay"
         button.accessibilityLabel = compact ? "Expand browser controls, \(tab?.hostname ?? "Oriv")" : "\(tab.map { ConnectionCue($0) == .notSecure } == true ? "Not Secure. " : "")Address and search, \(tab?.url?.absoluteString ?? "new tab")"
         func item(_ title: String, _ symbol: String, disabled: Bool = false, destructive: Bool = false, _ perform: @escaping () -> Void) -> UIAction {
