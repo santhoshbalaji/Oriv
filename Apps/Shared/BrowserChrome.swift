@@ -68,6 +68,9 @@ private typealias PlatformColor = UIColor
     static func matchesDocument(_ href: String?, url: URL?) -> Bool {
         guard let href, let url, var page = URLComponents(string: href),
               var native = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        // Older WebKit exposes loadHTMLString's about:blank fragment as an
+        // escaped part of its opaque path. Never decode network URL paths.
+        if native.scheme == "about", native.path.hasPrefix("blank#") { native.path = "blank" }
         page.fragment = nil; native.fragment = nil
         return page.url == native.url
     }

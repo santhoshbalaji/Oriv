@@ -209,6 +209,9 @@ import XCTest
 
     func testDocumentMatchAllowsFragmentLagWithoutAcceptingAnotherPage() {
         XCTAssertTrue(PageChrome.matchesDocument("about:blank#next", url: URL(string: "about:blank")))
+        XCTAssertTrue(PageChrome.matchesDocument("about:blank#next", url: URL(string: "about:blank%23next")))
+        XCTAssertFalse(PageChrome.matchesDocument("https://example.test/page#next", url: URL(string: "https://example.test/page%23next")))
+        XCTAssertFalse(PageChrome.matchesDocument("about:blank#next", url: URL(string: "about:other%23next")))
         XCTAssertTrue(PageChrome.matchesDocument("https://example.test/page?q=1#next", url: URL(string: "https://example.test/page?q=1#old")))
         XCTAssertFalse(PageChrome.matchesDocument("https://other.test/page?q=1", url: URL(string: "https://example.test/page?q=1")))
         XCTAssertFalse(PageChrome.matchesDocument("https://example.test/other?q=1", url: URL(string: "https://example.test/page?q=1")))
