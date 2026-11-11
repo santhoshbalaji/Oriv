@@ -11,26 +11,43 @@ enum MacBrowserLayout {
     static let lightsSpacing: CGFloat = 20
 }
 
+/// Weak window ownership lets the toggle inspect focus before SwiftUI removes
+/// sidebar controls. A post-layout bridge runs too late to recover that focus.
+@MainActor final class MacBrowserWindowContext {
+    weak var window: NSWindow?
+    var sidebarContainsFocus: Bool {
+        guard let window, let content = window.contentView else { return false }
+        var candidates: [NSRect] = []
+        if let focused = content.accessibilityFocusedUIElement as? NSAccessibilityElementProtocol {
+            candidates.append(window.convertFromScreen(focused.accessibilityFrame()))
+        }
+        if let responder = window.firstResponder as? NSView {
+            candidates.append(responder.convert(responder.bounds, to: nil))
+            if let editor = responder as? NSTextView, let field = editor.delegate as? NSView {
+                candidates.append(field.convert(field.bounds, to: nil))
+            }
+        }
+        return candidates.contains { $0.width > 0 && $0.minX >= 0 && $0.maxX <= MacBrowserLayout.sidebarWidth + 1 }
+    }
+}
+
 /// Configures only its containing window. Standard buttons remain in AppKit's
 /// hierarchy, preserving native actions, inactive appearance and tiling popovers.
 struct BrowserWindowChrome: NSViewRepresentable {
-    var collapsed: Bool
+    let windowContext: MacBrowserWindowContext
     var stateChanged: (Bool, Bool) -> Void
-    var focusSurvivingToggle: () -> Void
 
     func makeNSView(context: Context) -> WindowChromeView { WindowChromeView() }
     func updateNSView(_ view: WindowChromeView, context: Context) {
         view.stateChanged = stateChanged
-        view.focusSurvivingToggle = focusSurvivingToggle
-        view.setCollapsed(collapsed)
+        view.windowContext = windowContext
         view.configure()
     }
     static func dismantleNSView(_ view: WindowChromeView, coordinator: ()) { view.detach() }
 
     final class WindowChromeView: NSView {
         var stateChanged: ((Bool, Bool) -> Void)?
-        var focusSurvivingToggle: (() -> Void)?
-        private(set) var collapsed = false
+        var windowContext: MacBrowserWindowContext?
         private var observers: [NSObjectProtocol] = []
         private var lastState: [Bool] = []
         private var configuring = false
@@ -64,26 +81,14 @@ struct BrowserWindowChrome: NSViewRepresentable {
                 window.removeTitlebarAccessoryViewController(at: index)
             }
             observedWindow?.setAccessibilityChildrenInNavigationOrder(nil)
+            if windowContext?.window === observedWindow { windowContext?.window = nil }
             accessory = nil
             observedWindow = nil
             lastState = []
         }
-        func setCollapsed(_ value: Bool) {
-            if value && !collapsed, let window, let content = window.contentView {
-                // SwiftUI buttons may share an NSHostingView first responder.
-                // Ask that view for its focused accessibility descendant before
-                // falling back to a native sidebar text field's frame.
-                let focused = (content.accessibilityFocusedUIElement as? NSAccessibilityElementProtocol)
-                    .map { window.convertFromScreen($0.accessibilityFrame()) }
-                let responder = (window.firstResponder as? NSView).map { $0.convert($0.bounds, to: nil) }
-                if let rect = focused ?? responder, rect.width > 0, rect.maxX <= MacBrowserLayout.sidebarWidth + 1 {
-                    focusSurvivingToggle?()
-                }
-            }
-            collapsed = value
-        }
         func configure() {
             guard let window, !configuring else { return }
+            windowContext?.window = window
             configuring = true
             defer { configuring = false }
             if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }

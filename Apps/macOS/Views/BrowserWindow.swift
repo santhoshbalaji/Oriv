@@ -18,7 +18,9 @@ struct BrowserWindow: View {
     @State private var windowWidth: CGFloat = 1250
     @State private var fullscreen = false
     @State private var windowActive = true
+    @State private var windowContext = MacBrowserWindowContext()
     @FocusState private var sidebarToggleFocused: Bool
+    @FocusState private var sidebarHeaderToggleFocused: Bool
     @State private var address = ""
     @State private var findText = ""
     @State private var showFind = false
@@ -121,8 +123,7 @@ struct BrowserWindow: View {
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
-        .background(BrowserWindowChrome(collapsed: compact, stateChanged: { fullscreen = $0; windowActive = $1 },
-            focusSurvivingToggle: { DispatchQueue.main.async { sidebarToggleFocused = true } }))
+        .background(BrowserWindowChrome(windowContext: windowContext, stateChanged: { fullscreen = $0; windowActive = $1 }))
         .overlay(alignment: .topTrailing) {
             if showPageMenu {
                 ZStack(alignment: .topTrailing) {
@@ -164,10 +165,10 @@ struct BrowserWindow: View {
     }
 
     private func sidebarToggle(glass: Bool) -> some View {
-        Button { controller.compactSidebar.toggle() } label: {
+        Button(action: toggleSidebar) {
             Image(systemName: "sidebar.left").frame(width: 32, height: 32).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).focused($sidebarToggleFocused)
+        .buttonStyle(.plain).focusable().focused(glass ? $sidebarToggleFocused : $sidebarHeaderToggleFocused)
         .keyboardShortcut("s", modifiers: [.command, .option])
         .help(compact ? "Show Sidebar (⌥⌘S)" : "Hide Sidebar (⌥⌘S)")
         .accessibilityLabel(compact ? "Show Sidebar" : "Hide Sidebar")
@@ -176,6 +177,18 @@ struct BrowserWindow: View {
         .accessibilitySortPriority(2)
         .foregroundStyle(glass ? chromeForeground : MacSidebarPalette.theme.text)
         .background { if glass { Capsule().fill(.clear).modifier(chromeGlass) } }
+    }
+
+    private func toggleSidebar() {
+        let returnFocus = compact ? sidebarToggleFocused : windowContext.sidebarContainsFocus
+        if returnFocus { windowContext.window?.makeFirstResponder(nil) }
+        controller.compactSidebar.toggle()
+        if returnFocus {
+            DispatchQueue.main.async {
+                if compact { sidebarToggleFocused = true }
+                else { sidebarHeaderToggleFocused = true }
+            }
+        }
     }
 
     private var mainTopBar: some View {

@@ -204,15 +204,24 @@ import XCTest
     func testCollapsingFocusedSidebarSearchDoesNotFocusAddress() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let controller = profiles.controller
+        let tab = try XCTUnwrap(controller.session.selectedTab)
+        tab.webView.loadHTMLString("<body>Sidebar focus fixture</body>", baseURL: URL(string: "https://fixture.example/sidebar-focus"))
+        try await wait { tab.url != nil && !tab.webView.isLoading }
         for _ in 0..<8 { _ = controller.session.addTab(url: nil, select: false, load: false) }
         let window = makeWindow(controller, profiles: profiles); defer { window.close() }
         try await Task.sleep(for: .milliseconds(400))
-        let search = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "tabSearchField" } })
+        let search = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "tabSearchField" || $0.placeholderString == "Search tabs" } })
         let field = try XCTUnwrap(address(in: window))
         window.makeFirstResponder(search)
         try await wait { search.currentEditor() != nil }
+        let context = MacBrowserWindowContext(); context.window = window
+        XCTAssertTrue(context.sidebarContainsFocus, "Native search focus must be detectable before collapse")
         let request = controller.addressFocusRequest
-        controller.compactSidebar = true
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [.command, .option], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, characters: "s", charactersIgnoringModifiers: "s",
+            isARepeat: false, keyCode: 1))
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
         try await Task.sleep(for: .milliseconds(500))
         try checkGeometry(window, collapsed: true)
         XCTAssertNil(field.currentEditor(), "Removing sidebar focus must select the surviving toggle, not the address")
