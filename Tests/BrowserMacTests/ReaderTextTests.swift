@@ -4,7 +4,7 @@ import WebKit
 import XCTest
 @testable import PersonalBrowser
 
-@MainActor final class ReaderTextTests: XCTestCase {
+@MainActor final class ReaderTextTests: BackgroundUITestCase {
     func testReaderRetainsTextAndSelectionWithoutFormOrHiddenData() async throws {
         let tab = BrowserTab(dataStore: .nonPersistent())
         defer { tab.close() }

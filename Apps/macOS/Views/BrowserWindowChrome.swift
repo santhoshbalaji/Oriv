@@ -51,6 +51,9 @@ struct BrowserWindowChrome: NSViewRepresentable {
         private var observers: [NSObjectProtocol] = []
         private var lastState: [Bool] = []
         private var configuring = false
+        #if DEBUG
+        var simulatesFullscreenLayout = false
+        #endif
         private weak var observedWindow: NSWindow?
         private var accessory: NSTitlebarAccessoryViewController?
 
@@ -100,7 +103,11 @@ struct BrowserWindowChrome: NSViewRepresentable {
             // The page-colour band and its glass controls stay in the content view
             // through menu reveal and auto-hide, so they share one backing surface.
             if window.toolbar != nil { window.toolbar = nil }
+            #if DEBUG
+            let fullscreen = window.styleMask.contains(.fullScreen) || simulatesFullscreenLayout
+            #else
             let fullscreen = window.styleMask.contains(.fullScreen)
+            #endif
             if accessory == nil {
                 let controller = NSTitlebarAccessoryViewController()
                 controller.layoutAttribute = .bottom

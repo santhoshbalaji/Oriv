@@ -5,19 +5,19 @@ import WebKit
 import XCTest
 @testable import PersonalBrowser
 
-@MainActor final class SidebarLayoutTests: XCTestCase {
+@MainActor final class SidebarLayoutTests: BackgroundUITestCase {
     private func makeWindow(_ controller: BrowserController, profiles: BrowserProfiles? = nil,
                             width: CGFloat = 1000, rtl: Bool = false) -> NSWindow {
         let root = BrowserWindow(controller: controller, profiles: profiles)
             .browserAppearance(.t3Code)
             .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight).dynamicTypeSize(.accessibility5)
         let host = NSHostingController(rootView: root)
-        let window = NSWindow(contentRect: NSRect(x: 60, y: 60, width: width, height: 600),
+        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 60, y: 60, width: width, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = host
         window.setContentSize(NSSize(width: width, height: 600))
-        window.makeKeyAndOrderFront(nil)
+        BackgroundUIMode.show(window, key: true, activate: BackgroundUIMode.foregroundAllowed)
         return window
     }
     private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
@@ -62,7 +62,7 @@ import XCTest
     func testRealWindowButtonsStayInTheirParentsAndAlignInBothStates() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }
-        let other = NSWindow(); other.isReleasedWhenClosed = false; defer { other.close() }
+        let other = BackgroundUIMode.Window(); other.isReleasedWhenClosed = false; defer { other.close() }
         let otherFrame = other.standardWindowButton(.closeButton)?.frame
         try await Task.sleep(for: .milliseconds(350))
         let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
@@ -139,9 +139,9 @@ import XCTest
         XCTAssertTrue(window.contentView!.bounds.contains(field.convert(field.bounds, to: window.contentView)))
     }
     func testFullscreenOpenCollapsedAndReturnedGeometry() async throws {
+        try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }
-        NSApp.activate(ignoringOtherApps: true)
         window.collectionBehavior.insert(.fullScreenPrimary)
         try await Task.sleep(for: .milliseconds(400))
         window.toggleFullScreen(nil)
@@ -209,6 +209,8 @@ import XCTest
         try await wait { tab.url != nil && !tab.webView.isLoading }
         for _ in 0..<8 { _ = controller.session.addTab(url: nil, select: false, load: false) }
         let window = makeWindow(controller, profiles: profiles); defer { window.close() }
+        try XCTSkipIf(BackgroundUIMode.isEnabled && !window.isKeyWindow,
+            "System keyboard-focus handoff needs a key window; inactive accessory mode refused it. ORIV_FOREGROUND_UI=1 requires orchestrator approval.")
         try await Task.sleep(for: .milliseconds(400))
         let search = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "tabSearchField" || $0.placeholderString == "Search tabs" } })
         let field = try XCTUnwrap(address(in: window))
@@ -227,6 +229,28 @@ import XCTest
         XCTAssertNil(field.currentEditor(), "Removing sidebar focus must select the surviving toggle, not the address")
         XCTAssertEqual(controller.addressFocusRequest, request)
         XCTAssertTrue(window.firstResponder is NSView)
+    }
+
+    func testFullscreenLayoutGeometryWithoutAWindowServerTransition() async throws {
+        let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
+        let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }
+        try await Task.sleep(for: .milliseconds(300))
+        let chrome = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first })
+        chrome.simulatesFullscreenLayout = true
+        chrome.configure()
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(type)?.isHidden = true }
+        for collapsed in [false, true] {
+            profiles.controller.compactSidebar = collapsed
+            try await Task.sleep(for: .milliseconds(400))
+            try checkGeometry(window, collapsed: collapsed)
+            XCTAssertFalse(window.styleMask.contains(.fullScreen), "This is a background geometry fixture, not a system fullscreen transition")
+            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                XCTAssertTrue(window.standardWindowButton(type)?.isHidden == true)
+            }
+        }
+        if BackgroundUIMode.isEnabled {
+            XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, ProcessInfo.processInfo.processIdentifier)
+        }
     }
 
 }

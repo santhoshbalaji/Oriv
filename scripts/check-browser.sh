@@ -1,8 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+export ORIV_BACKGROUND_UI="${ORIV_BACKGROUND_UI:-1}"
 python3 scripts/check-public-safety.py
 python3 scripts/check-browser-scope.py
+python3 scripts/check-background-ui.py
 python3 scripts/check-contrast.py
 mkdir -p build
 quality_output=$(mktemp -d "$PWD/build/browser-quality.XXXXXX")

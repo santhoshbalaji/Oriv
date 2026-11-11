@@ -7,7 +7,7 @@ import SwiftUI
 @testable import PersonalBrowser
 
 @MainActor
-final class BrowserIntegrationTests: XCTestCase {
+final class BrowserIntegrationTests: BackgroundUITestCase {
     let base = URL(string: "http://127.0.0.1:8768")!
 
     func testBrowserIdentityReachesRequestsAndSubframes() async throws {
@@ -33,6 +33,7 @@ final class BrowserIntegrationTests: XCTestCase {
     }
 
     func testContainerFullscreenKeepsViewportAndRestoresSwiftUILayout() async throws {
+        try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
         let tab = BrowserTab(dataStore: .nonPersistent())
         defer { tab.close() }
         let window = mediaWindow(for: tab.webView)
@@ -101,22 +102,19 @@ final class BrowserIntegrationTests: XCTestCase {
     // WebKit suppresses video rendering in detached/hidden documents. Exercise the
     // production configuration in a visible window instead of relaxing that policy.
     private func mediaWindow(for view: WKWebView) -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1000, height: 800),
+        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 100, y: 100, width: 1000, height: 800),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = "Personal Browser media verification"
-        window.collectionBehavior = [.moveToActiveSpace]
-        window.center()
+        if !BackgroundUIMode.isEnabled { window.collectionBehavior = [.moveToActiveSpace]; window.center() }
         window.contentView = view
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
+        BackgroundUIMode.show(window, key: true, activate: BackgroundUIMode.foregroundAllowed)
         return window
     }
 
     private func requireVisibleMediaWindow(_ window: NSWindow, view: WKWebView) async throws {
-        NSApp.activate(ignoringOtherApps:true)
-        window.makeKeyAndOrderFront(nil)
+        try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
+        BackgroundUIMode.show(window, key: true, activate: true)
         let deadline = Date().addingTimeInterval(5)
         while (!window.occlusionState.contains(.visible) || !NSApp.isActive || !window.isKeyWindow) && Date() < deadline {
             try await Task.sleep(for: .milliseconds(100))
@@ -143,6 +141,7 @@ final class BrowserIntegrationTests: XCTestCase {
     }
 
     func testMutedVideoPlaybackSeekingCaptionsAndTabPreservation() async throws {
+        try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
         let session = BrowserSession(dataStore: .nonPersistent())
         defer { session.tabs.forEach { $0.close() } }
         let tab = try XCTUnwrap(session.selectedTab)
@@ -186,6 +185,7 @@ final class BrowserIntegrationTests: XCTestCase {
     }
 
     func testHEVCPlaybackOnThisRuntime() async throws {
+        try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
         let tab = BrowserTab(dataStore: .nonPersistent())
         defer { tab.close() }
         let window = mediaWindow(for: tab.webView)

@@ -5,7 +5,7 @@ import WebKit
 import XCTest
 @testable import PersonalBrowser
 
-@MainActor final class BrowserQualityIntegrationTests: XCTestCase {
+@MainActor final class BrowserQualityIntegrationTests: BackgroundUITestCase {
     private let base = URL(string: "http://127.0.0.1:8768")!
     private func wait(_ message: String, until condition: () -> Bool) async throws {
         let end = Date().addingTimeInterval(20)

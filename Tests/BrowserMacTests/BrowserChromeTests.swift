@@ -5,7 +5,7 @@ import WebKit
 import XCTest
 @testable import PersonalBrowser
 
-@MainActor final class BrowserChromeTests: XCTestCase {
+@MainActor final class BrowserChromeTests: BackgroundUITestCase {
     func testThemeColorIgnoredAndBodyChangesDetachFromPreviousTab() async throws {
         let first = makeWebView(), second = makeWebView()
         let firstWindow = samplingWindow(first), secondWindow = samplingWindow(second)
@@ -120,7 +120,7 @@ import XCTest
     }
 
     func testTransparentTitlebarHasNoDividerAndRemainsWindowLocal() {
-        let window = NSWindow(), other = NSWindow()
+        let window = BackgroundUIMode.Window(), other = BackgroundUIMode.Window()
         window.isReleasedWhenClosed = false
         other.isReleasedWhenClosed = false
         defer { window.close(); other.close() }
@@ -137,7 +137,7 @@ import XCTest
     }
 
     func testTitlebarColourAnimationAndReduceMotionCancellation() async throws {
-        let window = NSWindow()
+        let window = BackgroundUIMode.Window()
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let bridge = BrowserTitlebar.TitlebarView()
@@ -162,7 +162,7 @@ import XCTest
     func testWebKitExtendsUnderToolbarWithMeasuredInsets() {
         let web = makeWebView()
         let host = WebViewHost(webView: web)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
                               styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
@@ -180,12 +180,12 @@ import XCTest
         let address = "https://docs.example.com/designing-calm-interfaces?q=glass#details"
         let state = AddressTestState(text: address)
         let hosting = NSHostingController(rootView: AddressTestView(state: state).browserAppearance(.t3Code))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 700),
+        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 700),
                               styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = hosting
         defer { window.close() }
-        window.makeKeyAndOrderFront(nil)
+        BackgroundUIMode.show(window, key: true, activate: BackgroundUIMode.foregroundAllowed)
         try await Task.sleep(for: .milliseconds(200))
         window.makeFirstResponder(nil)
         func addressField(in view: NSView) -> NSTextField? {
@@ -385,13 +385,14 @@ import XCTest
         let state = AddressTestState(text: url)
         let chrome = PageChrome()
         let hosting = NSHostingController(rootView: ScrollAddressTestView(state: state, tab: tab, chrome: chrome).browserAppearance(.t3Code))
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1200, height: 800),
+        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 100, y: 100, width: 1200, height: 800),
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.toolbarStyle = .unified
         window.contentViewController = hosting
         defer { window.close() }
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        BackgroundUIMode.show(window, key: true, activate: BackgroundUIMode.foregroundAllowed)
+        try XCTSkipIf(BackgroundUIMode.isEnabled && !window.isKeyWindow,
+            "Native wheel/mouse event-routing verification needs a key window; inactive accessory mode refused it. ORIV_FOREGROUND_UI=1 requires orchestrator approval.")
         try await Task.sleep(for: .milliseconds(1200))
         func field(in view: NSView) -> NSTextField? {
             if let f = view as? NSTextField, f.accessibilityIdentifier() == "addressField" { return f }
@@ -494,10 +495,10 @@ import XCTest
     }
 
     private func samplingWindow(_ web: WKWebView) -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 40, y: 40, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = web
-        window.orderFrontRegardless()
+        BackgroundUIMode.show(window, key: false)
         return window
     }
 

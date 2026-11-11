@@ -284,3 +284,4 @@ schemes:
       - BrowserMacTests
       environmentVariables:
         BROWSER_TESTING: '1'
+        ORIV_BACKGROUND_UI: '1'

@@ -4,7 +4,7 @@ import XCTest
 @testable import BrowserCore
 import BrowserEngine
 
-@MainActor final class BrowserMigrationTests: XCTestCase {
+@MainActor final class BrowserMigrationTests: BackgroundUITestCase {
     func testSavedLinksUpgradeOnceAndUserDeletionSurvivesRelaunch() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
