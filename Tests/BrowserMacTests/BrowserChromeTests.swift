@@ -207,6 +207,15 @@ import XCTest
         XCTAssertEqual(state.text, address, "Focusing must not replace the URL with its display host")
     }
 
+    func testDocumentMatchAllowsFragmentLagWithoutAcceptingAnotherPage() {
+        XCTAssertTrue(PageChrome.matchesDocument("about:blank#next", url: URL(string: "about:blank")))
+        XCTAssertTrue(PageChrome.matchesDocument("https://example.test/page?q=1#next", url: URL(string: "https://example.test/page?q=1#old")))
+        XCTAssertFalse(PageChrome.matchesDocument("https://other.test/page?q=1", url: URL(string: "https://example.test/page?q=1")))
+        XCTAssertFalse(PageChrome.matchesDocument("https://example.test/other?q=1", url: URL(string: "https://example.test/page?q=1")))
+        XCTAssertFalse(PageChrome.matchesDocument("https://example.test/page?q=2", url: URL(string: "https://example.test/page?q=1")))
+        XCTAssertFalse(PageChrome.matchesDocument(nil, url: URL(string: "about:blank")))
+    }
+
     func testFixedHeaderBeatsWhiteCanvasAndUpdatesAfterSPAMutation() async throws {
         let web = makeWebView(), chrome = PageChrome()
         let window = samplingWindow(web); defer { window.close() }
@@ -216,9 +225,9 @@ import XCTest
         try await wait { chrome.sampleCount > 0 }
         XCTAssertEqual(chrome.sampledTop?.red ?? -1, 0.4, accuracy: 0.01)
         XCTAssertTrue(chrome.isDark)
-        _ = try await web.evaluateJavaScript("history.pushState({}, '', '#next');document.querySelector('header').style.background='#ffffff'")
+        let documentURL = try await web.evaluateJavaScript("history.pushState({}, '', '#next');document.querySelector('header').style.background='#ffffff';location.href")
         try await wait { !chrome.isDark }
-        XCTAssertEqual(chrome.sampledTop?.red ?? -1, 1, accuracy: 0.01)
+        XCTAssertEqual(chrome.sampledTop?.red ?? -1, 1, accuracy: 0.01, "Native URL: \(String(describing: web.url)); document URL: \(documentURL)")
         chrome.observe(nil)
     }
 

@@ -63,6 +63,15 @@ private typealias PlatformColor = UIColor
         if !privatePage, let key = cacheKey(webView?.url), let cached = remembered[key] { navigationSeed = (key,cached) }
         applyRemembered()
     }
+    /// Fragment changes stay in the same document. WebKit can report the
+    /// native URL after the isolated-world observer has already seen pushState.
+    static func matchesDocument(_ href: String?, url: URL?) -> Bool {
+        guard let href, let url, var page = URLComponents(string: href),
+              var native = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        page.fragment = nil; native.fragment = nil
+        return page.url == native.url
+    }
+
     private func cacheKey(_ url: URL?) -> String? {
         guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
@@ -203,7 +212,7 @@ private typealias PlatformColor = UIColor
                       self.generation == request, self.sampleRevision == sample else { return }
                 guard self.scrollRevision == revision else { self.requestSample(); return }
                 let values = (try? result.get()) as? [String: Any] ?? [:]
-                if values["href"] as? String == web.url?.absoluteString { self.accept(values) }
+                if Self.matchesDocument(values["href"] as? String, url: web.url) { self.accept(values) }
             }
     }
 
@@ -412,7 +421,7 @@ private typealias PlatformColor = UIColor
     fileprivate func receiveScroll(_ message: WKScriptMessage) {
         guard !privatePage, message.webView === webView, message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
         if let edge = body["edge"] as? [String: Any] {
-            guard edge["href"] as? String == webView?.url?.absoluteString else { return }
+            guard Self.matchesDocument(edge["href"] as? String, url: webView?.url) else { return }
             if let id = edge["documentID"] as? Double {
                 guard id >= documentID else { return }
                 if id != documentID { documentID = id; navigationPainting = true; stableBand = ChromeStableValue() }
