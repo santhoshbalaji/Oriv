@@ -63,7 +63,7 @@ import Observation
             self.perform {
                 try self.select(profileID); self.controller.session.selectTab(tabID)
                 self.showRegularWindow?()
-                NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" })?.makeKeyAndOrderFront(nil)
+                BackgroundUIMode.showBrowserWindow(NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }))
             }
         }
     }
@@ -175,7 +175,7 @@ import Observation
                 if registry.profiles.first(where: { $0.id == page.profile.id })?.archivedAt != nil { throw BrowserProfileOperationError.unavailable("Restore this profile before opening its tabs.") }
                 try select(page.profile.id)
                 controller.session.addTab(url: page.url)
-                NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" })?.makeKeyAndOrderFront(nil)
+                BackgroundUIMode.showBrowserWindow(NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }))
             }
         }
     }
@@ -202,7 +202,7 @@ import Observation
         try select(externalMoveProfileID)
         controller.session.addTab(url: url)
         showRegularWindow?()
-        NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" })?.makeKeyAndOrderFront(nil)
+        BackgroundUIMode.showBrowserWindow(NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }))
         context.session.closeTab(tab.id)
         if context.session.tabs.isEmpty { closeExternalWindow?(); endExternalPrivate() }
     }

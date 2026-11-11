@@ -4,7 +4,7 @@ import WebKit
 import XCTest
 @testable import PersonalBrowser
 
-@MainActor final class AdBlockingTests: XCTestCase {
+@MainActor final class AdBlockingTests: BackgroundUITestCase {
     private let base = URL(string: "http://127.0.0.1:8768/adblock")!
     private let fixtureRules: [AdBlockingMode: String] = [
         .balanced: #"[{"trigger":{"url-filter":"/ad-banner\\.js"},"action":{"type":"block"}}]"#,

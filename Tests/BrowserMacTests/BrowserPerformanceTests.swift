@@ -5,7 +5,7 @@ import XCTest
 @testable import PersonalBrowser
 
 /// Repeatable local setup measurements, not page-load or WebKit subprocess benchmarks.
-@MainActor final class BrowserPerformanceTests: XCTestCase {
+@MainActor final class BrowserPerformanceTests: BackgroundUITestCase {
     func testRestoreOneTabBaseline() throws { try measureRestoration(count: 1) }
     func testRestoreTenTabsBaseline() throws { try measureRestoration(count: 10) }
     func testRestoreThirtyTabsBaseline() throws { try measureRestoration(count: 30) }

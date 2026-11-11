@@ -110,7 +110,7 @@ final class BrowserController {
         } else if let window, window.identifier?.rawValue != "browser" {
             window.performClose(nil)
             if window.identifier?.rawValue == "com_apple_SwiftUI_Settings_window" {
-                NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" })?.makeKeyAndOrderFront(nil)
+                BackgroundUIMode.showBrowserWindow(NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }))
             }
         } else if let id = session.selectedTabID {
             requestCloseTab(id)

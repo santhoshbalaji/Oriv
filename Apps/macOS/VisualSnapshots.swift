@@ -3,6 +3,7 @@ import AppKit
 import BrowserCore
 import BrowserEngine
 import CryptoKit
+import ScreenCaptureKit
 import SwiftUI
 import WebKit
 
@@ -11,8 +12,8 @@ import WebKit
 /// when BROWSER_TESTING=1 (ephemeral profiles, no persisted browsing data) and
 /// ORIV_VISUAL_SNAPSHOTS=1 are both set. Images go to the sandbox container's temporary
 /// directory (OrivVisualSnapshots); scripts/capture-mac-visuals.sh validates and copies them.
-/// ORIV_SNAPSHOT_ACTIVATE=1 makes the app frontmost so windows render in their active (key)
-/// state. Release builds do not contain this file.
+/// ORIV_SNAPSHOT_ACTIVATE=1 requests key windows. App activation additionally
+/// requires the separately approved foreground UI mode. Release builds exclude this file.
 @MainActor enum VisualSnapshots {
     static var directory: URL? {
         let environment = ProcessInfo.processInfo.environment
@@ -27,15 +28,21 @@ import WebKit
     private struct Manifest: Encodable {
         let runID: String; let startedAt: Date; var finishedAt: Date?; let osVersion: String
         let configuration = "Debug"; let activated: Bool
+        var keyWindowsRequested = false
+        var backgroundUI: BackgroundUIMode.Audit?
+        var skipped: [String] = []
+        var windows: [BackgroundUIMode.WindowReport] = []
         var scenes: [Scene] = []; var evidence: [Scene] = []; var failures: [String] = []; var limitations: [String] = []
     }
     private static var manifest: Manifest!
+    private static var offscreenCompositorUnavailable: String?
 
     static func run(into directory: URL) async {
         let environment = ProcessInfo.processInfo.environment
         let activate = environment["ORIV_SNAPSHOT_ACTIVATE"] == "1"
         manifest = Manifest(runID: environment["ORIV_SNAPSHOT_RUN_ID"] ?? "unspecified", startedAt: Date(),
-                            osVersion: ProcessInfo.processInfo.operatingSystemVersionString, activated: activate)
+                            osVersion: ProcessInfo.processInfo.operatingSystemVersionString, activated: activate && BackgroundUIMode.foregroundAllowed)
+        manifest.keyWindowsRequested = activate
         do {
             guard !FileManager.default.fileExists(atPath: directory.path) else {
                 fputs("snapshot run directory already exists; refusing to overwrite it\n", stderr); exit(2)
@@ -44,10 +51,19 @@ import WebKit
         } catch {
             fputs("snapshot directory unavailable: \(error)\n", stderr); exit(2)
         }
-        if activate { NSApp.setActivationPolicy(.regular); NSApp.activate() }
+        BackgroundUIMode.installAtLaunch()
+        if BackgroundUIMode.isEnabled {
+            manifest.limitations.append("All windows stay off every display. Sidebar/glass fallback fixtures use the app's opaque Reduce Transparency variant; they cannot verify Liquid Glass.")
+        }
         if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar" { await renderSidebarScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
         else { await renderScenes(into: directory, activate: activate) }
+        manifest.backgroundUI = BackgroundUIMode.audit()
+        if BackgroundUIMode.isEnabled, let audit = manifest.backgroundUI,
+           audit.frontmostViolations > 0 || audit.activationViolations > 0 || audit.onscreenWindowViolations > 0 {
+            manifest.failures.append("Background UI became active/frontmost or overlapped a display during capture")
+        }
         manifest.finishedAt = Date()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -158,6 +174,100 @@ import WebKit
         }
     }
 
+    private static func sidebarFixture(color: String, light: Bool) -> String {
+        let ink = light ? "#251538" : "#ffffff", heading = light ? "#5e19af" : (color == "#101014" ? "#d8bbff" : "#ff783d")
+        return """
+        <!doctype html><html><head><title>Found, don’t follow</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+        *{box-sizing:border-box}body{margin:0;background:\(color);color:\(ink);font-family:Georgia,serif}header{height:66px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff50;font:600 12px -apple-system,sans-serif}header strong{font-size:25px;color:\(heading);letter-spacing:-1px}.hero{padding:32px max(30px,14vw) 60px;min-height:530px}h1{font-size:48px;font-weight:500;line-height:1.05;color:\(heading);letter-spacing:-2px;margin:0 0 38px}h1 span{display:block;margin-left:80px}.copy{margin-left:80px;max-width:780px;font-size:29px;line-height:1.12;letter-spacing:-1px}.copy p{margin:0 0 32px}.story{background:#e0ebed;color:#35134d;padding:26px max(30px,14vw) 80px;min-height:1400px}.story blockquote{margin:0;border-top:1px solid #958ca5;border-bottom:1px solid #958ca5;padding:24px 0;font-size:28px}.story h2{font:700 28px -apple-system,sans-serif;margin-top:56px}.story p{font-size:30px;line-height:1.3}@media(max-width:700px){header strong{font-size:17px}.hero{padding:32px 30px 50px}h1{font-size:42px}.copy{font-size:25px;margin-left:28px}h1 span{margin-left:28px}}
+        </style></head><body><header><span>[START]</span><strong>ENTREPRENEURS FIRST</strong><span>[MENU]</span></header><section class="hero"><h1>FOUND,<span>↳DON’T FOLLOW</span></h1><div class="copy"><p>We turn exceptional individuals into funded founders. We back you first, then give you a bridge to Silicon Valley.</p><p>You might have an early idea, or be testing a cofounder. You might have nothing. What we’re most interested in is you and your potential.</p></div></section><section class="story"><blockquote>“Joining EF was a life-changing decision.”</blockquote><h2>WE BUILD COFOUNDING TEAMS FROM SCRATCH.</h2><p>Your potential is the starting point.</p><p>Meet people with the ambition to build something new. Explore ideas, share what you know and find your next collaborator.</p></section></body></html>
+        """
+    }
+
+    private static func renderSidebarScenes(into directory: URL, activate: Bool) async {
+        for mode in ["light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest", "covered"] {
+            let profiles = BrowserProfiles(testing: true)
+            let controller = profiles.controller
+            controller.compactSidebar = mode == "collapsed" || mode == "fullscreen-collapsed"
+            let tab = controller.session.selectedTab!
+            let color = mode == "light" ? "#f7f7f2" : (mode == "dark" ? "#101014" : "#6000d9")
+            let html = sidebarFixture(color: color, light: mode == "light")
+            tab.webView.loadHTMLString(html, baseURL: URL(string: "https://fixture.example/sidebar"))
+            for name in ["Apple — Example", "GitHub · Changelog", "A long example tab title for truncation"] {
+                let other = controller.session.addTab(url: nil, select: false, load: false)
+                other.webView.loadHTMLString("<title>\(name)</title><body>Example</body>", baseURL: URL(string: "https://fixture.example/other"))
+            }
+            try? await Task.sleep(for: .milliseconds(700))
+            await capture("mac-glass-sidebar-\(mode)", directory,
+                mode == "minimum" || mode == "rtl-largest" ? CGSize(width: 760, height: 520) : (mode.hasPrefix("fullscreen") && !BackgroundUIMode.foregroundAllowed ? CGSize(width: 1800, height: 1152) : CGSize(width: 1250, height: 815.625)),
+                key: activate && mode != "inactive", compositeWeb: tab.webView, covered: mode == "covered", prepare: { window in
+                    window.makeFirstResponder(tab.webView)
+                    if mode.hasPrefix("fullscreen") {
+                        if BackgroundUIMode.foregroundAllowed {
+                            window.collectionBehavior.insert(.fullScreenPrimary)
+                            window.toggleFullScreen(nil)
+                            for _ in 0..<80 { if window.styleMask.contains(.fullScreen) { break }; try? await Task.sleep(for: .milliseconds(100)) }
+                            try? await Task.sleep(for: .seconds(1))
+                            if !window.styleMask.contains(.fullScreen) { manifest.failures.append("\(mode): did not enter fullscreen") }
+                        } else {
+                            simulateFullscreenLayout(in: window)
+                            manifest.skipped.append("\(mode): system transition skipped. " + BackgroundUIMode.foregroundOnlyReason)
+                            manifest.limitations.append("\(mode): geometry-only fullscreen layout in a normal background window; system buttons hidden by the fixture, no Space/menu transition.")
+                            try? await Task.sleep(for: .milliseconds(250))
+                        }
+                    }
+                    if mode == "scrolled" { _ = try? await tab.webView.evaluateJavaScript("window.scrollTo(0,780)"); try? await Task.sleep(for: .seconds(1)) }
+                    if mode == "inactive" { window.resignKey(); if BackgroundUIMode.foregroundAllowed { NSApp.deactivate() } }
+                    writeSidebarGeometry(window, to: directory.appendingPathComponent("mac-glass-sidebar-\(mode)-geometry.json"))
+                    let page: [String: Any] = ["frame": NSStringFromRect(tab.webView.frame),
+                        "windowFrame": NSStringFromRect(tab.webView.convert(tab.webView.bounds, to: nil)),
+                        "hostFrame": NSStringFromRect(tab.webView.superview?.frame ?? .zero),
+                        "viewport": (try? await tab.webView.evaluateJavaScript("({width:innerWidth,height:innerHeight,x:scrollX,y:scrollY,ready:document.readyState,text:document.body.innerText.length})")) ?? [:]]
+                    if let data = try? JSONSerialization.data(withJSONObject: page, options: [.prettyPrinted, .sortedKeys]) {
+                        try? data.write(to: directory.appendingPathComponent("mac-glass-sidebar-\(mode)-page-geometry.json"))
+                    }
+                }) {
+                    BrowserWindow(controller: controller, profiles: profiles)
+                        .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled || mode == "reduced")
+                        .environment(\.layoutDirection, mode == "rtl-largest" ? .rightToLeft : .leftToRight)
+                        .dynamicTypeSize(mode == "rtl-largest" ? .accessibility5 : .large)
+            }
+            profiles.shutdown()
+        }
+    }
+
+    private static func simulateFullscreenLayout(in window: NSWindow) {
+        func visit(_ view: NSView) {
+            if let chrome = view as? BrowserWindowChrome.WindowChromeView { chrome.simulatesFullscreenLayout = true; chrome.configure() }
+            view.subviews.forEach(visit)
+        }
+        window.contentView.map(visit)
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(type)?.isHidden = true }
+    }
+
+    private static func writeSidebarGeometry(_ window: NSWindow, to url: URL) {
+        func markers(_ view: NSView) -> [NSView] {
+            (view is BrowserGeometryMarker.Marker ? [view] : []) + view.subviews.flatMap(markers)
+        }
+        let frames = (window.contentView.map { markers($0).map { ["name": $0.identifier?.rawValue ?? "", "frame": NSStringFromRect($0.convert($0.bounds, to: nil))] } }) ?? []
+        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type -> [String: Any]? in
+            guard let button = window.standardWindowButton(type) else { return nil }
+            return ["type": type.rawValue, "frame": NSStringFromRect(button.convert(button.bounds, to: nil)), "hidden": button.isHiddenOrHasHiddenAncestor, "hostWindow": button.window?.windowNumber ?? -1, "hostVisible": button.window?.isVisible ?? false]
+        }
+        func accessibility(_ element: Any, depth: Int = 0) -> [[String: Any]] {
+            guard depth < 10, let node = element as? NSAccessibilityProtocol else { return [] }
+            let row: [String: Any] = ["role": node.accessibilityRole()?.rawValue ?? "", "label": node.accessibilityLabel() ?? "",
+                "frame": NSStringFromRect(node.accessibilityFrame()), "depth": depth]
+            let children: [Any] = node.accessibilityChildrenInNavigationOrder().map { $0.map { $0 as Any } } ?? node.accessibilityChildren() ?? []
+            return [row] + children.flatMap { accessibility($0, depth: depth + 1) }
+        }
+        let value: [String: Any] = ["frame": NSStringFromRect(window.frame), "content": NSStringFromRect(window.contentView?.bounds ?? .zero),
+            "fullscreen": window.styleMask.contains(.fullScreen), "key": window.isKeyWindow, "markers": frames, "buttons": buttons, "accessibility": accessibility(window),
+            "appActive": NSApp.isActive, "occlusionState": window.occlusionState.rawValue,
+            "frontmostIsTestApp": NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
+            "layerBacked": window.contentView?.wantsLayer ?? false, "backgroundUI": BackgroundUIMode.isEnabled]
+        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: url) }
+    }
+
     private static func renderGlassScenes(into directory: URL, activate: Bool) async {
         let requested = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"] ?? "all"
         for mode in ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "private", "reduced", "insecure"] where requested == "all" || mode == requested {
@@ -211,7 +321,7 @@ import WebKit
                 }
             }) {
                 BrowserWindow(controller: controller, profiles: profiles, initialPageMenu: mode == "menu")
-                    .environment(\.chromeReduceTransparencyOverride, mode == "reduced")
+                    .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled || mode == "reduced")
             }
             profiles.shutdown()
         }
@@ -225,6 +335,7 @@ import WebKit
         for (index, address) in sites.split(separator: ",").map(String.init).enumerated() {
             guard let url = URL(string: address), url.scheme == "https" else { continue }
             let profiles = BrowserProfiles(testing: true)
+            profiles.controller.compactSidebar = ProcessInfo.processInfo.environment["ORIV_SIDEBAR_COLLAPSED"] == "1"
             let timing = ProcessInfo.processInfo.environment["ORIV_CHROME_TIMING"] == "1"
             let tab = profiles.controller.session.addTab(url:timing ? nil : url,select:true,load:!timing)
             if !timing && url.host == "fixture.invalid" { tab.webView.loadHTMLString(ChromeVisualFixture.html(), baseURL: url) }
@@ -290,37 +401,84 @@ import WebKit
         }
     }
 
-    /// Ask the existing owned-window capture bridge for this app's window only.
+    /// In-process WindowServer capture, restricted to this process's exact window.
+    /// ScreenCaptureKit includes compositor glass without a desktop/screen capture.
+    private static func ownedPNG(_ window: NSWindow) async throws -> Data {
+        if BackgroundUIMode.isEnabled, let reason = offscreenCompositorUnavailable {
+            throw NSError(domain: "OwnedWindowCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: reason])
+        }
+        if ProcessInfo.processInfo.environment["ORIV_CAPTURE_RENDERER"] != "inprocess" {
+            // The caller supplies an NSWindow created in this process. The shell
+            // bridge validates this exact executable/PID before capturing its ID.
+            guard let directory, window.windowNumber > 0 else { throw CocoaError(.fileNoSuchFile) }
+            let name = "mac-glass-owned-" + UUID().uuidString
+            let requestURL = directory.appendingPathComponent("capture-request.json")
+            let resultURL = directory.appendingPathComponent("\(name)-live.png")
+            let errorURL = directory.appendingPathComponent("capture-error.json")
+            let request: [String: Any] = ["windowID": window.windowNumber, "pid": ProcessInfo.processInfo.processIdentifier, "name": name]
+            try JSONSerialization.data(withJSONObject: request).write(to: requestURL, options: .atomic)
+            defer { try? FileManager.default.removeItem(at: requestURL); try? FileManager.default.removeItem(at: resultURL); try? FileManager.default.removeItem(at: errorURL) }
+            for _ in 0..<100 {
+                if let data = try? Data(contentsOf: resultURL), NSBitmapImageRep(data: data) != nil { return data }
+                if let data = try? Data(contentsOf: errorURL),
+                   let error = try? JSONSerialization.jsonObject(with: data) as? [String: String], error["name"] == name {
+                    let reason = error["reason"] ?? "Window image unavailable"
+                    if BackgroundUIMode.isEnabled { offscreenCompositorUnavailable = reason }
+                    throw NSError(domain: "OwnedWindowCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: reason])
+                }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            throw CocoaError(.fileReadUnknown)
+        }
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        guard let own = content.windows.first(where: {
+            $0.windowID == CGWindowID(window.windowNumber) && $0.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier
+        }) else { throw CocoaError(.fileNoSuchFile) }
+        let filter = SCContentFilter(desktopIndependentWindow: own)
+        let configuration = SCStreamConfiguration()
+        let scale = window.backingScaleFactor
+        configuration.width = Int(window.frame.width * scale)
+        configuration.height = Int(window.frame.height * scale)
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
+        return data
+    }
     private static func ownedImage(_ window: NSWindow, to url: URL) async {
-        let directory = url.deletingLastPathComponent(), name = url.deletingPathExtension().lastPathComponent
-        let requestURL = directory.appendingPathComponent("capture-request.json")
-        let resultURL = directory.appendingPathComponent("\(name)-live.png")
-        let request: [String: Any] = ["windowID":window.windowNumber,"pid":ProcessInfo.processInfo.processIdentifier,"name":name]
-        if let data = try? JSONSerialization.data(withJSONObject:request) { try? data.write(to:requestURL,options:.atomic) }
-        for _ in 0..<100 {
-            if FileManager.default.fileExists(atPath:resultURL.path) { break }
-            try? await Task.sleep(for:.milliseconds(20))
-        }
-        if let data = try? Data(contentsOf:resultURL), let bitmap = NSBitmapImageRep(data:data) {
-            try? data.write(to:url)
-            let digest = SHA256.hash(data:data).map { String(format:"%02x",$0) }.joined()
-            manifest.evidence.append(Scene(name:name,file:url.lastPathComponent,width:bitmap.pixelsWide,height:bitmap.pixelsHigh,sha256:digest,keyWindow:window.isKeyWindow,note:"Owned window \(window.windowNumber), process \(ProcessInfo.processInfo.processIdentifier)"))
-        }
-        else { manifest.failures.append("Owned window image missing: \(name)") }
-        try? FileManager.default.removeItem(at:requestURL)
-        try? FileManager.default.removeItem(at:resultURL)
+        do {
+            let data = try await ownedPNG(window), bitmap = NSBitmapImageRep(data: data)!
+            try data.write(to: url)
+            manifest.evidence.append(Scene(name: url.deletingPathExtension().lastPathComponent, file: url.lastPathComponent,
+                width: bitmap.pixelsWide, height: bitmap.pixelsHigh,
+                sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                keyWindow: window.isKeyWindow, note: ProcessInfo.processInfo.environment["ORIV_CAPTURE_RENDERER"] != "inprocess" ? "PID-validated capture bridge, owned window only; UI actions in-process" : "In-process ScreenCaptureKit, owned window only"))
+        } catch { manifest.failures.append("Owned window capture: \(error.localizedDescription)") }
     }
     private static func fullscreenEvidence(_ window: NSWindow, name: String, directory: URL) async {
+        guard BackgroundUIMode.foregroundAllowed else {
+            manifest.skipped.append("\(name): " + BackgroundUIMode.foregroundOnlyReason)
+            return
+        }
         var rows: [[String: Any]] = []
         func state(_ mode: String) async {
+            BackgroundUIMode.show(window, key: true, activate: BackgroundUIMode.foregroundAllowed)
             try? await Task.sleep(for: .milliseconds(600))
             await ownedImage(window, to: directory.appendingPathComponent("\(name)-\(mode).png"))
             if let toolbarWindow = window.toolbar?.items.compactMap({ $0.view?.window }).first(where: { $0 !== window }) {
                 await ownedImage(toolbarWindow, to: directory.appendingPathComponent("\(name)-\(mode)-toolbar.png"))
             }
+            // AppKit can reveal the real lights in its own titlebar host even
+            // without NSToolbar. Capture that app-owned host when it is onscreen.
+            if let host = window.standardWindowButton(.closeButton)?.window, host !== window,
+               NSApp.windows.contains(where: { $0 === host }), host.isVisible,
+               let screen = window.screen, host.frame.intersects(screen.frame) {
+                await ownedImage(host, to: directory.appendingPathComponent("\(name)-\(mode)-titlebar.png"))
+            }
             func tree(_ view: NSView, depth: Int = 0) -> [String] {
                 [String(repeating:" ",count:depth) + "\(type(of:view)) \(view.frame)"] + view.subviews.flatMap { tree($0, depth:depth+1) }
             }
+            writeSidebarGeometry(window, to: directory.appendingPathComponent("\(name)-\(mode)-geometry.json"))
             rows.append(["mode":mode, "fullscreen":window.styleMask.contains(.fullScreen), "frame":NSStringFromRect(window.frame), "layout":NSStringFromRect(window.contentLayoutRect),
                 "windows":NSApp.windows.map { ["id":$0.windowNumber, "class":String(describing:type(of:$0)), "frame":NSStringFromRect($0.frame), "tree":$0.contentView.map { tree($0.superview ?? $0) } ?? []] }])
         }
@@ -439,6 +597,7 @@ import WebKit
     private static func capture<Content: View>(_ name: String, _ directory: URL, _ size: CGSize, key: Bool, settle: Int = 900,
                                                compositeWeb webView: WKWebView? = nil, toolbarStyle: NSWindow.ToolbarStyle = .unified,
                                                expectedFields: [String: String] = [:],
+                                               covered: Bool = false,
                                                prepare: (NSWindow) async -> Void = { _ in },
                                                @ViewBuilder content: () -> Content) async {
         let hosting = NSHostingController(rootView: content().browserAppearance(.t3Code))
@@ -454,31 +613,40 @@ import WebKit
         window.toolbarStyle = toolbarStyle
         window.contentViewController = hosting
         window.setContentSize(size)
-        window.setFrameOrigin(liveGlass ? NSPoint(x: 40, y: 60) : NSPoint(x: -30_000, y: -30_000))
-        if key {
-            // Closing the previous key window can deactivate the app, so activate for every scene.
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-        } else { window.orderFrontRegardless() }
-        defer { window.orderOut(nil); window.close() }
+        window.setFrameOrigin(liveGlass ? (BackgroundUIMode.isEnabled && size.width == 1800 ? .zero : NSPoint(x: 40, y: 60)) : NSPoint(x: -30_000, y: -30_000))
+        BackgroundUIMode.show(window, key: key, activate: key && BackgroundUIMode.foregroundAllowed)
+        let cover = covered ? BackgroundUIMode.makeCover(for: window) : nil
+        defer { cover?.orderOut(nil); cover?.close(); window.orderOut(nil); window.close() }
         try? await Task.sleep(for: .milliseconds(settle))
         var attempts = 0
-        while key && !window.isKeyWindow && attempts < 20 {
+        while key && !window.isKeyWindow && !BackgroundUIMode.isEnabled && attempts < 20 {
             attempts += 1
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            BackgroundUIMode.show(window, key: true, activate: BackgroundUIMode.foregroundAllowed)
             try? await Task.sleep(for: .milliseconds(150))
         }
         await prepare(window)
         if key {
-            // The page may finish loading after another app takes activation.
-            // Reclaim only this capture app's own window immediately before evidence.
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            // Keep the owned window key without changing the frontmost app in background mode.
+            BackgroundUIMode.show(window, key: true, activate: BackgroundUIMode.foregroundAllowed)
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        if BackgroundUIMode.isEnabled, let webView {
+            webView.wantsLayer = true
+            _ = try? await webView.takeSnapshot(configuration: nil)
+            // WebKit's remote layer transaction can arrive after its snapshot
+            // completion when occluded. Leave it behind owner windows to settle.
             try? await Task.sleep(for: .milliseconds(200))
         }
         window.displayIfNeeded()
-        if key && !window.isKeyWindow { manifest.failures.append("\(name): requested an active window but it did not become key") }
+        BackgroundUIMode.checkFrontmost()
+        if key && !window.isKeyWindow {
+            if BackgroundUIMode.isEnabled { manifest.limitations.append("\(name): inactive AppKit refused key-window status; capture remains at the back.") }
+            else { manifest.failures.append("\(name): requested a key window but it did not become key") }
+        }
+        let report = BackgroundUIMode.report(window, name: name,
+            simulatedFullscreenLayout: name.contains("sidebar-fullscreen") && !BackgroundUIMode.foregroundAllowed)
+        manifest.windows.append(report)
+        if covered && !report.occluded { manifest.failures.append("\(name): deliberate background cover did not occlude the target") }
         func fields(in view: NSView) -> [NSTextField] {
             ((view as? NSTextField).map { [$0] } ?? []) + view.subviews.flatMap { fields(in: $0) }
         }
@@ -490,24 +658,29 @@ import WebKit
             }
         }
         if liveGlass {
-            let request: [String: Any] = ["windowID": window.windowNumber, "pid": ProcessInfo.processInfo.processIdentifier, "name": name]
-            let requestURL = directory.appendingPathComponent("capture-request.json")
-            let resultURL = directory.appendingPathComponent("\(name)-live.png")
-            if let requestData = try? JSONSerialization.data(withJSONObject: request) { try? requestData.write(to: requestURL, options: .atomic) }
-            for _ in 0..<100 {
-                if FileManager.default.fileExists(atPath: resultURL.path) { break }
-                try? await Task.sleep(for: .milliseconds(100))
+            do {
+                let data = try await ownedPNG(window), image = NSBitmapImageRep(data: data)!
+                try data.write(to: directory.appendingPathComponent("\(name).png"))
+                manifest.scenes.append(Scene(name: name, file: "\(name).png", width: image.pixelsWide, height: image.pixelsHigh,
+                    sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                    keyWindow: window.isKeyWindow, note: ProcessInfo.processInfo.environment["ORIV_CAPTURE_RENDERER"] != "inprocess" ? "PID-validated capture bridge, owned window only; UI actions in-process" : "In-process ScreenCaptureKit, owned window only"))
+            } catch {
+                if BackgroundUIMode.isEnabled {
+                    manifest.skipped.append("\(name): visual-foreground-only; off-screen compositor capture unavailable: \(error.localizedDescription). Owner approval through the orchestrator is required for an on-screen capture.")
+                    await offscreenFallback(window, webView: webView, name: name, directory: directory)
+                } else { manifest.failures.append("\(name): capture failed: \(error.localizedDescription)") }
             }
-            guard let data = try? Data(contentsOf: resultURL), let image = NSBitmapImageRep(data: data) else {
-                manifest.failures.append("\(name): owned-window capture missing"); return
+            // Exit this isolated full-screen Space before closing the window.
+            // Closing it directly can leave the next scene inside AppKit's exit
+            // transition and cause its full-screen request to be ignored.
+            if BackgroundUIMode.foregroundAllowed && window.styleMask.contains(.fullScreen) {
+                window.toggleFullScreen(nil)
+                for _ in 0..<80 {
+                    if !window.styleMask.contains(.fullScreen) { break }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                try? await Task.sleep(for: .seconds(1))
             }
-            try? data.write(to: directory.appendingPathComponent("\(name).png"))
-            try? FileManager.default.removeItem(at: requestURL)
-            try? FileManager.default.removeItem(at: resultURL)
-            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            manifest.scenes.append(Scene(name: name, file: "\(name).png", width: image.pixelsWide, height: image.pixelsHigh,
-                sha256: digest, keyWindow: window.isKeyWindow,
-                note: "WindowServer capture of owned dev window \(window.windowNumber), pid \(ProcessInfo.processInfo.processIdentifier); no cacheDisplay"))
             return
         }
         guard let frame = window.contentView?.superview,
@@ -547,11 +720,63 @@ import WebKit
         manifest.scenes.append(Scene(name: name, file: file, width: dimensions.pixelsWide, height: dimensions.pixelsHigh,
                                      sha256: digest, keyWindow: capturedKeyWindow, note: note))
     }
+
+    /// Never substitute a 2D render for Liquid Glass. Keep separately labelled
+    /// page and non-glass candidates so their fidelity can be reviewed locally.
+    private static func offscreenFallback(_ window: NSWindow, webView: WKWebView?, name: String, directory: URL) async {
+        func save(_ data: Data, suffix: String, note: String) {
+            guard let bitmap = NSBitmapImageRep(data: data) else { return }
+            let file = "\(name)-\(suffix).png"
+            do { try data.write(to: directory.appendingPathComponent(file)) }
+            catch { manifest.failures.append("\(name): fallback write failed"); return }
+            manifest.evidence.append(Scene(name: "\(name)-\(suffix)", file: file, width: bitmap.pixelsWide, height: bitmap.pixelsHigh,
+                sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), keyWindow: window.isKeyWindow, note: note))
+        }
+        var pageImage: NSImage?
+        if let webView {
+            let configuration = WKSnapshotConfiguration()
+            configuration.rect = NSRect(origin: .zero, size: webView.superview?.bounds.size ?? webView.bounds.size)
+            configuration.afterScreenUpdates = true
+            for _ in 0..<3 {
+                if let candidate = try? await webView.takeSnapshot(configuration: configuration),
+                   let tiff = candidate.tiffRepresentation, let pixels = NSBitmapImageRep(data: tiff) {
+                    var colors: Set<String> = []
+                    for y in stride(from: 0, to: pixels.pixelsHigh, by: max(1, pixels.pixelsHigh / 60)) {
+                        for x in stride(from: 0, to: pixels.pixelsWide, by: max(1, pixels.pixelsWide / 60)) {
+                            if let color = pixels.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) {
+                                colors.insert(String(format: "%.2f,%.2f,%.2f", color.redComponent, color.greenComponent, color.blueComponent))
+                            }
+                        }
+                    }
+                    if colors.count > 1 { pageImage = candidate; break }
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+        if let image = pageImage,
+           let tiff = image.tiffRepresentation, let data = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            save(data, suffix: "page", note: "In-process WKWebView.takeSnapshot, page only; no glass/chrome acceptance")
+        } else if webView != nil { manifest.skipped.append("\(name)-page: visual-foreground-only; off-screen WebKit fixture stayed blank after three in-process snapshot attempts") }
+        if let frame = window.contentView?.superview, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
+            frame.layoutSubtreeIfNeeded(); frame.cacheDisplay(in: frame.bounds, to: bitmap)
+            if let pageImage, let host = webView?.superview {
+                var rect = host.convert(host.bounds, to: frame)
+                if frame.isFlipped { rect.origin.y = frame.bounds.maxY - rect.maxY }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+                NSBezierPath(rect: rect).addClip()
+                pageImage.draw(in: rect)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            if let data = bitmap.representation(using: .png, properties: [:]) {
+                save(data, suffix: "opaque-fallback", note: "cacheDisplay non-glass chrome plus clipped WKWebView snapshot. Reduce Transparency variant; no Liquid Glass acceptance. Inspect before accepting.")
+            }
+        }
+    }
 }
 /// Keeps capture windows off every display, even when they become key (AppKit would otherwise
 /// move a key window on screen, where it can flash and pick up the real pointer's hover state).
-private final class OffscreenWindow: NSWindow {
-    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+private final class OffscreenWindow: BackgroundUIMode.Window {
     /// Key appearance is needed for evidence, but real user input must never edit the scene.
     override func sendEvent(_ event: NSEvent) {
         switch event.type {

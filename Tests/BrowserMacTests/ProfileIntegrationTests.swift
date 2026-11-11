@@ -5,7 +5,7 @@ import WebKit
 import XCTest
 @testable import PersonalBrowser
 
-@MainActor final class ProfileIntegrationTests: XCTestCase {
+@MainActor final class ProfileIntegrationTests: BackgroundUITestCase {
     func testSwitchingSeparatesBookmarksHistoryPrivateStoresAndOpenForms() async throws {
         let profiles = BrowserProfiles(testing: true)
         defer { profiles.shutdown() }

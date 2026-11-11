@@ -80,6 +80,15 @@ for mode in ("light", "dark"):
         for surface, background in surfaces.items():
             checks.append((f"Classic {mode}", token, colour, surface, background, 4.5))
 
+# The fixed Mac sidebar keeps its approved dark palette in every app appearance.
+sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text().split("enum MacSidebarPalette", 1)[1]
+sidebar_palette = hex_tokens(sidebar_source)
+sidebar_background = re.search(r"background = hex\(0x([0-9A-Fa-f]{6})\)", sidebar_source).group(1).upper()
+for surface, background in (("sidebar", sidebar_background), ("selection", sidebar_palette["selection"])):
+    for token in ("text", "secondaryText", "accentText"):
+        checks.append(("Mac fixed sidebar", token, sidebar_palette[token], surface, background, 4.5))
+    checks.append(("Mac fixed sidebar", "selection indicator", sidebar_palette["accent"], surface, background, 3.0))
+
 # Chrome's app-owned backing is composited ahead of the system glass. Check its
 # worst cases against both page extremes, using the actual opacity from the source.
 chrome = (ROOT / "Apps/Shared/BrowserChrome.swift").read_text()

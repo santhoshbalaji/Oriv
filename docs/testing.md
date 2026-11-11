@@ -4,7 +4,7 @@ Use an isolated development profile and synthetic pages. The current source buil
 
 ## Automated checks
 
-Run `./scripts/check-browser.sh` with port 8768 free. It starts its own loopback fixtures, runs shared and native Mac tests, verifies the app signature and browser entitlements, and checks scope/whitespace. Results are retained under `build/browser-quality.*/`. Keep the desktop visible for media tests; record skips separately.
+Run `./scripts/check-browser.sh` with port 8768 free. It starts its own loopback fixtures, runs shared and native Mac tests, verifies the app signature and browser entitlements, and checks scope/whitespace. Results are retained under `build/browser-quality.*/`. Mac UI runs in background by default; foreground-only media/fullscreen checks skip with explicit reasons. Record skips separately.
 
 `BrowserPerformanceTests` measures host-process elapsed time and memory for 1/10/30-tab JSON restoration using five iterations. It asserts that background restoration creates no WebKit views. These are setup microbenchmarks, not whole-app launch, page speed, total WebKit-process memory or energy evidence. Wider measurements remain required.
 
@@ -21,3 +21,15 @@ Build iPhone with the `OrivMobile` scheme and an iOS Simulator destination. Its 
 7. With a synthetic pre-upgrade database, verify active saved links appear as bookmarks, archived/trashed links stay excluded, other records remain intact and deleted bookmarks do not return on later launches. Keep a backup before any real upgrade.
 
 No live account, shopping purchase, submitted form, cloud operation or external message is part of the automated checks. Current local builds are not a distribution or standards-conformance certification.
+
+## Background Mac UI testing
+
+The native Mac test scheme and `scripts/capture-mac-visuals.sh` default to `ORIV_BACKGROUND_UI=1`. The shared `BackgroundUIMode` installs accessory activation policy before SwiftUI shows a window and suppresses the normal launch window. Test/capture windows use its `Window` subclass, which places them 20,000 points beyond the union of all display frames and overrides frame constraints and placement so AppKit cannot pull them on-screen. They are layer-backed and ordered at the back; key-window tests may call `makeKey()` without activating the application. `--key` requests key-window behaviour; the legacy `--active` flag does not grant foreground permission.
+
+Captures continuously audit `NSWorkspace.shared.frontmostApplication`, activation notifications, and every test-app window frame against every screen. Move/resize/update notifications and a 50 ms timer check placement. SwiftUI's own hidden measurement windows are moved before ordering and counted separately as `hiddenAuxiliaryRelocations`; any visible overlap fails the run and is immediately ordered out. Native Mac test teardown checks the cumulative audit too. Manifests must report accessory policy, positive frame/frontmost sample counts, and zero display/frontmost/activation violations after placement. Geometry checks use coordinates relative to the window. No window is moved onto a display or an active Space to repair rendering.
+
+The PNG bridge attempts only the isolated process's validated window IDs. Off-screen WindowServer capture can fail with “could not create image from window”; those glass captures are explicitly visual-foreground-only and skipped. Separately labelled `WKWebView.takeSnapshot` page images and `cacheDisplay` candidates permit in-process fallback review. A page snapshot does not verify Liquid Glass, and a cache candidate must be visually inspected before accepting non-glass chrome. Never silently replace glass evidence with a 2D render.
+
+System full screen, menu reveal and rendered video playback are foreground-only checks and are explicitly skipped in background mode. Sidebar full-screen layout can still be exercised by a clearly labelled geometry fixture in a normal background window; that is not a system transition test. `ORIV_FOREGROUND_UI=1` overrides the background default only after explicit orchestrator approval. Do not enable it during ordinary work. Use device tools for Simulator tests and never open the Simulator.app GUI.
+
+Run `python3 scripts/check-background-ui.py` to catch direct Mac activation/raising calls outside the shared policy. Normal app usage without either UI-mode environment variable keeps its usual activation behaviour.
