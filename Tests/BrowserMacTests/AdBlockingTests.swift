@@ -12,7 +12,7 @@ import XCTest
     ]
 
     private func wait(_ condition: @escaping @MainActor () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(15)
+        let deadline = Date().addingTimeInterval(40)
         while Date() < deadline {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(50))

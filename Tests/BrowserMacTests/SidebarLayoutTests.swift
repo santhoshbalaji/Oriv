@@ -101,7 +101,9 @@ import XCTest
                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             window.sendEvent(event)
         }
-        try await Task.sleep(for: .milliseconds(400))
+        try await wait {
+            NSApp.windows.contains { self.marker("sitePrivacyPanelGeometry", in: $0) != nil }
+        }
         XCTAssertTrue(NSApp.windows.contains { window in
             marker("sitePrivacyPanelGeometry", in: window) != nil
         }, "Shield must open the privacy controls in the integrated shell")
