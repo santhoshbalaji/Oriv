@@ -4,7 +4,7 @@ Use an isolated development profile and synthetic pages. The current source buil
 
 ## Automated checks
 
-Run `./scripts/check-browser.sh` with port 8768 free. It starts its own loopback fixtures, runs shared and native Mac tests, verifies the app signature and browser entitlements, and checks scope/whitespace. Results are retained under `build/browser-quality.*/`. Mac UI runs in background by default; foreground-only media/fullscreen checks skip with explicit reasons. Record skips separately.
+Run `./scripts/check-browser.sh` with ports 8768 and 18768 free. It starts its own loopback fixtures, runs shared and native Mac tests, verifies the app signature and browser entitlements, and checks scope/whitespace. Results are retained under `build/browser-quality.*/`. Mac UI runs in background by default; foreground-only media/fullscreen checks skip with explicit reasons. Record skips separately.
 
 `BrowserPerformanceTests` measures host-process elapsed time and memory for 1/10/30-tab JSON restoration using five iterations. It asserts that background restoration creates no WebKit views. These are setup microbenchmarks, not whole-app launch, page speed, total WebKit-process memory or energy evidence. Wider measurements remain required.
 
@@ -33,5 +33,7 @@ Background runs skip compositor and Liquid Glass captures before requesting Wind
 System full screen, menu reveal and rendered video playback are foreground-only checks and are explicitly skipped in background mode. Sidebar full-screen layout can still be exercised by a clearly labelled geometry fixture in a normal background window; that is not a system transition test. `ORIV_FOREGROUND_UI=1` overrides the background default only after explicit orchestrator approval. Do not enable it during ordinary work. Use device tools for Simulator tests and never open the Simulator.app GUI.
 
 The shared privacy compatibility fixtures use the same off-screen `BackgroundUIMode.Window` policy. A per-case observer checks the cumulative audit across native and shared cases; `BACKGROUND_UI_FINAL` records the final totals.
+
+Shield geometry and real-popover presentation have separate native tests. Address/shield fit at default, minimum and intermediate widths, sidebar states, link cleaning, tracker blocking and cookie hiding continue to run on macOS 26 in background mode. Only `testPrivacyShieldOpensRealPopover` skips when all three conditions hold: macOS is below 27, background mode is enabled, and AppKit refuses the key window. Its skip message identifies the foreground-dependent routing restriction. The real-popover assertions run on macOS 27 and later, including background runs. Record this platform-specific skip separately; it does not certify foreground popover presentation on macOS 26.
 
 Run `python3 scripts/check-background-ui.py` to catch direct Mac activation/raising calls and window construction outside the shared policy, including shared compatibility tests. Normal app usage without either UI-mode environment variable keeps its usual activation behaviour.

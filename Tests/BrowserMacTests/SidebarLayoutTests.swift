@@ -5,10 +5,6 @@ import WebKit
 import XCTest
 @testable import PersonalBrowser
 
-@MainActor private final class BackgroundClickHostingView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
-
 @MainActor final class SidebarLayoutTests: BackgroundUITestCase {
     private func makeWindow(_ controller: BrowserController, profiles: BrowserProfiles? = nil,
                             width: CGFloat = 1000, rtl: Bool = false) -> NSWindow {
@@ -16,9 +12,6 @@ import XCTest
             .browserAppearance(.t3Code)
             .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight).dynamicTypeSize(.accessibility5)
         let host = NSHostingController(rootView: root)
-        if BackgroundUIMode.isEnabled {
-            host.view = BackgroundClickHostingView(rootView: root)
-        }
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 60, y: 60, width: width, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -100,6 +93,26 @@ import XCTest
         }
         controller.compactSidebar = false
         try await Task.sleep(for: .milliseconds(400))
+        controller.session.settings.privacy.setEnabled(true, .cookieBanners)
+        tab.reload()
+        var bannerDisplay: String?
+        for _ in 0..<800 {
+            bannerDisplay = try? await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#onetrust-banner-sdk')).display") as? String
+            if !tab.isLoading && bannerDisplay == "none" { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(bannerDisplay, "none")
+        let audit = BackgroundUIMode.audit()
+        XCTAssertEqual(audit.onscreenWindowViolations, 0)
+    }
+    func testPrivacyShieldOpensRealPopover() async throws {
+        let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
+        let window = makeWindow(profiles.controller, profiles: profiles, width: 1250); defer { window.close() }
+        try await wait { self.marker("browserPrivacyGeometry", in: window) != nil }
+        if #unavailable(macOS 27) {
+            try XCTSkipIf(BackgroundUIMode.isEnabled && !window.isKeyWindow,
+                "Foreground-dependent popover check on macOS < 27: background/accessory mode is enabled and AppKit refused the key window.")
+        }
         let shield = try XCTUnwrap(marker("browserPrivacyGeometry", in: window))
         let point = shield.convert(NSPoint(x: shield.bounds.midX, y: shield.bounds.midY), to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -114,15 +127,6 @@ import XCTest
         XCTAssertTrue(NSApp.windows.contains { window in
             marker("sitePrivacyPanelGeometry", in: window) != nil
         }, "Shield must open the privacy controls in the integrated shell")
-        controller.session.settings.privacy.setEnabled(true, .cookieBanners)
-        tab.reload()
-        var bannerDisplay: String?
-        for _ in 0..<800 {
-            bannerDisplay = try? await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#onetrust-banner-sdk')).display") as? String
-            if !tab.isLoading && bannerDisplay == "none" { break }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        XCTAssertEqual(bannerDisplay, "none")
         let audit = BackgroundUIMode.audit()
         XCTAssertEqual(audit.onscreenWindowViolations, 0)
     }
