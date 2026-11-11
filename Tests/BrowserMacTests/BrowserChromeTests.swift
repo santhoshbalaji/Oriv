@@ -440,6 +440,47 @@ import XCTest
         try await wait { field(in: rootView())?.currentEditor()?.string == url }
     }
 
+    func testNavigationPaintDoesNotWaitForTheSlowImageOnMac() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { chrome.observe(nil); window.close() }
+        var firstPaintAnimated: Bool?
+        PageChrome.diagnosticObserver = { current in
+            if current === chrome, current.sampledTop != nil, firstPaintAnimated == nil { firstPaintAnimated = current.animatesColor }
+        }
+        defer { PageChrome.diagnosticObserver = nil }
+        chrome.observe(web)
+        web.load(URLRequest(url:URL(string:"http://127.0.0.1:8768/chrome-paint")!))
+        try await wait { chrome.sampledTop != nil }
+        XCTAssertTrue(web.isLoading)
+        XCTAssertEqual(firstPaintAnimated,false)
+        let rgb = try XCTUnwrap(NSColor(chrome.color).usingColorSpace(.sRGB))
+        XCTAssertEqual(rgb.redComponent,99.0/255,accuracy:0.002)
+        XCTAssertEqual(rgb.blueComponent,221.0/255,accuracy:0.002)
+    }
+
+    func testRevisitKeepsKnownTintThroughTemporaryHeaderAndBackForward() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { chrome.observe(nil); window.close() }
+        chrome.observe(web)
+        web.load(URLRequest(url:URL(string:"http://127.0.0.1:8768/chrome-revisit?stage=stable")!))
+        try await wait { !web.isLoading && chrome.sampledTop != nil && web.title == "Revisit ready" }
+        let expected = chrome.color
+        var observed: [Color] = []
+        PageChrome.diagnosticObserver = { current in if current === chrome { observed.append(current.color) } }
+        defer { PageChrome.diagnosticObserver = nil }
+        web.load(URLRequest(url:URL(string:"http://127.0.0.1:8768/chrome-revisit?stage=placeholder")!))
+        try await wait { web.url?.query == "stage=placeholder" && !web.isLoading && web.title == "Revisit ready" }
+        XCTAssertFalse(observed.isEmpty)
+        XCTAssertTrue(observed.allSatisfy { $0 == expected },"A cached revisit must not pulse through the temporary near-identical header")
+        let count = chrome.sampleCount
+        web.goBack()
+        try await wait { web.url?.query == "stage=stable" && !web.isLoading && chrome.sampleCount > count }
+        XCTAssertEqual(chrome.color,expected,"Back/forward accepts restored documents with an older time origin")
+        _ = try await web.evaluateJavaScript("document.querySelector('header').style.background='#6300dd'")
+        try await wait { abs(NSColor(chrome.color).usingColorSpace(.sRGB)!.redComponent - 99.0/255) < 0.002 }
+        XCTAssertEqual(NSColor(chrome.color).usingColorSpace(.sRGB)!.blueComponent,221.0/255,accuracy:0.002)
+    }
+
     private func samplingWindow(_ web: WKWebView) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

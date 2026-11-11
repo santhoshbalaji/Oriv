@@ -20,6 +20,24 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>{title}</title
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/chrome-revisit':
+            placeholder = parse_qs(urlsplit(self.path).query).get('stage') == ['placeholder']
+            color = '#1d1d1f' if placeholder else '#161617'
+            first = ('<html><head><meta name="viewport" content="width=device-width"><title>Revisit paint</title><style>body{margin:0;background:'+color+';color:white}header{position:fixed;top:0;width:100%;height:64px;background:'+color+'}main{padding:90px 20px;min-height:2000px}</style></head><body><header>Revisit header</header><main>Streaming paint fixture</main>').encode()
+            last = b"<script>document.body.style.background='#161617';document.querySelector('header').style.background='#161617';document.title='Revisit ready'</script></body></html>"
+            self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(first)+len(last))); self.end_headers()
+            self.wfile.write(first); self.wfile.flush()
+            if placeholder: time.sleep(0.4)
+            self.wfile.write(last)
+            return
+        if path == '/chrome-paint':
+            self.send_bytes(b'<html><head><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#6300dd;color:white}header{position:fixed;top:0;width:100%;height:64px;background:#6300dd}main{padding:90px 20px;height:3000px}</style></head><body><header>Paint timing fixture</header><main>Visible before the delayed image<img src="/chrome-slow-image"></main></body></html>', 'text/html; charset=utf-8')
+            return
+        if path == '/chrome-slow-image':
+            time.sleep(1.5)
+            self.send_bytes((ROOT / 'Apps/macOS/Resources/Assets.xcassets/OrivMark.imageset/OrivMark.png').read_bytes(), 'image/png')
+            return
         if path == '/standards-worker.js':
             body = b'''self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
             self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));

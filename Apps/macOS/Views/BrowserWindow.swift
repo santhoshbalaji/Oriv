@@ -96,7 +96,7 @@ struct BrowserWindow: View {
         .toolbarBackgroundVisibility(contentUnderChrome ? .automatic : .hidden, for: .windowToolbar)
         .toolbarColorScheme(contentUnderChrome ? colorScheme : (pageChrome.isDark ? .dark : .light), for: .windowToolbar)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
-        .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion))
+        .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
         .overlay(alignment: .topTrailing) {
             if showPageMenu {
                 ZStack(alignment: .topTrailing) {
@@ -120,6 +120,9 @@ struct BrowserWindow: View {
                     .help(compact ? "Expand sidebar" : "Compact sidebar").accessibilityLabel("Toggle sidebar")
                     .keyboardShortcut("s", modifiers: [.command, .option])
                     .buttonStyle(.plain).frame(width: 36, height: 32).modifier(chromeGlass)
+                    // This marker travels with NSToolbar into AppKit's separate
+                    // fullscreen/reveal host. Tint the window that actually draws it.
+                    .background(BrowserToolbarBackdrop(color:pageChrome.color,adaptive:contentUnderChrome,reduceMotion:reduceMotion || !pageChrome.animatesColor))
                     .foregroundStyle(chromeForeground)
                     .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
             }.sharedBackgroundVisibility(.hidden)

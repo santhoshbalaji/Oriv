@@ -5,20 +5,37 @@ import BrowserEngine
 import WebKit
 
 extension MobileController {
-    func close(_ ids: [UUID], confirmAll: Bool = false, completion: (() -> Void)? = nil) {
-        let ids = ids.filter { id in session.tabs.contains { $0.id == id } }
-        guard !ids.isEmpty else { return }
-        let edited = ids.contains(where: session.requiresCloseConfirmation)
+    /// Normal single closes are recoverable through Recently Closed. Private
+    /// closes are irreversible; normal Close All remains a confirmed bulk action.
+    func closeNeedsConfirmation(_ ids: [UUID], confirmAll: Bool = false) -> Bool {
+        confirmAll || session.tabs.contains { ids.contains($0.id) && $0.isPrivate }
+    }
+    func close(_ ids: [UUID], confirmAll: Bool = false, completion: (() -> Void)? = nil,
+               animation: ((@escaping () -> Void) -> Void)? = nil, cancelled: (() -> Void)? = nil) {
+        var seen = Set<UUID>()
+        let ids = ids.filter { id in seen.insert(id).inserted && session.tabs.contains { $0.id == id } }
+        guard !ids.isEmpty else { completion?(); return }
+        let privateTabs = session.tabs.contains { ids.contains($0.id) && $0.isPrivate }
         let operation = { [weak self] in
-            ids.forEach { self?.session.closeTab($0) }
-            completion?()
+            guard let self else { return }
+            let finish = { [weak self] in
+                guard let self else { return }
+                ids.forEach { self.session.closeTab($0); self.tabPresentation.remove($0) }
+                completion?()
+            }
+            if let animation { animation(finish) } else { finish() }
         }
-        guard confirmAll || edited else { operation(); return }
-        let alert = UIAlertController(title: confirmAll ? "Close All Tabs?" : "Close a page with edited fields?",
-            message: edited ? "Oriv cannot determine whether the website saved your edits. Closing these tabs may lose them." : "This closes \(ids.count) tabs in this browsing mode and profile.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: confirmAll ? "Close All Tabs" : "Close Tab", style: .destructive) { _ in operation() })
-        MobileWebDelegate.presenter?.present(alert, animated: !UIAccessibility.isReduceMotionEnabled)
+        guard closeNeedsConfirmation(ids, confirmAll: confirmAll) else { operation(); return }
+        guard closeConfirmation == nil, let presenter = MobileWebDelegate.presenter,
+              !(presenter is UIAlertController) else { cancelled?(); return }
+        let alert = UIAlertController(title: privateTabs ? (confirmAll ? "Close All Private Tabs?" : "Close Private Tabs?") : "Close All Tabs?",
+            message: privateTabs ? "Private tabs cannot be recovered from History or Recently Closed." : "This closes \(ids.count) tabs. You can reopen them from Recently Closed Tabs.", preferredStyle: .alert)
+        closeConfirmation = alert
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.closeConfirmation = nil; cancelled?() })
+        alert.addAction(UIAlertAction(title: confirmAll ? "Close All Tabs" : ids.count == 1 ? "Close Tab" : "Close Tabs", style: .destructive) { [weak self] _ in
+            self?.closeConfirmation = nil; operation()
+        })
+        presenter.present(alert, animated: !UIAccessibility.isReduceMotionEnabled)
     }
     func closeAllTabs() { close(session.tabsInSelectedMode.map(\.id), confirmAll: true) }
     func closeOtherTabs(_ tab: BrowserTab) {
@@ -40,12 +57,13 @@ extension MobileController {
         presenter.present(activity, animated: !UIAccessibility.isReduceMotionEnabled)
     }
     func move(_ tab: BrowserTab, to profile: BrowserProfile) {
-        let operation = { [weak self] in guard let self else { return }; profiles?.move(tab, from: self, to: profile) }
-        guard session.requiresCloseConfirmation(tab.id) else { operation(); return }
-        let alert = UIAlertController(title: "Move a page with edited fields?", message: "Only the address moves. Website edits and sign-in stay in this profile.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Move Tab", style: .destructive) { _ in operation() })
-        MobileWebDelegate.presenter?.present(alert, animated: true)
+        guard let profiles else { return }
+        if tab.isPrivate {
+            close([tab.id],completion:{ [weak self,weak profiles] in
+                guard let self else { return }
+                profiles?.move(tab,from:self,to:profile)
+            })
+        } else { profiles.move(tab,from:self,to:profile) }
     }
 }
 
@@ -220,16 +238,17 @@ final class MobileAddressMenuButton: UIControl {
 /// Shared by SwiftUI's drag callbacks and native cancellation tests. Only an
 /// ended gesture with its original source may commit a tab or grid transition.
 @MainActor @Observable final class MobileChromeGestureState {
-    private(set) var translation: CGFloat = 0
+    var translation: CGFloat = 0
     private(set) var axis: Axis?
     private(set) var source: UUID?
     var gridProgress: CGFloat = 0
     var gridPresented = false
     var gridClosing = false
+    var finishingSwipe = false
     @ObservationIgnored private var cancellation: MobileGestureCancellation?
     init() { cancellation = MobileGestureCancellation { [weak self] in self?.cancel() } }
     func cancel() {
-        translation = 0; axis = nil; source = nil
+        translation = 0; axis = nil; source = nil; finishingSwipe = false
         gridProgress = gridPresented ? 1 : 0
         gridClosing = false
     }

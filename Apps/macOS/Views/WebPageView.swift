@@ -131,3 +131,57 @@ struct BrowserTitlebar: NSViewRepresentable {
         }
     }
 }
+
+
+/// The anchor is reparented with NSToolbar's items in fullscreen and on reveal.
+/// Place a non-interactive fill in the full-width toolbar ancestor, above AppKit's
+/// window backing and below the controls. Never tint a fullscreen host's entire
+/// window surface: WindowServer may group that surface with the document window.
+struct BrowserToolbarBackdrop: NSViewRepresentable {
+    var color: Color
+    var adaptive: Bool
+    var reduceMotion: Bool
+    func makeNSView(context:Context) -> Anchor { Anchor() }
+    func updateNSView(_ view:Anchor,context:Context) {
+        view.color = NSColor(color).withAlphaComponent(adaptive ? 0 : 1)
+        view.reduceMotion = reduceMotion; view.configure()
+    }
+    final class Fill: NSView {
+        override func hitTest(_ point:NSPoint) -> NSView? { nil }
+    }
+    final class Anchor: NSView {
+        var color = NSColor.clear
+        var reduceMotion = true
+        private let fill = Fill()
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); configure() }
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); configure() }
+        override func layout() { super.layout(); configure() }
+        func configure() {
+            guard let window else { fill.removeFromSuperview(); return }
+            var ancestor = superview
+            while let candidate = ancestor {
+                if candidate.bounds.width >= window.frame.width-2 && candidate.bounds.height >= 28 && candidate.bounds.height <= 150 {
+                    if fill.superview !== candidate {
+                        fill.removeFromSuperview(); fill.frame = candidate.bounds
+                        fill.autoresizingMask = [.width,.height]; fill.wantsLayer = true
+                        candidate.addSubview(fill,positioned:.below,relativeTo:nil)
+                    }
+                    let target = color.cgColor
+                    if reduceMotion { fill.layer?.removeAnimation(forKey:"pageTint") }
+                    if fill.layer?.backgroundColor != target {
+                        let previous = fill.layer?.presentation()?.backgroundColor ?? fill.layer?.backgroundColor
+                        fill.layer?.removeAnimation(forKey:"pageTint")
+                        fill.layer?.backgroundColor = target
+                        if !reduceMotion, let previous {
+                            let animation = CABasicAnimation(keyPath:"backgroundColor")
+                            animation.fromValue = previous; animation.toValue = target; animation.duration = 0.2
+                            fill.layer?.add(animation,forKey:"pageTint")
+                        }
+                    }
+                    return
+                }
+                ancestor = candidate.superview
+            }
+        }
+    }
+}

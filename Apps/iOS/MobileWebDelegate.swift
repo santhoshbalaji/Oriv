@@ -29,7 +29,7 @@ import Observation
         guard navigationAction.targetFrame == nil, let session, session.isProfileActive, let tab else { return nil }
         return session.addTab(url: navigationAction.request.url, isPrivate: tab.isPrivate, configuration: configuration, load: false).webView
     }
-    func webViewDidClose(_ webView: WKWebView) { if let tab { session?.closeTab(tab.id) } }
+    func webViewDidClose(_ webView: WKWebView) { if let tab { controller?.close([tab.id]) } }
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor () -> Void) {
         guard canPresent else { completionHandler(); return }

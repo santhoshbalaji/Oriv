@@ -55,7 +55,7 @@ trap cleanup EXIT
 
 if [[ "$GLASS" == 1 ]]; then
   /usr/bin/open -n -W --env BROWSER_TESTING=1 --env ORIV_VISUAL_SNAPSHOTS=1 \
-    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
+    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_CHROME_TIMING="${ORIV_CHROME_TIMING:-}" --env ORIV_FULLSCREEN_EVIDENCE="${ORIV_FULLSCREEN_EVIDENCE:-}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
     "$APP" > "$DERIVED.run.log" 2>&1 &
 else
   BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" \
@@ -94,7 +94,7 @@ STATUS=0; wait $PID || STATUS=$?
 [[ -f "$SRC/manifest.json" ]] || { cat "$DERIVED.run.log" >&2; echo "no manifest produced (exit $STATUS)" >&2; exit 1; }
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 cp -p "$SRC"/manifest.json "$SRC"/*.png "$OUT"/ 2>/dev/null || true
-if [[ "$GLASS" == 1 ]]; then cp -p "$SRC"/*-geometry.json "$OUT"/; for scroll_file in "$SRC"/*-scroll.json(N); do cp -p "$scroll_file" "$OUT"/; done; fi
+if [[ "$GLASS" == 1 ]]; then cp -p "$SRC"/*-geometry.json "$OUT"/; cp -p "$SRC"/*-timing.json(N) "$SRC"/*-fullscreen.json(N) "$OUT"/ 2>/dev/null || true; for scroll_file in "$SRC"/*-scroll.json(N); do cp -p "$scroll_file" "$OUT"/; done; fi
 
 python3 -I - "$OUT" "$RUN_ID" "$STATUS" "$GLASS" <<'PY'
 import datetime, hashlib, json, os, struct, sys
@@ -123,7 +123,7 @@ started = datetime.datetime.fromisoformat(m["startedAt"].replace("Z", "+00:00"))
 finished = datetime.datetime.fromisoformat(m["finishedAt"].replace("Z", "+00:00")).timestamp()
 if finished < started: problems.append("run finished before it started")
 listed = set()
-for scene in m["scenes"]:
+for scene in m["scenes"] + m.get("evidence", []):
     path = os.path.join(out, scene["file"]); listed.add(scene["file"])
     if not os.path.exists(path): problems.append(f"missing {scene['file']}"); continue
     data = open(path, "rb").read()
@@ -134,6 +134,7 @@ for scene in m["scenes"]:
     expected_key = m["activated"] and scene["name"] != "mac-05-start-inactive-window"
     if scene["keyWindow"] != expected_key: problems.append(f"window activation mismatch {scene['file']}")
 extra = {f for f in os.listdir(out) if f.endswith(".png")} - listed
+extra = {f for f in extra if not any(x in f for x in ("-timing-", "-floating.", "-fullscreen.", "-reveal.", "-autohide.", "-returned."))}
 extra = {f for f in extra if not (os.environ.get("ORIV_LIVE_SITES") and f.endswith("-strip.png"))}
 if extra: problems.append(f"images not in manifest: {sorted(extra)}")
 for note in m["limitations"]: print(f"limitation: {note}")

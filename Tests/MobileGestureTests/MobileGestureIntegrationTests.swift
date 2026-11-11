@@ -110,6 +110,10 @@ import WebKit
         let source = try XCTUnwrap(profiles.externalPrivate)
         let tab = try XCTUnwrap(source.session.selectedTab)
         let originalStore = tab.webView.configuration.websiteDataStore
+        // Exercise the transfer after the user-approved private close; the UI
+        // route gates this through MobileController.closeNeedsConfirmation.
+        XCTAssertTrue(source.closeNeedsConfirmation([tab.id]))
+        source.session.closeTab(tab.id)
         profiles.move(tab, from: source, to: .personal)
         XCTAssertNil(profiles.externalPrivate)
         XCTAssertTrue(source.session.tabs.isEmpty)
@@ -164,6 +168,96 @@ import WebKit
         try await wait { delegate.touchedImageURL != nil }
         XCTAssertEqual(delegate.touchedImageRevision, tab.documentRevision)
     }
+    func testNormalEditedCloseIsImmediateAndRecoverableButPrivateAndBulkRequireConfirmation() async throws {
+        let c = MobileController(); defer { c.session.shutdown() }
+        let tab = try XCTUnwrap(c.session.selectedTab)
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/quality")!)
+        try await wait { tab.title == "Browser quality fixture" && !tab.isLoading }
+        _ = try await tab.webView.callAsyncJavaScript("window.webkit.messageHandlers.editedField.postMessage(true)",arguments:[:],in:nil,contentWorld:.world(name:"OrivTabState"))
+        try await wait { c.session.requiresCloseConfirmation(tab.id) }
+        XCTAssertFalse(c.closeNeedsConfirmation([tab.id]))
+        XCTAssertTrue(c.closeNeedsConfirmation([tab.id],confirmAll:true))
+        c.close([tab.id])
+        XCTAssertFalse(c.session.tabs.contains { $0.id == tab.id })
+        XCTAssertTrue(c.session.recentlyClosedTabs.contains { $0.id == tab.id })
+        let closed = try XCTUnwrap(c.session.recentlyClosedTabs.first)
+        c.session.reopenClosedTab(closed.id)
+        XCTAssertEqual(c.session.selectedTab?.url,URL(string:"http://127.0.0.1:8768/quality"))
+        let privateTab = c.session.addTab(url:URL(string:"https://example.test/private"),isPrivate:true,load:false)
+        XCTAssertTrue(c.closeNeedsConfirmation([privateTab.id]))
+        XCTAssertTrue(c.closeNeedsConfirmation([privateTab.id],confirmAll:true))
+        XCTAssertFalse(c.session.recentlyClosedTabs.contains { $0.id == privateTab.id })
+    }
+    func testSwipeVelocityThresholdAndPrivateSnapshotRemoval() async throws {
+        XCTAssertTrue(MobileTabCell.swipeCommits(distance:-30,velocity:-1000,width:180))
+        XCTAssertFalse(MobileTabCell.swipeCommits(distance:-30,velocity:-100,width:180))
+        XCTAssertFalse(MobileTabCell.swipeCommits(distance:-5,velocity:-2000,width:180))
+        XCTAssertTrue(MobileTabCell.swipeCommits(distance:-100,velocity:0,width:180))
+        let c = MobileController(); defer { c.session.shutdown() }
+        let tab = c.session.addTab(isPrivate:true,load:false)
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/gestures")!)
+        try await wait { tab.title == "Gesture Lab" && !tab.isLoading }
+        c.tabPresentation.begin(tab); c.tabPresentation.cardFrames[tab.id] = CGRect(x:16,y:100,width:180,height:250)
+        c.tabPresentation.capture(tab)
+        c.tabPresentation.settleInGrid(tab)
+        c.session.closeTab(tab.id)
+        await Task.yield()
+        XCTAssertFalse(tab.isInstantiated,"A queued thumbnail must not recreate a closed private web view")
+        XCTAssertNil(c.tabPresentation.images[tab.id])
+        XCTAssertNil(c.tabPresentation.activeID); XCTAssertNil(c.tabPresentation.cardFrames[tab.id])
+    }
+    func testNavigationPaintDoesNotWaitForTheSlowImageOnPhone() async throws {
+        let c = MobileController(); defer { c.session.shutdown() }
+        let tab = try XCTUnwrap(c.session.selectedTab), web = tab.webView, chrome = PageChrome()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where:\.isKeyWindow)
+        let host = UIViewController(); host.view = MobileWebHost(webView:web)
+        let window = UIWindow(windowScene:scene); window.rootViewController = host; window.makeKeyAndVisible()
+        defer { chrome.observe(nil); window.isHidden = true; previous?.makeKeyAndVisible() }
+        web.frame = CGRect(x:0,y:0,width:390,height:700)
+        var firstPaintAnimated: Bool?
+        PageChrome.diagnosticObserver = { current in
+            if current === chrome, current.sampledTop != nil, firstPaintAnimated == nil { firstPaintAnimated = current.animatesColor }
+        }
+        defer { PageChrome.diagnosticObserver = nil }
+        chrome.observe(web)
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/chrome-paint")!)
+        try await wait { chrome.sampledTop != nil }
+        XCTAssertTrue(web.isLoading,"The page colour must arrive while the delayed image still loads")
+        XCTAssertEqual(firstPaintAnimated,false,"Initial paint must not fade from the previous page")
+        let rgb = UIColor(chrome.color)
+        var red:CGFloat=0, green:CGFloat=0, blue:CGFloat=0, alpha:CGFloat=0
+        rgb.getRed(&red,green:&green,blue:&blue,alpha:&alpha)
+        XCTAssertEqual(red,99.0/255,accuracy:0.002); XCTAssertEqual(blue,221.0/255,accuracy:0.002)
+    }
+
+    func testTransitionReparentingKeepsWebKitViewportAndRestoresItsHost() async throws {
+        let c = MobileController(); defer { c.session.shutdown() }
+        let tab = try XCTUnwrap(c.session.selectedTab), web = tab.webView
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where:\.isKeyWindow)
+        let root = UIViewController(), window = UIWindow(windowScene:scene)
+        window.rootViewController = root; window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        let host = MobileWebHost(webView:web); host.frame = CGRect(x:0,y:0,width:390,height:700)
+        root.view.addSubview(host); host.layoutIfNeeded()
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/gestures")!)
+        try await wait { tab.title == "Gesture Lab" && !tab.isLoading }
+        let viewport = try await web.evaluateJavaScript("[innerWidth,innerHeight]") as? [Double]
+        let original = web.bounds
+        let clip = UIView(frame:CGRect(x:16,y:130,width:180,height:250)); clip.clipsToBounds = true
+        root.view.addSubview(clip); clip.addSubview(web)
+        web.transform = CGAffineTransform(scaleX:0.46,y:0.46)
+        host.setNeedsLayout(); host.layoutIfNeeded()
+        XCTAssertTrue(web.superview === clip,"SwiftUI layout must not steal the page from its transition container")
+        XCTAssertEqual(web.bounds,original,"The transform must not resize WebKit's viewport")
+        let reparentedViewport = try await web.evaluateJavaScript("[innerWidth,innerHeight]") as? [Double]
+        XCTAssertEqual(reparentedViewport, viewport)
+        web.transform = .identity; host.addSubview(web); host.setNeedsLayout(); host.layoutIfNeeded()
+        XCTAssertEqual(web.frame,host.bounds)
+        XCTAssertTrue(web.superview === host)
+    }
+
     private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
         let end = Date.now.addingTimeInterval(10)
         while !condition() && Date.now < end { try await Task.sleep(for: .milliseconds(50)) }

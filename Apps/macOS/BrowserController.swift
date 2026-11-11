@@ -50,6 +50,10 @@ final class BrowserController {
             }
         }
         session.configureWebView = { [weak self] view, tab in
+            #if DEBUG
+            ChromeTiming.install(on: view)
+            #endif
+            PageChrome.install(on: view)
             guard let self else { return }
             let adapter = MacWebUIDelegate(session: self.session, tab: tab)
             self.adapters[tab.id] = adapter

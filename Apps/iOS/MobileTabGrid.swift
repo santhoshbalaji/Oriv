@@ -14,6 +14,9 @@ struct MobileTabGrid: UIViewControllerRepresentable {
     let reduceMotion: Bool
     let open: (BrowserTab) -> Void
     let onPull: (CGFloat, Bool) -> Void
+    var onPinch: ((BrowserTab, CGFloat, Bool) -> Void)? = nil
+    var presented = true
+    var visible = true
     func makeUIViewController(context: Context) -> MobileTabGridController { MobileTabGridController(model: self) }
     func updateUIViewController(_ view: MobileTabGridController, context: Context) { view.update(self) }
 }
@@ -28,7 +31,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
     private var cancellation: MobileGestureCancellation?
     init(model: MobileTabGrid) {
         self.model = model
-        super.init(collectionViewLayout: UICollectionViewFlowLayout())
+        super.init(collectionViewLayout: MobileTabGridLayout())
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func viewDidLoad() {
@@ -44,24 +47,59 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         update(model)
     }
     func update(_ model: MobileTabGrid) {
+        let wasPresented = self.model.presented
         self.model = model
         guard isViewLoaded else { return }
         let updated = [model.tabs.filter { !$0.isPrivate }, model.tabs.filter(\.isPrivate)].filter { !$0.isEmpty }
         let next = model.tabs.map { "\($0.id)-\($0.isPinned)-\($0.displayTitle)-\(model.controller.session.selectedTabID == $0.id)-\(model.largeText)" }
+        let previous = sections
         sections = updated
+        (collectionViewLayout as? MobileTabGridLayout)?.reduceMotion = model.reduceMotion
         collectionView.overrideUserInterfaceStyle = model.controller.appearance.colorScheme.map { $0 == .dark ? .dark : .light } ?? .unspecified
-        if identity != next { identity = next; collectionView.reloadData(); collectionView.collectionViewLayout.invalidateLayout() }
+        if identity != next {
+            identity = next
+            let oldIDs = previous.flatMap { $0.map(\.id) }, newIDs = updated.flatMap { $0.map(\.id) }
+            let deletions = previous.enumerated().flatMap { section, tabs in
+                tabs.enumerated().compactMap { item, tab in newIDs.contains(tab.id) ? nil : IndexPath(item:item, section:section) }
+            }
+            let onlyDeletes = previous.count == updated.count && !deletions.isEmpty && newIDs == oldIDs.filter { newIDs.contains($0) }
+            if onlyDeletes {
+                collectionView.performBatchUpdates { collectionView.deleteItems(at: deletions) } completion: { [weak self] _ in
+                    self?.publishFrames()
+                }
+            } else if oldIDs == newIDs {
+                collectionView.reconfigureItems(at: collectionView.indexPathsForVisibleItems)
+            } else {
+                UIView.transition(with:collectionView, duration:model.reduceMotion ? 0.18 : 0.25, options:.transitionCrossDissolve) { self.collectionView.reloadData() }
+            }
+            collectionView.collectionViewLayout.invalidateLayout()
+        }
         collectionView.backgroundView = model.tabs.isEmpty ? UIHostingController(rootView: BrowserEmptyState("No matching tabs")).view : nil
+        navigationController?.view.accessibilityViewIsModal = model.presented
+        view.isHidden = !model.visible
+        view.accessibilityElementsHidden = !model.presented
+        navigationController?.view.isHidden = !model.visible
+        navigationController?.view.accessibilityElementsHidden = !model.presented
+        if model.presented && !wasPresented { revealSelected(announce:true) }
+    }
+    private func revealSelected(announce:Bool) {
+        collectionView.layoutIfNeeded()
+        if let path = sections.enumerated().compactMap({ section, tabs in
+            tabs.firstIndex { $0.id == model.controller.session.selectedTabID }.map { IndexPath(item:$0,section:section) }
+        }).first {
+            collectionView.scrollToItem(at:path,at:.centeredVertically,animated:false)
+            publishFrames()
+            if announce { UIAccessibility.post(notification:.screenChanged,argument:collectionView.cellForItem(at:path)) }
+        } else if announce { UIAccessibility.post(notification:.screenChanged,argument:collectionView) }
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        navigationController?.view.accessibilityViewIsModal = true
-        if let path = sections.enumerated().compactMap({ section, tabs in
-            tabs.firstIndex { $0.id == model.controller.session.selectedTabID }.map { IndexPath(item: $0, section: section) }
-        }).first {
-            collectionView.scrollToItem(at: path, at: .centeredVertically, animated: false)
-            UIAccessibility.post(notification: .screenChanged, argument: collectionView.cellForItem(at: path))
-        } else { UIAccessibility.post(notification: .screenChanged, argument: collectionView) }
+        navigationController?.view.accessibilityViewIsModal = model.presented
+        view.isHidden = !model.visible
+        view.accessibilityElementsHidden = !model.presented
+        navigationController?.view.isHidden = !model.visible
+        navigationController?.view.accessibilityElementsHidden = !model.presented
+        revealSelected(announce:model.presented)
     }
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -69,6 +107,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        publishFrames()
         guard let layout = collectionViewLayout as? UICollectionViewFlowLayout else { return }
         let columns: CGFloat = model.largeText ? 1 : 2
         let width = floor((collectionView.bounds.width - 32 - (columns - 1) * 16) / columns)
@@ -81,6 +120,24 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             layout.invalidateLayout()
         }
     }
+    private func publishFrames() {
+        guard collectionView.window != nil else { return }
+        let presentation = model.controller.tabPresentation
+        var paths = Set(collectionView.indexPathsForVisibleItems)
+        for (section,tabs) in sections.enumerated() {
+            if let item = tabs.firstIndex(where: { $0.id == model.controller.session.selectedTabID }) { paths.insert(IndexPath(item:item,section:section)) }
+        }
+        for path in paths {
+            guard sections.indices.contains(path.section), sections[path.section].indices.contains(path.item),
+                  let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at:path) else { continue }
+            let id = sections[path.section][path.item].id
+            var rect = collectionView.convert(attributes.frame,to:nil)
+            rect.size.height = max(1, rect.height - (model.largeText ? 80 : 26))
+            if presentation.cardFrames[id] != rect { presentation.cardFrames[id] = rect }
+        }
+    }
+    override func scrollViewDidScroll(_ scrollView: UIScrollView) { publishFrames() }
+
     override func numberOfSections(in collectionView: UICollectionView) -> Int { sections.count }
     override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { sections[section].count }
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
@@ -88,11 +145,19 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         let tab = sections[indexPath.section][indexPath.item]
         let controller = model.controller
         cell.contentConfiguration = UIHostingConfiguration {
-            MobileGridCard(tab: tab, selected: controller.session.selectedTabID == tab.id, largeText: model.largeText, close: { controller.close([tab.id]) })
+            MobileGridCard(tab: tab, presentation: controller.tabPresentation, selected: controller.session.selectedTabID == tab.id, largeText: model.largeText, close: { controller.close([tab.id]) })
                 .browserAppearance(controller.appearance)
         }.margins(.all, 0)
         cell.reduceMotion = model.reduceMotion
         cell.close = { controller.close([tab.id]) }
+        cell.closeSwipe = { [weak cell] velocity in
+            if tab.isPrivate { cell?.restore() }
+            controller.close([tab.id], animation: { [weak cell] finish in
+                guard let cell else { finish(); return }
+                cell.flyAway(velocity:velocity, completion:finish)
+            }, cancelled: { [weak cell] in cell?.restore() })
+        }
+        cell.pinchProgress = model.onPinch.map { action in { amount, ended in action(tab, amount, ended) } }
         cell.open = { [weak self] in self?.model.open(tab) }
         cell.isAccessibilityElement = true
         cell.accessibilityLabel = "\(tab.isPinned ? "Pinned. " : "")\(tab.isPrivate ? "Private. " : "")\(tab.displayTitle)"
@@ -205,6 +270,9 @@ struct MobileTabGrid: UIViewControllerRepresentable {
 @MainActor final class MobileTabCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     var close: (() -> Void)?
     var open: (() -> Void)?
+    var closeSwipe: ((CGFloat) -> Void)?
+    var pinchProgress: ((CGFloat, Bool) -> Void)?
+    private var animationGeneration = 0
     var reduceMotion = false
     private(set) var swiping = false
     private(set) var pinching = false
@@ -217,8 +285,10 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         cancellation = MobileGestureCancellation { [weak self] in self?.cancelGestures() }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func prepareForReuse() { super.prepareForReuse(); cancelGestures(); close = nil; open = nil }
+    override func prepareForReuse() { super.prepareForReuse(); cancelGestures(); close = nil; open = nil; closeSwipe = nil; pinchProgress = nil }
     func cancelGestures() {
+        animationGeneration += 1
+        if pinching { pinchProgress?(0, true) }
         swiping = false; pinching = false
         for gesture in gestureRecognizers ?? [] { gesture.isEnabled = false; gesture.isEnabled = true }
         contentView.layer.removeAllAnimations()
@@ -229,27 +299,54 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         if let pinch = gesture as? UIPinchGestureRecognizer { return pinch.scale > 1 }
         return true
     }
+    static func swipeCommits(distance: CGFloat, velocity: CGFloat, width: CGFloat) -> Bool {
+        distance < -max(60, width * 0.35) || (distance < -20 && velocity < -650 && distance + velocity * 0.18 < -width * 0.5)
+    }
     @objc func swipe(_ gesture: UIPanGestureRecognizer) {
         if gesture.state == .began { swiping = cancellation?.suspended != true }
-        let x = min(gesture.translation(in: self).x, 0)
+        let distance = gesture.translation(in:self).x, width = max(bounds.width, 1)
         if gesture.state == .changed && swiping {
-            if !reduceMotion { contentView.transform = CGAffineTransform(translationX: x, y: 0) }
-            contentView.alpha = max(0.35, 1 + x / max(bounds.width, 1))
+            // Follow the finger; resist backwards motion and over-travel.
+            let x = distance > 0 ? distance * 0.18 : distance < -width ? -width - sqrt(-distance-width)*4 : distance
+            if !reduceMotion { contentView.transform = CGAffineTransform(translationX:x, y:0) }
+            contentView.alpha = max(0.2, 1 - abs(x) / width * 0.65)
         } else if gesture.state == .ended || gesture.state == .cancelled {
-            if gesture.state == .ended && swiping && x < -max(60, bounds.width * 0.35) { close?() }
+            let commit = gesture.state == .ended && swiping && Self.swipeCommits(distance:distance, velocity:gesture.velocity(in:self).x, width:width)
             swiping = false
-            UIView.animate(withDuration: reduceMotion ? 0.15 : 0.25) { self.contentView.transform = .identity; self.contentView.alpha = 1 }
+            if commit { if let closeSwipe { closeSwipe(gesture.velocity(in:self).x) } else { close?(); restore() } }
+            else { restore() }
+        }
+    }
+    func restore() {
+        UIView.animate(withDuration:reduceMotion ? 0.18 : 0.38, delay:0, usingSpringWithDamping:0.8, initialSpringVelocity:0,
+                       options:[.beginFromCurrentState,.allowUserInteraction]) {
+            self.contentView.transform = .identity; self.contentView.alpha = 1
+        }
+    }
+    func flyAway(velocity: CGFloat, completion: @escaping () -> Void) {
+        animationGeneration += 1
+        let request = animationGeneration
+        let remaining = max(1, bounds.width + contentView.transform.tx)
+        let duration = reduceMotion ? 0.18 : min(0.3, max(0.12, remaining / max(800, -velocity)))
+        UIView.animate(withDuration:duration, delay:0, options:[.beginFromCurrentState,.curveEaseIn]) {
+            if !self.reduceMotion { self.contentView.transform = CGAffineTransform(translationX:-self.bounds.width*1.35, y:0) }
+            self.contentView.alpha = 0
+        } completion: { [weak self] _ in
+            guard let self, request == self.animationGeneration, self.cancellation?.suspended != true else { return }
+            completion()
         }
     }
     @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
         if gesture.state == .began { pinching = cancellation?.suspended != true }
         if gesture.state == .changed && pinching {
-            if !reduceMotion { contentView.transform = CGAffineTransform(scaleX: min(1.12, gesture.scale), y: min(1.12, gesture.scale)) }
-            else { contentView.alpha = max(0.6, 2 - gesture.scale) }
+            if let pinchProgress { pinchProgress(min(1,max(0,(gesture.scale-1)/0.8)),false) }
+            else if !reduceMotion { contentView.transform = CGAffineTransform(scaleX:min(1.12,gesture.scale), y:min(1.12,gesture.scale)) }
+            else { contentView.alpha = max(0.6,2-gesture.scale) }
         } else if gesture.state == .ended || gesture.state == .cancelled {
-            if gesture.state == .ended && pinching && gesture.scale > 1.2 { open?() }
-            pinching = false
-            UIView.animate(withDuration: 0.2) { self.contentView.transform = .identity; self.contentView.alpha = 1 }
+            let valid = gesture.state == .ended && pinching
+            if let pinchProgress, pinching { pinchProgress(valid ? min(1,max(0,(gesture.scale-1)/0.8)) : 0,true) }
+            else if valid && gesture.scale > 1.2 { open?() }
+            pinching = false; restore()
         }
     }
     override func accessibilityActivate() -> Bool { open?(); return true }
@@ -258,12 +355,14 @@ struct MobileTabGrid: UIViewControllerRepresentable {
 private struct MobileGridCard: View {
     @Environment(\.browserTheme) private var theme
     let tab: BrowserTab
+    let presentation: MobileTabPresentation
     let selected: Bool
     let largeText: Bool
     let close: () -> Void
     var body: some View {
         VStack(spacing: 8) {
-            MobileTabThumbnail(tab: tab)
+            MobileTabThumbnail(tab: tab, presentation: presentation)
+                .opacity(presentation.activeID == tab.id ? 0 : 1)
                 .clipShape(.rect(cornerRadius: 18))
                 .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(selected ? theme.accent : theme.separator, lineWidth: selected ? 2 : 1) }
                 .overlay(alignment: .topTrailing) {
@@ -279,3 +378,143 @@ private struct MobileGridCard: View {
         }
     }
 }
+
+/// Window/profile-local, memory-only snapshots. One capture per document/gesture,
+/// never per animation frame. Closing a private tab releases its image immediately.
+@MainActor @Observable final class MobileTabPresentation {
+    private(set) var images: [UUID: UIImage] = [:]
+    private var revisions: [UUID: Int] = [:]
+    private var captures: [UUID: Task<Void, Never>] = [:]
+    var cardFrames: [UUID: CGRect] = [:]
+    var activeID: UUID?
+    @ObservationIgnored private var refreshTask: Task<Void,Never>?
+    var pendingSelection: UUID?
+    var pendingNewTab: Bool?
+    var inserting = false
+    var insertionProgress: CGFloat = 0
+    private var generation = 0
+    private var settlementRevision = 0
+    private var suspended = false
+    var cacheRevision: Int { generation }
+    func resume() { if suspended { suspended = false; generation += 1 } }
+
+    func capture(_ tab: BrowserTab, refresh: Bool = false) {
+        guard !suspended, captures[tab.id] == nil, tab.hasLoaded, tab.isInstantiated,
+              refresh || revisions[tab.id] != tab.documentRevision || images[tab.id] == nil else { return }
+        let revision = tab.documentRevision, request = generation
+        let config = WKSnapshotConfiguration(); config.snapshotWidth = 440
+        #if DEBUG
+        MobileTransitionMetrics.snapshotCount += 1
+        #endif
+        captures[tab.id] = Task { @MainActor [weak self, weak tab] in
+            guard let tab, !Task.isCancelled, tab.isInstantiated else { return }
+            let image = try? await tab.webView.takeSnapshot(configuration: config)
+            guard let self, request == self.generation else { return }
+            self.captures[tab.id] = nil
+            guard !Task.isCancelled, tab.documentRevision == revision else { return }
+            if let image {
+                if self.images.count >= 12, let oldest = self.images.keys.first(where: { $0 != self.activeID && $0 != tab.id }) { self.images[oldest] = nil; self.revisions[oldest] = nil }
+                self.images[tab.id] = image; self.revisions[tab.id] = revision
+            }
+        }
+    }
+    func refreshAfterScrolling(_ tab:BrowserTab) {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self,weak tab] in
+            try? await Task.sleep(for:.milliseconds(250))
+            guard !Task.isCancelled, let self, let tab, self.activeID == nil, !self.suspended else { return }
+            self.capture(tab,refresh:true)
+        }
+    }
+    func begin(_ tab: BrowserTab?) {
+        guard !suspended, let tab else { return }
+        settlementRevision += 1
+        #if DEBUG
+        MobileTransitionMetrics.start("page-grid")
+        #endif
+        if activeID != tab.id {
+            refreshTask?.cancel(); activeID = tab.id
+            // The selected WKWebView's existing layer is transformed live.
+            // Other cards use their already-rendered thumbnail; no capture here.
+        }
+    }
+    func settleInGrid(_ tab:BrowserTab?) {
+        #if DEBUG
+        MobileTransitionMetrics.stop()
+        #endif
+        guard let tab, activeID == tab.id, tab.isInstantiated else { finish(); return }
+        let request = generation, revision = tab.documentRevision, settlement = settlementRevision
+        Task { @MainActor [weak self,weak tab] in
+            guard let tab, tab.isInstantiated else { return }
+            let config = WKSnapshotConfiguration(); config.snapshotWidth = 440
+            let image = try? await tab.webView.takeSnapshot(configuration:config)
+            guard let self, !self.suspended, request == self.generation, tab.isInstantiated, tab.documentRevision == revision else { return }
+            if let image { self.images[tab.id] = image; self.revisions[tab.id] = revision }
+            if self.activeID == tab.id && settlement == self.settlementRevision { self.finish() }
+        }
+    }
+    func beginNewTab() {
+        #if DEBUG
+        MobileTransitionMetrics.start("new-tab")
+        #endif
+        activeID = UUID()
+    }
+    func finish() {
+        settlementRevision += 1; activeID = nil; pendingSelection = nil; pendingNewTab = nil
+        #if DEBUG
+        MobileTransitionMetrics.stop()
+        #endif
+    }
+    func remove(_ id: UUID) {
+        captures.removeValue(forKey: id)?.cancel()
+        images[id] = nil; revisions[id] = nil; cardFrames[id] = nil
+        if activeID == id { finish() }
+    }
+    func discard() {
+        refreshTask?.cancel()
+        suspended = true; generation += 1; captures.values.forEach { $0.cancel() }; captures.removeAll()
+        images.removeAll(); revisions.removeAll(); cardFrames.removeAll(); finish()
+    }
+}
+
+/// Collection updates collapse the removed card while UIKit reflows survivors.
+@MainActor private final class MobileTabGridLayout: UICollectionViewFlowLayout {
+    var reduceMotion = false
+    override func finalLayoutAttributesForDisappearingItem(at itemIndexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        guard let attributes = super.finalLayoutAttributesForDisappearingItem(at:itemIndexPath)?.copy() as? UICollectionViewLayoutAttributes else { return nil }
+        attributes.alpha = 0
+        attributes.transform = reduceMotion ? .identity : CGAffineTransform(scaleX:0.01,y:0.01)
+        return attributes
+    }
+}
+
+#if DEBUG
+/// Main-thread display-link intervals, buffered in memory during an opt-in run.
+/// This measures scheduling on the Simulator, not physical ProMotion rendering.
+@MainActor final class MobileTransitionMetrics: NSObject {
+    static var snapshotCount = 0
+    private static let shared = MobileTransitionMetrics()
+    private var link: CADisplayLink?
+    private var frames: [Double] = []
+    private var samples: [[String: Any]] = []
+    private var name = ""
+    private var snapshotsAtStart = 0
+    static func start(_ name: String) {
+        guard ProcessInfo.processInfo.arguments.contains("--oriv-transition-metrics"), shared.link == nil else { return }
+        shared.name = name; shared.frames = []; shared.snapshotsAtStart = snapshotCount
+        let link = CADisplayLink(target:shared,selector:#selector(tick(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum:60,maximum:120,preferred:120)
+        shared.link = link; link.add(to:.main,forMode:.common)
+    }
+    @objc private func tick(_ link: CADisplayLink) { frames.append(link.timestamp) }
+    static func stop() {
+        guard shared.link != nil else { return }
+        shared.link?.invalidate(); shared.link = nil
+        let deltas = zip(shared.frames,shared.frames.dropFirst()).map { ($1-$0)*1000 }
+        shared.samples.append(["gesture":shared.name,"frameIntervalsMs":deltas,"snapshots":snapshotCount-shared.snapshotsAtStart])
+        if let data = try? JSONSerialization.data(withJSONObject:shared.samples,options:[.sortedKeys]) {
+            try? data.write(to:FileManager.default.temporaryDirectory.appendingPathComponent("oriv-transition-metrics.json"),options:.atomic)
+        }
+    }
+}
+#endif

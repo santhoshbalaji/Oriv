@@ -115,13 +115,15 @@ final class BrowserIntegrationTests: XCTestCase {
     }
 
     private func requireVisibleMediaWindow(_ window: NSWindow, view: WKWebView) async throws {
+        NSApp.activate(ignoringOtherApps:true)
+        window.makeKeyAndOrderFront(nil)
         let deadline = Date().addingTimeInterval(5)
-        while !window.occlusionState.contains(.visible) && Date() < deadline {
+        while (!window.occlusionState.contains(.visible) || !NSApp.isActive || !window.isKeyWindow) && Date() < deadline {
             try await Task.sleep(for: .milliseconds(100))
         }
         // An occluded test desktop cannot certify rendered video. Skip explicitly
         // rather than disabling WebKit visibility/power protections to make it pass.
-        try XCTSkipUnless(window.isVisible && window.occlusionState.contains(.visible),
+        try XCTSkipUnless(window.isVisible && window.occlusionState.contains(.visible) && NSApp.isActive && window.isKeyWindow,
                           "Video rendering requires an unoccluded test window. Window visible: \(window.isVisible), occlusion: \(window.occlusionState.rawValue), app active: \(NSApp.isActive), app hidden: \(NSApp.isHidden). An unlocked desktop alone is insufficient; activate the test app on the current Space.")
         try await waitForScript("document.visibilityState === 'visible'", in: view)
     }

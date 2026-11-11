@@ -13,6 +13,8 @@ import WebKit
     var sheet: MobileSheet?
     var addressFocusRequest = 0
     var message: String?
+    let tabPresentation = MobileTabPresentation()
+    @ObservationIgnored weak var closeConfirmation: UIAlertController?
     weak var profiles: MobileProfiles?
     @ObservationIgnored private var bookmarkMigration: Task<Void, Never>?
     @ObservationIgnored private var delegates: [UUID: MobileWebDelegate] = [:]
@@ -38,6 +40,10 @@ import WebKit
             }
         }
         session.configureWebView = { [weak self] view, tab in
+            #if DEBUG
+            ChromeTiming.install(on: view)
+            #endif
+            PageChrome.install(on: view)
             guard let self else { return }
             let adapter = MobileWebDelegate(session: session, tab: tab); adapter.controller = self
             delegates[tab.id] = adapter; view.uiDelegate = adapter
@@ -47,7 +53,7 @@ import WebKit
                 adapter.authenticate(challenge, completion: completion)
             }
         }
-        session.didCloseTab = { [weak self] id in self?.delegates.removeValue(forKey: id)?.invalidate() }
+        session.didCloseTab = { [weak self] id in self?.delegates.removeValue(forKey: id)?.invalidate(); self?.tabPresentation.remove(id) }
         session.handleDownload = { [weak self] download in self?.downloads.begin(download) }
         session.handleExternalURL = { url in
             let alert = UIAlertController(title: "Open another app?", message: url.absoluteString, preferredStyle: .alert)
@@ -72,15 +78,19 @@ import WebKit
             }
         })
     }
-    func newTab(isPrivate: Bool = false) {
-        session.addTab(isPrivate: isPrivate); sheet = nil; addressFocusRequest += 1
+    func newTab(isPrivate: Bool = false, animated:Bool = true) {
+        if sheet == .tabs && animated {
+            tabPresentation.pendingNewTab = isPrivate; sheet = nil; return
+        }
+        tabPresentation.inserting = animated
+        session.addTab(isPrivate:isPrivate); sheet = nil; addressFocusRequest += 1
     }
     func route(_ url: URL) {
         guard AddressResolver.isWebURL(url) else { return }
         session.addTab(url: url); sheet = nil
     }
-    func foreground() { session.setProfileActive(true); session.activateSelectedTab() }
-    func background() { session.saveNow(); session.setProfileActive(false) }
+    func foreground() { tabPresentation.resume(); session.setProfileActive(true); session.activateSelectedTab() }
+    func background() { tabPresentation.discard(); session.saveNow(); session.setProfileActive(false) }
 }
 
 enum MobileSheet: String, Identifiable {

@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 import BrowserCore
+import BrowserEngine
 
 #if os(macOS)
 private typealias PlatformColor = NSColor
@@ -13,6 +14,7 @@ private typealias PlatformColor = UIColor
     static let foregroundThreshold = sqrt(1.05 * 0.05) - 0.05
     var color: Color = Theme.t3Code.canvas
     private(set) var isDark = true
+    private(set) var animatesColor = false
     private(set) var hasScrolled = false
     /// Keep the canvas/header extension at the top; otherwise let native content
     /// and the system scroll edge supply the backdrop. Private pages stay opaque.
@@ -33,10 +35,44 @@ private typealias PlatformColor = UIColor
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var sampleTask: Task<Void, Never>?
     @ObservationIgnored private var lastSample = Date.distantPast
-    @ObservationIgnored private var sampling = false
-    @ObservationIgnored private var resample = false
+    @ObservationIgnored private var sampleRevision = 0
     @ObservationIgnored private var privatePage = false
     @ObservationIgnored private var installed = false
+    @ObservationIgnored private var navigationPainting = true
+    @ObservationIgnored private var documentID = 0.0
+    @ObservationIgnored private var lastScrollTime = 0.0
+    @ObservationIgnored private var navigationSeed: (key:String, color:ChromeColor)?
+    @ObservationIgnored private var remembered: [String: ChromeColor] = [:]
+    @ObservationIgnored private var navigationObservers: [NSObjectProtocol] = []
+
+    /// Install before load, including window.open and background tabs. The script
+    /// is idempotent and uses an isolated world; it never reads page text/images.
+    static func install(on web: WKWebView) {
+        let controller = web.configuration.userContentController
+        guard !controller.userScripts.contains(where: { $0.source == observerScript }) else { return }
+        controller.addUserScript(WKUserScript(source: observerScript, injectionTime: .atDocumentStart,
+            forMainFrameOnly: true, in: contentWorld))
+    }
+    private func beginNavigation() {
+        resetTransitions()
+        generation += 1; sampledTop = nil; bodyBackground = nil; htmlBackground = nil
+        dimmingLayer = false; hasScrolled = false; installed = false; navigationPainting = true
+        animatesColor = false; sampleTask?.cancel(); sampleTask = nil
+        documentID = 0; lastScrollTime = 0
+        navigationSeed = nil
+        if !privatePage, let key = cacheKey(webView?.url), let cached = remembered[key] { navigationSeed = (key,cached) }
+        applyRemembered()
+    }
+    private func cacheKey(_ url: URL?) -> String? {
+        guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        parts.query = nil; parts.fragment = nil; parts.user = nil; parts.password = nil
+        return parts.string
+    }
+    @discardableResult private func applyRemembered() -> Bool {
+        guard !privatePage, let key = cacheKey(webView?.url), let rgb = remembered[key] else { return false }
+        apply(rgb); return true
+    }
     @ObservationIgnored private var scrollRevision = 0
     @ObservationIgnored private var scrollState = ChromeScrollState()
     @ObservationIgnored private var scrollTask: Task<Void, Never>?
@@ -50,6 +86,9 @@ private typealias PlatformColor = UIColor
     @ObservationIgnored private var stableBand = ChromeStableValue<Band>()
     @ObservationIgnored private var bandTask: Task<Void, Never>?
     private static let contentWorld = WKContentWorld.world(name: "OrivPageChrome")
+    #if DEBUG
+    @ObservationIgnored private var timingObservers: [NSObjectProtocol] = []
+    #endif
     var foreground: Color { isDark ? .white : .black }
 
     func observe(_ view: WKWebView?, isPrivate: Bool = false) {
@@ -59,10 +98,24 @@ private typealias PlatformColor = UIColor
             old.configuration.userContentController.removeScriptMessageHandler(forName: "chromeEdge", contentWorld: Self.contentWorld)
             old.evaluateJavaScript("window.__orivChromeStop?.(); void 0", in: nil, in: Self.contentWorld) { _ in }
         }
+        #if DEBUG
+        timingObservers.forEach(NotificationCenter.default.removeObserver); timingObservers.removeAll()
+        if let view { for (name, event) in [(BrowserTab.navigationStarted, "navigationStart"), (BrowserTab.navigationCommitted, "commit")] {
+            timingObservers.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak view] _ in
+                MainActor.assumeIsolated { ChromeTiming.event(event, web: view) }
+            })
+        } }
+        #endif
+        navigationObservers.forEach(NotificationCenter.default.removeObserver); navigationObservers.removeAll()
         observations.removeAll()
         generation += 1; sampledTop = nil; bodyBackground = nil; htmlBackground = nil; dimmingLayer = false; hasScrolled = false; installed = false
-        sampling = false; resample = false; privatePage = isPrivate; webView = view
+        privatePage = isPrivate; webView = view
+        navigationPainting = true; animatesColor = false; documentID = 0; lastScrollTime = 0; navigationSeed = nil
         guard let view else { apply(Self.rgba(PlatformColor(Theme.t3Code.canvas))!); return }
+        Self.install(on: view)
+        navigationObservers.append(NotificationCenter.default.addObserver(forName: BrowserTab.navigationStarted, object: view, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.beginNavigation() }
+        })
         view.configuration.userContentController.add(PageChromeScrollHandler(owner: self), contentWorld: Self.contentWorld, name: "chromeEdge")
         observations = [
             view.observe(\.underPageBackgroundColor, options: [.new]) { [weak self] _, _ in
@@ -72,16 +125,17 @@ private typealias PlatformColor = UIColor
                 let loading = change.newValue ?? false
                 Task { @MainActor [weak self] in
                     guard let self, self.webView === view else { return }
-                    if loading {
-                        self.resetTransitions()
-                        self.generation += 1; self.sampledTop = nil; self.bodyBackground = nil; self.htmlBackground = nil; self.dimmingLayer = false; self.hasScrolled = false
-                        self.installed = false; self.sampleTask?.cancel()
-                    }
+                    if loading { self.beginNavigation() }
                     self.refresh(); self.requestSample()
                 }
             },
-            view.observe(\.url, options: [.new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.refresh(); self?.requestSample() }
+            view.observe(\.url, options: [.old,.new]) { [weak self] view, change in
+                let old = change.oldValue ?? nil, next = change.newValue ?? nil
+                Task { @MainActor [weak self] in
+                    guard let self, self.webView === view else { return }
+                    if !view.isLoading && self.cacheKey(old) != self.cacheKey(next) { self.beginNavigation() }
+                    self.refresh(); self.requestSample()
+                }
             }
         ]
         refresh(); requestSample()
@@ -95,14 +149,14 @@ private typealias PlatformColor = UIColor
 
     /// Called after native geometry/appearance changes too, including obscured insets.
     func requestSample() {
-        guard let webView, webView.url != nil, !privatePage, !webView.isLoading else { return }
+        guard let webView, webView.url != nil, !privatePage else { return }
         sampleTask?.cancel()
         let request = generation
-        let delay = max(0.22, 0.6 - Date().timeIntervalSince(lastSample))
+        let delay = navigationPainting ? 0 : max(0.22, 0.6 - Date().timeIntervalSince(lastSample))
         sampleTask = Task { @MainActor [weak self, weak webView] in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self, let webView, self.webView === webView, self.generation == request else { return }
-            await self.sample(webView, generation: request)
+            self.sample(webView, generation: request)
         }
     }
 
@@ -116,36 +170,50 @@ private typealias PlatformColor = UIColor
         #else
         let neutral = Self.rgba(UIColor.systemBackground.resolvedColor(with: webView.traitCollection)) ?? ChromeColor(1, 1, 1)
         #endif
-        apply(ChromeColorSelection.select(edge: sampledTop, body: bodyBackground, html: htmlBackground, isDimming: dimmingLayer,
-              underPage: stableBand.value != nil ? stableBand.value?.underPage : Self.rgba(webView.underPageBackgroundColor), neutral: privatePage ? canvas : neutral, isPrivate: privatePage))
+        if navigationPainting && stableBand.value == nil && applyRemembered() { return }
+        let selected = ChromeColorSelection.select(edge:sampledTop, body:bodyBackground, html:htmlBackground, isDimming:dimmingLayer,
+            underPage:stableBand.value != nil ? stableBand.value?.underPage : Self.rgba(webView.underPageBackgroundColor), neutral:privatePage ? canvas : neutral, isPrivate:privatePage)
+        if navigationPainting, !privatePage, let key = cacheKey(webView.url) {
+            if navigationSeed?.key != key { navigationSeed = remembered[key].map { (key,$0) } }
+            // Revisited pages can paint a near-identical placeholder header before
+            // DOM readiness (Apple: #1d1d1f -> #161617). Hold the known tint through
+            // that phase; materially different paint still corrects immediately.
+            if let seed = navigationSeed?.color, selected.deltaE(seed) <= 4 { apply(seed); return }
+        }
+        apply(selected)
     }
 
-    private func sample(_ web: WKWebView, generation request: Int) async {
-        guard !sampling else { resample = true; return }
+    private func sample(_ web: WKWebView, generation request: Int) {
         guard web.bounds.width > 16, web.bounds.height > web.obscuredContentInsets.top + 8 else { return }
-        sampling = true
+        // WebKit can suspend an evaluation issued during a BFCache restore.
+        // A newer sample supersedes it instead of waiting on a global busy flag.
+        sampleRevision += 1
+        let sample = sampleRevision
         lastSample = Date()
         let revision = scrollRevision
         // Normal tabs ignore theme-color. Query only computed backgrounds of the
         // viewport-constrained edge and page canvas; text/images in ordinary flow
         // must not accidentally become the chrome colour.
-        let result = try? await web.callAsyncJavaScript(Self.edgeScript,
+        web.callAsyncJavaScript(Self.edgeScript,
             arguments: ["inset": web.obscuredContentInsets.top, "viewWidth": web.bounds.width],
-            in: nil, contentWorld: Self.contentWorld)
-        guard self.webView === web else { return }
-        guard self.generation == request else { sampling = false; requestSample(); return }
-        guard scrollRevision == revision else { sampling = false; requestSample(); return }
-        let values = result as? [String: Any] ?? [:]
-        accept(values)
-        sampling = false
-        if resample { resample = false; requestSample() }
+            in: nil, in: Self.contentWorld) { [weak self, weak web] result in
+                // A restored document may never finish an earlier evaluation.
+                // Keep its callback weak and accept only the newest sample.
+                guard let self, let web, self.webView === web,
+                      self.generation == request, self.sampleRevision == sample else { return }
+                guard self.scrollRevision == revision else { self.requestSample(); return }
+                let values = (try? result.get()) as? [String: Any] ?? [:]
+                if values["href"] as? String == web.url?.absoluteString { self.accept(values) }
+            }
     }
 
     private func accept(_ values: [String: Any]) {
+        guard !values.isEmpty else { return }
         func decode(_ key: String) -> ChromeColor? {
             guard let c = values[key] as? [Double], c.count == 4 else { return nil }
             return ChromeColor(c[0], c[1], c[2], alpha: c[3])
         }
+        if let time = values["sampleTime"] as? Double, time < lastScrollTime { return }
         let offset = values["scrollY"] as? Double ?? 0
         // Rubber band snapshots are not new viewport paint. Preserve the last
         // band and mode until WebKit reports a real document position again.
@@ -153,6 +221,11 @@ private typealias PlatformColor = UIColor
         updateScroll(offset)
         let band = Band(edge: decode("edge"), body: decode("body"), html: decode("html"),
                         underPage: webView.flatMap { Self.rgba($0.underPageBackgroundColor) }, dimming: values["dimming"] as? Bool ?? false)
+        let early = navigationPainting && !hasScrolled && offset <= ChromeScrollState.leaveOffset
+        animatesColor = !early
+        // During initial painting CSS and headers can appear between frames.
+        // Never make the first rendered band wait for scroll-time confirmation.
+        if early { stableBand = ChromeStableValue() }
         if stableBand.update(band, at: ProcessInfo.processInfo.systemUptime) {
             bodyBackground = band.body; htmlBackground = band.html
             sampledTop = band.edge; dimmingLayer = band.dimming
@@ -161,9 +234,15 @@ private typealias PlatformColor = UIColor
         #if DEBUG
         sampleCount += 1
         #endif
+        if values["initialComplete"] as? Bool == true { navigationPainting = false; navigationSeed = nil }
         refresh()
+        if !privatePage, let key = cacheKey(webView?.url), let rgb = Self.rgba(PlatformColor(color)) {
+            if remembered.count >= 64 && remembered[key] == nil { remembered.removeAll(keepingCapacity: true) }
+            remembered[key] = rgb
+        }
         #if DEBUG
         diagnosticValues = values
+        ChromeTiming.event("edgeSample",web:webView,extra:["sampleTime":values["sampleTime"] ?? 0,"edge":values["edge"] ?? NSNull(),"body":values["body"] ?? NSNull(),"html":values["html"] ?? NSNull(),"initial":early])
         recordDiagnostics()
         #endif
         #if DEBUG && targetEnvironment(simulator)
@@ -249,64 +328,104 @@ private typealias PlatformColor = UIColor
             html:rgba(getComputedStyle(document.documentElement).backgroundColor),
             edge:winner?.color || null, dimming:winner?.dimming || false,
             \(diagnosticResult)
-            scrollY, href:location.href};
+            sampleTime:performance.timeOrigin + performance.now(), scrollY, href:location.href};
         """
     }()
 
     private func installObserver(_ web: WKWebView) {
-        guard !web.isLoading, !installed, !privatePage else { return }
+        guard !installed, !privatePage else { return }
         installed = true
-        // An isolated world sends invalidations and bounded computed edge state.
-        // Trailing debounce plus a 1s maximum wait handles SPA mutations without
-        // starving on animated pages. No script is persisted in the configuration.
-        web.evaluateJavaScript("""
-            (() => {
-                window.__orivChromeStop?.();
-                let timer, deadline, edgeTimer, lastEdge = -Infinity;
-                const readEdge = () => { const inset = \(web.obscuredContentInsets.top), viewWidth = innerWidth;
-                    \(Self.edgeScript)
-                };
-                const sendEdge = () => { clearTimeout(edgeTimer); edgeTimer = null; lastEdge = performance.now();
-                    window.webkit.messageHandlers.chromeEdge.postMessage({edge:readEdge()}); };
-                const send = () => { clearTimeout(timer); clearTimeout(deadline); timer = deadline = null;
-                    window.webkit.messageHandlers.chromeEdge.postMessage({sample:true}); };
-                const changed = () => { clearTimeout(timer); timer = setTimeout(send, 220);
-                    if (!deadline) deadline = setTimeout(send, 1000); };
-                const scroll = () => {
-                    if (window.scrollY < 0) return;
-                    // Swift owns the one hysteresis state machine. Mode changes
-                    // never invalidate cached paint or bypass the 8 Hz edge cap.
-                    window.webkit.messageHandlers.chromeEdge.postMessage({scrollY:window.scrollY});
-                    if (performance.now() - lastEdge >= 125) sendEdge();
-                    else if (!edgeTimer) edgeTimer = setTimeout(sendEdge, 125 - (performance.now() - lastEdge));
-                };
-                const media = matchMedia('(prefers-color-scheme: dark)');
-                const observer = new MutationObserver(changed);
-                observer.observe(document.documentElement, {subtree:true, childList:true, attributes:true, attributeFilter:['style','class','content','media']});
-                window.addEventListener('scroll', scroll, {passive:true, capture:true});
-                window.addEventListener('resize', changed);
-                window.addEventListener('pageshow', changed);
-                window.addEventListener('popstate', changed);
-                window.addEventListener('hashchange', changed);
-                document.addEventListener('load', changed, true);
-                media.addEventListener('change', changed);
-                window.__orivChromeStop = () => { clearTimeout(timer); clearTimeout(deadline); clearTimeout(edgeTimer); observer.disconnect();
-                    window.removeEventListener('scroll', scroll, true); window.removeEventListener('resize', changed);
-                    window.removeEventListener('pageshow', changed); window.removeEventListener('popstate', changed);
-                    window.removeEventListener('hashchange', changed); document.removeEventListener('load', changed, true);
-                    media.removeEventListener('change', changed); };
-                changed();
-            })()
-            """, in: nil, in: Self.contentWorld) { _ in }
+        web.evaluateJavaScript(Self.observerScript, in: nil, in: Self.contentWorld) { _ in }
+    }
+
+    static var observerScript: String {
+        """
+        (() => {
+            if (window.__orivChromeStop) { window.__orivChromeSend?.(); return; }
+            let timer, deadline, edgeTimer, frame, lastEdge = -Infinity, initial = true;
+            const readEdge = () => { const inset = 0, viewWidth = innerWidth;
+                \(Self.edgeScript)
+            };
+            const sendEdge = () => {
+                clearTimeout(edgeTimer); edgeTimer = null; lastEdge = performance.now();
+                if (!window.webkit?.messageHandlers?.chromeEdge || !document.documentElement || !document.body) return;
+                const edge = {...readEdge(), documentID:performance.timeOrigin, initialComplete:!initial};
+                window.__orivChromeLatest = edge;
+                window.webkit?.messageHandlers?.chromeEdge?.postMessage({edge});
+            };
+            const send = () => { clearTimeout(timer); clearTimeout(deadline); timer = deadline = null; sendEdge(); };
+            const nextPaint = () => {
+                if (!frame) frame = requestAnimationFrame(() => { frame = null; sendEdge(); });
+            };
+            const changed = () => {
+                if (initial) { nextPaint(); return; }
+                clearTimeout(timer); timer = setTimeout(send, 220);
+                if (!deadline) deadline = setTimeout(send, 1000);
+            };
+            const scroll = () => {
+                if (window.scrollY < 0) return;
+                window.webkit?.messageHandlers?.chromeEdge?.postMessage({scrollY:window.scrollY,scrollTime:performance.timeOrigin + performance.now()});
+                if (performance.now() - lastEdge >= 125) sendEdge();
+                else if (!edgeTimer) edgeTimer = setTimeout(sendEdge, 125 - (performance.now() - lastEdge));
+            };
+            const ready = () => { sendEdge(); nextPaint(); };
+            const painted = () => { sendEdge(); nextPaint(); };
+            const loaded = () => {
+                // DOM readiness must end the initial phase even when a hidden
+                // window throttles rAF. Send the ready paint before confirmation
+                // becomes active, then mark the phase complete atomically.
+                sendEdge(); initial = false; sendEdge(); nextPaint();
+            };
+            const paintObserver = new PerformanceObserver(list => {
+                if (list.getEntries().some(e => e.name === 'first-contentful-paint')) painted();
+            });
+            paintObserver.observe({type:'paint', buffered:true});
+            const media = matchMedia('(prefers-color-scheme: dark)');
+            const observer = new MutationObserver(changed);
+            observer.observe(document, {subtree:true, childList:true, attributes:true, attributeFilter:['style','class','content','media']});
+            window.addEventListener('scroll', scroll, {passive:true, capture:true});
+            window.addEventListener('wheel', scroll, {passive:true, capture:true});
+            window.addEventListener('resize', ready);
+            window.addEventListener('pageshow', ready);
+            window.addEventListener('popstate', ready);
+            window.addEventListener('hashchange', ready);
+            document.addEventListener('DOMContentLoaded', loaded, {once:true});
+            document.addEventListener('load', changed, true);
+            window.addEventListener('load', loaded, {once:true});
+            if (document.readyState === 'complete') loaded();
+            media.addEventListener('change', ready);
+            window.__orivChromeSend = ready;
+            window.__orivChromeStop = () => {
+                clearTimeout(timer); clearTimeout(deadline); clearTimeout(edgeTimer); cancelAnimationFrame(frame);
+                observer.disconnect(); paintObserver.disconnect();
+                window.removeEventListener('scroll', scroll, true); window.removeEventListener('wheel', scroll, true); window.removeEventListener('resize', ready);
+                window.removeEventListener('pageshow', ready); window.removeEventListener('popstate', ready);
+                window.removeEventListener('hashchange', ready); document.removeEventListener('DOMContentLoaded', loaded);
+                document.removeEventListener('load', changed, true); window.removeEventListener('load', loaded); media.removeEventListener('change', ready);
+                delete window.__orivChromeStop; delete window.__orivChromeSend;
+            };
+            ready();
+        })()
+        """
     }
 
     fileprivate func receiveScroll(_ message: WKScriptMessage) {
         guard !privatePage, message.webView === webView, message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
         if let edge = body["edge"] as? [String: Any] {
-            guard webView?.isLoading == false, edge["href"] as? String == webView?.url?.absoluteString else { return }
+            guard edge["href"] as? String == webView?.url?.absoluteString else { return }
+            if let id = edge["documentID"] as? Double {
+                guard id >= documentID else { return }
+                if id != documentID { documentID = id; navigationPainting = true; stableBand = ChromeStableValue() }
+            }
             scrollRevision += 1; accept(edge); return
         }
-        if let offset = body["scrollY"] as? Double { updateScroll(offset) }
+        if let offset = body["scrollY"] as? Double {
+            if let time = body["scrollTime"] as? Double {
+                guard time >= lastScrollTime else { return }
+                lastScrollTime = time
+            }
+            updateScroll(offset)
+        }
         if body["sample"] as? Bool == true { refresh(); requestSample() }
     }
 
@@ -364,7 +483,7 @@ private typealias PlatformColor = UIColor
             self.bandTask = nil
             // Measure again before accepting a new sticky/header colour. A
             // single transient result cannot replace the cached band.
-            await self.sample(web, generation: request)
+            self.sample(web, generation: request)
         }
     }
 
@@ -381,6 +500,9 @@ private typealias PlatformColor = UIColor
     }
     private func apply(_ rgb: ChromeColor) {
         luminance = rgb.luminance; isDark = rgb.whiteForeground
+        #if DEBUG
+        ChromeTiming.event("colourTarget", web: webView, extra: ["rgb": [rgb.red, rgb.green, rgb.blue], "scrolled":hasScrolled])
+        #endif
         color = Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue, opacity: 1)
     }
 }

@@ -95,11 +95,14 @@ import BrowserEngine
     }
     func archive(_ id: UUID) {
         guard id != lastRegularProfileID, let index = profiles.firstIndex(where: { $0.id == id }), !profiles[index].isPersonal else { return }
-        if let controller = controllers[id] {
-            for tab in controller.session.tabs.filter(\.isPrivate) { controller.session.closeTab(tab.id) }
-            controller.background()
+        let finish = { [weak self] in
+            guard let self, let index = self.profiles.firstIndex(where: { $0.id == id }) else { return }
+            self.controllers[id]?.background()
+            self.profiles[index].archivedAt = .now; self.persist()
         }
-        profiles[index].archivedAt = .now; persist()
+        if let controller = controllers[id] {
+            controller.close(controller.session.tabs.filter(\.isPrivate).map(\.id), completion: finish)
+        } else { finish() }
     }
     func restore(_ id: UUID) {
         guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
@@ -137,13 +140,17 @@ import BrowserEngine
         guard let context = externalPrivate, let tab = context.session.selectedTab,
               let url = ExternalLinkRouting.movableURL(tab.url),
               let profile = profiles.first(where: { $0.id == externalMoveProfileID && $0.archivedAt == nil }) else { return }
-        select(profile); current.session.addTab(url: url)
-        context.session.closeTab(tab.id)
-        if context.session.tabs.isEmpty { context.session.shutdown(); externalPrivate = nil }
+        context.close([tab.id],completion:{ [weak self,weak context] in
+            guard let self else { return }
+            self.select(profile); self.current.session.addTab(url:url)
+            if context?.session.tabs.isEmpty == true { context?.session.shutdown(); self.externalPrivate = nil }
+        })
     }
-    /// Only the address moves. Cookies, history and private data stores stay with their profile.
+    /// Only the address moves. Private source closure must already be confirmed.
+    /// Cookies, history and private data stores stay with their profile.
     func move(_ tab: BrowserTab, from source: MobileController, to profile: BrowserProfile) {
         guard source.profileID != profile.id, profile.archivedAt == nil,
+              (!tab.isPrivate || !source.session.tabs.contains { $0.id == tab.id }),
               let url = tab.url, ExternalLinkRouting.movableURL(url) != nil else { return }
         let target = obtain(profile)
         target.session.addTab(url: url, isPrivate: tab.isPrivate, load: false)

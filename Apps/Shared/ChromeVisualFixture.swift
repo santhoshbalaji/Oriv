@@ -35,3 +35,45 @@ static func html(dark: Bool = false, card: Int = 0) -> String {
 
     #endif
 }
+
+#if DEBUG
+import WebKit
+import BrowserCore
+
+/// Opt-in timing evidence in isolated Debug runs. No browsing log in Release.
+@MainActor final class ChromeTiming: NSObject, WKScriptMessageHandler {
+    static var enabled: Bool {
+        ProcessInfo.processInfo.environment["ORIV_CHROME_TIMING"] == "1" ||
+        ProcessInfo.processInfo.arguments.contains("--oriv-chrome-timing")
+    }
+    private static var rows: [[String: Any]] = []
+    static func event(_ name: String, web: WKWebView?, extra: [String: Any] = [:]) {
+        guard enabled else { return }
+        var row = extra
+        row["event"] = name; row["time"] = Date().timeIntervalSince1970 * 1000
+        row["url"] = web?.url?.absoluteString ?? ""; row["web"] = web.map { String(describing: ObjectIdentifier($0)) } ?? ""
+        rows.append(row)
+        if let data = try? JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys]) {
+            try? data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("oriv-chrome-timing.json"), options: .atomic)
+        }
+    }
+    static func install(on web: WKWebView) {
+        guard enabled else { return }
+        let handler = ChromeTiming()
+        web.configuration.userContentController.add(handler, contentWorld: .world(name: "OrivTiming"), name: "chromeTiming")
+        web.configuration.userContentController.addUserScript(WKUserScript(source: """
+        (() => {
+          const send = (event, extra = {}) => window.webkit.messageHandlers.chromeTiming.postMessage({event, time:performance.timeOrigin + performance.now(), href:location.href, ...extra});
+          send('documentStart');
+          new PerformanceObserver(list => { for (const e of list.getEntries()) send(e.name, {paintTime:performance.timeOrigin + e.startTime}); }).observe({type:'paint', buffered:true});
+          document.addEventListener('DOMContentLoaded', () => send('DOMContentLoaded'), {once:true});
+          window.addEventListener('load', () => send('load'), {once:true});
+        })()
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .world(name: "OrivTiming")))
+    }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let values = message.body as? [String: Any], let name = values["event"] as? String else { return }
+        Self.event(name, web: message.webView, extra: values)
+    }
+}
+#endif

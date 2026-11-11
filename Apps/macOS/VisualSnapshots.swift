@@ -27,7 +27,7 @@ import WebKit
     private struct Manifest: Encodable {
         let runID: String; let startedAt: Date; var finishedAt: Date?; let osVersion: String
         let configuration = "Debug"; let activated: Bool
-        var scenes: [Scene] = []; var failures: [String] = []; var limitations: [String] = []
+        var scenes: [Scene] = []; var evidence: [Scene] = []; var failures: [String] = []; var limitations: [String] = []
     }
     private static var manifest: Manifest!
 
@@ -225,8 +225,9 @@ import WebKit
         for (index, address) in sites.split(separator: ",").map(String.init).enumerated() {
             guard let url = URL(string: address), url.scheme == "https" else { continue }
             let profiles = BrowserProfiles(testing: true)
-            let tab = profiles.controller.session.addTab(url: url, select: true)
-            if url.host == "fixture.invalid" { tab.webView.loadHTMLString(ChromeVisualFixture.html(), baseURL: url) }
+            let timing = ProcessInfo.processInfo.environment["ORIV_CHROME_TIMING"] == "1"
+            let tab = profiles.controller.session.addTab(url:timing ? nil : url,select:true,load:!timing)
+            if !timing && url.host == "fixture.invalid" { tab.webView.loadHTMLString(ChromeVisualFixture.html(), baseURL: url) }
             tab.webView.appearance = NSAppearance(named: darkIndices.contains(index + 1) ? .darkAqua : .aqua)
             try? await Task.sleep(for: .milliseconds(500))
             let name = "mac-glass-site\(index + 1)"
@@ -235,8 +236,28 @@ import WebKit
                     if !tab.webView.isLoading { break }
                     try? await Task.sleep(for: .milliseconds(250))
                 }
-                try? await Task.sleep(for: .seconds(3))
+                try? await Task.sleep(for: .seconds(timing ? 0.2 : 3))
                 let web = tab.webView
+                window.makeFirstResponder(web)
+                if ProcessInfo.processInfo.environment["ORIV_CHROME_TIMING"] == "1" {
+                    ChromeTiming.event("captureNavigation", web: web)
+                    let recording = Task { @MainActor in
+                        for frame in 0..<20 {
+                            await ownedImage(window, to: directory.appendingPathComponent("\(name)-timing-\(String(format: "%03d",frame)).png"))
+                            try? await Task.sleep(for: .milliseconds(16))
+                        }
+                    }
+                    if url.host == "fixture.invalid" { web.loadHTMLString(ChromeVisualFixture.html(), baseURL:url) } else { tab.navigate(to:url) }
+                    await recording.value
+                    window.makeFirstResponder(web)
+                    try? await Task.sleep(for:.milliseconds(150))
+                    if let data = try? Data(contentsOf: FileManager.default.temporaryDirectory.appendingPathComponent("oriv-chrome-timing.json")) {
+                        try? data.write(to: directory.appendingPathComponent("\(name)-timing.json"))
+                    }
+                }
+                if ProcessInfo.processInfo.environment["ORIV_FULLSCREEN_EVIDENCE"] == "1" {
+                    await fullscreenEvidence(window, name: name, directory: directory)
+                }
                 if scrollIndices.contains(index + 1) {
                     _ = try? await web.evaluateJavaScript("window.scrollTo(0,560)")
                     try? await Task.sleep(for: .seconds(2))
@@ -267,6 +288,64 @@ import WebKit
             }) { BrowserWindow(controller: profiles.controller, profiles: profiles) }
             profiles.shutdown()
         }
+    }
+
+    /// Ask the existing owned-window capture bridge for this app's window only.
+    private static func ownedImage(_ window: NSWindow, to url: URL) async {
+        let directory = url.deletingLastPathComponent(), name = url.deletingPathExtension().lastPathComponent
+        let requestURL = directory.appendingPathComponent("capture-request.json")
+        let resultURL = directory.appendingPathComponent("\(name)-live.png")
+        let request: [String: Any] = ["windowID":window.windowNumber,"pid":ProcessInfo.processInfo.processIdentifier,"name":name]
+        if let data = try? JSONSerialization.data(withJSONObject:request) { try? data.write(to:requestURL,options:.atomic) }
+        for _ in 0..<100 {
+            if FileManager.default.fileExists(atPath:resultURL.path) { break }
+            try? await Task.sleep(for:.milliseconds(20))
+        }
+        if let data = try? Data(contentsOf:resultURL), let bitmap = NSBitmapImageRep(data:data) {
+            try? data.write(to:url)
+            let digest = SHA256.hash(data:data).map { String(format:"%02x",$0) }.joined()
+            manifest.evidence.append(Scene(name:name,file:url.lastPathComponent,width:bitmap.pixelsWide,height:bitmap.pixelsHigh,sha256:digest,keyWindow:window.isKeyWindow,note:"Owned window \(window.windowNumber), process \(ProcessInfo.processInfo.processIdentifier)"))
+        }
+        else { manifest.failures.append("Owned window image missing: \(name)") }
+        try? FileManager.default.removeItem(at:requestURL)
+        try? FileManager.default.removeItem(at:resultURL)
+    }
+    private static func fullscreenEvidence(_ window: NSWindow, name: String, directory: URL) async {
+        var rows: [[String: Any]] = []
+        func state(_ mode: String) async {
+            try? await Task.sleep(for: .milliseconds(600))
+            await ownedImage(window, to: directory.appendingPathComponent("\(name)-\(mode).png"))
+            if let toolbarWindow = window.toolbar?.items.compactMap({ $0.view?.window }).first(where: { $0 !== window }) {
+                await ownedImage(toolbarWindow, to: directory.appendingPathComponent("\(name)-\(mode)-toolbar.png"))
+            }
+            func tree(_ view: NSView, depth: Int = 0) -> [String] {
+                [String(repeating:" ",count:depth) + "\(type(of:view)) \(view.frame)"] + view.subviews.flatMap { tree($0, depth:depth+1) }
+            }
+            rows.append(["mode":mode, "fullscreen":window.styleMask.contains(.fullScreen), "frame":NSStringFromRect(window.frame), "layout":NSStringFromRect(window.contentLayoutRect),
+                "windows":NSApp.windows.map { ["id":$0.windowNumber, "class":String(describing:type(of:$0)), "frame":NSStringFromRect($0.frame), "tree":$0.contentView.map { tree($0.superview ?? $0) } ?? []] }])
+        }
+        await state("floating")
+        window.collectionBehavior.insert(.fullScreenPrimary)
+        window.toggleFullScreen(nil)
+        for _ in 0..<80 { if window.styleMask.contains(.fullScreen) { break }; try? await Task.sleep(for:.milliseconds(100)) }
+        try? await Task.sleep(for:.seconds(1))
+        await state("fullscreen")
+        // Exercise AppKit's public menu reveal path in this isolated process.
+        let menuWasVisible = NSMenu.menuBarVisible()
+        NSMenu.setMenuBarVisible(true)
+        // Window-local mouse event also reaches the owned toolbar handlers.
+        if let event = NSEvent.mouseEvent(with:.mouseMoved, location:NSPoint(x:window.frame.width/2,y:window.frame.height-1), modifierFlags:[], timestamp:ProcessInfo.processInfo.systemUptime, windowNumber:window.windowNumber, context:nil, eventNumber:0, clickCount:0, pressure:0) { window.sendEvent(event) }
+        await state("reveal")
+        NSMenu.setMenuBarVisible(menuWasVisible)
+        let options = NSApp.presentationOptions
+        NSApp.presentationOptions.insert(.autoHideToolbar)
+        await state("autohide")
+        NSApp.presentationOptions = options
+        window.toggleFullScreen(nil)
+        for _ in 0..<80 { if !window.styleMask.contains(.fullScreen) { break }; try? await Task.sleep(for:.milliseconds(100)) }
+        try? await Task.sleep(for:.seconds(1))
+        await state("returned")
+        if let data = try? JSONSerialization.data(withJSONObject: rows, options:[.prettyPrinted,.sortedKeys]) { try? data.write(to:directory.appendingPathComponent("\(name)-fullscreen.json")) }
     }
 
     /// Opt-in in-process input and model telemetry; never posts system input.

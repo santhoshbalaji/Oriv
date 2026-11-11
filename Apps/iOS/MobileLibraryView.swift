@@ -80,6 +80,9 @@ struct MobileTabsView: View {
     let profiles: MobileProfiles
     let dismissGrid: () -> Void
     let onPull: (CGFloat, Bool) -> Void
+    var onPinch: ((BrowserTab, CGFloat, Bool) -> Void)? = nil
+    var presented = true
+    var visible = true
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query = ""
@@ -90,7 +93,7 @@ struct MobileTabsView: View {
     var body: some View {
         NavigationStack {
             MobileTabGrid(controller: controller, profiles: profiles, tabs: matches,
-                largeText: typeSize.isAccessibilitySize, reduceMotion: reduceMotion, open: { tab in controller.session.selectTab(tab.id); dismissGrid() }, onPull: onPull)
+                largeText: typeSize.isAccessibilitySize, reduceMotion: reduceMotion, open: { tab in controller.tabPresentation.pendingSelection = tab.id; dismissGrid() }, onPull: onPull, onPinch: onPinch, presented:presented, visible:visible)
                 .background(theme.canvas).navigationBarTitleDisplayMode(.inline)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if searching {
@@ -102,8 +105,10 @@ struct MobileTabsView: View {
                     }
                 }
                 .onAppear { privateMode = controller.session.selectedTab?.isPrivate == true }
+                .onChange(of:presented) { _, visible in if visible { privateMode = controller.session.selectedTab?.isPrivate == true } }
+                .onChange(of:controller.session.selectedTab?.isPrivate) { _, value in if !presented { privateMode = value == true } }
                 .toolbar(.visible, for: .navigationBar)
-                .toolbarColorScheme(controller.appearance.colorScheme, for: .navigationBar, .bottomBar)
+                .toolbarColorScheme(presented ? controller.appearance.colorScheme : nil, for: .navigationBar, .bottomBar)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
@@ -141,8 +146,8 @@ struct MobileTabsView: View {
     }
     private func finishBrowsingMode() {
         if controller.session.selectedTab?.isPrivate != privateMode {
-            if let tab = modeTabs.first { controller.session.selectTab(tab.id) }
-            else { controller.session.addTab(isPrivate: privateMode) }
+            if let tab = modeTabs.first { controller.tabPresentation.pendingSelection = tab.id }
+            else { controller.tabPresentation.pendingNewTab = privateMode }
         }
         dismissGrid()
     }
@@ -210,19 +215,21 @@ func rowLabel(_ title: String, _ symbol: String, _ theme: Theme) -> some View {
 struct MobileTabThumbnail: View {
     @Environment(\.browserTheme) private var theme
     let tab: BrowserTab
+    var presentation: MobileTabPresentation? = nil
     @State private var image: UIImage?
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 theme.surface
-                if let image {
+                if let image = presentation?.images[tab.id] ?? image {
                     Image(uiImage: image).resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height, alignment: .top).clipped()
                 } else {
                     VStack(spacing: 16) { SiteIdentity(url: tab.url, size: 48, isPrivate: tab.isPrivate); Text(tab.displayTitle).font(.headline).multilineTextAlignment(.center).foregroundStyle(theme.text) }.padding()
                 }
             }
         }.accessibilityHidden(true)
-            .task(id: tab.documentRevision) {
+            .task(id: "\(tab.documentRevision)-\(presentation?.cacheRevision ?? 0)") {
+                if let presentation { presentation.capture(tab); return }
                 guard tab.hasLoaded else { return }
                 let configuration = WKSnapshotConfiguration(); configuration.snapshotWidth = 360
                 image = try? await tab.webView.takeSnapshot(configuration: configuration)

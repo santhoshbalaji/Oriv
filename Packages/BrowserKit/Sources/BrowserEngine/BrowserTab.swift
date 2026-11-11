@@ -295,17 +295,27 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         }
     }
 
+    public static let navigationStarted = Notification.Name("OrivNavigationStarted")
+
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         #if os(iOS)
         webView.findInteraction?.dismissFindNavigator()
         #endif
+        NotificationCenter.default.post(name: Self.navigationStarted, object: webView)
         documentRevision += 1
         errorMessage = nil
         hasLoaded = true
         findResult = nil
         refresh(from: webView)
     }
+    #if DEBUG
+    public static let navigationCommitted = Notification.Name("OrivNavigationCommitted")
+    #endif
+
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        #if DEBUG
+        NotificationCenter.default.post(name: Self.navigationCommitted, object: webView)
+        #endif
         committedNavigationMethod = pendingNavigationMethod
         pendingNavigationMethod = nil
         contentProcessTerminated = false

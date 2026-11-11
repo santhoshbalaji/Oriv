@@ -118,7 +118,7 @@ final class MobileWebHost: UIView {
             DispatchQueue.main.async { [weak self] in self?.onAppearanceChange?(style == .dark) }
         }
     }
-    override func layoutSubviews() { super.layoutSubviews(); refreshFindVisibility(); connectScrollView(); if webView.frame != bounds { webView.frame = bounds; onGeometryChange?() } }
+    override func layoutSubviews() { super.layoutSubviews(); refreshFindVisibility(); connectScrollView(); if webView.superview === self && webView.frame != bounds { webView.frame = bounds; onGeometryChange?() } }
     func updateInsets(top: CGFloat, bottom: CGFloat) {
         let insets = UIEdgeInsets(top: max(0, top), left: 0, bottom: max(0, bottom), right: 0)
         if webView.obscuredContentInsets != insets { webView.obscuredContentInsets = insets; onGeometryChange?() }
