@@ -5,6 +5,10 @@ import WebKit
 import XCTest
 @testable import PersonalBrowser
 
+@MainActor private final class BackgroundClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 @MainActor final class SidebarLayoutTests: BackgroundUITestCase {
     private func makeWindow(_ controller: BrowserController, profiles: BrowserProfiles? = nil,
                             width: CGFloat = 1000, rtl: Bool = false) -> NSWindow {
@@ -12,6 +16,9 @@ import XCTest
             .browserAppearance(.t3Code)
             .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight).dynamicTypeSize(.accessibility5)
         let host = NSHostingController(rootView: root)
+        if BackgroundUIMode.isEnabled {
+            host.view = BackgroundClickHostingView(rootView: root)
+        }
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 60, y: 60, width: width, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
