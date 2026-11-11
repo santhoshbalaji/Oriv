@@ -36,7 +36,7 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
         try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
         let tab = BrowserTab(dataStore: .nonPersistent())
         defer { tab.close() }
-        let window = mediaWindow(for: tab.webView)
+        let window = try mediaWindow(for: tab.webView)
         defer { window.close() }
         // Exercise the actual SwiftUI representable, with a sidebar-sized sibling.
         window.contentView = NSHostingView(rootView: HStack(spacing: 0) {
@@ -101,7 +101,8 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
 
     // WebKit suppresses video rendering in detached/hidden documents. Exercise the
     // production configuration in a visible window instead of relaxing that policy.
-    private func mediaWindow(for view: WKWebView) -> NSWindow {
+    private func mediaWindow(for view: WKWebView) throws -> NSWindow {
+        try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 100, y: 100, width: 1000, height: 800),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -130,7 +131,7 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
         for query in ["?autoplay=muted", "?codec=hevc&autoplay=muted"] {
             let tab = BrowserTab(dataStore: .nonPersistent())
             defer { tab.close() }
-            let window = mediaWindow(for: tab.webView)
+            let window = try mediaWindow(for: tab.webView)
             defer { window.close() }
             tab.navigate(to: URL(string: "http://127.0.0.1:8768/media\(query)")!)
             try await waitUntil("Media metadata fixture loads") { tab.title == "Media compatibility check" && !tab.isLoading }
@@ -145,7 +146,7 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
         let session = BrowserSession(dataStore: .nonPersistent())
         defer { session.tabs.forEach { $0.close() } }
         let tab = try XCTUnwrap(session.selectedTab)
-        let window = mediaWindow(for: tab.webView)
+        let window = try mediaWindow(for: tab.webView)
         defer { window.close() }
         tab.navigate(to: URL(string: "http://127.0.0.1:8768/media?autoplay=muted")!)
         try await waitUntil("Media fixture loads") { tab.title == "Media compatibility check" && !tab.isLoading }
@@ -177,7 +178,7 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
     func testAudibleAutoplayRequiresUserGesture() async throws {
         let tab = BrowserTab(dataStore: .nonPersistent())
         defer { tab.close() }
-        let window = mediaWindow(for: tab.webView)
+        let window = try mediaWindow(for: tab.webView)
         defer { window.close() }
         tab.navigate(to: URL(string: "http://127.0.0.1:8768/media?autoplay=audible")!)
         try await waitUntil("Audible autoplay fixture loads") { tab.title == "Media compatibility check" && !tab.isLoading }
@@ -188,7 +189,7 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
         try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
         let tab = BrowserTab(dataStore: .nonPersistent())
         defer { tab.close() }
-        let window = mediaWindow(for: tab.webView)
+        let window = try mediaWindow(for: tab.webView)
         defer { window.close() }
         tab.navigate(to: URL(string: "http://127.0.0.1:8768/media?codec=hevc&autoplay=muted")!)
         try await waitUntil("HEVC fixture loads") { tab.title == "Media compatibility check" && !tab.isLoading }

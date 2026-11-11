@@ -81,6 +81,13 @@ public final class BrowserSession {
             tabs = [tab]
             selectedTabID = tab.id
         }
+        adBlocker.privacy = settings.privacy
+        adBlocker.cookieBannersEnabled = settings.privacy.isEnabled(.cookieBanners)
+        settings.privacy.onChange = { [weak self] in
+            guard let self else { return }
+            self.adBlocker.cookieBannersEnabled = self.settings.privacy.isEnabled(.cookieBanners)
+            self.tabs.forEach { $0.refreshContentBlocking() }
+        }
         adBlocker.onChange = { [weak self] in self?.tabs.forEach { $0.refreshContentBlocking() } }
         settings.onRulesChanged = { [weak self] in self?.tabs.forEach { $0.applySiteSettings() } }
         updateTabSelection()

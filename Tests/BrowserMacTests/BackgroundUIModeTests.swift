@@ -3,6 +3,10 @@ import XCTest
 @testable import PersonalBrowser
 
 class BackgroundUITestCase: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        await BackgroundRunObserver.install()
+    }
     override func tearDown() async throws {
         await MainActor.run {
             guard BackgroundUIMode.isEnabled else { return }
@@ -14,6 +18,34 @@ class BackgroundUITestCase: XCTestCase {
         }
         try await super.tearDown()
     }
+}
+
+/// Cover shared compatibility cases too, including the privacy fixtures.
+private final class BackgroundRunObserver: NSObject, XCTestObservation, @unchecked Sendable {
+    private static let shared = BackgroundRunObserver()
+    @MainActor private var registered = false
+    @MainActor static func install() {
+        guard !shared.registered else { return }
+        shared.registered = true
+        XCTestObservationCenter.shared.addTestObserver(shared)
+    }
+    @MainActor private static func check(final: Bool = false) {
+        guard BackgroundUIMode.isEnabled else { return }
+        let audit = BackgroundUIMode.audit()
+        XCTAssertEqual(audit.frontmostViolations, 0)
+        XCTAssertEqual(audit.activationViolations, 0)
+        XCTAssertEqual(audit.onscreenWindowViolations, 0)
+        XCTAssertFalse(NSApp.isActive)
+        if final, let data = try? JSONEncoder().encode(audit) {
+            print("BACKGROUND_UI_FINAL: \(String(decoding: data, as: UTF8.self))")
+        }
+    }
+    private func checkOnMain(final: Bool = false) {
+        if Thread.isMainThread { MainActor.assumeIsolated { Self.check(final: final) } }
+        else { DispatchQueue.main.sync { MainActor.assumeIsolated { Self.check(final: final) } } }
+    }
+    func testCaseDidFinish(_ testCase: XCTestCase) { checkOnMain() }
+    func testBundleDidFinish(_ testBundle: Bundle) { checkOnMain(final: true) }
 }
 
 @MainActor final class BackgroundUIModeTests: BackgroundUITestCase {

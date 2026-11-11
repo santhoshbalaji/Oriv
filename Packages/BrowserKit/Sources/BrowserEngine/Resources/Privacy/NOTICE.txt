@@ -1,0 +1,13 @@
+EasyList, EasyPrivacy and EasyList Cookie List
+Copyright: The EasyList authors (https://easylist.to/)
+Source: https://github.com/easylist/easylist
+Licence chosen: Creative Commons Attribution-ShareAlike 3.0 Unported
+https://creativecommons.org/licenses/by-sa/3.0/
+
+Bundled list version: 2026.11.11-74c3e769a009
+Generated EasyList/EasyPrivacy commit: 74c3e769a009be43c1bb73b0744e5e6e8943bad3 (gh-pages)
+Cookie template/source commit: 0476c21b10d796a3fd533cf2584ebf133ede36a5
+
+Oriv modifications: original supported-subset conversion to WebKit network and plain cosmetic rules; unsupported filters dropped with counted reports; global cosmetic exceptions suppress their selectors and scoped cosmetic exceptions conservatively disable cosmetics on affected sites; cosmetic selectors grouped; all network exceptions repeated per chunk. The adaptations remain CC BY-SA 3.0. The converter and unrelated Oriv source remain MIT. JSON resources are declarative data, not executable extension code.
+
+The manifest records immutable source URLs, SHA-256 digests, conversion counts and component sizes. Obtain the unencumbered list data, original sources and converter from the public Oriv source distribution; no additional restrictions are imposed on these list resources. Updates are bundled with app releases. No list fetching occurs inside the app.

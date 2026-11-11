@@ -257,7 +257,7 @@ import WebKit
             guard depth < 10, let node = element as? NSAccessibilityProtocol else { return [] }
             let row: [String: Any] = ["role": node.accessibilityRole()?.rawValue ?? "", "label": node.accessibilityLabel() ?? "",
                 "frame": NSStringFromRect(node.accessibilityFrame()), "depth": depth]
-            let children: [Any] = node.accessibilityChildrenInNavigationOrder().map { $0.map { $0 as Any } } ?? node.accessibilityChildren() ?? []
+            let children = node.accessibilityChildren() ?? []
             return [row] + children.flatMap { accessibility($0, depth: depth + 1) }
         }
         let value: [String: Any] = ["frame": NSStringFromRect(window.frame), "content": NSStringFromRect(window.contentView?.bounds ?? .zero),
@@ -658,6 +658,11 @@ import WebKit
             }
         }
         if liveGlass {
+            if BackgroundUIMode.isEnabled {
+                manifest.skipped.append("\(name): visual-foreground-only; compositor and Liquid Glass captures are skipped under the off-screen policy.")
+                await offscreenFallback(window, webView: webView, name: name, directory: directory)
+                return
+            }
             do {
                 let data = try await ownedPNG(window), image = NSBitmapImageRep(data: data)!
                 try data.write(to: directory.appendingPathComponent("\(name).png"))

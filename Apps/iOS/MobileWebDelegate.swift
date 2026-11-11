@@ -9,6 +9,7 @@ import Observation
     weak var tab: BrowserTab?
     var contextCancellation: MobileGestureCancellation?
     weak var controller: MobileController?
+    var touchedLinkTitle = "Link"
     var touchedImageURL: URL?
     var touchedImageLinkURL: URL?
     var touchedImageRevision: Int?

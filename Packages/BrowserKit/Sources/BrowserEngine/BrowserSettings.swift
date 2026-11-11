@@ -5,6 +5,7 @@ import WebKit
 
 @MainActor @Observable
 public final class BrowserSettings {
+    public let privacy: BrowserPrivacy
     public var searchEngine: SearchEngine { didSet { defaults?.set(searchEngine.rawValue, forKey: "browser.searchEngine") } }
     public var restoreTabs: Bool { didSet { defaults?.set(restoreTabs, forKey: "browser.restoreTabs") } }
     public var defaultZoom: Double { didSet { defaults?.set(defaultZoom, forKey: "browser.defaultZoom") } }
@@ -15,6 +16,7 @@ public final class BrowserSettings {
 
     public init(defaults: UserDefaults? = .standard) {
         self.defaults = defaults
+        privacy = BrowserPrivacy(defaults: defaults)
         searchEngine = defaults?.string(forKey: "browser.searchEngine").flatMap(SearchEngine.init(rawValue:)) ?? .duckDuckGo
         restoreTabs = defaults?.object(forKey: "browser.restoreTabs") as? Bool ?? true
         let zoom = defaults?.double(forKey: "browser.defaultZoom") ?? 1
@@ -38,7 +40,7 @@ public final class BrowserSettings {
         guard rules != incoming else { return }
         rules = incoming; persist(); onRulesChanged?()
     }
-    public func endPrivateSession() { privateRules = [:] }
+    public func endPrivateSession() { privateRules = [:]; privacy.endPrivateSession() }
     private func persist() { if let data = try? JSONEncoder().encode(rules) { defaults?.set(data, forKey: "browser.siteRules") } }
 }
 

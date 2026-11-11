@@ -8,7 +8,7 @@ root = Path(__file__).resolve().parent.parent
 policy = root / 'Apps/macOS/BackgroundUIMode.swift'
 patterns = re.compile(r'\b(?:NSApp|NSApplication\.shared|NSRunningApplication\.current)\.activate\s*\(|\.activateIgnoringOtherApps\s*\(|\.makeKeyAndOrderFront\s*\(|\.orderFrontRegardless\s*\(|\bNS(?:Window|Panel)\s*\(')
 violations = []
-for folder in ('Apps/macOS', 'Tests/BrowserMacTests'):
+for folder in ('Apps/macOS', 'Tests/BrowserMacTests', 'Tests/BrowserCompatibilityTests'):
     for path in (root / folder).rglob('*.swift'):
         if path == policy:
             continue

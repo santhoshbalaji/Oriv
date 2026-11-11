@@ -165,7 +165,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         cell.accessibilityHint = "Double tap to open. Actions include Close Tab and Move Earlier or Later."
         cell.accessibilityCustomActions = [
             UIAccessibilityCustomAction(name: "Duplicate Tab") { _ in controller.session.duplicateTab(tab.id); return true },
-            UIAccessibilityCustomAction(name: "Copy Link") { _ in if let url = tab.url { UIPasteboard.general.url = url }; return true },
+            UIAccessibilityCustomAction(name: "Copy Link") { _ in if let url = tab.url { PrivacyPasteboard.copy(url) }; return true },
             UIAccessibilityCustomAction(name: "Close Other Tabs") { _ in controller.closeOtherTabs(tab); return true },
             UIAccessibilityCustomAction(name: "Close Tab") { _ in controller.close([tab.id]); return true },
             UIAccessibilityCustomAction(name: "Move Earlier") { _ in controller.session.moveTab(tab.id, offset: -1); return true },
@@ -191,7 +191,8 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         }
         let configuration = UIContextMenuConfiguration(actionProvider: { _ in
             var items: [UIMenuElement] = [
-                UIAction(title: "Copy Link", image: UIImage(systemName: "doc.on.doc"), attributes: tab.url == nil ? .disabled : []) { _ in if let url = tab.url { UIPasteboard.general.url = url } },
+                UIAction(title: "Copy Link", image: UIImage(systemName: "doc.on.doc"), attributes: tab.url == nil ? .disabled : []) { _ in if let url = tab.url { PrivacyPasteboard.copy(url) } },
+                UIAction(title: "Copy Original Link", image: UIImage(systemName: "link"), attributes: tab.url == nil ? .disabled : []) { _ in if let url = tab.url { PrivacyPasteboard.copy(url, original: true) } },
                 action(tab.isPinned ? "Unpin Tab" : "Pin Tab", "pin") { controller.session.togglePinned(tab.id) },
                 action("Duplicate", "plus.square.on.square") { controller.session.duplicateTab(tab.id) },
                 action("Move Earlier", "arrow.up") { controller.session.moveTab(tab.id, offset: -1) },

@@ -29,6 +29,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public private(set) var isCapturingMicrophone = false
     public private(set) var hasOnlySecureContent = false
     public private(set) var hasEditedFields = false
+    public private(set) var httpWarningURL: URL?
+    @ObservationIgnored private var pendingHTTPUpgrade: URL?
+    @ObservationIgnored private var pendingCleanedURL: URL?
+    public var cleanedURL: URL? { url.map(URLCleaner.clean) }
 
     @ObservationIgnored public var onChange: (() -> Void)?
     @ObservationIgnored public var onVisit: ((URL, String) -> Void)?
@@ -157,6 +161,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     public func navigate(to destination: URL) {
         guard AddressResolver.isWebURL(destination) else { return }
+        let destination = settings?.privacy.cleanedNavigationURL(destination, isPrivate: isPrivate) ?? URLCleaner.clean(destination)
+        pendingHTTPUpgrade = nil
+        httpWarningURL = nil
+        pendingCleanedURL = nil
         let previous = record
         lastVisitedURL = nil
         contentProcessTerminated = false
@@ -170,8 +178,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if record != previous { onChange?() }
     }
 
-    public func goBack() { errorMessage = nil; backingWebView?.goBack() }
-    public func goForward() { errorMessage = nil; backingWebView?.goForward() }
+    public func goBack() { httpWarningURL = nil; pendingHTTPUpgrade = nil; errorMessage = nil; backingWebView?.goBack() }
+    public func goForward() { httpWarningURL = nil; pendingHTTPUpgrade = nil; errorMessage = nil; backingWebView?.goForward() }
     public func go(to item: WKBackForwardListItem) {
         guard let view = backingWebView,
               (view.backForwardList.backList + view.backForwardList.forwardList).contains(where: { $0 === item }) else { return }
@@ -241,6 +249,41 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if rule.microphone == .block { view.setMicrophoneCaptureState(.none, completionHandler: nil) }
     }
     public func dismissError() { errorMessage = nil }
+    /// WebKit's user-mediated fallback is intercepted before any unencrypted reload.
+    /// Only the original GET is eligible; certificate errors never arrive here as a bypass.
+    public func continueToHTTP() {
+        guard let destination = httpWarningURL else { return }
+        settings?.privacy.setException(true, .httpsUpgrade, for: destination, isPrivate: isPrivate)
+        httpWarningURL = nil; pendingHTTPUpgrade = nil
+        navigate(to: destination)
+    }
+    func interceptHTTPFallback(_ request: URLRequest, kind: PrivacyNavigationKind) -> Bool {
+        guard let destination = request.url, destination.scheme == "http", kind == .newNavigation,
+              (request.httpMethod ?? "GET").uppercased() == "GET", request.httpBody == nil, request.httpBodyStream == nil else { return false }
+        if let pendingHTTPUpgrade, Self.sameHTTPAttempt(pendingHTTPUpgrade, destination) {
+            httpWarningURL = destination; isLoading = false
+            return true
+        }
+        pendingHTTPUpgrade = destination
+        return false
+    }
+    private static func sameHTTPAttempt(_ lhs: URL, _ rhs: URL) -> Bool {
+        guard let a = URLComponents(url: lhs, resolvingAgainstBaseURL: false),
+              let b = URLComponents(url: rhs, resolvingAgainstBaseURL: false) else { return false }
+        return a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
+            && (a.port ?? 80) == (b.port ?? 80)
+            && (a.percentEncodedPath.isEmpty ? "/" : a.percentEncodedPath) == (b.percentEncodedPath.isEmpty ? "/" : b.percentEncodedPath)
+            && a.percentEncodedQuery == b.percentEncodedQuery
+    }
+    public func cancelHTTPFallback() {
+        httpWarningURL = nil; pendingHTTPUpgrade = nil; errorMessage = nil; isLoading = false
+        // The failed/replaced navigation never committed a history item. Reveal
+        // the current document instead of traversing past it or replaying a form.
+        if let current = backingWebView?.backForwardList.currentItem {
+            url = current.url; title = current.title ?? current.url.host ?? "Website"
+        } else { url = nil; title = "New tab"; content = .home; hasLoaded = false }
+        onChange?()
+    }
 
     public func close() {
         endRefreshing()
@@ -261,7 +304,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         guard let view = backingWebView, let adBlocker else { return }
         Task { @MainActor [weak self] in
             do {
-                if adBlocker.mode != .off { try await adBlocker.prepare() }
+                if adBlocker.mode != .off || adBlocker.cookieBannersEnabled { try await adBlocker.prepare() }
                 guard let self, !self.isClosed else { return }
                 adBlocker.applyPrepared(to: view.configuration.userContentController,
                                         url: view.url ?? self.url, isPrivate: self.isPrivate)
@@ -316,6 +359,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #if DEBUG
         NotificationCenter.default.post(name: Self.navigationCommitted, object: webView)
         #endif
+        httpWarningURL = nil
+        pendingHTTPUpgrade = nil
         committedNavigationMethod = pendingNavigationMethod
         pendingNavigationMethod = nil
         contentProcessTerminated = false
@@ -372,6 +417,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     private func handle(_ error: Error) {
         endRefreshing()
         let nsError = error as NSError
+        let certificateCodes = [NSURLErrorServerCertificateHasBadDate, NSURLErrorServerCertificateUntrusted,
+                                NSURLErrorServerCertificateHasUnknownRoot, NSURLErrorServerCertificateNotYetValid,
+                                NSURLErrorClientCertificateRejected, NSURLErrorClientCertificateRequired]
+        if nsError.domain == NSURLErrorDomain && certificateCodes.contains(nsError.code) {
+            pendingHTTPUpgrade = nil
+            httpWarningURL = nil
+        }
         // Cancelled navigation and downloads are not failed page loads.
         guard !(nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled),
               !(nsError.domain == "WebKitErrorDomain" && nsError.code == 102) else { return }
@@ -381,7 +433,35 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        self.webView(webView, decidePolicyFor: navigationAction, preferences: WKWebpagePreferences()) { policy, _ in decisionHandler(policy) }
+    }
+    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                        preferences: WKWebpagePreferences,
+                        decisionHandler preferencesHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+        let decisionHandler: @MainActor (WKNavigationActionPolicy) -> Void = { preferencesHandler($0, preferences) }
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
+        let mainFrame = navigationAction.targetFrame?.isMainFrame == true
+        let kind: PrivacyNavigationKind = navigationAction.navigationType == .backForward ? .backForward : navigationAction.navigationType == .reload ? .reload : .newNavigation
+        if mainFrame {
+            settings?.privacy.apply(to: preferences, request: navigationAction.request, isPrivate: isPrivate)
+            let enabled = (settings?.privacy.isEnabled(.linkCleaning, for: url, isPrivate: isPrivate) ?? true) && (settings?.privacy.isEnabled(.linkCleaning, for: webView.url, isPrivate: isPrivate) ?? true)
+            if pendingCleanedURL == url { pendingCleanedURL = nil }
+            else if !navigationAction.shouldPerformDownload,
+                    let replacement = NavigationCleaningPolicy.replacement(for: navigationAction.request, source: webView.url ?? navigationAction.sourceFrame.request.url, isMainFrame: true, kind: kind, enabled: enabled) {
+                pendingCleanedURL = replacement
+                var request = navigationAction.request
+                request.url = replacement
+                decisionHandler(.cancel)
+                webView.load(request)
+                return
+            }
+            if preferences.preferredHTTPSNavigationPolicy == .userMediatedFallbackToHTTP {
+                if interceptHTTPFallback(navigationAction.request, kind: kind) {
+                    decisionHandler(.cancel)
+                    return
+                }
+            } else if url.scheme == "http" { pendingHTTPUpgrade = nil }
+        }
         let scheme = url.scheme?.lowercased() ?? ""
         if ["http", "https"].contains(scheme), !AddressResolver.isWebURL(url) { decisionHandler(.cancel); return }
         #if os(macOS)
@@ -400,7 +480,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             let generation = policyGeneration
             Task { @MainActor [weak self] in
                 do {
-                    if adBlocker.mode != .off { try await adBlocker.prepare() }
+                    if adBlocker.mode != .off || adBlocker.cookieBannersEnabled { try await adBlocker.prepare() }
                     guard let self, !self.isClosed, self.policyGeneration == generation else {
                         decisionHandler(.cancel); return
                     }

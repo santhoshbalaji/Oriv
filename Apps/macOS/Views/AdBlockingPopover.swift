@@ -8,24 +8,15 @@ struct AdBlockingPopover: View {
     private var tab: BrowserTab? { session.selectedTab }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            EditorHeading(title: "A quieter web", subtitle: "Ad & tracker blocking", symbol: "shield.lefthalf.filled")
+        ScrollView { VStack(alignment: .leading, spacing: 16) {
+            EditorHeading(title: "Site Privacy", subtitle: "Protection for this profile", symbol: "shield.lefthalf.filled")
             Picker("Blocking mode", selection: Binding(get: { blocker.mode }, set: { blocker.setMode($0) })) {
                 ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented)
             Text(blocker.mode.detail).font(.callout).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
-            if let tab, let host = AdBlocker.host(for: tab.url) {
+            if let tab, AdBlocker.host(for: tab.url) != nil {
                 Divider()
-                Text(host).font(.subheadline.weight(.medium)).lineLimit(2)
-                Toggle("Block on this site", isOn: Binding(
-                    get: { !blocker.isException(tab.url, isPrivate: tab.isPrivate) },
-                    set: { blocker.setException(!$0, for: tab.url, isPrivate: tab.isPrivate) }
-                )).tint(theme.accent).disabled(blocker.mode == .off)
-                if tab.isPrivate {
-                    Label("This exception lasts only for this private session.", systemImage: "eyeglasses")
-                        .font(.caption).foregroundStyle(theme.secondaryText)
-                }
-                Button("Reload Page", systemImage: "arrow.clockwise") { tab.reload() }.buttonStyle(.glass).disabled(blocker.isPreparing)
+                PrivacyShieldControls(session: session, tab: tab)
             }
             if blocker.isPreparing { ProgressView("Preparing protection…").controlSize(.small) }
             if let error = blocker.preparationError {
@@ -34,6 +25,7 @@ struct AdBlockingPopover: View {
             Text("Works in normal and private tabs. Reload to apply changes fully. Filters update with Oriv releases; some ads may remain.")
                 .font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
-        .padding(20).frame(width: 320)
+        .padding(20) }.frame(width: 360, height: 620)
+            .background(BrowserGeometryMarker(name: "sitePrivacyPanelGeometry"))
     }
 }

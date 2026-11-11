@@ -4,8 +4,9 @@
 # BROWSER_TESTING state; never touches installed apps or their data.
 #
 # usage: scripts/capture-mac-visuals.sh [--glass] [--key] [output-directory]
-#   --glass    capture eleven loaded-page scenes with WindowServer glass, using only
-#              this isolated app's own window IDs. Requires screen recording access.
+#   --glass    capture loaded-page fixtures. Background mode writes labelled page
+#              snapshots and opaque layout fallbacks, skipping compositor/glass.
+#              Approved foreground mode uses only this app's validated window IDs.
 #   --key      request key-window behaviour without app activation in background mode.
 #   --active   legacy alias for --key; activation additionally needs ORIV_FOREGROUND_UI=1.
 #   ORIV_BACKGROUND_UI=1 is the default. Foreground UI requires orchestrator approval.
@@ -23,7 +24,7 @@ GLASS=0
 if [[ "${1:-}" == "--glass" ]]; then GLASS=1; shift; fi
 ACTIVATE=0
 if [[ "${1:-}" == "--active" || "${1:-}" == "--key" ]]; then ACTIVATE=1; shift; fi
-if [[ "$GLASS" == 1 ]]; then
+if [[ "$GLASS" == 1 && "$ORIV_BACKGROUND_UI" != 1 ]]; then
   swift -e 'import CoreGraphics; import Foundation
     let state = CGSessionCopyCurrentDictionary() as? [String: Any]
     if CGDisplayIsAsleep(CGMainDisplayID()) != 0 || state?["CGSSessionScreenIsLocked"] as? Bool == true {

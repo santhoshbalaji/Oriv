@@ -11,6 +11,7 @@ import WebKit
     init(owner: MobileWebDelegate) { self.owner = owner }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any] else { return }
+        owner?.touchedLinkTitle = String((body["title"] as? String ?? "Link").prefix(500))
         owner?.touchedImageURL = (body["image"] as? String).flatMap(URL.init(string:))
         owner?.touchedImageLinkURL = (body["link"] as? String).flatMap(URL.init(string:)).flatMap { AddressResolver.isWebURL($0) ? $0 : nil }
         owner?.touchedImageRevision = owner?.tab?.documentRevision
@@ -34,8 +35,8 @@ import WebKit
         }
         point = {x:e.touches[0].clientX, y:e.touches[0].clientY};
         const img = e.target.closest && e.target.closest('img');
-        const link = img && img.closest('a[href]');
-        window.webkit.messageHandlers.orivContext.postMessage({image: img ? (img.currentSrc || img.src || '') : '', link:link ? link.href : ''});
+        const link = e.target.closest && e.target.closest('a[href]');
+        window.webkit.messageHandlers.orivContext.postMessage({image: img ? (img.currentSrc || img.src || '') : '', link:link ? link.href : '', title:link ? (link.innerText || link.title || 'Link') : ''});
       }, {passive:true, capture:true});
       document.addEventListener('contextmenu', e => {
         const img = e.target.closest && e.target.closest('img');
@@ -108,7 +109,7 @@ extension MobileWebDelegate: @preconcurrency UIEditMenuInteractionDelegate, UIGe
         guard link != nil || image != nil else { completionHandler(nil); return }
         completionHandler(UIContextMenuConfiguration(identifier: nil, previewProvider: {
             guard let link else { return nil }
-            return MobileLinkPreview(url: link, source: tab, session: session)
+            return MobileLinkPreview(url: link, title: self.touchedLinkTitle, source: tab, session: session)
         }, actionProvider: { [weak self] _ in
             guard let self, contextIsCurrent(revision) else { return UIMenu(children: []) }
             var children: [UIMenuElement] = []
@@ -134,6 +135,13 @@ extension MobileWebDelegate: @preconcurrency UIEditMenuInteractionDelegate, UIGe
             }
         }
         var items: [UIMenuElement] = [
+            action("Load Preview", "eye") { [weak self] in
+                guard let presenter = MobileWebDelegate.presenter else { return }
+                let preview = MobileLinkPreview(url: url, title: self?.touchedLinkTitle ?? "Link", source: tab, session: session)
+                preview.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak preview] _ in preview?.dismiss(animated: true) })
+                presenter.present(UINavigationController(rootViewController: preview), animated: true)
+                preview.loadViewIfNeeded(); preview.loadPreview()
+            },
             action("Open", "arrow.up.right") { tab.navigate(to: url) },
             action("Open in New Tab", "plus.square") { session.addTab(url: url, isPrivate: tab.isPrivate) },
             action("Open in Background", "square.on.square") {
@@ -150,8 +158,9 @@ extension MobileWebDelegate: @preconcurrency UIEditMenuInteractionDelegate, UIGe
             action("Download Linked File", "arrow.down.circle") { [weak controller] in
                 tab.webView.startDownload(using: URLRequest(url: url)) { download in controller?.downloads.begin(download) }
             },
-            action("Copy Link", "doc.on.doc") { UIPasteboard.general.url = url },
-            action("Share", "square.and.arrow.up") { [weak controller] in controller?.share([url]) }
+            action("Copy Link", "doc.on.doc") { PrivacyPasteboard.copy(url) },
+            action("Copy Original Link", "link") { PrivacyPasteboard.copy(url, original: true) },
+            action("Share", "square.and.arrow.up") { [weak controller] in controller?.share([URLCleaner.clean(url)]) }
         ]
         let page = profiles?.profiles.first { $0.id == controller.profileID }.flatMap {
             ContinuityPage(url: url, title: url.host ?? "Page", profile: $0, isPrivate: tab.isPrivate)
@@ -195,20 +204,46 @@ extension MobileWebDelegate: @preconcurrency UIEditMenuInteractionDelegate, UIGe
     }
 }
 
-/// A real Oriv preview, with the opener's website data store and content policy.
-/// It has no history/continuity callbacks, popup UI, or external-app routing.
-@MainActor private final class MobileLinkPreview: UIViewController {
-    let preview: BrowserTab
-    init(url: URL, source: BrowserTab, session: BrowserSession) {
-        preview = BrowserTab(record: TabRecord(url: url), isPrivate: source.isPrivate,
-            dataStore: source.webView.configuration.websiteDataStore, adBlocker: session.adBlocker, settings: session.settings)
+/// Pure native card until an explicit Load Preview action. No WKWebView is
+/// instantiated by a long press, including in private/external-private tabs.
+@MainActor final class MobileLinkPreview: UIViewController {
+    private(set) var preview: BrowserTab?
+    private let destination: URL
+    private let linkTitle: String
+    private weak var source: BrowserTab?
+    private weak var session: BrowserSession?
+    private let revision: Int
+    init(url: URL, title: String = "Link", source: BrowserTab, session: BrowserSession) {
+        destination = URLCleaner.clean(url); linkTitle = title
+        self.source = source; self.session = session; revision = source.documentRevision
         super.init(nibName: nil, bundle: nil)
-        preview.toggleMediaSuspension()
         preferredContentSize = CGSize(width: 380, height: 460)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func loadView() { view = preview.webView; preview.activate() }
-    override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); preview.close() }
+    override func loadView() {
+        let root = UIView(); root.backgroundColor = .systemBackground
+        let title = UILabel(); title.text = linkTitle; title.font = .preferredFont(forTextStyle: .headline); title.numberOfLines = 3
+        let domain = UILabel(); domain.text = destination.host; domain.font = .preferredFont(forTextStyle: .subheadline)
+        let url = UITextView(); url.text = destination.absoluteString; url.font = .preferredFont(forTextStyle: .body)
+        url.isEditable = false; url.isSelectable = true; url.backgroundColor = .clear
+        let button = UIButton(type: .system); button.setTitle("Load Preview", for: .normal)
+        button.addTarget(self, action: #selector(loadPreview), for: .touchUpInside)
+        let stack = UIStackView(arrangedSubviews: [title, domain, url, button]); stack.axis = .vertical; stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false; root.addSubview(stack)
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20), stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20), stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 20), stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20), button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)])
+        view = root
+    }
+    @objc func loadPreview() {
+        guard preview == nil, let source, let session, source.documentRevision == revision,
+              session.isProfileActive, session.tabs.contains(where: { $0 === source }) else { return }
+        let tab = BrowserTab(record: TabRecord(url: destination), isPrivate: source.isPrivate,
+            dataStore: source.webView.configuration.websiteDataStore, adBlocker: session.adBlocker, settings: session.settings)
+        preview = tab; tab.toggleMediaSuspension()
+        let web = tab.webView; web.frame = view.bounds; web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.subviews.forEach { $0.removeFromSuperview() }; view.addSubview(web)
+        tab.activate()
+    }
+    override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); preview?.close() }
 }
 
 /// Uses WebKit's own cookie/data store, never a separate network client. Bytes and files

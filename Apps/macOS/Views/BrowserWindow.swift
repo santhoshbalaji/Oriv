@@ -42,7 +42,13 @@ struct BrowserWindow: View {
     private var tab: BrowserTab? { session.selectedTab }
     private var showsExternalPrivateBar: Bool { session.isExternalPrivate && profiles?.externalBannerVisible == true }
     private var compact: Bool { controller.compactSidebar }
-    private var addressWidth: CGFloat { min(640, max(230, windowWidth - (compact ? (fullscreen ? 306 : 370) : 502))) }
+    private var showsToolbarDownloads: Bool { controller.downloads.hasActiveDownloads && (compact || windowWidth >= 800) }
+    private var addressWidth: CGFloat {
+        let actions = 30 * CGFloat(3 + (tab?.url == nil ? 0 : 1) + (showsToolbarDownloads ? 1 : 0)) + 10
+        let collapsedControls: CGFloat = compact ? (fullscreen ? 36 : 96) : 0
+        let reserved = (compact ? 0 : MacBrowserLayout.sidebarWidth) + collapsedControls + 24 + 70 + 36 + 20 + actions
+        return min(640, max(230, windowWidth - reserved))
+    }
     private var compactAddress: String? { tab?.url.flatMap(URLDisplay.site) }
     private var compactAddressWidth: CGFloat? {
         guard !addressFocused, let compactAddress else { return nil }
@@ -192,7 +198,7 @@ struct BrowserWindow: View {
     }
 
     private var mainTopBar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             if compact {
                 if !fullscreen { Color.clear.frame(width: MacBrowserLayout.lightsWidth + 2).accessibilityHidden(true) }
                 sidebarToggle(glass: true)
@@ -290,17 +296,25 @@ struct BrowserWindow: View {
                     Capsule().strokeBorder(addressFocused ? theme.accent : .clear, lineWidth: 1.5)
                 }
                 .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
+                .background(BrowserGeometryMarker(name: "browserAddressGeometry"))
     }
 
-    // Add optional actions (for example privacy) here; the address yields width.
+    // Site privacy shares the content header's glass and adaptive foreground.
     private var toolbarActions: some View {
                 HStack(spacing: 2) {
-                if controller.downloads.hasActiveDownloads {
+                if showsToolbarDownloads {
                     Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
                         .labelStyle(.iconOnly).help("View downloads in progress")
                 }
+                Button { showPageMenu = false; showProtection.toggle() } label: {
+                    Image(systemName: "shield.lefthalf.filled").frame(width: 28, height: 28).foregroundStyle(chromeForeground)
+                }
+                .help("Site Privacy").accessibilityLabel("Site Privacy")
+                .accessibilityIdentifier("sitePrivacyButton")
+                .background(BrowserGeometryMarker(name: "browserPrivacyGeometry"))
+                .popover(isPresented: $showProtection) { AdBlockingPopover(session: session) }
                 if let url = tab?.url {
-                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
+                    ShareLink(item: URLCleaner.clean(url)) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                         .help("Share Page").accessibilityLabel("Share Page")
                 }
                 Button { controller.newTab() } label: { Image(systemName: "plus").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
@@ -319,7 +333,6 @@ struct BrowserWindow: View {
                     .buttonStyle(.plain).frame(width: 36, height: 32).modifier(chromeGlass)
                     .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
                     .popover(isPresented: $showPasswords) { PasswordsGuide(compact: true) }
-                    .popover(isPresented: $showProtection) { AdBlockingPopover(session: session) }
     }
 
     private var pageActionsPanel: some View {
@@ -327,8 +340,15 @@ struct BrowserWindow: View {
             Text(tab?.displayTitle ?? "Oriv").font(.headline).lineLimit(2).padding(8)
                     Button("New Tab", systemImage: "plus") { showPageMenu = false; controller.newTab() }
                     Button("New Private Tab", systemImage: "eyeglasses") { showPageMenu = false; controller.newTab(isPrivate: true) }
+                    if controller.downloads.hasActiveDownloads {
+                        Button("Downloads in Progress", systemImage: "arrow.down.circle.fill") { showPageMenu = false; controller.library = .downloads }
+                    }
                     Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { showPageMenu = false; session.reopenClosedTab() }.disabled(!session.canReopenTab)
                     Divider()
+                    if let url = tab?.url {
+                        Button("Copy Link", systemImage: "doc.on.doc") { PrivacyPasteboard.copy(url); showPageMenu = false }
+                        Button("Copy Original Link") { PrivacyPasteboard.copy(url, original: true); showPageMenu = false }
+                    }
                     if let profiles { SendPageMenu(continuity: profiles.continuity, session: session, profile: controller.profile) }
                     Button(session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: "bookmark") { showPageMenu = false; controller.saveCurrentPage() }
                         .disabled(tab?.url == nil || tab?.isPrivate == true)
@@ -337,7 +357,7 @@ struct BrowserWindow: View {
                     Button("Zoom Out", systemImage: "minus.magnifyingglass") { showPageMenu = false; tab?.zoomOut() }.disabled(tab?.url == nil)
                     Button("Reset Page Zoom") { showPageMenu = false; tab?.resetZoom() }.disabled(tab?.url == nil)
                     Button("Read Page Text", systemImage: "doc.text") { showPageMenu = false; controller.openReader() }.disabled(tab?.url == nil)
-                    Button("Ad Blocking", systemImage: "shield.lefthalf.filled") { showPageMenu = false; showProtection = true }
+                    Button("Site Privacy", systemImage: "shield.lefthalf.filled") { showPageMenu = false; showProtection = true }
                     Button("Password AutoFill Help", systemImage: "key") { showPageMenu = false; showPasswords = true }
         }
         .buttonStyle(PageMenuButtonStyle()).labelStyle(.titleAndIcon).font(OrivType.body)
@@ -442,6 +462,7 @@ struct BrowserWindow: View {
                 if let tab {
                     ZStack(alignment: .top) {
                         tabContent(tab).id(tab.id)
+                        if tab.httpWarningURL != nil { HTTPFallbackView(tab: tab).frame(maxWidth: .infinity, maxHeight: .infinity).background(theme.canvas) }
                         if let error = tab.errorMessage {
                             ContentUnavailableView {
                                 Label("This page couldn’t load", systemImage: "network.slash")

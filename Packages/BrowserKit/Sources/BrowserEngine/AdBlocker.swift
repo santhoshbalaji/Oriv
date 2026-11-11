@@ -1,4 +1,6 @@
+import BrowserCore
 import CryptoKit
+import Darwin
 import Foundation
 import Observation
 import WebKit
@@ -24,18 +26,31 @@ public final class AdBlocker {
     public private(set) var privateExceptions: Set<String> = []
     public private(set) var isPreparing = false
     public private(set) var preparationError: String?
-    public static let rulesVersion = "2026.10.25"
+    public static let rulesVersion = "2026.11.11-74c3e769a009"
+    public var cookieBannersEnabled = false
+    @ObservationIgnored public var privacy: BrowserPrivacy?
+    public private(set) var compilationMeasurements: [RuleCompilationMeasurement] = []
     @ObservationIgnored public var onChange: (() -> Void)?
     @ObservationIgnored private let defaults: UserDefaults?
-    @ObservationIgnored private let source: [AdBlockingMode: String]
-    @ObservationIgnored private var lists: [AdBlockingMode: WKContentRuleList] = [:]
-    @ObservationIgnored private var compilation: Task<[AdBlockingMode: WKContentRuleList], Error>?
+    @ObservationIgnored private let source: [String: String]
+    @ObservationIgnored private let cacheNamespace: String
+    @ObservationIgnored private let sourceError: Error?
+    @ObservationIgnored private var lists: [String: WKContentRuleList] = [:]
+    @ObservationIgnored private var compilation: Task<[String: WKContentRuleList], Error>?
 
-    public init(defaults: UserDefaults? = nil, rules: [AdBlockingMode: String]? = nil) {
+    public init(defaults: UserDefaults? = nil, rules: [AdBlockingMode: String]? = nil, cookieRules: String? = nil, cacheNamespace: String = "oriv.privacy") {
+        self.cacheNamespace = cacheNamespace
         self.defaults = defaults
         mode = defaults?.string(forKey: "adBlockingMode").flatMap(AdBlockingMode.init(rawValue:)) ?? .balanced
         regularExceptions = Set(defaults?.stringArray(forKey: "adBlockingExceptions") ?? [])
-        source = rules ?? AdBlockingRules.bundled
+        if let rules {
+            var values = Dictionary(uniqueKeysWithValues: rules.map { ($0.key.rawValue, $0.value) })
+            if let cookieRules { values["cookies-fixture"] = cookieRules }
+            source = values; sourceError = nil
+        } else {
+            do { source = try BundledPrivacyRules.sources(); sourceError = nil }
+            catch { source = [:]; sourceError = error }
+        }
     }
 
     public static func host(for url: URL?) -> String? {
@@ -89,49 +104,65 @@ public final class AdBlocker {
 
     public func prepare() async throws {
         if !lists.isEmpty { return }
+        if let sourceError { preparationError = "Bundled protection rules could not be read."; throw sourceError }
         if compilation == nil {
             isPreparing = true
             preparationError = nil
             let source = source
-            compilation = Task { @MainActor in
-                var result: [AdBlockingMode: WKContentRuleList] = [:]
-                for mode in [AdBlockingMode.balanced, .strict] {
-                    guard let json = source[mode] else { throw CocoaError(.fileReadCorruptFile) }
+            let cacheNamespace = cacheNamespace
+            compilation = Task { @MainActor [weak self] in
+                var result: [String: WKContentRuleList] = [:]
+                guard !source.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+                for key in source.keys.sorted() {
+                    let json = source[key]!
                     let hash = SHA256.hash(data: Data(json.utf8)).map { String(format: "%02x", $0) }.joined()
-                    let identifier = "oriv.\(mode.rawValue.lowercased()).\(hash)"
+                    let identifier = "\(cacheNamespace).\(hash)"
                     let store = WKContentRuleListStore.default()!
-                    if let cached = try? await store.contentRuleList(forIdentifier: identifier) {
-                        result[mode] = cached
-                    } else {
-                        result[mode] = try await store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: json)
-                    }
+                    let started = ProcessInfo.processInfo.systemUptime
+                    let before = RuleCompilationMeasurement.residentBytes()
+                    let cached = try? await store.contentRuleList(forIdentifier: identifier)
+                    if let cached { result[key] = cached }
+                    else { result[key] = try await store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: json) }
+                    self?.compilationMeasurements.append(RuleCompilationMeasurement(component: key, identifier: identifier, peakProcessResident: RuleCompilationMeasurement.peakResidentBytes(), cached: cached != nil,
+                        seconds: ProcessInfo.processInfo.systemUptime - started, residentBefore: before, residentAfter: RuleCompilationMeasurement.residentBytes()))
                 }
                 return result
             }
         }
         do {
             lists = try await compilation!.value
+            compilation = nil
             isPreparing = false
         } catch {
             isPreparing = false
-            preparationError = "Ad blocking could not start. Try again or choose Off to load without filtering."
+            preparationError = "Privacy filtering could not start. Try again or choose Off and disable cookie hiding to load without filtering."
             compilation = nil
             throw error
         }
     }
 
     public func apply(to controller: WKUserContentController, url: URL?, isPrivate: Bool) async throws {
-        if mode != .off { try await prepare() }
+        if mode != .off || cookieBannersEnabled { try await prepare() }
         applyPrepared(to: controller, url: url, isPrivate: isPrivate)
     }
 
-    /// Redirect handling must be synchronous; the navigation gate already prepared the lists.
+    /// Compiled components contain no profile or private site data.
     func applyPrepared(to controller: WKUserContentController, url: URL?, isPrivate: Bool) {
+        let hideCookies = cookieBannersEnabled && (privacy?.isEnabled(.cookieBanners, for: url, isPrivate: isPrivate) ?? true)
+        CookieBannerRestoration.update(controller, enabled: hideCookies)
         for list in lists.values { controller.remove(list) }
-        if isEnabled(for: url, isPrivate: isPrivate), let list = lists[mode] { controller.add(list) }
+        for (key, list) in lists {
+            if key.hasPrefix("cookies") {
+                if cookieBannersEnabled && (privacy?.isEnabled(.cookieBanners, for: url, isPrivate: isPrivate) ?? true) { controller.add(list) }
+            } else if isEnabled(for: url, isPrivate: isPrivate) {
+                if key == mode.rawValue || key.hasPrefix("network") || key.hasPrefix(mode == .strict ? "cosmetics-strict" : "cosmetics-light") || key == "original-strict" && mode == .strict { controller.add(list) }
+            }
+        }
     }
+
 }
 
+/// Original Strict first-party supplement. The default source also includes maintained lists.
 /// Original, deliberately bounded rules. No downloaded executable code, browsing
 /// telemetry, cosmetic page script or third-party extension is involved.
 public enum AdBlockingRules {
@@ -173,5 +204,63 @@ public enum AdBlockingRules {
 
     private static func encode(_ rules: [[String: Any]]) -> String {
         String(data: try! JSONSerialization.data(withJSONObject: rules, options: [.sortedKeys]), encoding: .utf8)!
+    }
+}
+
+
+public struct RuleCompilationMeasurement: Codable, Sendable {
+    public var component: String
+    public var identifier: String
+    public var peakProcessResident: UInt64
+    public var cached: Bool
+    public var seconds: Double
+    public var residentBefore: UInt64
+    public var residentAfter: UInt64
+    static func peakResidentBytes() -> UInt64 {
+        var usage = rusage()
+        return getrusage(RUSAGE_SELF, &usage) == 0 ? UInt64(max(0, usage.ru_maxrss)) : 0
+    }
+    static func residentBytes() -> UInt64 {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count) }
+        }
+        return result == KERN_SUCCESS ? info.resident_size : 0
+    }
+}
+
+public enum BundledPrivacyRules {
+    public static var acknowledgements: String {
+        guard let root = Bundle.module.url(forResource: "Privacy", withExtension: nil) else { return "Privacy acknowledgements could not be read." }
+        let notice = (try? String(contentsOf: root.appendingPathComponent("NOTICE.txt"), encoding: .utf8)) ?? ""
+        let license = (try? String(contentsOf: root.appendingPathComponent("CC-BY-SA-3.0.txt"), encoding: .utf8)) ?? ""
+        return notice + "\n\n" + license
+    }
+    private static let cachedSources = Result { try readSources() }
+    static func sources() throws -> [String: String] { try cachedSources.get() }
+    private struct Manifest: Decodable { let outputs: [String: [Resource]] }
+    private struct Resource: Decodable { let file: String; let sha256: String }
+    private static func readSources() throws -> [String: String] {
+        guard let root = Bundle.module.url(forResource: "Privacy", withExtension: nil) else { throw CocoaError(.fileReadNoSuchFile) }
+        let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
+        let resources = manifest.outputs.values.flatMap { $0 }
+        guard !resources.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+        let files = resources.map { root.appendingPathComponent($0.file) }
+        var values: [String: String] = [:]
+        for file in files {
+            let lines = try String(contentsOf: file, encoding: .utf8).split(separator: "\n", maxSplits: 1)
+            guard lines.count == 2,
+                  let header = try JSONSerialization.jsonObject(with: Data(lines[0].utf8)) as? [String: Any],
+                  header["sha256"] as? String == resources.first(where: { $0.file == file.lastPathComponent })?.sha256,
+                  let limit = header["decodedBytes"] as? Int, (1...50_000_000).contains(limit),
+                  let encoded = Data(base64Encoded: String(lines[1]).trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let decoded = try (encoded as NSData).decompressed(using: .zlib) as Data?, decoded.count == limit,
+                  SHA256.hash(data: decoded).map({ String(format: "%02x", $0) }).joined() == header["sha256"] as? String,
+                  let json = String(data: decoded, encoding: .utf8) else { throw CocoaError(.fileReadCorruptFile) }
+            values[file.deletingPathExtension().lastPathComponent] = json
+        }
+        values["original-strict"] = AdBlockingRules.bundled[.strict]
+        return values
     }
 }

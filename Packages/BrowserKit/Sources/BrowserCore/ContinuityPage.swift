@@ -6,7 +6,7 @@ public struct ContinuityPage: Equatable, Sendable {
     public var profile: ContinuityProfile
     public init?(url: URL?, title: String, profile: BrowserProfile, isPrivate: Bool) {
         guard !isPrivate, let url, ContinuityRecord.safeURL(url), title.count <= 4_000 else { return nil }
-        self.url = url; self.title = title; self.profile = ContinuityProfile(profile)
+        self.url = URLCleaner.clean(url); self.title = title; self.profile = ContinuityProfile(profile)
     }
     public var userInfo: [String: String] {
         ["url": url.absoluteString, "title": title, "profileID": profile.id.uuidString, "profileName": profile.name,

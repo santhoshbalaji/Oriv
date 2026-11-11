@@ -59,6 +59,64 @@ import XCTest
         try await Task.sleep(for: .milliseconds(200))
         try checkGeometry(window, collapsed: false)
     }
+    func testPrivacyShieldAndAddressFitDefaultAndMinimumWithSidebar() async throws {
+        let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
+        let controller = profiles.controller, tab = try XCTUnwrap(controller.session.selectedTab)
+        let window = makeWindow(controller, profiles: profiles, width: 1250); defer { window.close() }
+        controller.navigate("http://127.0.0.1:18768/privacy?utm_source=integration&keep=1")
+        for _ in 0..<800 {
+            if tab.title == "Privacy fixture" && !tab.isLoading { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(tab.title, "Privacy fixture")
+        XCTAssertEqual(tab.url?.query, "keep=1")
+        let trackerBlocked = try await tab.webView.evaluateJavaScript("window.shippingTrackerBlocked === true") as? Bool
+        XCTAssertEqual(trackerBlocked, true)
+        controller.downloads.items.append(DownloadItem())
+        for width: CGFloat in [1250, 760, 800] {
+            window.setContentSize(NSSize(width: width, height: 600))
+            for collapsed in [false, true] {
+                controller.compactSidebar = collapsed
+                try await Task.sleep(for: .milliseconds(400))
+                try checkGeometry(window, collapsed: collapsed)
+                let header = try XCTUnwrap(marker("browserTopBarGeometry", in: window))
+                let address = try XCTUnwrap(marker("browserAddressGeometry", in: window))
+                let shield = try XCTUnwrap(marker("browserPrivacyGeometry", in: window))
+                let addressRect = address.convert(address.bounds, to: header)
+                let shieldRect = shield.convert(shield.bounds, to: header)
+                XCTAssertGreaterThanOrEqual(addressRect.width, 230)
+                XCTAssertTrue(header.bounds.contains(addressRect))
+                XCTAssertTrue(header.bounds.contains(shieldRect))
+                XCTAssertLessThanOrEqual(addressRect.maxX, shieldRect.minX)
+                XCTAssertNotNil(marker("browserPrivacyGeometry", in: window))
+            }
+        }
+        controller.compactSidebar = false
+        try await Task.sleep(for: .milliseconds(400))
+        let shield = try XCTUnwrap(marker("browserPrivacyGeometry", in: window))
+        let point = shield.convert(NSPoint(x: shield.bounds.midX, y: shield.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            window.sendEvent(event)
+        }
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertTrue(NSApp.windows.contains { window in
+            marker("sitePrivacyPanelGeometry", in: window) != nil
+        }, "Shield must open the privacy controls in the integrated shell")
+        controller.session.settings.privacy.setEnabled(true, .cookieBanners)
+        tab.reload()
+        var bannerDisplay: String?
+        for _ in 0..<800 {
+            bannerDisplay = try? await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#onetrust-banner-sdk')).display") as? String
+            if !tab.isLoading && bannerDisplay == "none" { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(bannerDisplay, "none")
+        let audit = BackgroundUIMode.audit()
+        XCTAssertEqual(audit.onscreenWindowViolations, 0)
+    }
     func testRealWindowButtonsStayInTheirParentsAndAlignInBothStates() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }

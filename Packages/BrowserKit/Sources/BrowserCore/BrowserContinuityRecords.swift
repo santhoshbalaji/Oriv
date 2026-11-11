@@ -225,7 +225,11 @@ public struct ContinuityReplica: Codable, Sendable {
             return nil
         }
         for key in oldKeys where !tabKeys.contains(key) { try put(key, nil) }
-        for (position, tab) in regularTabs.enumerated() where tab.url.map(ContinuityRecord.safeURL) == true { try put(ContinuityRecord.tabKey(profile.id, deviceID, tab.id), .tab(profile.id, device: deviceID, tab: tab, position: position)) }
+        for (position, tab) in regularTabs.enumerated() where tab.url.map(ContinuityRecord.safeURL) == true {
+            var shared = tab
+            shared.url = tab.url.map(URLCleaner.clean)
+            try put(ContinuityRecord.tabKey(profile.id, deviceID, tab.id), .tab(profile.id, device: deviceID, tab: shared, position: position))
+        }
         for (key, value) in preferences where ContinuityRecord.preferenceKeys.contains(key) { try put(ContinuityRecord.preferenceKey(profile.id, key), .preference(profile.id, key: key, value: value), seed: true) }
     }
     public mutating func clearHistory(profile: UUID, since: Date, through: Date = .now) throws {
