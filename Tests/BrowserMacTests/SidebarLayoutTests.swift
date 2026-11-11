@@ -201,4 +201,23 @@ import XCTest
         for index in 0..<3 { XCTAssertTrue((order[index] as AnyObject) === buttons[index]) }
     }
 
+    func testCollapsingFocusedSidebarSearchDoesNotFocusAddress() async throws {
+        let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
+        let controller = profiles.controller
+        for _ in 0..<8 { _ = controller.session.addTab(url: nil, select: false, load: false) }
+        let window = makeWindow(controller, profiles: profiles); defer { window.close() }
+        try await Task.sleep(for: .milliseconds(400))
+        let search = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "tabSearchField" } })
+        let field = try XCTUnwrap(address(in: window))
+        window.makeFirstResponder(search)
+        try await wait { search.currentEditor() != nil }
+        let request = controller.addressFocusRequest
+        controller.compactSidebar = true
+        try await Task.sleep(for: .milliseconds(500))
+        try checkGeometry(window, collapsed: true)
+        XCTAssertNil(field.currentEditor(), "Removing sidebar focus must select the surviving toggle, not the address")
+        XCTAssertEqual(controller.addressFocusRequest, request)
+        XCTAssertTrue(window.firstResponder is NSView)
+    }
+
 }

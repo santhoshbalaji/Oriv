@@ -408,6 +408,8 @@ import WebKit
     private static func fullscreenEvidence(_ window: NSWindow, name: String, directory: URL) async {
         var rows: [[String: Any]] = []
         func state(_ mode: String) async {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
             try? await Task.sleep(for: .milliseconds(600))
             await ownedImage(window, to: directory.appendingPathComponent("\(name)-\(mode).png"))
             if let toolbarWindow = window.toolbar?.items.compactMap({ $0.view?.window }).first(where: { $0 !== window }) {

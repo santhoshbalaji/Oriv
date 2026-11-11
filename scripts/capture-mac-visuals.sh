@@ -79,7 +79,7 @@ if not name.startswith('mac-glass-') or not name.replace('-', '').isalnum(): rai
 destination = root / (name + '-live.png')
 if not destination.exists():
     temporary = root / (name + '-pending.png')
-    for attempt in range(3):
+    for attempt in range(15):
         capture = subprocess.run(['/usr/sbin/screencapture', '-x', '-o', '-l' + str(int(request['windowID'])), str(temporary)], capture_output=True)
         if capture.returncode == 0:
             temporary.rename(destination)
