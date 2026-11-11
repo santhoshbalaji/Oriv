@@ -6,9 +6,10 @@ struct WebPageView: NSViewRepresentable {
     let tab: BrowserTab
     var chrome: PageChrome? = nil
     var contentUnderChrome = false
+    var headerInset: CGFloat = 0
 
     func makeNSView(context: Context) -> WebViewHost { WebViewHost(webView: tab.webView) }
-    func updateNSView(_ host: WebViewHost, context: Context) { host.onGeometryChange = { chrome?.requestSample() }; host.clipsToBounds = !contentUnderChrome; host.attachIfWindowed(); host.needsLayout = true }
+    func updateNSView(_ host: WebViewHost, context: Context) { host.headerInset = headerInset; host.onGeometryChange = { chrome?.requestSample() }; host.clipsToBounds = !contentUnderChrome; host.attachIfWindowed(); host.needsLayout = true }
 }
 
 /// SwiftUI sizes this container. WebKit owns the child view's frame and can
@@ -16,6 +17,7 @@ struct WebPageView: NSViewRepresentable {
 /// See WebKit bug 313802 and WKWebView.fullscreenState's reparenting contract.
 final class WebViewHost: NSView {
     let webView: WKWebView
+    var headerInset: CGFloat = 0
     var onGeometryChange: (() -> Void)?
     private var fullscreenObservation: NSKeyValueObservation?
 
@@ -58,11 +60,13 @@ final class WebViewHost: NSView {
             // Keep SwiftUI's native toolbar in its own layout region. Extending the
             // entire SwiftUI page with ignoresSafeArea puts its layer ABOVE NSToolbar
             // on macOS 27. Extend WebKit's child instead, beneath the native chrome.
-            let extensionHeight = abs(rect.maxY - window.contentLayoutRect.maxY) < 1
-                ? max(0, window.contentView!.bounds.height - window.contentLayoutRect.maxY) : 0
+            let extensionHeight = headerInset > 0
+                ? (abs(rect.maxY - (window.frame.height - headerInset)) < 1 ? headerInset : 0)
+                : (abs(rect.maxY - window.contentLayoutRect.maxY) < 1
+                ? max(0, window.contentView!.bounds.height - window.contentLayoutRect.maxY) : 0)
             let frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height + extensionHeight)
             if webView.frame != frame { webView.frame = frame; onGeometryChange?() }
-            let top = max(0, rect.maxY + extensionHeight - window.contentLayoutRect.maxY)
+            let top = headerInset > 0 ? extensionHeight : max(0, rect.maxY + extensionHeight - window.contentLayoutRect.maxY)
             if abs(webView.obscuredContentInsets.top - top) > 0.1 {
                 webView.obscuredContentInsets = NSEdgeInsets(top: top, left: 0, bottom: 0, right: 0)
                 onGeometryChange?()

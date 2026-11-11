@@ -5,7 +5,6 @@ struct BrowserSidebar: View {
     @Environment(\.browserTheme) private var theme
     let controller: BrowserController
     var profiles: BrowserProfiles? = nil
-    var compact = false
     @State private var search = ""
     @State private var closeOthers: UUID?
     @State private var closeToRight = false
@@ -14,44 +13,12 @@ struct BrowserSidebar: View {
         session.tabs.filter { search.isEmpty || $0.displayTitle.localizedCaseInsensitiveContains(search) || $0.hostname.localizedCaseInsensitiveContains(search) }
     }
 
-    var body: some View {
-        Group { if compact { rail } else { expanded } }
-            .browserGlass(radius: 20)
-    }
-    private var rail: some View {
-        VStack(spacing: 14) {
-            if let profiles, !session.isExternalPrivate { ProfileMenu(profiles: profiles, compact: true, iconOnly: true).frame(width: 26, height: 30) }
-            Button { controller.newTab() } label: { Image(systemName: "plus").frame(width: 36, height: 30) }.accessibilityLabel("New tab")
-            Button { controller.library = .bookmarks } label: { Image(systemName: "bookmark").frame(width: 36, height: 30) }.accessibilityLabel("Bookmarks")
-            Divider()
-            ScrollView {
-                VStack(spacing: OrivSpacing.small) {
-                    ForEach(session.orderedTabs) { tab in
-                        Button { session.selectTab(tab.id) } label: {
-                            Group {
-                                if tab.url != nil { SiteIdentity(url: tab.url, size: 26, isPrivate: tab.isPrivate) }
-                                else { Image(systemName: tab.isPrivate ? "eyeglasses" : "plus.square.dashed").foregroundStyle(theme.secondaryText).frame(width: 26, height: 26) }
-                            }.frame(width: 40, height: 36)
-                                .background { if tab.id == session.selectedTabID { SelectedRowBackground(cornerRadius: OrivRadius.small) } }
-                        }.help(tab.displayTitle).accessibilityLabel(tab.displayTitle)
-                            .accessibilityAddTraits(tab.id == session.selectedTabID ? .isSelected : [])
-                            .contextMenu {
-                                Button("Close Tab") { controller.requestCloseTab(tab.id) }
-                                Button(tab.isPinned ? "Unpin" : "Pin") { session.togglePinned(tab.id) }
-                                Button("Reopen Closed Tab") { session.reopenClosedTab() }.disabled(!session.canReopenTab)
-                            }
-                    }
-                }
-            }
-            Button { controller.library = .downloads } label: { Image(systemName: "arrow.down.circle").frame(width: 36, height: 30) }.accessibilityLabel("Downloads")
-            SettingsLink { Image(systemName: "gearshape").frame(width: 36, height: 30) }.accessibilityLabel("Settings")
-        }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText).padding(.vertical, 14).padding(.horizontal, OrivSpacing.small)
-    }
+    var body: some View { expanded }
     private var expanded: some View {
         VStack(spacing: 0) {
-            if let profiles, !session.isExternalPrivate {
-                ProfileMenu(profiles: profiles).fixedSize().frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).frame(height: 40)
-                if let notice = profiles.notice { Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 18).padding(.bottom, OrivSpacing.small) }
+            if let notice = profiles?.notice, !session.isExternalPrivate {
+                Text(notice).font(.caption).foregroundStyle(theme.secondaryText)
+                    .padding(.horizontal, 18).padding(.bottom, OrivSpacing.small)
             }
             Button { controller.newTab() } label: {
                 HStack(spacing: 10) {
@@ -61,7 +28,7 @@ struct BrowserSidebar: View {
                 }.font(OrivType.body).foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle())
             }.buttonStyle(ContentButtonStyle()).padding(.horizontal, OrivSpacing.small).help("New tab (⌘T)")
-                .accessibilityIdentifier("newTabButton")
+                .accessibilityIdentifier("newTabButton").padding(.top, 8)
 
             if session.tabs.count >= 8 || !search.isEmpty {
                 HStack(spacing: 7) {
@@ -88,6 +55,7 @@ struct BrowserSidebar: View {
                 if !privateTabs.isEmpty { tabSection("Private", tabs: privateTabs) }
             }
             .listStyle(.sidebar).scrollContentBackground(.hidden)
+            .accessibilityIdentifier("sidebarTabs")
             .overlay {
                 if filteredTabs.isEmpty {
                     BrowserEmptyState("No matching tabs") {
@@ -177,5 +145,19 @@ private struct TabRow: View {
         .frame(minHeight: 30).contentShape(Rectangle())
         .onHover { hovered = $0 }
         .help(tab.url?.absoluteString ?? tab.displayTitle)
+    }
+}
+
+/// The approved Option A sidebar is deliberately opaque, including in light mode.
+enum MacSidebarPalette {
+    static let background = hex(0x221F26)
+    private static func hex(_ value: UInt32) -> Color {
+        Color(.sRGB, red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255, opacity: 1)
+    }
+    static var theme: Theme {
+        Theme(isT3Code: false, accent: hex(0xE3ADC4), canvas: background,
+            surface: background, field: hex(0x332F38), chrome: background,
+            separator: hex(0x514C58), text: hex(0xF5F5F5), secondaryText: hex(0xA9A5AF),
+            selection: hex(0x332F38), thread: hex(0x514C58), accentText: hex(0xE3ADC4))
     }
 }

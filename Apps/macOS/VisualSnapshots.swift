@@ -3,6 +3,7 @@ import AppKit
 import BrowserCore
 import BrowserEngine
 import CryptoKit
+import ScreenCaptureKit
 import SwiftUI
 import WebKit
 
@@ -46,6 +47,7 @@ import WebKit
         }
         if activate { NSApp.setActivationPolicy(.regular); NSApp.activate() }
         if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar" { await renderSidebarScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
         else { await renderScenes(into: directory, activate: activate) }
         manifest.finishedAt = Date()
@@ -158,6 +160,74 @@ import WebKit
         }
     }
 
+    private static func sidebarFixture(color: String, light: Bool) -> String {
+        let ink = light ? "#251538" : "#ffffff", heading = light ? "#5e19af" : (color == "#101014" ? "#d8bbff" : "#ff783d")
+        return """
+        <!doctype html><html><head><title>Found, don’t follow</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+        *{box-sizing:border-box}body{margin:0;background:\(color);color:\(ink);font-family:Georgia,serif}header{height:66px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff50;font:600 12px -apple-system,sans-serif}header strong{font-size:25px;color:\(heading);letter-spacing:-1px}.hero{padding:32px max(30px,14vw) 60px;min-height:530px}h1{font-size:48px;font-weight:500;line-height:1.05;color:\(heading);letter-spacing:-2px;margin:0 0 38px}h1 span{display:block;margin-left:80px}.copy{margin-left:80px;max-width:780px;font-size:29px;line-height:1.12;letter-spacing:-1px}.copy p{margin:0 0 32px}.story{background:#e0ebed;color:#35134d;padding:26px max(30px,14vw) 80px;min-height:1400px}.story blockquote{margin:0;border-top:1px solid #958ca5;border-bottom:1px solid #958ca5;padding:24px 0;font-size:28px}.story h2{font:700 28px -apple-system,sans-serif;margin-top:56px}.story p{font-size:30px;line-height:1.3}@media(max-width:700px){header strong{font-size:17px}.hero{padding:32px 30px 50px}h1{font-size:42px}.copy{font-size:25px;margin-left:28px}h1 span{margin-left:28px}}
+        </style></head><body><header><span>[START]</span><strong>ENTREPRENEURS FIRST</strong><span>[MENU]</span></header><section class="hero"><h1>FOUND,<span>↳DON’T FOLLOW</span></h1><div class="copy"><p>We turn exceptional individuals into funded founders. We back you first, then give you a bridge to Silicon Valley.</p><p>You might have an early idea, or be testing a cofounder. You might have nothing. What we’re most interested in is you and your potential.</p></div></section><section class="story"><blockquote>“Joining EF was a life-changing decision.”</blockquote><h2>WE BUILD COFOUNDING TEAMS FROM SCRATCH.</h2><p>Your potential is the starting point.</p><p>Meet people with the ambition to build something new. Explore ideas, share what you know and find your next collaborator.</p></section></body></html>
+        """
+    }
+
+    private static func renderSidebarScenes(into directory: URL, activate: Bool) async {
+        for mode in ["light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest"] {
+            let profiles = BrowserProfiles(testing: true)
+            let controller = profiles.controller
+            controller.compactSidebar = mode == "collapsed" || mode == "fullscreen-collapsed"
+            let tab = controller.session.selectedTab!
+            let color = mode == "light" ? "#f7f7f2" : (mode == "dark" ? "#101014" : "#6000d9")
+            let html = sidebarFixture(color: color, light: mode == "light")
+            tab.webView.loadHTMLString(html, baseURL: URL(string: "https://fixture.example/sidebar"))
+            for name in ["Apple — Example", "GitHub · Changelog", "A long example tab title for truncation"] {
+                let other = controller.session.addTab(url: nil, select: false, load: false)
+                other.webView.loadHTMLString("<title>\(name)</title><body>Example</body>", baseURL: URL(string: "https://fixture.example/other"))
+            }
+            try? await Task.sleep(for: .milliseconds(700))
+            await capture("mac-glass-sidebar-\(mode)", directory,
+                mode == "minimum" || mode == "rtl-largest" ? CGSize(width: 760, height: 520) : CGSize(width: 1250, height: 815.625),
+                key: activate && mode != "inactive", compositeWeb: tab.webView, prepare: { window in
+                    window.makeFirstResponder(tab.webView)
+                    if mode.hasPrefix("fullscreen") {
+                        window.collectionBehavior.insert(.fullScreenPrimary)
+                        window.toggleFullScreen(nil)
+                        for _ in 0..<80 { if window.styleMask.contains(.fullScreen) { break }; try? await Task.sleep(for: .milliseconds(100)) }
+                        try? await Task.sleep(for: .seconds(1))
+                        if !window.styleMask.contains(.fullScreen) { manifest.failures.append("\(mode): did not enter fullscreen") }
+                    }
+                    if mode == "scrolled" { _ = try? await tab.webView.evaluateJavaScript("window.scrollTo(0,780)"); try? await Task.sleep(for: .seconds(1)) }
+                    if mode == "inactive" { window.resignKey(); NSApp.deactivate() }
+                    writeSidebarGeometry(window, to: directory.appendingPathComponent("mac-glass-sidebar-\(mode)-geometry.json"))
+                }) {
+                    BrowserWindow(controller: controller, profiles: profiles)
+                        .environment(\.chromeReduceTransparencyOverride, mode == "reduced")
+                        .environment(\.layoutDirection, mode == "rtl-largest" ? .rightToLeft : .leftToRight)
+                        .dynamicTypeSize(mode == "rtl-largest" ? .accessibility5 : .large)
+            }
+            profiles.shutdown()
+        }
+    }
+
+    private static func writeSidebarGeometry(_ window: NSWindow, to url: URL) {
+        func markers(_ view: NSView) -> [NSView] {
+            (view is BrowserGeometryMarker.Marker ? [view] : []) + view.subviews.flatMap(markers)
+        }
+        let frames = (window.contentView.map { markers($0).map { ["name": $0.identifier?.rawValue ?? "", "frame": NSStringFromRect($0.convert($0.bounds, to: nil))] } }) ?? []
+        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type -> [String: Any]? in
+            guard let button = window.standardWindowButton(type) else { return nil }
+            return ["type": type.rawValue, "frame": NSStringFromRect(button.convert(button.bounds, to: nil)), "hidden": button.isHiddenOrHasHiddenAncestor, "hostWindow": button.window?.windowNumber ?? -1, "hostVisible": button.window?.isVisible ?? false]
+        }
+        func accessibility(_ element: Any, depth: Int = 0) -> [[String: Any]] {
+            guard depth < 10, let node = element as? NSAccessibilityProtocol else { return [] }
+            let row: [String: Any] = ["role": node.accessibilityRole()?.rawValue ?? "", "label": node.accessibilityLabel() ?? "",
+                "frame": NSStringFromRect(node.accessibilityFrame()), "depth": depth]
+            let children: [Any] = node.accessibilityChildrenInNavigationOrder().map { $0.map { $0 as Any } } ?? node.accessibilityChildren() ?? []
+            return [row] + children.flatMap { accessibility($0, depth: depth + 1) }
+        }
+        let value: [String: Any] = ["frame": NSStringFromRect(window.frame), "content": NSStringFromRect(window.contentView?.bounds ?? .zero),
+            "fullscreen": window.styleMask.contains(.fullScreen), "key": window.isKeyWindow, "markers": frames, "buttons": buttons, "accessibility": accessibility(window)]
+        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: url) }
+    }
+
     private static func renderGlassScenes(into directory: URL, activate: Bool) async {
         let requested = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"] ?? "all"
         for mode in ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "private", "reduced", "insecure"] where requested == "all" || mode == requested {
@@ -225,6 +295,7 @@ import WebKit
         for (index, address) in sites.split(separator: ",").map(String.init).enumerated() {
             guard let url = URL(string: address), url.scheme == "https" else { continue }
             let profiles = BrowserProfiles(testing: true)
+            profiles.controller.compactSidebar = ProcessInfo.processInfo.environment["ORIV_SIDEBAR_COLLAPSED"] == "1"
             let timing = ProcessInfo.processInfo.environment["ORIV_CHROME_TIMING"] == "1"
             let tab = profiles.controller.session.addTab(url:timing ? nil : url,select:true,load:!timing)
             if !timing && url.host == "fixture.invalid" { tab.webView.loadHTMLString(ChromeVisualFixture.html(), baseURL: url) }
@@ -290,25 +361,49 @@ import WebKit
         }
     }
 
-    /// Ask the existing owned-window capture bridge for this app's window only.
+    /// In-process WindowServer capture, restricted to this process's exact window.
+    /// ScreenCaptureKit includes compositor glass without a desktop/screen capture.
+    private static func ownedPNG(_ window: NSWindow) async throws -> Data {
+        if ProcessInfo.processInfo.environment["ORIV_CAPTURE_RENDERER"] == "owned" {
+            // The caller supplies an NSWindow created in this process. The shell
+            // bridge validates this exact executable/PID before capturing its ID.
+            guard let directory, window.windowNumber > 0 else { throw CocoaError(.fileNoSuchFile) }
+            let name = "mac-glass-owned-" + UUID().uuidString
+            let requestURL = directory.appendingPathComponent("capture-request.json")
+            let resultURL = directory.appendingPathComponent("\(name)-live.png")
+            let request: [String: Any] = ["windowID": window.windowNumber, "pid": ProcessInfo.processInfo.processIdentifier, "name": name]
+            try JSONSerialization.data(withJSONObject: request).write(to: requestURL, options: .atomic)
+            defer { try? FileManager.default.removeItem(at: requestURL); try? FileManager.default.removeItem(at: resultURL) }
+            for _ in 0..<100 {
+                if let data = try? Data(contentsOf: resultURL), NSBitmapImageRep(data: data) != nil { return data }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            throw CocoaError(.fileReadUnknown)
+        }
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        guard let own = content.windows.first(where: {
+            $0.windowID == CGWindowID(window.windowNumber) && $0.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier
+        }) else { throw CocoaError(.fileNoSuchFile) }
+        let filter = SCContentFilter(desktopIndependentWindow: own)
+        let configuration = SCStreamConfiguration()
+        let scale = window.backingScaleFactor
+        configuration.width = Int(window.frame.width * scale)
+        configuration.height = Int(window.frame.height * scale)
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
+        return data
+    }
     private static func ownedImage(_ window: NSWindow, to url: URL) async {
-        let directory = url.deletingLastPathComponent(), name = url.deletingPathExtension().lastPathComponent
-        let requestURL = directory.appendingPathComponent("capture-request.json")
-        let resultURL = directory.appendingPathComponent("\(name)-live.png")
-        let request: [String: Any] = ["windowID":window.windowNumber,"pid":ProcessInfo.processInfo.processIdentifier,"name":name]
-        if let data = try? JSONSerialization.data(withJSONObject:request) { try? data.write(to:requestURL,options:.atomic) }
-        for _ in 0..<100 {
-            if FileManager.default.fileExists(atPath:resultURL.path) { break }
-            try? await Task.sleep(for:.milliseconds(20))
-        }
-        if let data = try? Data(contentsOf:resultURL), let bitmap = NSBitmapImageRep(data:data) {
-            try? data.write(to:url)
-            let digest = SHA256.hash(data:data).map { String(format:"%02x",$0) }.joined()
-            manifest.evidence.append(Scene(name:name,file:url.lastPathComponent,width:bitmap.pixelsWide,height:bitmap.pixelsHigh,sha256:digest,keyWindow:window.isKeyWindow,note:"Owned window \(window.windowNumber), process \(ProcessInfo.processInfo.processIdentifier)"))
-        }
-        else { manifest.failures.append("Owned window image missing: \(name)") }
-        try? FileManager.default.removeItem(at:requestURL)
-        try? FileManager.default.removeItem(at:resultURL)
+        do {
+            let data = try await ownedPNG(window), bitmap = NSBitmapImageRep(data: data)!
+            try data.write(to: url)
+            manifest.evidence.append(Scene(name: url.deletingPathExtension().lastPathComponent, file: url.lastPathComponent,
+                width: bitmap.pixelsWide, height: bitmap.pixelsHigh,
+                sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                keyWindow: window.isKeyWindow, note: ProcessInfo.processInfo.environment["ORIV_CAPTURE_RENDERER"] == "owned" ? "PID-validated capture bridge, owned window only; UI actions in-process" : "In-process ScreenCaptureKit, owned window only"))
+        } catch { manifest.failures.append("Owned window capture: \(error.localizedDescription)") }
     }
     private static func fullscreenEvidence(_ window: NSWindow, name: String, directory: URL) async {
         var rows: [[String: Any]] = []
@@ -318,9 +413,17 @@ import WebKit
             if let toolbarWindow = window.toolbar?.items.compactMap({ $0.view?.window }).first(where: { $0 !== window }) {
                 await ownedImage(toolbarWindow, to: directory.appendingPathComponent("\(name)-\(mode)-toolbar.png"))
             }
+            // AppKit can reveal the real lights in its own titlebar host even
+            // without NSToolbar. Capture that app-owned host when it is onscreen.
+            if let host = window.standardWindowButton(.closeButton)?.window, host !== window,
+               NSApp.windows.contains(where: { $0 === host }), host.isVisible,
+               let screen = window.screen, host.frame.intersects(screen.frame) {
+                await ownedImage(host, to: directory.appendingPathComponent("\(name)-\(mode)-titlebar.png"))
+            }
             func tree(_ view: NSView, depth: Int = 0) -> [String] {
                 [String(repeating:" ",count:depth) + "\(type(of:view)) \(view.frame)"] + view.subviews.flatMap { tree($0, depth:depth+1) }
             }
+            writeSidebarGeometry(window, to: directory.appendingPathComponent("\(name)-\(mode)-geometry.json"))
             rows.append(["mode":mode, "fullscreen":window.styleMask.contains(.fullScreen), "frame":NSStringFromRect(window.frame), "layout":NSStringFromRect(window.contentLayoutRect),
                 "windows":NSApp.windows.map { ["id":$0.windowNumber, "class":String(describing:type(of:$0)), "frame":NSStringFromRect($0.frame), "tree":$0.contentView.map { tree($0.superview ?? $0) } ?? []] }])
         }
@@ -490,24 +593,13 @@ import WebKit
             }
         }
         if liveGlass {
-            let request: [String: Any] = ["windowID": window.windowNumber, "pid": ProcessInfo.processInfo.processIdentifier, "name": name]
-            let requestURL = directory.appendingPathComponent("capture-request.json")
-            let resultURL = directory.appendingPathComponent("\(name)-live.png")
-            if let requestData = try? JSONSerialization.data(withJSONObject: request) { try? requestData.write(to: requestURL, options: .atomic) }
-            for _ in 0..<100 {
-                if FileManager.default.fileExists(atPath: resultURL.path) { break }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            guard let data = try? Data(contentsOf: resultURL), let image = NSBitmapImageRep(data: data) else {
-                manifest.failures.append("\(name): owned-window capture missing"); return
-            }
-            try? data.write(to: directory.appendingPathComponent("\(name).png"))
-            try? FileManager.default.removeItem(at: requestURL)
-            try? FileManager.default.removeItem(at: resultURL)
-            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            manifest.scenes.append(Scene(name: name, file: "\(name).png", width: image.pixelsWide, height: image.pixelsHigh,
-                sha256: digest, keyWindow: window.isKeyWindow,
-                note: "WindowServer capture of owned dev window \(window.windowNumber), pid \(ProcessInfo.processInfo.processIdentifier); no cacheDisplay"))
+            do {
+                let data = try await ownedPNG(window), image = NSBitmapImageRep(data: data)!
+                try data.write(to: directory.appendingPathComponent("\(name).png"))
+                manifest.scenes.append(Scene(name: name, file: "\(name).png", width: image.pixelsWide, height: image.pixelsHigh,
+                    sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                    keyWindow: window.isKeyWindow, note: ProcessInfo.processInfo.environment["ORIV_CAPTURE_RENDERER"] == "owned" ? "PID-validated capture bridge, owned window only; UI actions in-process" : "In-process ScreenCaptureKit, owned window only"))
+            } catch { manifest.failures.append("\(name): in-process capture failed: \(error.localizedDescription)") }
             return
         }
         guard let frame = window.contentView?.superview,

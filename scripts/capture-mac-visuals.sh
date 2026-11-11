@@ -8,6 +8,9 @@
 #              this isolated app's own window IDs. Requires screen recording access.
 #   --active   make the snapshot app frontmost so windows render in their active (key) state.
 #              This briefly takes keyboard focus from the frontmost app.
+#   ORIV_GLASS_SCENE=sidebar captures the fixed-sidebar acceptance matrix.
+#   ORIV_CAPTURE_RENDERER=owned opts into the existing PID-validated PNG bridge;
+#              UI actions always stay in-process. The default uses ScreenCaptureKit.
 #   The output directory must not exist or must be empty. Default: build/visual-runs/<timestamp>-mac
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -55,7 +58,7 @@ trap cleanup EXIT
 
 if [[ "$GLASS" == 1 ]]; then
   /usr/bin/open -n -W --env BROWSER_TESTING=1 --env ORIV_VISUAL_SNAPSHOTS=1 \
-    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_CHROME_TIMING="${ORIV_CHROME_TIMING:-}" --env ORIV_FULLSCREEN_EVIDENCE="${ORIV_FULLSCREEN_EVIDENCE:-}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
+    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_CAPTURE_RENDERER="${ORIV_CAPTURE_RENDERER:-}" --env ORIV_SIDEBAR_COLLAPSED="${ORIV_SIDEBAR_COLLAPSED:-}" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_CHROME_TIMING="${ORIV_CHROME_TIMING:-}" --env ORIV_FULLSCREEN_EVIDENCE="${ORIV_FULLSCREEN_EVIDENCE:-}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
     "$APP" > "$DERIVED.run.log" 2>&1 &
 else
   BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" \
@@ -93,7 +96,8 @@ STATUS=0; wait $PID || STATUS=$?
 
 [[ -f "$SRC/manifest.json" ]] || { cat "$DERIVED.run.log" >&2; echo "no manifest produced (exit $STATUS)" >&2; exit 1; }
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
-cp -p "$SRC"/manifest.json "$SRC"/*.png "$OUT"/ 2>/dev/null || true
+cp -p "$SRC"/manifest.json "$OUT"/
+for snapshot in "$SRC"/*.png(N); do cp -p "$snapshot" "$OUT"/; done
 if [[ "$GLASS" == 1 ]]; then cp -p "$SRC"/*-geometry.json "$OUT"/; cp -p "$SRC"/*-timing.json(N) "$SRC"/*-fullscreen.json(N) "$OUT"/ 2>/dev/null || true; for scroll_file in "$SRC"/*-scroll.json(N); do cp -p "$scroll_file" "$OUT"/; done; fi
 
 python3 -I - "$OUT" "$RUN_ID" "$STATUS" "$GLASS" <<'PY'
@@ -113,6 +117,8 @@ expected = {
 }
 if sys.argv[4] == "1": expected = {"mac-glass-" + mode for mode in ("light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "private", "reduced", "insecure")}
 if sys.argv[4] == "1" and os.environ.get("ORIV_GLASS_SCENE", "all") != "all": expected = {"mac-glass-" + os.environ["ORIV_GLASS_SCENE"]}
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
+    expected = {"mac-glass-sidebar-" + mode for mode in ("light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest")}
 if os.environ.get("ORIV_LIVE_SITES"):
     expected = {f"mac-glass-site{i+1}" for i, _ in enumerate(os.environ["ORIV_LIVE_SITES"].split(","))}
 if m["activated"] and sys.argv[4] != "1": expected.add("mac-05-start-inactive-window")
@@ -131,8 +137,8 @@ for scene in m["scenes"] + m.get("evidence", []):
     if os.path.getmtime(path) < started: problems.append(f"stale image {scene['file']}")
     if data[:8] != b"\x89PNG\r\n\x1a\n" or tuple(struct.unpack(">II", data[16:24])) != (scene["width"], scene["height"]):
         problems.append(f"invalid PNG dimensions {scene['file']}")
-    expected_key = m["activated"] and scene["name"] != "mac-05-start-inactive-window"
-    if scene["keyWindow"] != expected_key: problems.append(f"window activation mismatch {scene['file']}")
+    expected_key = m["activated"] and scene["name"] not in {"mac-05-start-inactive-window", "mac-glass-sidebar-inactive"}
+    if not scene["file"].endswith("-titlebar.png") and scene["keyWindow"] != expected_key: problems.append(f"window activation mismatch {scene['file']}")
 extra = {f for f in os.listdir(out) if f.endswith(".png")} - listed
 extra = {f for f in extra if not any(x in f for x in ("-timing-", "-floating.", "-fullscreen.", "-reveal.", "-autohide.", "-returned."))}
 extra = {f for f in extra if not (os.environ.get("ORIV_LIVE_SITES") and f.endswith("-strip.png"))}
