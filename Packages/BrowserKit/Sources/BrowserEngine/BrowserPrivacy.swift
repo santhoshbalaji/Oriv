@@ -25,7 +25,9 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored public var onChange: (() -> Void)?
     public static var supportsGPC: Bool {
+        #if compiler(>=6.4)
         if #available(macOS 27, iOS 27, *) { return true }
+        #endif
         return false
     }
     public init(defaults: UserDefaults?) {
@@ -64,9 +66,12 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
         isEnabled(.linkCleaning, for: url, isPrivate: isPrivate) ? URLCleaner.clean(url) : url
     }
     public func apply(to preferences: WKWebpagePreferences, request: URLRequest, isPrivate: Bool) {
+        // Xcode 27's Swift 6.4 toolchain introduces the native GPC SDK property.
+        #if compiler(>=6.4)
         if #available(macOS 27, iOS 27, *) {
             preferences.globalPrivacyControlEnabled = isEnabled(.globalPrivacyControl, for: request.url, isPrivate: isPrivate)
         }
+        #endif
         let upgrade = request.url.map { ["http", "https"].contains($0.scheme?.lowercased() ?? "") && !HTTPSUpgradePolicy.isExempt($0) } == true
             && (request.httpMethod ?? "GET").uppercased() == "GET" && request.httpBody == nil && request.httpBodyStream == nil
             && isEnabled(.httpsUpgrade, for: request.url, isPrivate: isPrivate)
