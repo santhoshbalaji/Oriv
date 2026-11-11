@@ -11,8 +11,8 @@ import WebKit
 /// when BROWSER_TESTING=1 (ephemeral profiles, no persisted browsing data) and
 /// ORIV_VISUAL_SNAPSHOTS=1 are both set. Images go to the sandbox container's temporary
 /// directory (OrivVisualSnapshots); scripts/capture-mac-visuals.sh validates and copies them.
-/// ORIV_SNAPSHOT_ACTIVATE=1 makes the app frontmost so windows render in their active (key)
-/// state. Release builds do not contain this file.
+/// Key-window evidence requires explicit ORIV_FOREGROUND_UI approval; background runs
+/// never activate the app and use only owned-window-ID captures. Release builds exclude this file.
 @MainActor enum VisualSnapshots {
     static var directory: URL? {
         let environment = ProcessInfo.processInfo.environment
@@ -33,7 +33,7 @@ import WebKit
 
     static func run(into directory: URL) async {
         let environment = ProcessInfo.processInfo.environment
-        let activate = environment["ORIV_SNAPSHOT_ACTIVATE"] == "1"
+        let activate = environment["ORIV_SNAPSHOT_ACTIVATE"] == "1" && BackgroundUIMode.foregroundApproved
         manifest = Manifest(runID: environment["ORIV_SNAPSHOT_RUN_ID"] ?? "unspecified", startedAt: Date(),
                             osVersion: ProcessInfo.processInfo.operatingSystemVersionString, activated: activate)
         do {
@@ -44,7 +44,10 @@ import WebKit
         } catch {
             fputs("snapshot directory unavailable: \(error)\n", stderr); exit(2)
         }
-        if activate { NSApp.setActivationPolicy(.regular); NSApp.activate() }
+        BackgroundUIMode.configureAtLaunch()
+        if environment["ORIV_SNAPSHOT_ACTIVATE"] == "1" && !activate {
+            manifest.limitations.append("Active/unoccluded captures skipped: foreground UI requires explicit orchestrator approval; background mode remains enabled.")
+        }
         if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
         else { await renderScenes(into: directory, activate: activate) }
@@ -444,6 +447,10 @@ import WebKit
         let hosting = NSHostingController(rootView: content().browserAppearance(.t3Code))
         hosting.sceneBridgingOptions = [.toolbars, .title]
         let liveGlass = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"]?.isEmpty == false || ProcessInfo.processInfo.environment["ORIV_LIVE_SITES"]?.isEmpty == false
+        if BackgroundUIMode.isEnabled && !liveGlass {
+            manifest.limitations.append("\(name): skipped in background mode; captures must use the owned-window-ID path (--glass), never a screen or cacheDisplay capture.")
+            return
+        }
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
         if liveGlass { style.insert(.fullSizeContentView) }
         let window = OffscreenWindow(contentRect: CGRect(origin: .zero, size: size),
@@ -456,25 +463,22 @@ import WebKit
         window.setContentSize(size)
         window.setFrameOrigin(liveGlass ? NSPoint(x: 40, y: 60) : NSPoint(x: -30_000, y: -30_000))
         if key {
-            // Closing the previous key window can deactivate the app, so activate for every scene.
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-        } else { window.orderFrontRegardless() }
+            // Key ownership is requested without activating the app.
+            BackgroundUIMode.present(window, key: true)
+        } else { BackgroundUIMode.present(window, key: false) }
         defer { window.orderOut(nil); window.close() }
         try? await Task.sleep(for: .milliseconds(settle))
         var attempts = 0
         while key && !window.isKeyWindow && attempts < 20 {
             attempts += 1
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            BackgroundUIMode.present(window, key: true)
             try? await Task.sleep(for: .milliseconds(150))
         }
         await prepare(window)
         if key {
             // The page may finish loading after another app takes activation.
-            // Reclaim only this capture app's own window immediately before evidence.
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            // Order only this capture app's own window under the selected presentation policy.
+            BackgroundUIMode.present(window, key: true)
             try? await Task.sleep(for: .milliseconds(200))
         }
         window.displayIfNeeded()

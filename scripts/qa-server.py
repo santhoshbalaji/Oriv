@@ -18,8 +18,40 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>{title}</title
 <body><p>Personal Browser · Local test page</p><h1>{title}</h1>{body}</body></html>"""
 
 class Handler(BaseHTTPRequestHandler):
+    privacy_destination_requests = 0
+    privacy_destination_runs = {}
+
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/ads-front.min.js':
+            self.send_bytes(b'window.shippingTrackerLoaded=true;', 'text/javascript', no_store=True)
+            return
+        if path == '/privacy-stats':
+            run = parse_qs(urlsplit(self.path).query).get('run', [None])[0]
+            count = Handler.privacy_destination_requests if run is None else Handler.privacy_destination_runs.get(run, 0)
+            self.send_bytes(json.dumps({'destinationRequests': count}).encode(), 'application/json', no_store=True)
+            return
+        if path == '/privacy':
+            self.send_bytes((FIXTURES / 'privacy.html').read_text().replace(':8768', ':' + str(self.server.server_port)).replace('__GPC__', json.dumps(self.headers.get('Sec-GPC'))).encode(), 'text/html; charset=utf-8')
+            return
+        if path == '/privacy-script.js':
+            self.send_bytes(('window.privacyScriptHeader=' + json.dumps(self.headers.get('Sec-GPC'))).encode(), 'text/javascript')
+            return
+        if path == '/privacy-frame':
+            self.send_bytes(('<html><script>window.frameHeader=' + json.dumps(self.headers.get('Sec-GPC')) + '</script></html>').encode(), 'text/html; charset=utf-8')
+            return
+        if path == '/privacy-checkout':
+            self.page('Checkout fixture', '<form><label>Order<input name="order" value="synthetic"></label><button type="button">Review order</button></form>')
+            return
+        if path == '/privacy-headers':
+            self.send_bytes(json.dumps({'gpc': self.headers.get('Sec-GPC'), 'path': self.path}).encode(), 'application/json')
+            return
+        if path == '/privacy-destination':
+            Handler.privacy_destination_requests += 1
+            run = parse_qs(urlsplit(self.path).query).get('run', [''])[0][:64]
+            Handler.privacy_destination_runs[run] = Handler.privacy_destination_runs.get(run, 0) + 1
+            self.send_bytes(PAGE.format(title='Privacy destination', body='<h2 id="destination">Explicit destination load</h2>').encode(), 'text/html; charset=utf-8', no_store=True)
+            return
         if path == '/chrome-revisit':
             placeholder = parse_qs(urlsplit(self.path).query).get('stage') == ['placeholder']
             color = '#1d1d1f' if placeholder else '#161617'
@@ -176,9 +208,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.media(urlsplit(self.path).path, head=True)
 
-    def send_bytes(self, data, content_type):
+    def send_bytes(self, data, content_type, no_store=False):
         self.send_response(200)
         self.send_header('Content-Type', content_type)
+        if no_store: self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
         self.wfile.write(data)

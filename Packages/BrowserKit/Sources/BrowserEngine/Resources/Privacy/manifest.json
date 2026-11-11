@@ -1,0 +1,128 @@
+{
+  "converterVersion": 1,
+  "copyright": "The EasyList authors (https://easylist.to/)",
+  "counts": {
+    "cookies": {
+      "cosmetic": 22809,
+      "cosmetic_exception": 316,
+      "dropped:advanced-cosmetic": 139,
+      "dropped:regex-or-empty": 1,
+      "dropped:unsupported-domain": 7,
+      "dropped:unsupported-option:generichide": 2,
+      "input_lines": 26196,
+      "metadata": 816,
+      "network": 1683,
+      "network_exception": 423
+    },
+    "easylist": {
+      "cosmetic": 23286,
+      "cosmetic_exception": 339,
+      "dropped:advanced-cosmetic": 1148,
+      "dropped:regex-or-empty": 27,
+      "dropped:unsupported-option:csp": 2,
+      "dropped:unsupported-option:document": 575,
+      "dropped:unsupported-option:generichide": 166,
+      "dropped:unsupported-option:object": 3,
+      "dropped:unsupported-option:popup": 2962,
+      "dropped:unsupported-option:rewrite": 7,
+      "dropped:unsupported-option:~object": 5,
+      "dropped:unsupported-url-pattern": 3,
+      "input_lines": 76961,
+      "metadata": 277,
+      "network": 47626,
+      "network_exception": 535
+    },
+    "easyprivacy": {
+      "cosmetic": 2,
+      "dropped:advanced-cosmetic": 35,
+      "dropped:regex-or-empty": 9,
+      "dropped:unsupported-domain": 2,
+      "dropped:unsupported-option:important": 10,
+      "dropped:unsupported-option:method": 1,
+      "dropped:unsupported-option:redirect": 23,
+      "dropped:unsupported-option:redirect-rule": 1,
+      "dropped:unsupported-option:rewrite": 1,
+      "dropped:unsupported-option:~document": 1,
+      "dropped:unsupported-url-pattern": 4,
+      "input_lines": 57379,
+      "metadata": 774,
+      "network": 55662,
+      "network_exception": 854
+    }
+  },
+  "license": "CC-BY-SA-3.0",
+  "modifications": "Converted supported network and plain cosmetic subset; unsupported syntax dropped; scoped cosmetic exceptions conservatively allow all cosmetics; grouped/split WebKit rules.",
+  "outputs": {
+    "cookies-cosmetics": [
+      {
+        "bundledBytes": 376556,
+        "bytes": 1517829,
+        "file": "cookies-cosmetics-0.orivrules",
+        "rules": 7603,
+        "sha256": "362384696ff750b031943230895fe363e28d81e04183f24222929dd0e7ab4de2"
+      }
+    ],
+    "cookies-network": [
+      {
+        "bundledBytes": 61295,
+        "bytes": 646271,
+        "file": "cookies-network-0.orivrules",
+        "rules": 2470,
+        "sha256": "570e0af7c010014cbc4ea233e2b41245247cc85bc7fec6a2d6d75a7e5892007b"
+      }
+    ],
+    "cosmetics-light": [
+      {
+        "bundledBytes": 75947,
+        "bytes": 247732,
+        "file": "cosmetics-light-0.orivrules",
+        "rules": 569,
+        "sha256": "f88fab1b94eadf3221b2d9776b0c30cfa684addf0f752518b6a9d4ba90219b98"
+      }
+    ],
+    "cosmetics-strict": [
+      {
+        "bundledBytes": 294060,
+        "bytes": 1178359,
+        "file": "cosmetics-strict-0.orivrules",
+        "rules": 5875,
+        "sha256": "e1a7ef5814f3ed7a5f32e313d09e5c57ce6c49240be1df59436ab789cab3d763"
+      }
+    ],
+    "network": [
+      {
+        "bundledBytes": 1365289,
+        "bytes": 34134157,
+        "file": "network-0.orivrules",
+        "rules": 140000,
+        "sha256": "eba123920af50bdd297a9c8e6ece7dfbb85f7d0f4043f3950a06868cbf3196ab"
+      },
+      {
+        "bundledBytes": 559857,
+        "bytes": 14544908,
+        "file": "network-1.orivrules",
+        "rules": 58462,
+        "sha256": "0ae0e5123186d0ffa84266e3af2b982d572c7b850491709934127cd5520105e9"
+      }
+    ]
+  },
+  "rulesVersion": "2026.11.11-74c3e769a009",
+  "sources": {
+    "cookies": {
+      "bytes": 907018,
+      "sha256": "91ec6cdbd4a55f49f45ca3d51d6b0c4435e0ab91068f197fd8ce9f571ca82297",
+      "url": "https://raw.githubusercontent.com/easylist/easylist/0476c21b10d796a3fd533cf2584ebf133ede36a5/easylist-cookie.template"
+    },
+    "easylist": {
+      "bytes": 2035155,
+      "sha256": "05b0b49b60fcb9de2c988694603f5f0d8aaf4717ea0574bb00548531fa934d79",
+      "url": "https://raw.githubusercontent.com/easylist/easylist/74c3e769a009be43c1bb73b0744e5e6e8943bad3/easylist.txt"
+    },
+    "easyprivacy": {
+      "bytes": 1516040,
+      "sha256": "a18dfcc15dcdbc6fd1c8f5cb0366064380df92ae8e6aed8c6ed803770ed55244",
+      "url": "https://raw.githubusercontent.com/easylist/easylist/74c3e769a009be43c1bb73b0744e5e6e8943bad3/easyprivacy.txt"
+    }
+  },
+  "upstreamCommit": "74c3e769a009be43c1bb73b0744e5e6e8943bad3"
+}

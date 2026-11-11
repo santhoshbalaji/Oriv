@@ -10,11 +10,18 @@
 #              This briefly takes keyboard focus from the frontmost app.
 #   The output directory must not exist or must be empty. Default: build/visual-runs/<timestamp>-mac
 set -euo pipefail
+export ORIV_BACKGROUND_UI="${ORIV_BACKGROUND_UI:-1}"
 cd "$(dirname "$0")/.."
 GLASS=0
 if [[ "${1:-}" == "--glass" ]]; then GLASS=1; shift; fi
 ACTIVATE=0
-if [[ "${1:-}" == "--active" ]]; then ACTIVATE=1; shift; fi
+if [[ "${1:-}" == "--active" ]]; then
+  if [[ "$ORIV_BACKGROUND_UI" == 1 || "${ORIV_FOREGROUND_UI:-0}" != 1 ]]; then
+    echo 'Active capture skipped: explicit orchestrator approval and ORIV_FOREGROUND_UI=1 are required.' >&2
+    exit 2
+  fi
+  ACTIVATE=1; shift
+fi
 if [[ "$GLASS" == 1 ]]; then
   swift -e 'import CoreGraphics; import Foundation
     let state = CGSessionCopyCurrentDictionary() as? [String: Any]
@@ -54,11 +61,11 @@ CLEANUP
 trap cleanup EXIT
 
 if [[ "$GLASS" == 1 ]]; then
-  /usr/bin/open -n -W --env BROWSER_TESTING=1 --env ORIV_VISUAL_SNAPSHOTS=1 \
+  /usr/bin/open -g -n -W --env ORIV_BACKGROUND_UI="$ORIV_BACKGROUND_UI" --env BROWSER_TESTING=1 --env ORIV_VISUAL_SNAPSHOTS=1 \
     --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_CHROME_TIMING="${ORIV_CHROME_TIMING:-}" --env ORIV_FULLSCREEN_EVIDENCE="${ORIV_FULLSCREEN_EVIDENCE:-}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
     "$APP" > "$DERIVED.run.log" 2>&1 &
 else
-  BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" \
+  ORIV_BACKGROUND_UI="$ORIV_BACKGROUND_UI" BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" \
     "$APP/Contents/MacOS/Oriv-Snapshots" > "$DERIVED.run.log" 2>&1 &
 fi
 PID=$!

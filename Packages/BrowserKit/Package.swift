@@ -10,7 +10,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "BrowserCore"),
-        .target(name: "BrowserEngine", dependencies: ["BrowserCore"]),
+        .target(name: "BrowserEngine", dependencies: ["BrowserCore"], resources: [.copy("Resources/Privacy")]),
         .testTarget(name: "BrowserCoreTests", dependencies: ["BrowserCore"]),
         .testTarget(name: "BrowserEngineTests", dependencies: ["BrowserCore", "BrowserEngine"])
     ]

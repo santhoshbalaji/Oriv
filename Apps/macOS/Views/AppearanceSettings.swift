@@ -112,6 +112,7 @@ struct AppearanceSettings: View {
                 }
             }
             Section {
+                PrivacySettingsControls(session: controller.session)
                 Picker("Ad blocking", selection: Binding(get: { adBlocker.mode }, set: { adBlocker.setMode($0) })) {
                     ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.segmented).tint(theme.accent)

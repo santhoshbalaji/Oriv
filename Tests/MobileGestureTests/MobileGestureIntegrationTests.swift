@@ -163,7 +163,7 @@ import WebKit
         tab.webView.loadHTMLString("<img src='https://example.test/image.png'><a href='https://example.test/two'>Link</a>", baseURL: URL(string: "https://example.test"))
         try await wait { tab.hasLoaded && !tab.isLoading }
         let titles = delegate.linkActions(URL(string: "https://example.test/two")!, revision: tab.documentRevision).map(\.title)
-        XCTAssertEqual(titles, ["Open", "Open in New Tab", "Open in Background", "Open in Private Tab", "Open in Another Profile", "Download Linked File", "Copy Link", "Share", "Open on Mac"])
+        XCTAssertEqual(titles, ["Load Preview", "Open", "Open in New Tab", "Open in Background", "Open in Private Tab", "Open in Another Profile", "Download Linked File", "Copy Link", "Copy Original Link", "Share", "Open on Mac"])
         _ = try await tab.webView.callAsyncJavaScript("window.webkit.messageHandlers.orivContext.postMessage({image:'https://example.test/image.png'})", arguments: [:], in: nil, contentWorld: .world(name: "OrivContext"))
         try await wait { delegate.touchedImageURL != nil }
         XCTAssertEqual(delegate.touchedImageRevision, tab.documentRevision)

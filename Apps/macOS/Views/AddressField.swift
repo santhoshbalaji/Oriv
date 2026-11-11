@@ -1,4 +1,5 @@
 import AppKit
+import BrowserCore
 import SwiftUI
 
 /// An AppKit field provides reliable menu-driven focus and selection inside NSToolbar.
@@ -19,6 +20,9 @@ struct AddressField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextField {
         let field = FocusAwareAddressField()
+        field.cell = PrivacyAddressCell(textCell: "")
+        field.isEditable = true
+        field.isSelectable = true
         field.isBezeled = false
         field.drawsBackground = false
         field.font = .systemFont(ofSize: 13)
@@ -101,6 +105,19 @@ struct AddressField: NSViewRepresentable {
 }
 
 final class FocusAwareAddressField: NSTextField {
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        if URL(string: editingText).map(AddressResolver.isWebURL) == true {
+            menu.addItem(.separator())
+            for (title, selector) in [("Copy Link", #selector(copyCleanLink)), ("Copy Original Link", #selector(copyOriginalLink))] {
+                let item = NSMenuItem(title: title, action: selector, keyEquivalent: ""); item.target = self; menu.addItem(item)
+            }
+        }
+        return menu
+    }
+    @objc private func copyCleanLink() { if let url = URL(string: editingText) { PrivacyPasteboard.copy(url) } }
+    @objc private func copyOriginalLink() { if let url = URL(string: editingText) { PrivacyPasteboard.copy(url, original: true) } }
+
     var editingText = ""
     var focusBegan: (() -> Void)?
     override func becomeFirstResponder() -> Bool {
@@ -125,5 +142,30 @@ final class FocusAwareAddressField: NSTextField {
         let wasEditing = currentEditor() != nil
         super.mouseDown(with: event)
         if !wasEditing { currentEditor()?.selectAll(nil) }
+    }
+}
+
+@MainActor final class PrivacyAddressEditor: NSTextView {
+    override func copy(_ sender: Any?) {
+        let selected = (string as NSString).substring(with: selectedRange())
+        if let url = URL(string: selected), AddressResolver.isWebURL(url) { PrivacyPasteboard.copy(url) }
+        else { super.copy(sender) }
+    }
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        if URL(string: string).map(AddressResolver.isWebURL) == true {
+            let item = NSMenuItem(title: "Copy Original Link", action: #selector(copyOriginalLink), keyEquivalent: "")
+            item.target = self; menu?.addItem(item)
+        }
+        return menu
+    }
+    @objc private func copyOriginalLink() { if let url = URL(string: string) { PrivacyPasteboard.copy(url, original: true) } }
+}
+
+@MainActor final class PrivacyAddressCell: NSTextFieldCell {
+    private let editor = PrivacyAddressEditor()
+    override func fieldEditor(for controlView: NSView) -> NSTextView? {
+        editor.isFieldEditor = true
+        return editor
     }
 }

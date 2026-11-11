@@ -209,7 +209,7 @@ struct BrowserWindow: View {
                         .labelStyle(.iconOnly).help("View downloads in progress")
                 }
                 if let url = tab?.url {
-                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
+                    ShareLink(item: URLCleaner.clean(url)) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                         .help("Share Page").accessibilityLabel("Share Page")
                 }
                 Button { controller.newTab() } label: { Image(systemName: "plus").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
@@ -239,6 +239,10 @@ struct BrowserWindow: View {
                     Button("New Private Tab", systemImage: "eyeglasses") { showPageMenu = false; controller.newTab(isPrivate: true) }
                     Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { showPageMenu = false; session.reopenClosedTab() }.disabled(!session.canReopenTab)
                     Divider()
+                    if let url = tab?.url {
+                        Button("Copy Link", systemImage: "doc.on.doc") { PrivacyPasteboard.copy(url); showPageMenu = false }
+                        Button("Copy Original Link") { PrivacyPasteboard.copy(url, original: true); showPageMenu = false }
+                    }
                     if let profiles { SendPageMenu(continuity: profiles.continuity, session: session, profile: controller.profile) }
                     Button(session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: "bookmark") { showPageMenu = false; controller.saveCurrentPage() }
                         .disabled(tab?.url == nil || tab?.isPrivate == true)
@@ -247,7 +251,7 @@ struct BrowserWindow: View {
                     Button("Zoom Out", systemImage: "minus.magnifyingglass") { showPageMenu = false; tab?.zoomOut() }.disabled(tab?.url == nil)
                     Button("Reset Page Zoom") { showPageMenu = false; tab?.resetZoom() }.disabled(tab?.url == nil)
                     Button("Read Page Text", systemImage: "doc.text") { showPageMenu = false; controller.openReader() }.disabled(tab?.url == nil)
-                    Button("Ad Blocking", systemImage: "shield.lefthalf.filled") { showPageMenu = false; showProtection = true }
+                    Button("Site Privacy", systemImage: "shield.lefthalf.filled") { showPageMenu = false; showProtection = true }
                     Button("Password AutoFill Help", systemImage: "key") { showPageMenu = false; showPasswords = true }
         }
         .buttonStyle(PageMenuButtonStyle()).labelStyle(.titleAndIcon).font(OrivType.body)
@@ -352,6 +356,7 @@ struct BrowserWindow: View {
                 if let tab {
                     ZStack(alignment: .top) {
                         tabContent(tab).id(tab.id)
+                        if tab.httpWarningURL != nil { HTTPFallbackView(tab: tab).frame(maxWidth: .infinity, maxHeight: .infinity).background(theme.canvas) }
                         if let error = tab.errorMessage {
                             ContentUnavailableView {
                                 Label("This page couldn’t load", systemImage: "network.slash")

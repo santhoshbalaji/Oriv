@@ -177,6 +177,7 @@ import XCTest
     }
 
     func testAddressShowsHostAndSelectsCompleteURLOnFocus() async throws {
+        try XCTSkipUnless(BackgroundUIMode.foregroundApproved, "Requires an active, unoccluded focus-test window; skipped for owner-safe background Mac runs.")
         let address = "https://docs.example.com/designing-calm-interfaces?q=glass#details"
         let state = AddressTestState(text: address)
         let hosting = NSHostingController(rootView: AddressTestView(state: state).browserAppearance(.t3Code))
@@ -185,7 +186,7 @@ import XCTest
         window.isReleasedWhenClosed = false
         window.contentViewController = hosting
         defer { window.close() }
-        window.makeKeyAndOrderFront(nil)
+        BackgroundUIMode.present(window)
         try await Task.sleep(for: .milliseconds(200))
         window.makeFirstResponder(nil)
         func addressField(in view: NSView) -> NSTextField? {
@@ -375,6 +376,7 @@ import XCTest
     }
 
     func testScrollingDoesNotReplayAddressFocusAcrossChromeModes() async throws {
+        try XCTSkipUnless(BackgroundUIMode.foregroundApproved, "Requires an active, unoccluded focus-test window; skipped for owner-safe background Mac runs.")
         let profiles = BrowserProfiles(testing: true)
         defer { profiles.shutdown() }
         let controller = profiles.controller
@@ -390,8 +392,7 @@ import XCTest
         window.isReleasedWhenClosed = false; window.toolbarStyle = .unified
         window.contentViewController = hosting
         defer { window.close() }
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        BackgroundUIMode.present(window)
         try await Task.sleep(for: .milliseconds(1200))
         func field(in view: NSView) -> NSTextField? {
             if let f = view as? NSTextField, f.accessibilityIdentifier() == "addressField" { return f }
@@ -497,7 +498,7 @@ import XCTest
         let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = web
-        window.orderFrontRegardless()
+        BackgroundUIMode.present(window, key: false)
         return window
     }
 

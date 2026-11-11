@@ -174,7 +174,7 @@ struct MobileBrowserView: View {
                         }
                     case .settings: NavigationStack { MobileSettingsView(controller: controller, profiles: profiles) }
                     case .site: if let tab { NavigationStack { MobileSiteSettings(session: controller.session, tab: tab) } }
-                    case .share: if let tab, let url = tab.url { MobilePageShare(webView: tab.webView, url: url) }
+                    case .share: if let tab, let url = tab.url { MobilePageShare(webView: tab.webView, url: URLCleaner.clean(url)) }
                     }
                     }.browserAppearance(controller.appearance)
                 }
@@ -447,7 +447,8 @@ struct MobileBrowserView: View {
     }
     @ViewBuilder private func page(top: CGFloat, bottom: CGFloat) -> some View {
         if let tab, tab.url != nil {
-            if let error = tab.errorMessage {
+            if tab.httpWarningURL != nil { HTTPFallbackView(tab: tab).background(theme.canvas) }
+            else if let error = tab.errorMessage {
                 ContentUnavailableView { Label("Page could not load", systemImage: "network.slash") } description: { Text(error) } actions: { Button("Try Again") { tab.reload() } }
                     .background(theme.canvas).environment(\.colorScheme, controller.appearance.colorScheme ?? .dark)
             } else { MobileWebView(webView: tab.webView, chrome: pageChrome, topInset: top, bottomInset: bottom, reduceTransparency: solidChrome, obscured: gestures.gridProgress > 0 || controller.sheet == .tabs, onFindVisibilityChange: { visible in
@@ -531,9 +532,13 @@ struct MobileBrowserView: View {
                 Button("Tabs (\(controller.session.tabs.count))", systemImage: "square.on.square") { controller.sheet = .tabs }
                 Button("Bookmarks", systemImage: "bookmark") { controller.sheet = .bookmarks }
                 Button(controller.downloads.hasActivity ? "Library, Downloads Available" : "Library", systemImage: "book") { controller.sheet = .library }
-                Button("Site Settings", systemImage: "slider.horizontal.3") { controller.sheet = .site }.disabled(tab?.url == nil)
+                Button("Site Privacy & Settings", systemImage: "slider.horizontal.3") { controller.sheet = .site }.disabled(tab?.url == nil)
                 Button(controller.session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: controller.session.isBookmarked(tab?.url) ? "bookmark.fill" : "bookmark") { controller.session.toggleBookmark() }.disabled(tab?.url == nil || tab?.isPrivate == true)
                 if let tab { MobileMoveTabMenu(controller: controller, profiles: profiles, tab: tab); MobileSendTabMenu(controller: controller, profiles: profiles, tab: tab) }
+                if let url = tab?.url {
+                    Button("Copy Link", systemImage: "doc.on.doc") { PrivacyPasteboard.copy(url) }
+                    Button("Copy Original Link") { PrivacyPasteboard.copy(url, original: true) }
+                }
                 Button("Share", systemImage: "square.and.arrow.up") { controller.sheet = .share }.disabled(tab?.url == nil)
                 Button("Find on Page", systemImage: "magnifyingglass") { tab?.showFind() }.disabled(tab?.url == nil)
                 Button("Images on This Page", systemImage: "photo") { controller.showPageImages() }.disabled(tab?.url == nil)
@@ -571,7 +576,7 @@ struct MobileBrowserView: View {
 private struct MobilePageShare: UIViewControllerRepresentable {
     let webView: WKWebView
     let url: URL
-    func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [url, webView], applicationActivities: nil) }
+    func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [URLCleaner.clean(url)], applicationActivities: nil) }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 /// Read the capped environment inside the address bar, rather than scaling at the screen root.

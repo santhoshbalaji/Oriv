@@ -10,6 +10,8 @@ struct PersonalBrowserApp: App {
     private var controller: BrowserController { profiles.controller }
     private var appearance: BrowserAppearance { controller.appearance }
 
+    init() { BackgroundUIMode.configureAtLaunch() }
+
     var body: some Scene {
         Window(AppIdentity.name, id: "browser") {
             BrowserWindow(controller: controller, profiles: profiles)
@@ -22,6 +24,7 @@ struct PersonalBrowserApp: App {
                 .browserAppearance(appearance)
         }
         .defaultSize(width: 1250, height: 820)
+        .defaultLaunchBehavior(BackgroundUIMode.isEnabled ? .suppressed : .automatic)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands { BrowserCommands(regularController: controller, profiles: profiles) }
@@ -57,6 +60,7 @@ struct PersonalBrowserApp: App {
     }
     weak var controller: BrowserController?
     weak var profiles: BrowserProfiles?
+    func applicationWillFinishLaunching(_ notification: Notification) { BackgroundUIMode.configureAtLaunch() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
         if let directory = VisualSnapshots.directory { Task { await VisualSnapshots.run(into: directory) }; return }
@@ -79,7 +83,7 @@ struct PersonalBrowserApp: App {
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { sender.windows.first(where: { $0.identifier?.rawValue == "browser" })?.makeKeyAndOrderFront(nil) }
+        if !flag { BackgroundUIMode.present(sender.windows.first(where: { $0.identifier?.rawValue == "browser" })) }
         return true
     }
 }

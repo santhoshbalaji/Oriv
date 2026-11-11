@@ -29,6 +29,7 @@ struct MobileSettingsView: View {
                 Text("Suggestions stay on this device; searches are sent only when you submit them. Private tabs are never restored.")
             }.listRowBackground(theme.row)
             Section {
+                PrivacySettingsControls(session: controller.session)
                 Picker("Ad blocking", selection: Binding(get: { controller.session.adBlocker.mode }, set: { controller.session.adBlocker.setMode($0) })) { ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) } }.id(controller.appearance)
                 if let error = controller.session.adBlocker.preparationError { Text(error).foregroundStyle(.red) }
                 NavigationLink("Website Data") { MobileWebsiteData(manager: controller.session.websiteData) }
@@ -110,7 +111,7 @@ struct MobileSiteSettings: View {
             }.listRowBackground(theme.surface)
             if let url = tab.url {
                 Section("Protection") {
-                    Toggle("Block ads and trackers on this site", isOn: Binding(get: { !session.adBlocker.isException(url, isPrivate: tab.isPrivate) }, set: { session.adBlocker.setException(!$0, for: url, isPrivate: tab.isPrivate) })).tint(theme.accent).disabled(session.adBlocker.mode == .off)
+                    PrivacyShieldControls(session: session, tab: tab)
                     if session.adBlocker.mode == .off { Text("Ad blocking is off in Settings.").foregroundStyle(theme.secondaryText) }
                     permission("Camera", path: \.camera, url: url)
                     permission("Microphone", path: \.microphone, url: url)

@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Privacy fixture</title>
+<style>body.ot-overflow-hidden{overflow:hidden}body{font:18px -apple-system;padding:24px}#onetrust-banner-sdk{position:fixed;bottom:0;left:0;right:0;padding:24px;background:#eee;color:#111}.ad-banner{padding:20px;background:coral}a{display:block;padding:20px}</style></head>
+<body class="ot-overflow-hidden"><h1>Privacy fixture</h1><div class="ad-banner">Advertisement fixture</div><div id="onetrust-banner-sdk">Cookie notice fixture — no consent action is taken</div>
+<script src="/ads-front.min.js" onerror="window.shippingTrackerBlocked=true"></script>
+<a id="preview" href="/privacy-destination?utm_source=fixture&keep=1">A private preview test</a>
+<a id="cross" href="http://localhost:8768/privacy-destination?utm_source=fixture&keep=1">Cross-host tracking link</a>
+<form action="http://localhost:8768/form" method="post"><input name="note" value="keep this POST"><button>Submit form</button></form>
+<iframe id="gpc-frame" src="/privacy-frame"></iframe><script src="/privacy-script.js"></script><pre id="result"></pre><script>
+window.privacyTopHeader=__GPC__;
+window.privacyReady=(async()=>{const r=await fetch('/privacy-headers');window.privacyHeaders=await r.json();document.querySelector('#result').textContent=JSON.stringify({headers:window.privacyHeaders,gpc:navigator.globalPrivacyControl});})();
+</script></body></html>

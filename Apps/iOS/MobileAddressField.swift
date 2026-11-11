@@ -1,4 +1,5 @@
 import SwiftUI
+import BrowserCore
 import UIKit
 
 /// A native editor provides URL selection and a clear button without changing the displayed host.
@@ -27,7 +28,7 @@ struct MobileAddressField: UIViewRepresentable {
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UITextField {
-        let field = UITextField()
+        let field = MobilePrivacyAddressField()
         field.placeholder = "Search or enter address"
         field.accessibilityLabel = "Address and search"
         field.accessibilityIdentifier = "browserAddress"
@@ -59,8 +60,19 @@ struct MobileAddressField: UIViewRepresentable {
         func textFieldDidBeginEditing(_ field: UITextField) {
             DispatchQueue.main.async { [weak field] in field?.selectAll(nil) }
         }
+        func textField(_ textField: UITextField, editMenuForCharactersIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let text = textField.text, let url = URL(string: text), AddressResolver.isWebURL(url) else { return UIMenu(children: suggestedActions) }
+            return UIMenu(children: suggestedActions + [UIAction(title: "Copy Original Link") { _ in PrivacyPasteboard.copy(url, original: true) }])
+        }
         func textFieldShouldReturn(_ field: UITextField) -> Bool {
             parent.text = field.text ?? ""; parent.submit(); return false
         }
+    }
+}
+
+@MainActor final class MobilePrivacyAddressField: UITextField {
+    override func copy(_ sender: Any?) {
+        if let range = selectedTextRange, let text = text(in: range), let url = URL(string: text), AddressResolver.isWebURL(url) { PrivacyPasteboard.copy(url) }
+        else { super.copy(sender) }
     }
 }

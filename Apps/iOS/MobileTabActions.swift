@@ -166,12 +166,13 @@ struct MobileAddressMenuSource: UIViewRepresentable {
             UIAction(title: title, image: UIImage(systemName: symbol), attributes: destructive ? .destructive : disabled ? .disabled : []) { _ in perform() }
         }
         func group(_ children: [UIMenuElement]) -> UIMenu { UIMenu(options: .displayInline, children: children) }
-        let copy = item("Copy", "doc.on.doc", disabled: tab?.url == nil) { if let url = tab?.url { UIPasteboard.general.url = url } }
-        var groups = [group([copy,
+        let copy = item("Copy", "doc.on.doc", disabled: tab?.url == nil) { if let url = tab?.url { PrivacyPasteboard.copy(url) } }
+        let original = item("Copy Original Link", "link", disabled: tab?.url == nil) { if let url = tab?.url { PrivacyPasteboard.copy(url, original: true) } }
+        var groups = [group([copy, original,
             item("Paste and Go", "doc.on.clipboard") { controller.pasteAddress() },
             item("Paste and Search", "magnifyingglass") { controller.pasteAddress(search: true) }
         ])]
-        var sharing: [UIMenuElement] = [item("Share", "square.and.arrow.up", disabled: tab?.url == nil) { if let url = tab?.url { controller.share([url]) } }]
+        var sharing: [UIMenuElement] = [item("Share", "square.and.arrow.up", disabled: tab?.url == nil) { if let url = tab?.url { controller.share([URLCleaner.clean(url)]) } }]
         if let tab {
             sharing.append(UIMenu(title: "Move to Profile", image: UIImage(systemName: "person.crop.circle"), children: profiles.profiles.filter { $0.archivedAt == nil && $0.id != controller.profileID }.map { profile in
                 item(profile.name, profile.symbol.rawValue, disabled: tab.url == nil) { controller.move(tab, to: profile) }

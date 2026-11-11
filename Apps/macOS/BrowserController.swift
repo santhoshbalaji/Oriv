@@ -27,6 +27,7 @@ final class BrowserController {
     var readerCapture: PageCapture?
     var isPreparingReader = false
     @ObservationIgnored private var bookmarkMigration: Task<Void, Never>?
+    @ObservationIgnored private var privacyMenus: [UUID: MacPrivacyLinkMenu] = [:]
     @ObservationIgnored private var adapters: [UUID: MacWebUIDelegate] = [:]
 
     init(profile: BrowserProfile? = .personal, rootDirectory: URL? = nil, testing: Bool? = nil, websiteStore: WKWebsiteDataStore? = nil) {
@@ -58,12 +59,13 @@ final class BrowserController {
             let adapter = MacWebUIDelegate(session: self.session, tab: tab)
             self.adapters[tab.id] = adapter
             view.uiDelegate = adapter
+            self.privacyMenus[tab.id] = MacPrivacyLinkMenu(tab: tab, session: self.session, view: view)
             tab.onAuthentication = { [weak adapter] challenge, completion in
                 guard let adapter else { completion(.cancelAuthenticationChallenge, nil); return }
                 adapter.authenticate(challenge, completion: completion)
             }
         }
-        session.didCloseTab = { [weak self] id in self?.adapters.removeValue(forKey: id) }
+        session.didCloseTab = { [weak self] id in self?.adapters.removeValue(forKey: id); self?.privacyMenus.removeValue(forKey: id) }
         session.handleDownload = { [weak self] download in
             guard let self, self.session.isProfileActive else { download.cancel { _ in }; return }
             self.downloads.begin(download)
@@ -110,7 +112,7 @@ final class BrowserController {
         } else if let window, window.identifier?.rawValue != "browser" {
             window.performClose(nil)
             if window.identifier?.rawValue == "com_apple_SwiftUI_Settings_window" {
-                NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" })?.makeKeyAndOrderFront(nil)
+                BackgroundUIMode.present(NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }))
             }
         } else if let id = session.selectedTabID {
             requestCloseTab(id)
