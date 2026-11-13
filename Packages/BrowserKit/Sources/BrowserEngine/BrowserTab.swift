@@ -20,6 +20,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public private(set) var canGoForward = false
     public private(set) var errorMessage: String?
     public private(set) var hasLoaded = false
+    public private(set) var isRestoringWebView = false
     public private(set) var isPinned: Bool
     public private(set) var pageZoom: Double = 1
     public private(set) var findResult: Bool?
@@ -37,11 +38,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored public var onChange: (() -> Void)?
     @ObservationIgnored public var onVisit: ((URL, String) -> Void)?
     @ObservationIgnored public var onTitleChange: ((URL, String) -> Void)?
+    @ObservationIgnored public var onWebViewDiscarded: (() -> Void)?
     @ObservationIgnored public var onWebViewCreated: ((WKWebView) -> Void)?
     @ObservationIgnored public var onDownload: ((WKDownload) -> Void)?
     @ObservationIgnored public var onExternalURL: ((URL) -> Void)?
     @ObservationIgnored public var onOpenLink: ((URL, Bool) -> Void)?
     @ObservationIgnored public var onAuthentication: ((URLAuthenticationChallenge, @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) -> Void)?
+    @ObservationIgnored private var savedInteractionState: Any?
+    @ObservationIgnored private var savedViewSize: CGSize?
+    @ObservationIgnored private var savedScrollOffset: CGPoint?
+    @ObservationIgnored private var applyingRestoration = false
     @ObservationIgnored private var backingWebView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private let configuration: WKWebViewConfiguration
@@ -121,6 +127,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         // navigation callback. Install the opener session's prepared protection now.
         adBlocker?.applyPrepared(to: configuration.userContentController, url: url, isPrivate: isPrivate)
         let view = createWebView(configuration)
+        if let size = savedViewSize { view.frame = CGRect(origin:.zero,size:size); savedViewSize = nil }
         view.pageZoom = pageZoom
         view.navigationDelegate = self
         view.allowsBackForwardNavigationGestures = true
@@ -146,22 +153,86 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             view.observe(\.cameraCaptureState, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
             view.observe(\.microphoneCaptureState, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } }
         ]
+        #if os(iOS)
+        observations.append(view.scrollView.observe(\.contentSize,options:[.new]) { [weak self] _,_ in
+            Task { @MainActor [weak self] in self?.restoreScrollPosition() }
+        })
+        #endif
         onWebViewCreated?(view)
         applySiteSettings()
         view.setAllMediaPlaybackSuspended(mediaSuspended || !isProfileActive, completionHandler: nil)
+        if let state = savedInteractionState {
+            savedInteractionState = nil; hasLoaded = true; isRestoringWebView = true
+            view.interactionState = state
+        }
         return view
     }
 
     /// Restored background tabs stay dormant until selected.
     public func activate() {
+        if savedInteractionState != nil { _ = webView; return }
         recoverContentProcessIfPossible()
         guard !hasLoaded, let url else { return }
         navigate(to: url)
     }
 
+    #if os(iOS)
+    /// Reclaim only an unattached, idle GET page. Forms, private tabs, media,
+    /// loading pages and selected tabs retain their live state. WebKit's public
+    /// interaction state preserves its history and scroll position in memory.
+    public func discardBackgroundWebView(completion:@escaping @MainActor (Bool) -> Void) {
+        guard let view = backingWebView, canDiscard(view) else { completion(false); return }
+        let revision = documentRevision
+        view.requestMediaPlaybackState { [weak self,weak view] playback in
+            Task { @MainActor in
+                guard let self, let view, playback == .none, self.canDiscard(view), self.documentRevision == revision else { completion(false); return }
+                // An unattached WebKit page can have a DOM scroll position that
+                // UIScrollView has not mirrored yet. Read only its coordinates.
+                view.evaluateJavaScript("[scrollX,scrollY]") { [weak self,weak view] value,_ in
+                    guard let self, let view, self.canDiscard(view), self.documentRevision == revision,
+                          let state = view.interactionState else { completion(false); return }
+                    let offset = value as? [Double]
+                    let scroll = view.scrollView
+                    self.savedScrollOffset = offset.flatMap { $0.count == 2 ? CGPoint(x:$0[0],y:$0[1]) : nil } ??
+                        CGPoint(x:scroll.contentOffset.x+scroll.contentInset.left,y:scroll.contentOffset.y+scroll.contentInset.top)
+                    self.onWebViewDiscarded?()
+                    self.policyGeneration += 1; self.observations.removeAll()
+                    view.navigationDelegate = nil; view.uiDelegate = nil; self.onAuthentication = nil
+                    self.savedViewSize = view.bounds.size
+                    self.savedInteractionState = state; self.backingWebView = nil; self.hasLoaded = false
+                    completion(true)
+                }
+            }
+        }
+    }
+
+    private func restoreScrollPosition(force:Bool = false) {
+        guard let target = savedScrollOffset, let view = backingWebView, isRestoringWebView,
+              !applyingRestoration, force || !view.isLoading else { return }
+        guard !view.scrollView.isTracking else { savedScrollOffset = nil; isRestoringWebView = false; return }
+        applyingRestoration = true
+        let revision = documentRevision
+        view.evaluateJavaScript("window.scrollTo(\(target.x),\(target.y)); void 0") { [weak self,weak view] _,_ in
+            guard let self else { return }
+            self.applyingRestoration = false
+            guard self.backingWebView === view, self.documentRevision == revision else { return }
+            self.savedScrollOffset = nil; self.isRestoringWebView = false
+        }
+    }
+
+    private func canDiscard(_ view:WKWebView) -> Bool {
+        !isClosed && !isSelected && !isPrivate && !hasEditedFields && !isLoading && !view.isLoading && view.url == url &&
+                !isCapturingCamera && !isCapturingMicrophone && view.superview == nil &&
+                backingWebView === view && url.map(AddressResolver.isWebURL) == true &&
+                (committedNavigationMethod == nil || committedNavigationMethod == "GET")
+    }
+
+    #endif
+
     public func navigate(to destination: URL) {
         guard AddressResolver.isWebURL(destination) else { return }
         let destination = settings?.privacy.cleanedNavigationURL(destination, isPrivate: isPrivate) ?? URLCleaner.clean(destination)
+        savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil; isRestoringWebView = false; applyingRestoration = false
         pendingHTTPUpgrade = nil
         httpWarningURL = nil
         pendingCleanedURL = nil
@@ -199,7 +270,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if backingWebView?.url != nil { backingWebView?.reload() }
         else if let url { navigate(to: url) }
     }
-    public func stop() { backingWebView?.stopLoading(); isLoading = false; endRefreshing() }
+    public func stop() { backingWebView?.stopLoading(); isLoading = false; isRestoringWebView = false; savedScrollOffset = nil; endRefreshing() }
     public func reloadFromOrigin() { errorMessage = nil; backingWebView?.reloadFromOrigin() }
     public func zoomIn() { setZoom(pageZoom + 0.1) }
     public func zoomOut() { setZoom(pageZoom - 0.1) }
@@ -290,6 +361,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #if os(iOS)
         backingWebView?.findInteraction?.dismissFindNavigator()
         #endif
+        savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil
         isClosed = true
         policyGeneration += 1
         backingWebView?.stopLoading()
@@ -371,6 +443,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     func recordFieldEdit() { if !isClosed { hasEditedFields = true } }
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        #if os(iOS)
+        restoreScrollPosition(force:true)
+        #endif
         endRefreshing()
         refresh(from: webView)
         if let url, AddressResolver.isWebURL(url), !isPrivate {
@@ -415,6 +490,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         pendingNavigationMethod = request.httpMethod?.uppercased() ?? "GET"
     }
     private func handle(_ error: Error) {
+        isRestoringWebView = false; savedScrollOffset = nil; applyingRestoration = false
         endRefreshing()
         let nsError = error as NSError
         let certificateCodes = [NSURLErrorServerCertificateHasBadDate, NSURLErrorServerCertificateUntrusted,

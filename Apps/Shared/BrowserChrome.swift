@@ -11,6 +11,11 @@ private typealias PlatformColor = UIColor
 
 /// Window-local Safari 26 style viewport-edge colour extension, using public APIs.
 @MainActor @Observable final class PageChrome {
+    private final class ObserverOwner {
+        weak var value:PageChrome?
+        init(_ value:PageChrome) { self.value = value }
+    }
+    private static var owners: [ObjectIdentifier:ObserverOwner] = [:]
     static let foregroundThreshold = sqrt(1.05 * 0.05) - 0.05
     var color: Color = Theme.t3Code.canvas
     private(set) var isDark = true
@@ -104,9 +109,11 @@ private typealias PlatformColor = UIColor
     var foreground: Color { isDark ? .white : .black }
 
     func observe(_ view: WKWebView?, isPrivate: Bool = false) {
+        if webView === view, privatePage == isPrivate { return }
         sampleTask?.cancel(); sampleTask = nil
         resetTransitions()
-        if let old = webView {
+        if let old = webView, Self.owners[ObjectIdentifier(old)]?.value === self {
+            Self.owners[ObjectIdentifier(old)] = nil
             old.configuration.userContentController.removeScriptMessageHandler(forName: "chromeEdge", contentWorld: Self.contentWorld)
             old.evaluateJavaScript("window.__orivChromeStop?.(); void 0", in: nil, in: Self.contentWorld) { _ in }
         }
@@ -128,6 +135,11 @@ private typealias PlatformColor = UIColor
         navigationObservers.append(NotificationCenter.default.addObserver(forName: BrowserTab.navigationStarted, object: view, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.beginNavigation() }
         })
+        Self.owners = Self.owners.filter { $0.value.value != nil }
+        if let previous = Self.owners[ObjectIdentifier(view)]?.value, previous !== self { previous.observe(nil) }
+        Self.owners[ObjectIdentifier(view)] = ObserverOwner(self)
+        // A deallocated observer may have left its weak message adapter installed.
+        view.configuration.userContentController.removeScriptMessageHandler(forName:"chromeEdge",contentWorld:Self.contentWorld)
         view.configuration.userContentController.add(PageChromeScrollHandler(owner: self), contentWorld: Self.contentWorld, name: "chromeEdge")
         observations = [
             view.observe(\.underPageBackgroundColor, options: [.new]) { [weak self] _, _ in

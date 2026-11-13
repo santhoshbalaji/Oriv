@@ -32,9 +32,13 @@ public final class AdBlocker {
     public private(set) var compilationMeasurements: [RuleCompilationMeasurement] = []
     @ObservationIgnored public var onChange: (() -> Void)?
     @ObservationIgnored private let defaults: UserDefaults?
-    @ObservationIgnored private let source: [String: String]
+    @ObservationIgnored private let preparedSource: Task<[PreparedRule], Error>
     @ObservationIgnored private let cacheNamespace: String
-    @ObservationIgnored private let sourceError: Error?
+    private struct PreparedRule: Sendable {
+        let key: String
+        let json: String
+        let identifier: String
+    }
     @ObservationIgnored private var lists: [String: WKContentRuleList] = [:]
     @ObservationIgnored private var compilation: Task<[String: WKContentRuleList], Error>?
 
@@ -43,13 +47,21 @@ public final class AdBlocker {
         self.defaults = defaults
         mode = defaults?.string(forKey: "adBlockingMode").flatMap(AdBlockingMode.init(rawValue:)) ?? .balanced
         regularExceptions = Set(defaults?.stringArray(forKey: "adBlockingExceptions") ?? [])
-        if let rules {
-            var values = Dictionary(uniqueKeysWithValues: rules.map { ($0.key.rawValue, $0.value) })
-            if let cookieRules { values["cookies-fixture"] = cookieRules }
-            source = values; sourceError = nil
-        } else {
-            do { source = try BundledPrivacyRules.sources(); sourceError = nil }
-            catch { source = [:]; sourceError = error }
+        // Decompression, digest verification and hashing are CPU/file work.
+        // Start them away from the UI actor, including on the first launch.
+        preparedSource = Task.detached(priority:.userInitiated) {
+            let source: [String:String]
+            if let rules {
+                var values = Dictionary(uniqueKeysWithValues:rules.map { ($0.key.rawValue,$0.value) })
+                if let cookieRules { values["cookies-fixture"] = cookieRules }
+                source = values
+            } else { source = try BundledPrivacyRules.sources() }
+            guard !source.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+            return source.keys.sorted().map { key in
+                let json = source[key]!
+                let hash = SHA256.hash(data:Data(json.utf8)).map { String(format:"%02x",$0) }.joined()
+                return PreparedRule(key:key,json:json,identifier:"\(cacheNamespace).\(hash)")
+            }
         }
     }
 
@@ -104,28 +116,36 @@ public final class AdBlocker {
 
     public func prepare() async throws {
         if !lists.isEmpty { return }
-        if let sourceError { preparationError = "Bundled protection rules could not be read."; throw sourceError }
         if compilation == nil {
             isPreparing = true
             preparationError = nil
-            let source = source
-            let cacheNamespace = cacheNamespace
+            let preparedSource = preparedSource
             compilation = Task { @MainActor [weak self] in
-                var result: [String: WKContentRuleList] = [:]
-                guard !source.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
-                for key in source.keys.sorted() {
-                    let json = source[key]!
-                    let hash = SHA256.hash(data: Data(json.utf8)).map { String(format: "%02x", $0) }.joined()
-                    let identifier = "\(cacheNamespace).\(hash)"
+                let rules = try await preparedSource.value
+                // WebKit compilation is asynchronous. Submit independent lists
+                // together so an unused component cannot serialize the next one.
+                let jobs = rules.map { rule in Task { @MainActor [weak self] in
                     let store = WKContentRuleListStore.default()!
+                    #if DEBUG
                     let started = ProcessInfo.processInfo.systemUptime
                     let before = RuleCompilationMeasurement.residentBytes()
-                    let cached = try? await store.contentRuleList(forIdentifier: identifier)
-                    if let cached { result[key] = cached }
-                    else { result[key] = try await store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: json) }
-                    self?.compilationMeasurements.append(RuleCompilationMeasurement(component: key, identifier: identifier, peakProcessResident: RuleCompilationMeasurement.peakResidentBytes(), cached: cached != nil,
-                        seconds: ProcessInfo.processInfo.systemUptime - started, residentBefore: before, residentAfter: RuleCompilationMeasurement.residentBytes()))
-                }
+                    #endif
+                    let cached = try? await store.contentRuleList(forIdentifier:rule.identifier)
+                    let list: WKContentRuleList
+                    if let cached { list = cached }
+                    else {
+                        guard let compiled = try await store.compileContentRuleList(forIdentifier:rule.identifier,encodedContentRuleList:rule.json) else { throw CocoaError(.coderReadCorrupt) }
+                        list = compiled
+                    }
+                    #if DEBUG
+                    self?.compilationMeasurements.append(RuleCompilationMeasurement(component:rule.key,identifier:rule.identifier,
+                        peakProcessResident:RuleCompilationMeasurement.peakResidentBytes(),cached:cached != nil,
+                        seconds:ProcessInfo.processInfo.systemUptime-started,residentBefore:before,residentAfter:RuleCompilationMeasurement.residentBytes()))
+                    #endif
+                    return list
+                } }
+                var result: [String:WKContentRuleList] = [:]
+                for (rule,job) in zip(rules,jobs) { result[rule.key] = try await job.value }
                 return result
             }
         }

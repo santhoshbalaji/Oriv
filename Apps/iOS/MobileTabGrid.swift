@@ -3,6 +3,9 @@ import BrowserCore
 import BrowserEngine
 import UniformTypeIdentifiers
 import WebKit
+#if DEBUG
+import os
+#endif
 
 /// UIKit's local collection drag/drop supplies lift, cancellation and edge
 /// auto-scroll. It shares no gesture recognizers with the page's WKWebView.
@@ -101,6 +104,10 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         navigationController?.view.accessibilityElementsHidden = !model.presented
         revealSelected(announce:model.presented)
     }
+    override func viewWillTransition(to size:CGSize,with coordinator:any UIViewControllerTransitionCoordinator) {
+        cancelGestures()
+        super.viewWillTransition(to:size,with:coordinator)
+    }
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         navigationController?.view.accessibilityViewIsModal = false
@@ -148,6 +155,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             MobileGridCard(tab: tab, presentation: controller.tabPresentation, selected: controller.session.selectedTabID == tab.id, largeText: model.largeText, close: { controller.close([tab.id]) })
                 .browserAppearance(controller.appearance)
         }.margins(.all, 0)
+        cell.canInteract = { [weak self] in self?.model.presented == true && self?.reordering == false && self?.pulling == false }
         cell.reduceMotion = model.reduceMotion
         cell.close = { controller.close([tab.id]) }
         cell.closeSwipe = { [weak cell] velocity in
@@ -243,6 +251,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         reordering = false
     }
     func cancelGestures() {
+        let wasPulling = pulling
         pulling = false; reordering = false; dragGeneration += 1
         collectionView.cancelInteractiveMovement()
         collectionView.dragInteractionEnabled = false
@@ -250,7 +259,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         collectionView.panGestureRecognizer.isEnabled = false
         collectionView.panGestureRecognizer.isEnabled = true
         for case let cell as MobileTabCell in collectionView.visibleCells { cell.cancelGestures() }
-        model.onPull(0, true)
+        if wasPulling { model.onPull(0, true) }
     }
     @objc func panGrid(_ gesture: UIPanGestureRecognizer) {
         guard cancellation?.suspended != true else { pulling = false; return }
@@ -269,6 +278,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
 }
 
 @MainActor final class MobileTabCell: UICollectionViewCell, UIGestureRecognizerDelegate {
+    var canInteract: () -> Bool = { true }
     var close: (() -> Void)?
     var open: (() -> Void)?
     var closeSwipe: ((CGFloat) -> Void)?
@@ -296,6 +306,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         contentView.transform = .identity; contentView.alpha = 1
     }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        guard canInteract(), !swiping, !pinching, cancellation?.suspended != true else { return false }
         if let pan = gesture as? UIPanGestureRecognizer { let v = pan.velocity(in: self); return v.x < -abs(v.y) * 1.4 }
         if let pinch = gesture as? UIPinchGestureRecognizer { return pinch.scale > 1 }
         return true
@@ -304,7 +315,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         distance < -max(60, width * 0.35) || (distance < -20 && velocity < -650 && distance + velocity * 0.18 < -width * 0.5)
     }
     @objc func swipe(_ gesture: UIPanGestureRecognizer) {
-        if gesture.state == .began { swiping = cancellation?.suspended != true }
+        if gesture.state == .began { swiping = canInteract() && !pinching && cancellation?.suspended != true }
         let distance = gesture.translation(in:self).x, width = max(bounds.width, 1)
         if gesture.state == .changed && swiping {
             // Follow the finger; resist backwards motion and over-travel.
@@ -338,7 +349,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         }
     }
     @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
-        if gesture.state == .began { pinching = cancellation?.suspended != true }
+        if gesture.state == .began { pinching = canInteract() && !swiping && cancellation?.suspended != true }
         if gesture.state == .changed && pinching {
             if let pinchProgress { pinchProgress(min(1,max(0,(gesture.scale-1)/0.8)),false) }
             else if !reduceMotion { contentView.transform = CGAffineTransform(scaleX:min(1.12,gesture.scale), y:min(1.12,gesture.scale)) }
@@ -353,7 +364,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
     override func accessibilityActivate() -> Bool { open?(); return true }
 }
 
-private struct MobileGridCard: View {
+struct MobileGridCard: View {
     @Environment(\.browserTheme) private var theme
     let tab: BrowserTab
     let presentation: MobileTabPresentation
@@ -363,7 +374,9 @@ private struct MobileGridCard: View {
     var body: some View {
         VStack(spacing: 8) {
             MobileTabThumbnail(tab: tab, presentation: presentation)
-                .opacity(presentation.activeID == tab.id ? 0 : 1)
+                // The live surface is above this card. Keep its thumbnail as
+                // backing while a newly selected/restored host mounts; activeID
+                // alone does not mean WebKit has a composited layer yet.
                 .clipShape(.rect(cornerRadius: 18))
                 .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(selected ? theme.accent : theme.separator, lineWidth: selected ? 2 : 1) }
                 .overlay(alignment: .topTrailing) {
@@ -388,6 +401,8 @@ private struct MobileGridCard: View {
     private var captures: [UUID: Task<Void, Never>] = [:]
     var cardFrames: [UUID: CGRect] = [:]
     var activeID: UUID?
+    private(set) var livePreparation:UUID?
+    private(set) var liveReady = true
     @ObservationIgnored private var refreshTask: Task<Void,Never>?
     var pendingSelection: UUID?
     var pendingNewTab: Bool?
@@ -395,29 +410,41 @@ private struct MobileGridCard: View {
     var insertionProgress: CGFloat = 0
     private var generation = 0
     private var settlementRevision = 0
+    @ObservationIgnored private var settlementTask:Task<Void,Never>?
     private var suspended = false
     var cacheRevision: Int { generation }
     func resume() { if suspended { suspended = false; generation += 1 } }
 
     func capture(_ tab: BrowserTab, refresh: Bool = false) {
-        guard !suspended, captures[tab.id] == nil, tab.hasLoaded, tab.isInstantiated,
+        guard !suspended, activeID == nil, captures[tab.id] == nil, tab.hasLoaded, tab.isInstantiated,
               refresh || revisions[tab.id] != tab.documentRevision || images[tab.id] == nil else { return }
         let revision = tab.documentRevision, request = generation
-        let config = WKSnapshotConfiguration(); config.snapshotWidth = 440
+        let config = WKSnapshotConfiguration(); config.snapshotWidth = NSNumber(value:Double(min(440,cardFrames[tab.id]?.width ?? 220)))
         #if DEBUG
         MobileTransitionMetrics.snapshotCount += 1
         #endif
         captures[tab.id] = Task { @MainActor [weak self, weak tab] in
             guard let tab, !Task.isCancelled, tab.isInstantiated else { return }
+            #if DEBUG
+            let started = ProcessInfo.processInfo.systemUptime
+            #endif
             let image = try? await tab.webView.takeSnapshot(configuration: config)
+            #if DEBUG
+            MobileTransitionMetrics.recordSnapshot(image,seconds:ProcessInfo.processInfo.systemUptime-started)
+            #endif
             guard let self, request == self.generation else { return }
             self.captures[tab.id] = nil
             guard !Task.isCancelled, tab.documentRevision == revision else { return }
             if let image {
-                if self.images.count >= 12, let oldest = self.images.keys.first(where: { $0 != self.activeID && $0 != tab.id }) { self.images[oldest] = nil; self.revisions[oldest] = nil }
-                self.images[tab.id] = image; self.revisions[tab.id] = revision
+                self.store(image,for:tab.id,revision:revision)
             }
         }
+    }
+    private func store(_ image:UIImage,for id:UUID,revision:Int) {
+        if images[id] == nil, images.count >= 12, let old = images.keys.first(where: { $0 != activeID && $0 != id }) {
+            images[old] = nil; revisions[old] = nil
+        }
+        images[id] = image; revisions[id] = revision
     }
     func refreshAfterScrolling(_ tab:BrowserTab) {
         refreshTask?.cancel()
@@ -429,6 +456,7 @@ private struct MobileGridCard: View {
     }
     func begin(_ tab: BrowserTab?) {
         guard !suspended, let tab else { return }
+        settlementTask?.cancel(); settlementTask = nil
         settlementRevision += 1
         #if DEBUG
         MobileTransitionMetrics.start("page-grid")
@@ -445,13 +473,28 @@ private struct MobileGridCard: View {
         #endif
         guard let tab, activeID == tab.id, tab.isInstantiated else { finish(); return }
         let request = generation, revision = tab.documentRevision, settlement = settlementRevision
-        Task { @MainActor [weak self,weak tab] in
-            guard let tab, tab.isInstantiated else { return }
-            let config = WKSnapshotConfiguration(); config.snapshotWidth = 440
-            let image = try? await tab.webView.takeSnapshot(configuration:config)
-            guard let self, !self.suspended, request == self.generation, tab.isInstantiated, tab.documentRevision == revision else { return }
-            if let image { self.images[tab.id] = image; self.revisions[tab.id] = revision }
-            if self.activeID == tab.id && settlement == self.settlementRevision { self.finish() }
+        settlementTask?.cancel()
+        let complete: @MainActor @Sendable (UIImage?) -> Void = { [weak self,weak tab] image in
+            guard let self, let tab, !self.suspended, request == self.generation,
+                  settlement == self.settlementRevision else { return }
+            if let image, tab.isInstantiated, tab.documentRevision == revision { self.store(image,for:tab.id,revision:revision) }
+            // A failed thumbnail retains the existing backing card. It must
+            // still release the live host and leave an interactive grid.
+            if self.activeID == tab.id { self.finish() }
+        }
+        settlementTask = Task { @MainActor in
+            do { try await Task.sleep(for:.seconds(2)) } catch { return }
+            complete(nil)
+        }
+        let config = WKSnapshotConfiguration(); config.snapshotWidth = NSNumber(value:Double(min(440,cardFrames[tab.id]?.width ?? 220)))
+        #if DEBUG
+        let started = ProcessInfo.processInfo.systemUptime
+        #endif
+        tab.webView.takeSnapshot(with:config) { image,_ in
+            #if DEBUG
+            MobileTransitionMetrics.recordSnapshot(image,seconds:ProcessInfo.processInfo.systemUptime-started)
+            #endif
+            complete(image)
         }
     }
     func beginNewTab() {
@@ -460,8 +503,15 @@ private struct MobileGridCard: View {
         #endif
         activeID = UUID()
     }
+    func prepareLive() { liveReady = false; livePreparation = UUID() }
+    func didPrepareLive(_ token:UUID) {
+        guard token == livePreparation else { return }
+        liveReady = true; livePreparation = nil
+    }
     func finish() {
+        settlementTask?.cancel(); settlementTask = nil
         settlementRevision += 1; activeID = nil; pendingSelection = nil; pendingNewTab = nil
+        livePreparation = nil; liveReady = true
         #if DEBUG
         MobileTransitionMetrics.stop()
         #endif
@@ -495,13 +545,23 @@ private struct MobileGridCard: View {
 @MainActor final class MobileTransitionMetrics: NSObject {
     static var snapshotCount = 0
     private static let shared = MobileTransitionMetrics()
+    private let log = OSLog(subsystem:"Oriv",category:"TabTransitions")
     private var link: CADisplayLink?
     private var frames: [Double] = []
     private var samples: [[String: Any]] = []
+    private var trace: [[String:Any]] = []
     private var name = ""
     private var snapshotsAtStart = 0
+    static func note(_ event:String,_ values:[String:Any] = [:]) {
+        guard ProcessInfo.processInfo.arguments.contains("--oriv-gesture-trace") else { return }
+        shared.trace.append(["event":event,"values":values,"time":ProcessInfo.processInfo.systemUptime])
+        if let data = try? JSONSerialization.data(withJSONObject:shared.trace,options:[.sortedKeys]) {
+            try? data.write(to:FileManager.default.temporaryDirectory.appendingPathComponent("oriv-gesture-trace.json"),options:.atomic)
+        }
+    }
     static func start(_ name: String) {
         guard ProcessInfo.processInfo.arguments.contains("--oriv-transition-metrics"), shared.link == nil else { return }
+        os_signpost(.begin,log:shared.log,name:"TabTransition","%{public}@",name)
         shared.name = name; shared.frames = []; shared.snapshotsAtStart = snapshotCount
         let link = CADisplayLink(target:shared,selector:#selector(tick(_:)))
         link.preferredFrameRateRange = CAFrameRateRange(minimum:60,maximum:120,preferred:120)
@@ -510,9 +570,23 @@ private struct MobileGridCard: View {
     @objc private func tick(_ link: CADisplayLink) { frames.append(link.timestamp) }
     static func stop() {
         guard shared.link != nil else { return }
+        os_signpost(.end,log:shared.log,name:"TabTransition")
         shared.link?.invalidate(); shared.link = nil
         let deltas = zip(shared.frames,shared.frames.dropFirst()).map { ($1-$0)*1000 }
         shared.samples.append(["gesture":shared.name,"frameIntervalsMs":deltas,"snapshots":snapshotCount-shared.snapshotsAtStart])
+        writeSamples()
+    }
+    static func recordSnapshot(_ image:UIImage?,seconds:Double) {
+        guard ProcessInfo.processInfo.arguments.contains("--oriv-transition-metrics") else { return }
+        shared.samples.append(["event":"snapshot","seconds":seconds,"bytes":image?.cgImage.map { $0.bytesPerRow*$0.height } ?? 0,
+            "width":image?.cgImage?.width ?? 0,"height":image?.cgImage?.height ?? 0])
+        if shared.link == nil { writeSamples() }
+    }
+    static func recordPreparation(seconds:Double,success:Bool) {
+        guard ProcessInfo.processInfo.arguments.contains("--oriv-transition-metrics") else { return }
+        shared.samples.append(["event":"paint-preparation","seconds":seconds,"success":success])
+    }
+    private static func writeSamples() {
         if let data = try? JSONSerialization.data(withJSONObject:shared.samples,options:[.sortedKeys]) {
             try? data.write(to:FileManager.default.temporaryDirectory.appendingPathComponent("oriv-transition-metrics.json"),options:.atomic)
         }

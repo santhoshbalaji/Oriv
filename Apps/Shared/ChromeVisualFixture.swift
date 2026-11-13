@@ -60,8 +60,9 @@ import BrowserCore
     static func install(on web: WKWebView) {
         guard enabled else { return }
         let handler = ChromeTiming()
+        web.configuration.userContentController.removeScriptMessageHandler(forName:"chromeTiming",contentWorld:.world(name:"OrivTiming"))
         web.configuration.userContentController.add(handler, contentWorld: .world(name: "OrivTiming"), name: "chromeTiming")
-        web.configuration.userContentController.addUserScript(WKUserScript(source: """
+        let script = WKUserScript(source: """
         (() => {
           const send = (event, extra = {}) => window.webkit.messageHandlers.chromeTiming.postMessage({event, time:performance.timeOrigin + performance.now(), href:location.href, ...extra});
           send('documentStart');
@@ -69,7 +70,10 @@ import BrowserCore
           document.addEventListener('DOMContentLoaded', () => send('DOMContentLoaded'), {once:true});
           window.addEventListener('load', () => send('load'), {once:true});
         })()
-        """, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .world(name: "OrivTiming")))
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .world(name: "OrivTiming"))
+        if !web.configuration.userContentController.userScripts.contains(where: { $0.source == script.source }) {
+            web.configuration.userContentController.addUserScript(script)
+        }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, let values = message.body as? [String: Any], let name = values["event"] as? String else { return }

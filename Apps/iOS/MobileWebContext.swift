@@ -61,6 +61,12 @@ extension MobileWebDelegate: @preconcurrency UIEditMenuInteractionDelegate, UIGe
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 
     func invalidate() {
+        if let tab, tab.isInstantiated {
+            let view = tab.webView
+            view.configuration.userContentController.removeScriptMessageHandler(forName:"orivContext",contentWorld:.world(name:"OrivContext"))
+            if let imageMenuInteraction { view.removeInteraction(imageMenuInteraction) }
+        }
+        contextCancellation = nil
         imageTransfers.values.forEach { $0.cancel() }
         imageTransfers.removeAll()
         touchedImageURL = nil
@@ -93,8 +99,13 @@ extension MobileWebDelegate: @preconcurrency UIEditMenuInteractionDelegate, UIGe
         let world = WKContentWorld.world(name: "OrivContext")
         let tracker = MobileContextTracker(owner: self)
         view.configuration.userContentController.add(tracker, contentWorld: world, name: "orivContext")
-        view.configuration.userContentController.addUserScript(WKUserScript(source: MobileContextTracker.script, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
-        view.configuration.userContentController.addUserScript(WKUserScript(source: "const style=document.createElement('style');style.textContent='img{-webkit-touch-callout:none!important}';document.documentElement.appendChild(style);", injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: world))
+        let scripts: [(String,WKUserScriptInjectionTime)] = [
+            (MobileContextTracker.script,.atDocumentStart),
+            ("const style=document.createElement('style');style.textContent='img{-webkit-touch-callout:none!important}';document.documentElement.appendChild(style);",.atDocumentEnd)
+        ]
+        for (source,time) in scripts where !view.configuration.userContentController.userScripts.contains(where: { $0.source == source }) {
+            view.configuration.userContentController.addUserScript(WKUserScript(source:source,injectionTime:time,forMainFrameOnly:false,in:world))
+        }
     }
     private func contextIsCurrent(_ revision: Int) -> Bool {
         guard let tab, let session else { return false }

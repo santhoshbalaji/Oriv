@@ -84,7 +84,9 @@ struct MobileTabsView: View {
     var presented = true
     var visible = true
     @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    var reduceMotionOverride:Bool? = nil
+    private var reduceMotion:Bool { reduceMotionOverride ?? systemReduceMotion }
     @State private var query = ""
     @State private var searching = false
     @State private var privateMode = false
@@ -107,7 +109,7 @@ struct MobileTabsView: View {
                 .onAppear { privateMode = controller.session.selectedTab?.isPrivate == true }
                 .onChange(of:presented) { _, visible in if visible { privateMode = controller.session.selectedTab?.isPrivate == true } }
                 .onChange(of:controller.session.selectedTab?.isPrivate) { _, value in if !presented { privateMode = value == true } }
-                .toolbar(.visible, for: .navigationBar)
+                .toolbar(visible ? .visible : .hidden, for: .navigationBar, .bottomBar)
                 .toolbarColorScheme(presented ? controller.appearance.colorScheme : nil, for: .navigationBar, .bottomBar)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {

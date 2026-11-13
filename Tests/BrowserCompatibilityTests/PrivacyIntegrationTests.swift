@@ -142,13 +142,17 @@ import UIKit
         #if os(macOS)
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), URLCleaner.clean(dirty).absoluteString)
         #else
-        XCTAssertEqual(UIPasteboard.general.url, URLCleaner.clean(dirty))
+        let cleaned = try copiedURL()
+        XCTAssertEqual(cleaned, URLCleaner.clean(dirty))
+        XCTAssertEqual(cleaned.absoluteString, URLCleaner.clean(dirty).absoluteString)
         #endif
         PrivacyPasteboard.copy(dirty, original: true)
         #if os(macOS)
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), dirty.absoluteString)
         #else
-        XCTAssertEqual(UIPasteboard.general.url, dirty)
+        let original = try copiedURL()
+        XCTAssertEqual(original, dirty)
+        XCTAssertEqual(original.absoluteString,dirty.absoluteString)
         #endif
         XCTAssertEqual(ContinuityPage(url: dirty, title: "Fixture", profile: .personal, isPrivate: false)?.url, URLCleaner.clean(dirty))
         XCTAssertNil(ContinuityPage(url: dirty, title: "Fixture", profile: .personal, isPrivate: true))
@@ -158,6 +162,18 @@ import UIKit
         XCTAssertEqual(replica.tabs(for: BrowserProfile.personalID, device: replica.deviceID).first?.url, URLCleaner.clean(dirty))
         XCTAssertEqual(record.url, dirty, "Cleaning an outgoing tab must not mutate the local tab record")
     }
+    #if os(iOS)
+    private func copiedURL() throws -> URL {
+        // Inspect the actual public.url payload. UIKit's URL convenience getter
+        // and item-provider coercion can wait indefinitely in the Simulator.
+        let value = try XCTUnwrap(UIPasteboard.general.value(forPasteboardType:"public.url"))
+        if let url = value as? URL { return url }
+        if let string = value as? String { return try XCTUnwrap(URL(string:string)) }
+        let data = try XCTUnwrap(value as? Data)
+        return try XCTUnwrap(URL(string:try XCTUnwrap(String(data:data,encoding:.utf8))))
+    }
+    #endif
+
     func testCrossHostGETCleaningAndHistoryTraversal() async throws {
         let blocker = AdBlocker(); blocker.setMode(.off)
         let tab = BrowserTab(dataStore: .nonPersistent(), adBlocker: blocker, settings: BrowserSettings(defaults: nil))

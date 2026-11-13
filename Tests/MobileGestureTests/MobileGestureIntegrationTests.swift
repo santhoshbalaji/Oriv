@@ -245,17 +245,18 @@ import WebKit
         try await wait { tab.title == "Gesture Lab" && !tab.isLoading }
         let viewport = try await web.evaluateJavaScript("[innerWidth,innerHeight]") as? [Double]
         let original = web.bounds
-        let clip = UIView(frame:CGRect(x:16,y:130,width:180,height:250)); clip.clipsToBounds = true
-        root.view.addSubview(clip); clip.addSubview(web)
-        web.transform = CGAffineTransform(scaleX:0.46,y:0.46)
-        host.setNeedsLayout(); host.layoutIfNeeded()
-        XCTAssertTrue(web.superview === clip,"SwiftUI layout must not steal the page from its transition container")
-        XCTAssertEqual(web.bounds,original,"The transform must not resize WebKit's viewport")
-        let reparentedViewport = try await web.evaluateJavaScript("[innerWidth,innerHeight]") as? [Double]
-        XCTAssertEqual(reparentedViewport, viewport)
-        web.transform = .identity; host.addSubview(web); host.setNeedsLayout(); host.layoutIfNeeded()
-        XCTAssertEqual(web.frame,host.bounds)
-        XCTAssertTrue(web.superview === host)
+        let parent = web.superview
+        let card = CGRect(x:16,y:130,width:180,height:250)
+        for progress:CGFloat in [0.2,0.7,1,0.6,0] {
+            host.applyMorph(progress:progress,card:card,animated:false)
+            host.setNeedsLayout(); host.layoutIfNeeded()
+            XCTAssertTrue(web.superview === parent,"The live layer must keep its host across both endpoints")
+            XCTAssertEqual(web.bounds,original,"The transform must not resize WebKit's viewport")
+            let current = try await web.evaluateJavaScript("[innerWidth,innerHeight]") as? [Double]
+            XCTAssertEqual(current,viewport)
+        }
+        XCTAssertEqual(web.transform,.identity)
+
     }
 
     private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
@@ -329,7 +330,7 @@ extension MobileGestureIntegrationTests {
                 pan.state = .changed; cell.swipe(pan)
                 pinch.state = .began; cell.pinch(pinch)
                 pinch.state = .changed; cell.pinch(pinch)
-                XCTAssertTrue(cell.swiping); XCTAssertTrue(cell.pinching)
+                XCTAssertTrue(cell.swiping); XCTAssertFalse(cell.pinching,"A second gesture must not steal an active card swipe")
                 if let notice { NotificationCenter.default.post(name: notice, object: nil) }
                 else {
                     pan.state = .cancelled; cell.swipe(pan)

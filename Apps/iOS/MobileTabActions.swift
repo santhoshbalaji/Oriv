@@ -258,8 +258,14 @@ final class MobileAddressMenuButton: UIControl {
         if phase == .cancelled || phase == .failed { cancel(); return false }
         guard session.isProfileActive, cancellation?.suspended != true else { cancel(); return false }
         if phase == .began || phase == .changed {
-            if source == nil { source = session.selectedTabID }
-            if axis == nil { axis = abs(delta.width) > abs(delta.height) ? .horizontal : .vertical }
+            if phase == .began { source = session.selectedTabID }
+            else if source == nil { return false }
+            if axis == nil {
+                // UIKit may report zero translation on .began. Lock only once
+                // deliberate movement exists, as SwiftUI's old 14pt drag did.
+                guard hypot(delta.width,delta.height) >= 14 else { return false }
+                axis = abs(delta.width) > abs(delta.height) ? .horizontal : .vertical
+            }
             if axis == .horizontal {
                 let target = session.tabSwipeTarget(delta.width < 0 ? 1 : -1)
                 translation = delta.width * (target == .boundary ? 0.18 : target == .newTab ? 0.45 : 1)
@@ -279,5 +285,82 @@ final class MobileAddressMenuButton: UIControl {
             return openGrid
         }
         return false
+    }
+}
+
+
+/// Observe only touches which START inside the rendered capsule. Attaching to
+/// the window lets UIKit arbitrate with its system gesture gate; no screen-edge
+/// deferral, competing page recognizer or full-screen SwiftUI hit region is used.
+struct MobileCapsulePan: UIViewRepresentable {
+    let enabled: Bool
+    let action: (UIGestureRecognizer.State, CGSize, CGSize) -> Void
+    func makeUIView(context:Context) -> Host { Host() }
+    func updateUIView(_ host:Host,context:Context) { host.action = action; host.enabled = enabled }
+    static func dismantleUIView(_ host:Host,coordinator:()) { host.detach() }
+
+    final class Host: UIView, UIGestureRecognizerDelegate {
+        var action: ((UIGestureRecognizer.State,CGSize,CGSize) -> Void)?
+        var enabled = true
+        private weak var attachedWindow: UIWindow?
+        private var cancellation: MobileGestureCancellation?
+        private(set) var tracking = false
+        private lazy var pan: UIPanGestureRecognizer = {
+            let pan = UIPanGestureRecognizer(target:self,action:#selector(changed(_:)))
+            pan.maximumNumberOfTouches = 1; pan.delegate = self
+            pan.cancelsTouchesInView = true
+            return pan
+        }()
+        override init(frame:CGRect) {
+            super.init(frame:frame)
+            cancellation = MobileGestureCancellation { [weak self] in self?.cancel() }
+        }
+        required init?(coder:NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func hitTest(_ point:CGPoint,with event:UIEvent?) -> UIView? { nil }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard attachedWindow !== window else { return }
+            detach()
+            if let window { attachedWindow = window; window.addGestureRecognizer(pan) }
+        }
+        func detach() { cancel(); attachedWindow?.removeGestureRecognizer(pan); attachedWindow = nil }
+        func cancel() {
+            let wasTracking = tracking; tracking = false
+            if wasTracking { action?(.cancelled,.zero,.zero) }
+            pan.isEnabled = false; pan.isEnabled = true
+        }
+        static func acceptsStart(_ point:CGPoint,bar:CGRect,window:CGRect,insets:UIEdgeInsets) -> Bool {
+            let safe = window.inset(by:insets)
+            // Reserve both horizontal edges for native history/system gestures.
+            return bar.contains(point) && point.y < safe.maxY && point.y >= safe.minY &&
+                point.x >= safe.minX+20 && point.x < safe.maxX-20
+        }
+        func gestureRecognizer(_ recognizer:UIGestureRecognizer,shouldReceive touch:UITouch) -> Bool {
+            guard enabled, cancellation?.suspended != true, let window else { return false }
+            let accepted = Self.acceptsStart(touch.location(in:window),bar:convert(bounds,to:window),window:window.bounds,insets:window.safeAreaInsets)
+            #if DEBUG
+            MobileTransitionMetrics.note("capsule-touch",["accepted":accepted,"x":touch.location(in:window).x,"y":touch.location(in:window).y,"bar":NSCoder.string(for:convert(bounds,to:window))])
+            #endif
+            return accepted
+        }
+        override func gestureRecognizerShouldBegin(_ recognizer:UIGestureRecognizer) -> Bool {
+            guard enabled, cancellation?.suspended != true, let pan = recognizer as? UIPanGestureRecognizer else { return false }
+            let v = pan.velocity(in:window)
+            #if DEBUG
+            MobileTransitionMetrics.note("capsule-intent",["x":v.x,"y":v.y])
+            #endif
+            return abs(v.x) > abs(v.y)*1.35 || v.y < -abs(v.x)*1.35
+        }
+        @objc private func changed(_ pan:UIPanGestureRecognizer) {
+            if pan.state == .began { tracking = enabled && cancellation?.suspended != true }
+            guard tracking else { return }
+            let delta = pan.translation(in:window), velocity = pan.velocity(in:window)
+            #if DEBUG
+            if pan.state != .changed { MobileTransitionMetrics.note("capsule-phase",["phase":pan.state.rawValue,"x":delta.x,"y":delta.y]) }
+            #endif
+            let predicted = CGSize(width:delta.x+velocity.x*0.2,height:delta.y+velocity.y*0.2)
+            action?(pan.state,CGSize(width:delta.x,height:delta.y),predicted)
+            if pan.state == .ended || pan.state == .cancelled || pan.state == .failed { tracking = false }
+        }
     }
 }
