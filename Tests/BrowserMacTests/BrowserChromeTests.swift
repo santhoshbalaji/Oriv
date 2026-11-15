@@ -6,6 +6,21 @@ import XCTest
 @testable import PersonalBrowser
 
 @MainActor final class BrowserChromeTests: BackgroundUITestCase {
+    func testDetachingLightPageResetsHomeInsteadOfRetainingAnotherTabsTint() async throws {
+        let view = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(view); defer { window.close() }
+        view.loadHTMLString("<body style='background:#ffffff'>Light page</body>",baseURL:nil)
+        try await wait { !view.isLoading && view.url != nil }
+        chrome.observe(view)
+        try await wait { !chrome.isDark }
+        chrome.observe(nil)
+        let color = try XCTUnwrap(NSColor(chrome.color).usingColorSpace(.sRGB))
+        XCTAssertEqual(color.redComponent,0,accuracy:0.002)
+        XCTAssertEqual(color.greenComponent,0,accuracy:0.002)
+        XCTAssertEqual(color.blueComponent,0,accuracy:0.002)
+        XCTAssertTrue(chrome.isDark)
+    }
+
     func testThemeColorIgnoredAndBodyChangesDetachFromPreviousTab() async throws {
         let first = makeWebView(), second = makeWebView()
         let firstWindow = samplingWindow(first), secondWindow = samplingWindow(second)

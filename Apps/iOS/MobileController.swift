@@ -15,6 +15,7 @@ import WebKit
     var message: String?
     let tabPresentation = MobileTabPresentation()
     let tabSwipe = MobileTabSwipe()
+    let topChrome = MobileTopChrome()
     let viewportLayout = MobileViewportLayout()
     @ObservationIgnored private var chromes: [UUID:PageChrome] = [:]
     @ObservationIgnored private let homeChrome = PageChrome()
@@ -49,6 +50,12 @@ import WebKit
         session = BrowserSession(store: testing || root == nil ? nil : SessionFileStore(fileURL: root!.appendingPathComponent("session.json")),
             dataStore: testing || profile == nil ? .nonPersistent() : profile!.isPersonal ? .default() : WKWebsiteDataStore(forIdentifier: profile!.id),
             adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil)
+        tabSwipe.topChrome = topChrome
+        tabSwipe.chromeForTab = { [weak self] id in
+            guard let self, let tab = session.tabs.first(where:{ $0.id == id }) else { return (ChromeColor(0,0,0),1) }
+            let chrome = chrome(for:tab)
+            return (MobileTopChrome.rgb(UIColor(chrome.color)),chrome.showsContentUnderChrome ? 0 : 1)
+        }
         if !testing, let root {
             bookmarkMigration = Task { [weak session] in
                 await session?.importLegacyBookmarks(from: root.appendingPathComponent("workspace.sqlite"))
@@ -72,7 +79,9 @@ import WebKit
             let adapter = MobileWebDelegate(session: session, tab: tab); adapter.controller = self
             let id = tab.id
             tab.onWebViewDiscarded = { [weak self] in
-                self?.chromes.removeValue(forKey:id)?.observe(nil)
+                // Detach WebKit ownership but retain the tab's measured tint for
+                // its next restoration and the first interactive swipe frame.
+                self?.chromes[id]?.observe(nil)
                 self?.delegates.removeValue(forKey:id)?.invalidate()
             }
             delegates[tab.id] = adapter; view.uiDelegate = adapter

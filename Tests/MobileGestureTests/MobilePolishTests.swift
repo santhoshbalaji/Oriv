@@ -7,6 +7,157 @@ import BrowserCore
 @testable import OrivMobile
 
 @MainActor final class MobilePolishTests: XCTestCase {
+    func testTopFillTracksNativeSwipeFramesThroughCommitCancelAndFlick() async throws {
+        let profiles = MobileProfiles(), c = profiles.current
+        defer { c.session.shutdown(); profiles.continuity.shutdown() }
+        let source = try XCTUnwrap(c.session.selectedTab)
+        source.navigate(to:URL(string:"http://127.0.0.1:8768/two")!)
+        let target = c.session.addTab(url:URL(string:"http://127.0.0.1:8768/chrome-paint")!,select:false)
+        target.activate()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where:\.isKeyWindow), window = UIWindow(windowScene:scene)
+        window.rootViewController = UIHostingController(rootView:MobileRootView(controller:c,profiles:profiles)
+            .browserAppearance(c.appearance,followsPage:true).environment(\.scenePhase,.active))
+        window.makeKeyAndVisible()
+        defer { c.tabSwipe.cancel(); window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        try await wait { !source.isLoading && !target.isLoading && c.chrome(for:target).sampledTop != nil && source.webView.window === window }
+        try await Task.sleep(for:.milliseconds(300))
+        let a = TopFillFrames.rgb(UIColor(c.chrome(for:source).color)), b = TopFillFrames.rgb(UIColor(c.chrome(for:target).color))
+        XCTAssertGreaterThan(a.deltaE(b),30)
+        for (name,commit,travel) in [("commit",true,0.68),("cancel",false,0.38),("flick",true,0.09)] {
+            if c.session.selectedTabID != source.id { c.session.selectTab(source.id) }
+            try await wait { source.webView.window === window }
+            try await Task.sleep(for:.milliseconds(150))
+            c.tabSwipe.begin(source:source.id,destination:target.id,direction:1,image:nil,reduceMotion:false)
+            try await wait { c.tabSwipe.isPrepared && target.webView.window === window }
+            let surface = try XCTUnwrap((source.webView.superview?.superview?.superview as? MobileWebHost)?.swipeSurface)
+            let frames = TopFillFrames(window:window,surface:surface,from:a,to:b)
+            frames.endpointForFrame = { c.session.selectedTabID == target.id ? 1 : (!c.tabSwipe.isActive ? 0 : nil) }
+            frames.style = { c.topChrome.isDark }
+            frames.nativeColor = { c.topChrome.presentationColor }
+            let targetSurface = try XCTUnwrap((target.webView.superview?.superview?.superview as? MobileWebHost)?.swipeSurface)
+            frames.installMarkers(source:surface,destination:targetSurface)
+            // Commit the test-only witness before starting any gesture input.
+            CATransaction.flush()
+            try await frames.prepareMarkers()
+            frames.start()
+            for step in 1...8 {
+                c.tabSwipe.move(-window.bounds.width*travel*Double(step)/8)
+                try await Task.sleep(for:.milliseconds(18))
+            }
+            c.tabSwipe.finish(commit:commit) { if commit { c.session.selectTab(target.id) } }
+            try await wait { !c.tabSwipe.isActive }
+            frames.endpoint = commit ? 1 : 0
+            try await Task.sleep(for:.milliseconds(240))
+            frames.stop()
+            let attachment = XCTAttachment(data:try JSONSerialization.data(withJSONObject:frames.rows,options:[.prettyPrinted,.sortedKeys]),uniformTypeIdentifier:"public.json")
+            attachment.name = "top-fill-\(name)-frames"; attachment.lifetime = .keepAlways; add(attachment)
+            XCTAssertGreaterThan(frames.rows.count,10)
+            XCTAssertEqual(frames.invalidMarkerFrames,0,"Every pixel sample must include its surface-position witness")
+            XCTAssertLessThanOrEqual(frames.maximumError,3,"\(name): every sampled fill must match surface progress, including handoff")
+            XCTAssertLessThanOrEqual(frames.maximumNativeError,0.5,"Native fill and surface transforms must share the same animation clock")
+            XCTAssertLessThanOrEqual(frames.maximumStyleLag,1,"Status foreground must switch within one sampled frame of the luminance midpoint")
+        }
+    }
+
+    func testTopFillNavigationHoldsMeasuredPaintAndNeverFlashesNeutral() async throws {
+        let profiles = MobileProfiles(), c = profiles.current
+        defer { c.session.shutdown(); profiles.continuity.shutdown() }
+        let tab = try XCTUnwrap(c.session.selectedTab)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where:\.isKeyWindow), window = UIWindow(windowScene:scene)
+        window.rootViewController = UIHostingController(rootView:MobileRootView(controller:c,profiles:profiles)
+            .browserAppearance(c.appearance,followsPage:true).environment(\.scenePhase,.active))
+        window.makeKeyAndVisible()
+        defer { PageChrome.diagnosticObserver = nil; window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/chrome-paint?delay=0")!)
+        let chrome = c.chrome(for:tab)
+        try await wait { chrome.sampledTop != nil && !tab.isLoading }
+        try await Task.sleep(for:.milliseconds(250))
+        let a = TopFillFrames.rgb(UIColor(chrome.color)), b = ChromeColor(22.0/255,22.0/255,23.0/255)
+        let frames = TopFillFrames(window:window,surface:window,from:a,to:b)
+        var targets:[ChromeColor] = []
+        PageChrome.diagnosticObserver = { current in if current === chrome { targets.append(TopFillFrames.rgb(UIColor(current.color))) } }
+        frames.start()
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/chrome-revisit")!)
+        try await wait { !tab.isLoading && chrome.sampledTop != nil && TopFillFrames.rgb(UIColor(chrome.color)).deltaE(b)<1 }
+        try await Task.sleep(for:.milliseconds(280)); frames.stop()
+        XCTAssertTrue(targets.allSatisfy { min($0.deltaE(a),$0.deltaE(b))<3 },"Navigation may hold the old paint or use the measured new band, never a provisional default")
+        let pixels = frames.rows.compactMap { $0["actual"] as? [Double] }.map { ChromeColor($0[0],$0[1],$0[2]) }
+        XCTAssertGreaterThan(pixels.filter { min($0.deltaE(a),$0.deltaE(b))>3 }.count,2,"A real colour change must cross-fade")
+        for pixel in pixels {
+            let p = min(max((pixel.red-a.red)/(b.red-a.red),0),1)
+            XCTAssertLessThanOrEqual(pixel.deltaE(MobileTopChrome.blend(a,b,p)),3,"No neutral/default detour during navigation")
+        }
+        XCTAssertLessThanOrEqual(try XCTUnwrap(pixels.last).deltaE(b),3)
+        let attachment = XCTAttachment(data:try JSONSerialization.data(withJSONObject:frames.rows,options:[.prettyPrinted,.sortedKeys]),uniformTypeIdentifier:"public.json")
+        attachment.name = "top-fill-navigation-frames"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    func testTopFillCrossfadeInterruptsAtDisplayedPaintAndReduceMotionIsInstant() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where:\.isKeyWindow), window = UIWindow(windowScene:scene)
+        let host = UIViewController(), fill = UIView(), chrome = MobileTopChrome(), id = UUID()
+        host.view.addSubview(fill); fill.frame = window.bounds; window.rootViewController = host; window.makeKeyAndVisible()
+        defer { chrome.detach(fill); window.isHidden = true; previous?.makeKeyAndVisible() }
+        chrome.attach(fill)
+        chrome.render(color:ChromeColor(0,0,0),opacity:1,pageID:id,interactive:false,reduceMotion:false)
+        chrome.render(color:ChromeColor(1,1,1),opacity:1,pageID:id,interactive:false,reduceMotion:false)
+        try await Task.sleep(for:.milliseconds(70))
+        let before = TopFillFrames.rgb(UIColor(cgColor:try XCTUnwrap(fill.layer.presentation()?.backgroundColor)))
+        XCTAssertGreaterThan(before.red,0); XCTAssertLessThan(before.red,1)
+        chrome.render(color:ChromeColor(0.4,0,0.8),opacity:1,pageID:id,interactive:false,reduceMotion:false)
+        let after = TopFillFrames.rgb(UIColor(cgColor:try XCTUnwrap(fill.layer.presentation()?.backgroundColor)))
+        XCTAssertLessThanOrEqual(before.deltaE(after),1,"Interrupt from presentation paint, never the previous endpoint")
+        try await Task.sleep(for:.milliseconds(240))
+        XCTAssertLessThanOrEqual(TopFillFrames.rgb(try XCTUnwrap(fill.backgroundColor)).deltaE(ChromeColor(0.4,0,0.8)),1)
+        chrome.render(color:ChromeColor(1,1,1),opacity:1,pageID:id,interactive:false,reduceMotion:true)
+        XCTAssertLessThan(TopFillFrames.rgb(try XCTUnwrap(fill.backgroundColor)).deltaE(ChromeColor(1,1,1)),0.01)
+        XCTAssertTrue(fill.layer.animationKeys()?.isEmpty ?? true)
+    }
+
+    func testTopFillGridSelectionAndNewTabHaveNoDefaultDetour() async throws {
+        let profiles = MobileProfiles(), c = profiles.current
+        defer { c.session.shutdown(); profiles.continuity.shutdown() }
+        let source = try XCTUnwrap(c.session.selectedTab)
+        source.navigate(to:URL(string:"http://127.0.0.1:8768/chrome-paint?delay=0")!)
+        let target = c.session.addTab(url:URL(string:"http://127.0.0.1:8768/swipe-light")!,select:false)
+        target.activate()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where:\.isKeyWindow), window = UIWindow(windowScene:scene)
+        window.rootViewController = UIHostingController(rootView:MobileRootView(controller:c,profiles:profiles)
+            .browserAppearance(c.appearance,followsPage:true).environment(\.scenePhase,.active))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        try await wait { !source.isLoading && !target.isLoading && c.chrome(for:source).sampledTop != nil && c.chrome(for:target).sampledTop != nil }
+        try await Task.sleep(for:.milliseconds(250))
+        let dark = ChromeColor(0,0,0), sourceColor = TopFillFrames.rgb(UIColor(c.chrome(for:source).color))
+        let targetColor = TopFillFrames.rgb(UIColor(c.chrome(for:target).color))
+        for (name,a,b,action) in [
+            ("page-grid",sourceColor,dark,{ c.sheet = .tabs }),
+            ("grid-page",dark,targetColor,{ c.tabPresentation.pendingSelection = target.id; c.sheet = nil }),
+            ("page-grid-new",targetColor,dark,{ c.sheet = .tabs }),
+            ("grid-new",dark,dark,{ c.tabPresentation.pendingNewTab = false; c.sheet = nil })
+        ] as [(String,ChromeColor,ChromeColor,() -> Void)] {
+            let frames = TopFillFrames(window:window,surface:window,from:a,to:b)
+            frames.start(); action()
+            try await Task.sleep(for:.milliseconds(900)); frames.stop()
+            let attachment = XCTAttachment(data:try JSONSerialization.data(withJSONObject:frames.rows,options:[.prettyPrinted,.sortedKeys]),uniformTypeIdentifier:"public.json")
+            attachment.name = "top-fill-\(name)-frames"; attachment.lifetime = .keepAlways; add(attachment)
+            let pixels = frames.rows.compactMap { $0["actual"] as? [Double] }.map { ChromeColor($0[0],$0[1],$0[2]) }
+            XCTAssertGreaterThan(pixels.count,10)
+            for pixel in pixels {
+                let differences = [b.red-a.red,b.green-a.green,b.blue-a.blue]
+                let axis = differences.indices.max(by:{ abs(differences[$0])<abs(differences[$1]) })!
+                let components = [pixel.red-a.red,pixel.green-a.green,pixel.blue-a.blue]
+                let p = abs(differences[axis])<0.001 ? 0 : min(max(components[axis]/differences[axis],0),1)
+                XCTAssertLessThanOrEqual(pixel.deltaE(MobileTopChrome.blend(a,b,p)),3,"\(name): no default or unrelated intermediate fill")
+            }
+            XCTAssertLessThanOrEqual(try XCTUnwrap(pixels.last).deltaE(b),3,"\(name) must land exactly on its visible surface")
+        }
+        XCTAssertNil(c.session.selectedTab?.url)
+    }
+
     func testChromeRegistrationsReleaseWithTheirOwnerWithoutExplicitDetach() async throws {
         var web:WKWebView? = WKWebView()
         var chrome:PageChrome? = PageChrome()
@@ -1147,6 +1298,110 @@ private struct CGSizeKey: Hashable {
 }
 
 private struct PolishReadinessTimeout:Error {}
+@MainActor private final class TopFillFrames:NSObject {
+    let window:UIWindow, surface:UIView, from:ChromeColor, to:ChromeColor
+    var endpoint:Double?
+    var endpointForFrame:(() -> Double?)?
+    var style:(() -> Bool)?
+    var nativeColor:(() -> ChromeColor)?
+    var maximumNativeError = 0.0
+    var invalidMarkerFrames = 0
+    private var markers:[UIView] = []
+    private let markerY:CGFloat = 80
+    var maximumStyleLag = 0
+    private var styleLag = 0
+    var rows:[[String:Any]] = []
+    var maximumError = 0.0
+    private var link:CADisplayLink?
+    init(window:UIWindow,surface:UIView,from:ChromeColor,to:ChromeColor) {
+        self.window = window; self.surface = surface; self.from = from; self.to = to
+    }
+    static func rgb(_ color:UIColor) -> ChromeColor {
+        var r:CGFloat = 0,g:CGFloat = 0,b:CGFloat = 0,a:CGFloat = 0
+        color.getRed(&r,green:&g,blue:&b,alpha:&a)
+        return ChromeColor(r,g,b,alpha:a)
+    }
+    func installMarkers(source:UIView,destination:UIView) {
+        for (surface,color) in [(source,UIColor.green),(destination,UIColor.red)] {
+            let marker = UIView(frame:CGRect(x:0,y:markerY,width:surface.bounds.width,height:1))
+            marker.backgroundColor = color; marker.isUserInteractionEnabled = false
+            marker.accessibilityElementsHidden = true; surface.addSubview(marker); markers.append(marker)
+        }
+    }
+    func prepareMarkers() async throws {
+        let deadline = Date.now.addingTimeInterval(2)
+        let probe = CADisplayLink(target:self,selector:#selector(frame(_:)))
+        defer { probe.invalidate() }
+        while Date.now < deadline {
+            // drawHierarchy's first render may precede the newly added witness
+            // even after a layer flush. Establish actual raster readiness while
+            // both surfaces are resting, before sending any gesture movement.
+            frame(probe)
+            let ready = rows.last?["capturedProgress"] is Double
+            rows.removeAll(); invalidMarkerFrames = 0; maximumError = 0
+            maximumNativeError = 0; maximumStyleLag = 0; styleLag = 0
+            if ready { return }
+            try await Task.sleep(for:.milliseconds(16))
+        }
+        throw PolishReadinessTimeout()
+    }
+    func start() { let l = CADisplayLink(target:self,selector:#selector(frame(_:))); link = l; l.add(to:.main,forMode:.common) }
+    func stop() { link?.invalidate(); link = nil; markers.forEach { $0.removeFromSuperview() }; markers.removeAll() }
+    @objc private func frame(_ link:CADisplayLink) {
+        func progress() -> Double {
+            let x = surface.layer.presentation()?.affineTransform().tx ?? surface.transform.tx
+            return endpointForFrame?() ?? endpoint ?? min(max(Double(abs(x)/max(1,window.bounds.width)),0),1)
+        }
+        let before = progress(), started = CACurrentMediaTime()
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let image = UIGraphicsImageRenderer(size:markers.isEmpty ? CGSize(width:1,height:1) : CGSize(width:window.bounds.width,height:markerY+1),format:format).image { context in
+            if markers.isEmpty { context.cgContext.translateBy(x:-8,y:-8) }
+            window.drawHierarchy(in:window.bounds,afterScreenUpdates:false)
+        }
+        var bytes = [UInt8](repeating:0,count:4)
+        let pixel = markers.isEmpty ? image.cgImage : image.cgImage?.cropping(to:CGRect(x:8,y:8,width:1,height:1))
+        if let cg = pixel, let ctx = CGContext(data:&bytes,width:1,height:1,bitsPerComponent:8,bytesPerRow:4,space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) {
+            ctx.draw(cg,in:CGRect(x:0,y:0,width:1,height:1))
+        }
+        var capturedProgress:Double?
+        if !markers.isEmpty, let stripe = image.cgImage?.cropping(to:CGRect(x:0,y:markerY,width:window.bounds.width,height:1)) {
+            let width = stripe.width
+            var pixels = [UInt8](repeating:0,count:width*4)
+            if let ctx = CGContext(data:&pixels,width:width,height:1,bitsPerComponent:8,bytesPerRow:width*4,space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) {
+                ctx.draw(stripe,in:CGRect(x:0,y:0,width:width,height:1))
+                var red = 0,green = 0
+                for x in 0..<width {
+                    let i = x*4
+                    if pixels[i]>190 && pixels[i+1]<80 && pixels[i+2]<80 { red += 1 }
+                    if pixels[i+1]>190 && pixels[i]<80 && pixels[i+2]<80 { green += 1 }
+                }
+                if red+green >= width-3 { capturedProgress = Double(red)/Double(red+green) }
+            }
+            if capturedProgress == nil { invalidMarkerFrames += 1 }
+        }
+        let actual = ChromeColor(Double(bytes[0])/255,Double(bytes[1])/255,Double(bytes[2])/255)
+        // A synchronous pixel render spans an interval while Core Animation
+        // advances. Bound its expected progress by geometry on both sides of
+        // that call; independently compare native paint/geometry at one instant.
+        let p = progress()
+        let expected = ChromeColor(from.red+(to.red-from.red)*p,from.green+(to.green-from.green)*p,from.blue+(to.blue-from.blue)*p)
+        let d = [to.red-from.red,to.green-from.green,to.blue-from.blue]
+        let v = [actual.red-from.red,actual.green-from.green,actual.blue-from.blue]
+        let length = d.reduce(0) { $0+$1*$1 }
+        let projection = length>0 ? zip(d,v).reduce(0) { $0+$1.0*$1.1 }/length : p
+        let pixelProgress = capturedProgress ?? min(max(projection,min(before,p)),max(before,p))
+        let pixelExpected = MobileTopChrome.blend(from,to,pixelProgress)
+        let error = actual.deltaE(pixelExpected); maximumError = max(maximumError,error)
+        let native = nativeColor?() ?? actual
+        let nativeError = native.deltaE(expected); maximumNativeError = max(maximumNativeError,nativeError)
+        let dark = style?() ?? actual.whiteForeground
+        // Display links report the preceding presentation frame. Allow the
+        // single threshold-crossing frame, never an end-of-spring style change.
+        if dark != actual.whiteForeground { styleLag += 1 } else { styleLag = 0 }
+        maximumStyleLag = max(maximumStyleLag,styleLag)
+        rows.append(["time":link.timestamp,"progress":p,"capturedProgress":capturedProgress as Any? ?? NSNull(),"progressBeforeRender":before,"renderMilliseconds":(CACurrentMediaTime()-started)*1000,"actual":[actual.red,actual.green,actual.blue],"expected":[pixelExpected.red,pixelExpected.green,pixelExpected.blue],"deltaE":error,"native":[native.red,native.green,native.blue],"nativeExpected":[expected.red,expected.green,expected.blue],"nativeDeltaE":nativeError,"whiteForeground":dark,"luminance":actual.luminance])
+    }
+}
 @MainActor private final class PolishInvalidations { var count = 0 }
 
 @MainActor private final class PolishHostingController<Content:View>:UIHostingController<Content> {

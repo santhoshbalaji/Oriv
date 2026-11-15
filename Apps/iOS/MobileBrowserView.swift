@@ -51,6 +51,15 @@ struct MobileBrowserView: View {
     private var presentation: MobileTabPresentation { controller.tabPresentation }
     private var bottomOcclusion:CGFloat { max(windowInsets.bottom,keyboardOverlap) }
     private var hasLivePage: Bool { tab?.url != nil && tab?.errorMessage == nil && tab?.httpWarningURL == nil }
+    private var statusScheme:ColorScheme? {
+        let dark = controller.topChrome.isDark
+        // Seed the first hosting pass from known paint, before the native fill
+        // attaches. Avoid an artificial dark-to-light trait change at mounting.
+        if !controller.topChrome.hasRendered {
+            return editingAddress || tab?.url == nil ? controller.appearance.colorScheme : (pageChrome.isDark ? .dark : .light)
+        }
+        return dark ? .dark : .light
+    }
 
     private var windowInsets: UIEdgeInsets {
         if let tab, tab.isInstantiated, let window = tab.webView.window { return window.safeAreaInsets }
@@ -135,7 +144,7 @@ struct MobileBrowserView: View {
             }
             .onChange(of:geometry.size) { old, new in if old != new { cancelTransition() } }
         }.ignoresSafeArea()
-            .preferredColorScheme(gestures.gridProgress > 0 || controller.sheet == .tabs || editingAddress || tab?.url == nil ? controller.appearance.colorScheme : (pageChrome.isDark ? .dark : .light))
+            .preferredColorScheme(statusScheme)
     }
     private var browser: some View {
             GeometryReader { geometry in
@@ -157,12 +166,10 @@ struct MobileBrowserView: View {
                             }
                     }
                 }
-                .overlay(alignment: .top) {
-                    if !editingAddress {
-                        statusBackdrop.frame(height: max(geometry.safeAreaInsets.top, windowInsets.top))
-                            .offset(y: -geometry.safeAreaInsets.top)
-                            .allowsHitTesting(false).accessibilityHidden(true)
-                    }
+                .overlay(alignment:.top) {
+                    topBar(width:geometry.size.width)
+                        .frame(height:max(geometry.safeAreaInsets.top,windowInsets.top))
+                        .allowsHitTesting(false).accessibilityHidden(true)
                 }
             }
             .overlay {
@@ -580,11 +587,22 @@ struct MobileBrowserView: View {
         }
     }
 
-    private var statusBackdrop: some View {
-        pageChrome.color.opacity(extendsTopColor ? 1 : 0)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: extendsTopColor)
-            .animation(reduceMotion || (!pageChrome.animatesColor && swipeHandoff == nil) ? nil : .easeInOut(duration: 0.2), value: pageChrome.color)
-            .transaction { if swipeHandoff != nil { $0.disablesAnimations = false } }
+    private func topBar(width:CGFloat) -> some View {
+        let traits = UITraitCollection(userInterfaceStyle:(controller.appearance.colorScheme ?? pageSystemScheme) == .dark ? .dark : .light)
+        let canvas = MobileTopChrome.rgb(UIColor(theme.canvas).resolvedColor(with:traits))
+        var destination = canvas, destinationOpacity:CGFloat = 1
+        if gestures.translation != 0,
+           case .tab(let id) = controller.session.tabSwipeTarget(gestures.translation < 0 ? 1 : -1),
+           let next = controller.session.tabs.first(where:{ $0.id == id }) {
+            let chrome = controller.chrome(for:next)
+            destination = MobileTopChrome.rgb(UIColor(chrome.color))
+            destinationOpacity = solidChrome || !chrome.showsContentUnderChrome ? 1 : 0
+        }
+        return MobileTopBar(chrome:controller.topChrome,page:editingAddress || !hasLivePage ? canvas : MobileTopChrome.rgb(UIColor(pageChrome.color)),
+            canvas:canvas,destination:destination,pageOpacity:editingAddress || extendsTopColor ? 1 : 0,destinationOpacity:destinationOpacity,
+            pageID:tab?.id,gridProgress:gestures.gridProgress,swipeProgress:abs(gestures.translation)/max(1,width),
+            interactive:gestures.source != nil || gestures.finishingSwipe || gestures.gridClosing || presentation.activeID != nil || editingAddress,
+            reduceMotion:reduceMotion)
     }
 
     private var addressCapsule: some View {

@@ -54,6 +54,7 @@ private typealias PlatformColor = UIColor
     @ObservationIgnored private var lastScrollTime = 0.0
     @ObservationIgnored private var navigationSeed: (key:String, color:ChromeColor)?
     @ObservationIgnored private var remembered: [String: ChromeColor] = [:]
+    @ObservationIgnored private var lastMeasured:ChromeColor?
     private final class NotificationOwner {
         var tokens:[NSObjectProtocol] = []
         deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
@@ -122,6 +123,11 @@ private typealias PlatformColor = UIColor
 
     func observe(_ view: WKWebView?, isPrivate: Bool = false) {
         if webView === view, privatePage == isPrivate { return }
+        #if os(macOS)
+        // Mac uses one observer for multiple selected tabs and its home page.
+        // iPhone keeps one per tab, including across WebKit discards.
+        lastMeasured = nil
+        #endif
         sampleTask?.cancel(); sampleTask = nil
         resetTransitions()
         if let old = webView, Self.owners[ObjectIdentifier(old)]?.value === self {
@@ -145,7 +151,10 @@ private typealias PlatformColor = UIColor
         resetPaintState()
         #endif
         navigationPainting = true; animatesColor = false; documentID = 0; lastScrollTime = 0; navigationSeed = nil
-        guard let view else { apply(Self.rgba(PlatformColor(Theme.t3Code.canvas))!); return }
+        guard let view else {
+            if lastMeasured == nil { apply(Self.rgba(PlatformColor(Theme.t3Code.canvas))!) }
+            return
+        }
         Self.install(on: view)
         navigationOwner.tokens.append(NotificationCenter.default.addObserver(forName: BrowserTab.navigationStarted, object: view, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -219,7 +228,17 @@ private typealias PlatformColor = UIColor
         #else
         let neutral = Self.rgba(UIColor.systemBackground.resolvedColor(with: webView.traitCollection)) ?? ChromeColor(1, 1, 1)
         #endif
-        if navigationPainting && stableBand.value == nil && applyRemembered() { return }
+        if navigationPainting && stableBand.value == nil {
+            if applyRemembered() { return }
+            // KVO can report a new document's neutral under-page colour before
+            // its isolated edge sample. Retain measured paint through that gap.
+            if !privatePage, let lastMeasured { apply(lastMeasured); return }
+            #if os(iOS)
+            // A new tab starts on the home canvas until its first real band.
+            // underPageBackgroundColor is frequently a provisional white here.
+            if !privatePage { apply(canvas); return }
+            #endif
+        }
         let selected = ChromeColorSelection.select(edge:sampledTop, body:bodyBackground, html:htmlBackground, isDimming:dimmingLayer,
             underPage:stableBand.value != nil ? stableBand.value?.underPage : Self.rgba(webView.underPageBackgroundColor), neutral:privatePage ? canvas : neutral, isPrivate:privatePage)
         if navigationPainting, !privatePage, let key = cacheKey(webView.url) {
@@ -270,6 +289,8 @@ private typealias PlatformColor = UIColor
         updateScroll(offset)
         let band = Band(edge: decode("edge"), body: decode("body"), html: decode("html"),
                         underPage: webView.flatMap { Self.rgba($0.underPageBackgroundColor) }, dimming: values["dimming"] as? Bool ?? false)
+        if navigationPainting && values["initialComplete"] as? Bool != true &&
+            ![band.edge,band.body,band.html].contains(where:{ $0?.usable == true }) { return }
         let early = navigationPainting && !hasScrolled && offset <= ChromeScrollState.leaveOffset
         animatesColor = !early
         // During initial painting CSS and headers can appear between frames.
@@ -285,6 +306,7 @@ private typealias PlatformColor = UIColor
         #endif
         if values["initialComplete"] as? Bool == true { navigationPainting = false; navigationSeed = nil }
         refresh()
+        if !privatePage { lastMeasured = Self.rgba(PlatformColor(color)) }
         if !privatePage, let key = cacheKey(webView?.url), let rgb = Self.rgba(PlatformColor(color)) {
             if remembered.count >= 64 && remembered[key] == nil { remembered.removeAll(keepingCapacity: true) }
             remembered[key] = rgb
