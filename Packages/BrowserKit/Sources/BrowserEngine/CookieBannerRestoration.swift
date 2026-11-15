@@ -28,6 +28,8 @@ enum CookieBannerRestoration {
     })();
     """
     @MainActor static func update(_ controller: WKUserContentController, enabled: Bool) {
+        let installed = controller.userScripts.filter { $0.source == source }.count
+        guard installed != (enabled ? 1 : 0) else { return }
         let kept = controller.userScripts.filter { $0.source != source }
         controller.removeAllUserScripts()
         kept.forEach { controller.addUserScript($0) }

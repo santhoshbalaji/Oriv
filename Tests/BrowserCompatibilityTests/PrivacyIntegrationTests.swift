@@ -10,7 +10,46 @@ import AppKit
 import UIKit
 #endif
 
+@MainActor private final class PrivacyCountingContentController:WKUserContentController {
+    var ruleAdds = 0, ruleRemoves = 0, scriptAdds = 0, scriptResets = 0
+    func resetCounts() { ruleAdds = 0; ruleRemoves = 0; scriptAdds = 0; scriptResets = 0 }
+    override func add(_ rule:WKContentRuleList) { ruleAdds += 1; super.add(rule) }
+    override func remove(_ rule:WKContentRuleList) { ruleRemoves += 1; super.remove(rule) }
+    override func addUserScript(_ script:WKUserScript) { scriptAdds += 1; super.addUserScript(script) }
+    override func removeAllUserScripts() { scriptResets += 1; super.removeAllUserScripts() }
+}
+
 @MainActor final class PrivacyIntegrationTests: XCTestCase {
+    func testPreparedPolicyAvoidsScriptReinstallationAndStillAppliesExceptions() async throws {
+        let fixture = """
+        [{"trigger":{"url-filter":"blocked.example"},"action":{"type":"block"}}]
+        """
+        let blocker = AdBlocker(rules:[.balanced:fixture,.strict:fixture],cacheNamespace:"oriv.hot-path."+UUID().uuidString)
+        let content = PrivacyCountingContentController()
+        let script = WKUserScript(source:"window.syntheticPrivacyFixture=true",injectionTime:.atDocumentStart,forMainFrameOnly:true)
+        content.addUserScript(script); content.resetCounts()
+        let url = URL(string:"https://fixture.example/")!
+        XCTAssertFalse(blocker.applyIfPrepared(to:content,url:url,isPrivate:false),"Unprepared protection must remain fail-closed")
+        XCTAssertEqual(content.ruleAdds,0)
+        try await blocker.prepare()
+        XCTAssertTrue(blocker.applyIfPrepared(to:content,url:url,isPrivate:false))
+        XCTAssertGreaterThan(content.ruleAdds,0)
+        content.resetCounts()
+        for _ in 0..<10 { XCTAssertTrue(blocker.applyIfPrepared(to:content,url:url,isPrivate:false)) }
+        XCTAssertEqual(content.ruleAdds,0); XCTAssertEqual(content.ruleRemoves,0)
+        XCTAssertEqual(content.scriptAdds,0); XCTAssertEqual(content.scriptResets,0)
+        XCTAssertTrue(content.userScripts.first === script)
+        blocker.setException(true,for:url,isPrivate:false)
+        XCTAssertTrue(blocker.applyIfPrepared(to:content,url:url,isPrivate:false))
+        XCTAssertGreaterThan(content.ruleRemoves,0)
+        content.resetCounts()
+        XCTAssertTrue(blocker.applyIfPrepared(to:content,url:URL(string:"https://other.example/"),isPrivate:false))
+        XCTAssertGreaterThan(content.ruleAdds,0,"A host exception must not disable protection on the next host")
+        XCTAssertEqual(content.scriptResets,0)
+        for identifier in Set(blocker.compilationMeasurements.map(\.identifier)) {
+            try await WKContentRuleListStore.default()!.removeContentRuleList(forIdentifier:identifier)
+        }
+    }
     private let base = URL(string: "http://127.0.0.1:18768")!
     #if os(macOS)
     private var fixtureWindows: [UUID: NSWindow] = [:]
@@ -129,10 +168,10 @@ import UIKit
         settings.endPrivateSession(); XCTAssertTrue(settings.privacy.privateExceptions.isEmpty)
         let prefs = WKWebpagePreferences(); var request = URLRequest(url: URL(string: "http://public.example")!)
         settings.privacy.apply(to: prefs, request: request, isPrivate: false)
-        XCTAssertEqual(prefs.preferredHTTPSNavigationPolicy, .userMediatedFallbackToHTTP)
+        XCTAssertEqual(prefs.preferredHTTPSNavigationPolicy, .errorOnFailure)
         request.url = URL(string: "https://public.example/")
         settings.privacy.apply(to: prefs, request: request, isPrivate: false)
-        XCTAssertEqual(prefs.preferredHTTPSNavigationPolicy, .userMediatedFallbackToHTTP, "HTTPS-origin navigations retain the policy for a later HTTP redirect")
+        XCTAssertEqual(prefs.preferredHTTPSNavigationPolicy, .errorOnFailure, "HTTPS-origin navigations retain the policy for a later HTTP redirect")
         request.httpMethod = "POST"; settings.privacy.apply(to: prefs, request: request, isPrivate: false)
         XCTAssertEqual(prefs.preferredHTTPSNavigationPolicy, .keepAsRequested)
     }
@@ -222,43 +261,108 @@ import UIKit
         let retained = try await tab.webView.evaluateJavaScript("document.querySelector('input').value") as? String
         XCTAssertEqual(retained, value, "Toggling layers must not reload forms")
     }
-    func testDismissingHTTPInterstitialPreservesCurrentHistoryItem() async throws {
+    private func failHTTPUpgrade(_ tab:BrowserTab, url:URL, code:Int = NSURLErrorSecureConnectionFailed) {
+        tab.webView(tab.webView,didFailProvisionalNavigation:nil,withError:NSError(
+            domain:NSURLErrorDomain,code:code,userInfo:[NSURLErrorFailingURLErrorKey:url]))
+    }
+    func testDismissingHTTPPromptPreservesCurrentHistoryItem() async throws {
         let blocker = AdBlocker(); blocker.setMode(.off)
-        let tab = BrowserTab(dataStore: .nonPersistent(), adBlocker: blocker, settings: BrowserSettings(defaults: nil))
+        let tab = BrowserTab(dataStore:.nonPersistent(),adBlocker:blocker,settings:BrowserSettings(defaults:nil))
         defer { tab.close() }
         try await load(tab)
         let current = tab.webView.backForwardList.currentItem
-        let request = URLRequest(url: URL(string: "http://public.example/")!)
-        XCTAssertFalse(tab.interceptHTTPFallback(request, kind: .newNavigation))
-        XCTAssertTrue(tab.interceptHTTPFallback(request, kind: .newNavigation))
+        let request = URLRequest(url:URL(string:"http://public.example/")!)
+        tab.recordHTTPUpgrade(request,kind:.newNavigation)
+        failHTTPUpgrade(tab,url:URL(string:"https://public.example/")!)
+        XCTAssertEqual(tab.httpWarningURL,request.url)
         tab.cancelHTTPFallback()
         XCTAssertTrue(tab.webView.backForwardList.currentItem === current)
-        XCTAssertEqual(tab.url, current?.url)
-        XCTAssertNil(tab.httpWarningURL)
+        XCTAssertEqual(tab.url,current?.url); XCTAssertNil(tab.httpWarningURL)
     }
-    func testHTTPFallbackRequiresGETAndRemembersOnlyItsScope() {
-        let settings = BrowserSettings(defaults: nil)
-        let tab = BrowserTab(isPrivate: true, dataStore: .nonPersistent(), settings: settings)
+    func testHTTPPromptRequiresFailedGETAndExactDestinationConsent() {
+        let settings = BrowserSettings(defaults:nil)
+        let tab = BrowserTab(isPrivate:true,dataStore:.nonPersistent(),settings:settings)
         defer { tab.close() }
         hostInBackground(tab)
-        var request = URLRequest(url: URL(string: "http://public.example")!)
-        XCTAssertFalse(tab.interceptHTTPFallback(request, kind: .newNavigation))
-        tab.webView(tab.webView, didFailProvisionalNavigation: nil, withError: URLError(.serverCertificateUntrusted))
+        let original = URL(string:"http://public.example/path?keep=1")!
+        let upgraded = URL(string:"https://public.example/path?keep=1")!
+        let request = URLRequest(url:original)
+        tab.recordHTTPUpgrade(request,kind:.newNavigation)
+        XCTAssertNil(tab.httpWarningURL,"No consent UI before an actual failure")
+        failHTTPUpgrade(tab,url:upgraded)
+        XCTAssertEqual(tab.httpWarningURL,original)
+        XCTAssertFalse(settings.privacy.isException(.httpsUpgrade,for:original,isPrivate:true))
+        tab.continueToHTTP(URL(string:"http://different.example/")!)
+        XCTAssertEqual(tab.httpWarningURL,original,"Stale or mismatched prompt cannot grant consent")
+        tab.continueToHTTP(original)
+        XCTAssertTrue(settings.privacy.isException(.httpsUpgrade,for:original,isPrivate:true))
+        XCTAssertFalse(settings.privacy.isException(.httpsUpgrade,for:original,isPrivate:false))
+        XCTAssertFalse(settings.privacy.isException(.httpsUpgrade,for:URL(string:"http://sub.public.example/")!,isPrivate:true))
         XCTAssertNil(tab.httpWarningURL)
-        XCTAssertNotNil(tab.errorMessage)
-        tab.dismissError()
-        XCTAssertFalse(tab.interceptHTTPFallback(request, kind: .newNavigation), "Certificate failure clears any pending fallback")
-        request.httpMethod = "POST"
-        XCTAssertFalse(tab.interceptHTTPFallback(request, kind: .newNavigation)); XCTAssertNil(tab.httpWarningURL)
-        request.httpMethod = "GET"
-        XCTAssertFalse(tab.interceptHTTPFallback(request, kind: .backForward))
-        request.url = URL(string: "http://public.example/") // WebKit canonicalizes an empty root path.
-        XCTAssertTrue(tab.interceptHTTPFallback(request, kind: .newNavigation))
-        XCTAssertEqual(tab.httpWarningURL, request.url)
-        tab.continueToHTTP()
-        XCTAssertTrue(settings.privacy.isException(.httpsUpgrade, for: request.url, isPrivate: true))
-        XCTAssertFalse(settings.privacy.isException(.httpsUpgrade, for: request.url, isPrivate: false))
+    }
+    func testHTTPPromptNeverBypassesCertificatesFormsOrUnrelatedFailures() {
+        let tab = BrowserTab(dataStore:.nonPersistent(),settings:BrowserSettings(defaults:nil))
+        defer { tab.close() }
+        let original = URL(string:"http://public.example/")!, upgraded = URL(string:"https://public.example/")!
+        for code in [NSURLErrorServerCertificateHasBadDate,NSURLErrorServerCertificateUntrusted,
+                     NSURLErrorServerCertificateHasUnknownRoot,NSURLErrorServerCertificateNotYetValid,
+                     NSURLErrorClientCertificateRejected,NSURLErrorClientCertificateRequired] {
+            tab.recordHTTPUpgrade(URLRequest(url:original),kind:.newNavigation)
+            failHTTPUpgrade(tab,url:upgraded,code:code)
+            XCTAssertNil(tab.httpWarningURL)
+        }
+        for kind:PrivacyNavigationKind in [.newNavigation,.backForward,.reload] {
+            var request = URLRequest(url:original)
+            if kind == .newNavigation { request.httpMethod = "POST" }
+            tab.recordHTTPUpgrade(request,kind:kind)
+            failHTTPUpgrade(tab,url:upgraded)
+            XCTAssertNil(tab.httpWarningURL)
+        }
+        var request = URLRequest(url:original); request.httpBody = Data("form".utf8)
+        tab.recordHTTPUpgrade(request,kind:.newNavigation); failHTTPUpgrade(tab,url:upgraded)
         XCTAssertNil(tab.httpWarningURL)
+        tab.recordHTTPUpgrade(URLRequest(url:original),kind:.newNavigation)
+        failHTTPUpgrade(tab,url:URL(string:"https://different.example/")!)
+        XCTAssertNil(tab.httpWarningURL)
+        tab.recordHTTPUpgrade(URLRequest(url:upgraded),kind:.newNavigation)
+        failHTTPUpgrade(tab,url:upgraded)
+        XCTAssertNil(tab.httpWarningURL,"An explicitly requested HTTPS URL has no HTTP bypass")
+    }
+    func testExplicitHTTPSLinkCannotReuseAnUnfinishedHTTPUpgrade() async throws {
+        let blocker = AdBlocker(); blocker.setMode(.off)
+        let tab = BrowserTab(dataStore:.nonPersistent(),adBlocker:blocker,settings:BrowserSettings(defaults:nil))
+        defer { tab.close() }
+        try await load(tab)
+        let original = URL(string:"http://public.example/unfinished-upgrade")!
+        tab.recordHTTPUpgrade(URLRequest(url:original),kind:.newNavigation)
+        // A second explicit HTTPS link replaces an unfinished HTTP attempt.
+        // Use WebKit's actual navigation delegate rather than BrowserTab.navigate,
+        // which independently invalidates a previous request.
+        _ = try await tab.webView.evaluateJavaScript("let a=document.createElement('a');a.href='https://public.example/unfinished-upgrade';document.body.append(a);a.click();true")
+        try await wait { tab.errorMessage != nil || tab.httpWarningURL != nil }
+        XCTAssertNil(tab.httpWarningURL,"An explicit HTTPS link must not inherit a prior HTTP bypass prompt")
+    }
+    func testHTTPUpgradeConsentRejectsReplacedAndStaleNavigationObjects() throws {
+        let tab = BrowserTab(dataStore:.nonPersistent(),settings:BrowserSettings(defaults:nil))
+        defer { tab.close() }
+        hostInBackground(tab)
+        let original = URL(string:"http://public.example/unfinished-upgrade")!
+        let upgraded = URL(string:"https://public.example/unfinished-upgrade")!
+        let first = try XCTUnwrap(tab.webView.loadHTMLString("<p>First</p>",baseURL:nil))
+        tab.recordHTTPUpgrade(URLRequest(url:original),kind:.newNavigation)
+        tab.webView(tab.webView,didStartProvisionalNavigation:first)
+        let replacement = try XCTUnwrap(tab.webView.loadHTMLString("<p>Replacement</p>",baseURL:nil))
+        tab.webView(tab.webView,didStartProvisionalNavigation:replacement)
+        let error = NSError(domain:NSURLErrorDomain,code:NSURLErrorCannotConnectToHost,
+                            userInfo:[NSURLErrorFailingURLErrorKey:upgraded])
+        tab.webView(tab.webView,didFailProvisionalNavigation:replacement,withError:error)
+        XCTAssertNil(tab.httpWarningURL,"A new navigation, including a script navigation, must invalidate the old upgrade")
+        tab.recordHTTPUpgrade(URLRequest(url:original),kind:.newNavigation)
+        tab.webView(tab.webView,didStartProvisionalNavigation:replacement)
+        tab.webView(tab.webView,didFailProvisionalNavigation:first,withError:error)
+        XCTAssertNil(tab.httpWarningURL,"An old failure with the same URL must not authorize a newer attempt")
+        tab.webView(tab.webView,didFailProvisionalNavigation:replacement,withError:error)
+        XCTAssertEqual(tab.httpWarningURL,original,"The failed original navigation still offers exact-host consent")
     }
     func testLiveSiteSpotChecks() async throws {
         guard ProcessInfo.processInfo.environment["ORIV_PRIVACY_LIVE"] == "1" else { throw XCTSkip("Live public-site spot checks are opt-in; fixtures run without external traffic") }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Loopback-only fixture for native browser tests. No external service or credentials."""
+"""Synthetic native-test fixtures, bound to loopback by default. No credentials."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 from pathlib import Path
 import re
 import argparse
@@ -64,10 +64,29 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(last)
             return
         if path == '/chrome-paint':
-            self.send_bytes(b'<html><head><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#6300dd;color:white}header{position:fixed;top:0;width:100%;height:64px;background:#6300dd}main{padding:90px 20px;height:3000px}</style></head><body><header>Paint timing fixture</header><main>Visible before the delayed image<img src="/chrome-slow-image"></main></body></html>', 'text/html; charset=utf-8')
+            try: first_byte_delay = min(2, max(0, float(parse_qs(urlsplit(self.path).query).get('firstByteDelay', ['0'])[0])))
+            except ValueError: first_byte_delay = 0
+            if first_byte_delay: time.sleep(first_byte_delay)
+            delay = parse_qs(urlsplit(self.path).query).get('delay', ['1.5'])[0]
+            body = '<html><head><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#6300dd;color:white}header{position:fixed;top:0;width:100%;height:64px;background:#6300dd}main{padding:90px 20px;height:3000px}</style></head><body><header>Paint timing fixture</header><main>Visible before the delayed image<img src="/chrome-slow-image?delay=' + quote(delay, safe='') + '"></main></body></html>'
+            self.send_bytes(body.encode(), 'text/html; charset=utf-8')
+            return
+        if path in ('/swipe-dark', '/swipe-light'):
+            dark = path == '/swipe-dark'
+            title = 'Dark swipe page' if dark else 'Light swipe page'
+            background, foreground = ('#10151b', '#f7f6f2') if dark else ('#f7f6f2', '#10151b')
+            body = f'''<!doctype html><html><head><meta name="viewport" content="width=device-width">
+            <title>{title}</title><style>body{{margin:0;background:{background};color:{foreground};font:20px system-ui}}
+            header{{position:fixed;top:0;width:100%;height:64px;background:{background}}}
+            main{{padding:90px 24px;min-height:1600px}}section{{height:120px;border:4px solid currentColor;margin:30px 0}}
+            </style></head><body><header>Stable viewport fixture</header><main><h1>{title}</h1>
+            <section>ONE</section><section>TWO</section><section>THREE</section></main></body></html>'''
+            self.send_bytes(body.encode(), 'text/html; charset=utf-8')
             return
         if path == '/chrome-slow-image':
-            time.sleep(1.5)
+            try: delay = min(30, max(0, float(parse_qs(urlsplit(self.path).query).get('delay', ['1.5'])[0])))
+            except ValueError: delay = 1.5
+            time.sleep(delay)
             self.send_bytes((ROOT / 'Apps/macOS/Resources/Assets.xcassets/OrivMark.imageset/OrivMark.png').read_bytes(), 'image/png')
             return
         if path == '/standards-worker.js':
@@ -258,7 +277,8 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8768)
+    parser.add_argument("--bind", default="127.0.0.1", help="Explicit fixture interface; use a LAN address for device QA.")
     args = parser.parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    print(f"Browser QA fixture at http://127.0.0.1:{server.server_port}/one", flush=True)
+    server = ThreadingHTTPServer((args.bind, args.port), Handler)
+    print(f"Browser QA fixture at http://{args.bind}:{server.server_port}/one", flush=True)
     server.serve_forever()

@@ -41,6 +41,13 @@ public final class AdBlocker {
     }
     @ObservationIgnored private var lists: [String: WKContentRuleList] = [:]
     @ObservationIgnored private var compilation: Task<[String: WKContentRuleList], Error>?
+    private final class InstalledRules {
+        let lists:[String:WKContentRuleList]
+        init(_ lists:[String:WKContentRuleList]) { self.lists = lists }
+    }
+    // Each tab owns its controller. Weak keys release closed/private tabs;
+    // values contain only compiled public rules, never hosts or browsing data.
+    @ObservationIgnored private let installations = NSMapTable<WKUserContentController,InstalledRules>(keyOptions:.weakMemory,valueOptions:.strongMemory)
 
     public init(defaults: UserDefaults? = nil, rules: [AdBlockingMode: String]? = nil, cookieRules: String? = nil, cacheNamespace: String = "oriv.privacy") {
         self.cacheNamespace = cacheNamespace
@@ -166,17 +173,31 @@ public final class AdBlocker {
         applyPrepared(to: controller, url: url, isPrivate: isPrivate)
     }
 
+    /// The prepared hot path needs no actor hop. A partial/failed preparation
+    /// cannot enter it, preserving the first-navigation protection gate.
+    func applyIfPrepared(to controller:WKUserContentController,url:URL?,isPrivate:Bool) -> Bool {
+        guard (mode == .off && !cookieBannersEnabled) || !lists.isEmpty else { return false }
+        applyPrepared(to:controller,url:url,isPrivate:isPrivate)
+        return true
+    }
+
     /// Compiled components contain no profile or private site data.
     func applyPrepared(to controller: WKUserContentController, url: URL?, isPrivate: Bool) {
         let hideCookies = cookieBannersEnabled && (privacy?.isEnabled(.cookieBanners, for: url, isPrivate: isPrivate) ?? true)
         CookieBannerRestoration.update(controller, enabled: hideCookies)
-        for list in lists.values { controller.remove(list) }
+        var desired:[String:WKContentRuleList] = [:]
         for (key, list) in lists {
             if key.hasPrefix("cookies") {
-                if cookieBannersEnabled && (privacy?.isEnabled(.cookieBanners, for: url, isPrivate: isPrivate) ?? true) { controller.add(list) }
+                if hideCookies { desired[list.identifier] = list }
             } else if isEnabled(for: url, isPrivate: isPrivate) {
-                if key == mode.rawValue || key.hasPrefix("network") || key.hasPrefix(mode == .strict ? "cosmetics-strict" : "cosmetics-light") || key == "original-strict" && mode == .strict { controller.add(list) }
+                if key == mode.rawValue || key.hasPrefix("network") || key.hasPrefix(mode == .strict ? "cosmetics-strict" : "cosmetics-light") || key == "original-strict" && mode == .strict { desired[list.identifier] = list }
             }
+        }
+        let installed = installations.object(forKey:controller)?.lists ?? [:]
+        for (id,list) in installed where desired[id] == nil { controller.remove(list) }
+        for (id,list) in desired where installed[id] == nil { controller.add(list) }
+        if Set(installed.keys) != Set(desired.keys) || installations.object(forKey:controller) == nil {
+            installations.setObject(InstalledRules(desired),forKey:controller)
         }
     }
 

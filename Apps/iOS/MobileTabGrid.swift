@@ -12,7 +12,7 @@ import os
 struct MobileTabGrid: UIViewControllerRepresentable {
     let controller: MobileController
     let profiles: MobileProfiles
-    let tabs: [BrowserTab]
+    var tabs: [BrowserTab]
     let largeText: Bool
     let reduceMotion: Bool
     let open: (BrowserTab) -> Void
@@ -227,13 +227,21 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         return configuration
     }
     func collectionView(_ collectionView: UICollectionView, itemsForBeginning session: any UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
+        #if DEBUG
+        MobileTransitionMetrics.note("grid-drag-begin", ["section":indexPath.section,"item":indexPath.item,"generation":dragGeneration])
+        #endif
         let tab = sections[indexPath.section][indexPath.item]
         let item = UIDragItem(itemProvider: NSItemProvider(object: tab.id.uuidString as NSString)); item.localObject = tab.id
         reordering = true
         session.localContext = dragGeneration
         return [item]
     }
-    func collectionView(_ collectionView: UICollectionView, dragSessionDidEnd session: any UIDragSession) { reordering = false }
+    func collectionView(_ collectionView: UICollectionView, dragSessionDidEnd session: any UIDragSession) {
+        #if DEBUG
+        MobileTransitionMetrics.note("grid-drag-end", ["reordering":reordering,"generation":dragGeneration])
+        #endif
+        reordering = false
+    }
     func collectionView(_ collectionView: UICollectionView, dragSessionIsRestrictedToDraggingApplication session: any UIDragSession) -> Bool { true }
     func collectionView(_ collectionView: UICollectionView, dropSessionDidUpdate session: any UIDropSession, withDestinationIndexPath destination: IndexPath?) -> UICollectionViewDropProposal {
         guard reordering, session.localDragSession?.localContext as? Int == dragGeneration, let id = session.items.first?.localObject as? UUID,
@@ -243,10 +251,33 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         return UICollectionViewDropProposal(operation: source.isPrivate == target.isPrivate && source.isPinned == target.isPinned ? .move : .forbidden, intent: .insertAtDestinationIndexPath)
     }
     func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: any UICollectionViewDropCoordinator) {
+        #if DEBUG
+        MobileTransitionMetrics.note("grid-drop", ["reordering":reordering,"items":coordinator.items.count,"hasLocalID":coordinator.items.first?.dragItem.localObject is UUID,"destination":coordinator.destinationIndexPath.map { "\($0.section):\($0.item)" } ?? "none"])
+        #endif
         guard reordering, let item = coordinator.items.first, let id = item.dragItem.localObject as? UUID,
-              let destination = coordinator.destinationIndexPath, sections.indices.contains(destination.section), sections[destination.section].indices.contains(destination.item) else { return }
+              let source = item.sourceIndexPath,
+              coordinator.session.localDragSession?.localContext as? Int == dragGeneration,
+              let destination = coordinator.destinationIndexPath, sections.indices.contains(destination.section), sections[destination.section].indices.contains(destination.item),
+              let sourceTab = model.controller.session.tabs.first(where: { $0.id == id }),
+              sourceTab.isPrivate == sections[destination.section][destination.item].isPrivate,
+              sourceTab.isPinned == sections[destination.section][destination.item].isPinned else { return }
         model.controller.session.moveTab(id, to: sections[destination.section][destination.item].id)
-        update(model)
+        #if DEBUG
+        MobileTransitionMetrics.note("grid-drop-model", ["order":model.controller.session.orderedTabs.map(\.displayTitle),"source":id.uuidString,"target":sections[destination.section][destination.item].id.uuidString])
+        #endif
+        // UIKit needs the reordered data immediately. The representable's old
+        // array still has the pre-drop order until SwiftUI evaluates it again.
+        let visibleIDs = Set(model.tabs.map(\.id))
+        var reordered = model
+        reordered.tabs = model.controller.session.orderedTabs.filter { visibleIDs.contains($0.id) }
+        model = reordered
+        sections = [reordered.tabs.filter { !$0.isPrivate }, reordered.tabs.filter(\.isPrivate)].filter { !$0.isEmpty }
+        identity = reordered.tabs.map { "\($0.id)-\($0.isPinned)-\($0.displayTitle)-\(reordered.controller.session.selectedTabID == $0.id)-\(reordered.largeText)" }
+        // Reloading during an active UIKit drop restores its old cell layout.
+        // Commit the matching collection move with the updated data source.
+        collectionView.performBatchUpdates {
+            if source != destination { self.collectionView.moveItem(at:source,to:destination) }
+        } completion: { [weak self] _ in self?.publishFrames() }
         coordinator.drop(item.dragItem, toItemAt: destination)
         reordering = false
     }
@@ -398,7 +429,16 @@ struct MobileGridCard: View {
 @MainActor @Observable final class MobileTabPresentation {
     private(set) var images: [UUID: UIImage] = [:]
     private var revisions: [UUID: Int] = [:]
-    private var captures: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var imageOrder: [UUID] = []
+    @ObservationIgnored private var imageBytes: [UUID: Int] = [:]
+    let snapshotByteLimit: Int
+    var snapshotBytes: Int { imageBytes.values.reduce(0,+) }
+    private final class SnapshotCapture {
+        var timeout:Task<Void,Never>?
+        func cancel() { timeout?.cancel(); timeout = nil }
+        deinit { timeout?.cancel() }
+    }
+    @ObservationIgnored private var captures: [UUID: SnapshotCapture] = [:]
     var cardFrames: [UUID: CGRect] = [:]
     var activeID: UUID?
     private(set) var livePreparation:UUID?
@@ -413,38 +453,70 @@ struct MobileGridCard: View {
     @ObservationIgnored private var settlementTask:Task<Void,Never>?
     private var suspended = false
     var cacheRevision: Int { generation }
+    init(snapshotByteLimit:Int = 24 * 1_024 * 1_024) {
+        self.snapshotByteLimit = max(0,snapshotByteLimit)
+    }
     func resume() { if suspended { suspended = false; generation += 1 } }
 
     func capture(_ tab: BrowserTab, refresh: Bool = false) {
         guard !suspended, activeID == nil, captures[tab.id] == nil, tab.hasLoaded, tab.isInstantiated,
               refresh || revisions[tab.id] != tab.documentRevision || images[tab.id] == nil else { return }
-        let revision = tab.documentRevision, request = generation
+        let id = tab.id, revision = tab.documentRevision, request = generation
+        let capture = SnapshotCapture()
+        captures[id] = capture
         let config = WKSnapshotConfiguration(); config.snapshotWidth = NSNumber(value:Double(min(440,cardFrames[tab.id]?.width ?? 220)))
         #if DEBUG
         MobileTransitionMetrics.snapshotCount += 1
         #endif
-        captures[tab.id] = Task { @MainActor [weak self, weak tab] in
-            guard let tab, !Task.isCancelled, tab.isInstantiated else { return }
-            #if DEBUG
-            let started = ProcessInfo.processInfo.systemUptime
-            #endif
-            let image = try? await tab.webView.takeSnapshot(configuration: config)
+        capture.timeout = Task { @MainActor [weak self,weak capture] in
+            do { try await Task.sleep(for:.seconds(3)) } catch { return }
+            guard let self, let capture, self.captures[id] === capture else { return }
+            self.captures[id] = nil; capture.cancel()
+        }
+        #if DEBUG
+        let started = ProcessInfo.processInfo.systemUptime
+        #endif
+        // The async API retains its receiver and caller across a callback that
+        // WebKit may never deliver. Closing a tab must release both immediately.
+        tab.webView.takeSnapshot(with:config) { [weak self,weak tab,weak capture] image,_ in
             #if DEBUG
             MobileTransitionMetrics.recordSnapshot(image,seconds:ProcessInfo.processInfo.systemUptime-started)
             #endif
-            guard let self, request == self.generation else { return }
-            self.captures[tab.id] = nil
-            guard !Task.isCancelled, tab.documentRevision == revision else { return }
+            guard let self, let capture, self.captures[id] === capture, request == self.generation else { return }
+            self.captures[id] = nil; capture.cancel()
+            guard let tab, tab.isInstantiated, tab.documentRevision == revision else { return }
             if let image {
                 self.store(image,for:tab.id,revision:revision)
             }
         }
     }
-    private func store(_ image:UIImage,for id:UUID,revision:Int) {
-        if images[id] == nil, images.count >= 12, let old = images.keys.first(where: { $0 != activeID && $0 != id }) {
-            images[old] = nil; revisions[old] = nil
+    func store(_ image:UIImage,for id:UUID,revision:Int) {
+        // Account for decoded pixels, including row padding and the device's
+        // actual image scale. A count limit alone is not a memory bound.
+        guard let pixels = image.cgImage else { return }
+        let (bytes,overflow) = pixels.bytesPerRow.multipliedReportingOverflow(by:pixels.height)
+        guard !overflow, bytes <= snapshotByteLimit else { return }
+        removeImage(id)
+        while images.count >= 12 || snapshotBytes > snapshotByteLimit-bytes {
+            guard let old = imageOrder.first(where: { $0 != activeID && $0 != id }) else { return }
+            removeImage(old)
         }
-        images[id] = image; revisions[id] = revision
+        images[id] = image; revisions[id] = revision; imageBytes[id] = bytes
+        imageOrder.append(id)
+    }
+    private func removeImage(_ id:UUID) {
+        images[id] = nil; revisions[id] = nil; imageBytes[id] = nil
+        imageOrder.removeAll { $0 == id }
+    }
+    func releaseCachedSnapshots() {
+        // Invalidate in-flight captures too: a late WebKit callback must not
+        // refill the cache immediately after a memory warning.
+        generation += 1
+        refreshTask?.cancel(); refreshTask = nil
+        captures.values.forEach { $0.cancel() }; captures.removeAll()
+        settlementTask?.cancel(); settlementTask = nil; settlementRevision += 1
+        images.removeAll(); revisions.removeAll(); imageBytes.removeAll(); imageOrder.removeAll()
+        finish()
     }
     func refreshAfterScrolling(_ tab:BrowserTab) {
         refreshTask?.cancel()
@@ -518,13 +590,13 @@ struct MobileGridCard: View {
     }
     func remove(_ id: UUID) {
         captures.removeValue(forKey: id)?.cancel()
-        images[id] = nil; revisions[id] = nil; cardFrames[id] = nil
+        removeImage(id); cardFrames[id] = nil
         if activeID == id { finish() }
     }
     func discard() {
         refreshTask?.cancel()
-        suspended = true; generation += 1; captures.values.forEach { $0.cancel() }; captures.removeAll()
-        images.removeAll(); revisions.removeAll(); cardFrames.removeAll(); finish()
+        suspended = true; releaseCachedSnapshots()
+        cardFrames.removeAll(); finish()
     }
 }
 
@@ -548,32 +620,63 @@ struct MobileGridCard: View {
     private let log = OSLog(subsystem:"Oriv",category:"TabTransitions")
     private var link: CADisplayLink?
     private var frames: [Double] = []
+    private var frameSampler:(() -> [String:Any])?
+    private var frameEvidence:[[String:Any]] = []
     private var samples: [[String: Any]] = []
     private var trace: [[String:Any]] = []
     private var name = ""
     private var snapshotsAtStart = 0
+    private var writeRevision = 0
+    private var traceWriteRevision = 0
+    private static let writer = SampleWriter()
+    private static let traceWriter = SampleWriter()
+    // Rows contain only immutable strings, numbers and value-type arrays.
+    // Copy-on-write keeps each submitted snapshot independent of later appends.
+    private struct SamplePayload: @unchecked Sendable {
+        let revision: Int
+        let rows: [[String:Any]]
+    }
+    private actor SampleWriter {
+        private var revision = 0
+        func write(_ payload:SamplePayload,filename:String = "oriv-transition-metrics.json") {
+            guard payload.revision > revision else { return }
+            revision = payload.revision
+            if let data = try? JSONSerialization.data(withJSONObject:payload.rows,options:[.sortedKeys]) {
+                try? data.write(to:FileManager.default.temporaryDirectory.appendingPathComponent(filename),options:.atomic)
+            }
+        }
+    }
     static func note(_ event:String,_ values:[String:Any] = [:]) {
         guard ProcessInfo.processInfo.arguments.contains("--oriv-gesture-trace") else { return }
         shared.trace.append(["event":event,"values":values,"time":ProcessInfo.processInfo.systemUptime])
-        if let data = try? JSONSerialization.data(withJSONObject:shared.trace,options:[.sortedKeys]) {
-            try? data.write(to:FileManager.default.temporaryDirectory.appendingPathComponent("oriv-gesture-trace.json"),options:.atomic)
-        }
+        shared.traceWriteRevision += 1
+        let payload = SamplePayload(revision:shared.traceWriteRevision,rows:shared.trace)
+        Task { await traceWriter.write(payload,filename:"oriv-gesture-trace.json") }
     }
-    static func start(_ name: String) {
+    static func start(_ name: String,frameSampler:(() -> [String:Any])? = nil) {
         guard ProcessInfo.processInfo.arguments.contains("--oriv-transition-metrics"), shared.link == nil else { return }
         os_signpost(.begin,log:shared.log,name:"TabTransition","%{public}@",name)
         shared.name = name; shared.frames = []; shared.snapshotsAtStart = snapshotCount
+        shared.frameSampler = frameSampler; shared.frameEvidence = []
         let link = CADisplayLink(target:shared,selector:#selector(tick(_:)))
         link.preferredFrameRateRange = CAFrameRateRange(minimum:60,maximum:120,preferred:120)
         shared.link = link; link.add(to:.main,forMode:.common)
     }
-    @objc private func tick(_ link: CADisplayLink) { frames.append(link.timestamp) }
+    @objc private func tick(_ link: CADisplayLink) {
+        frames.append(link.timestamp)
+        if let frameSampler {
+            var row = frameSampler(); row["timestamp"] = link.timestamp
+            frameEvidence.append(row)
+        }
+    }
     static func stop() {
         guard shared.link != nil else { return }
         os_signpost(.end,log:shared.log,name:"TabTransition")
         shared.link?.invalidate(); shared.link = nil
         let deltas = zip(shared.frames,shared.frames.dropFirst()).map { ($1-$0)*1000 }
-        shared.samples.append(["gesture":shared.name,"frameIntervalsMs":deltas,"snapshots":snapshotCount-shared.snapshotsAtStart])
+        shared.samples.append(["gesture":shared.name,"frameIntervalsMs":deltas,"snapshots":snapshotCount-shared.snapshotsAtStart,
+            "frameEvidence":shared.frameEvidence])
+        shared.frameSampler = nil; shared.frameEvidence = []
         writeSamples()
     }
     static func recordSnapshot(_ image:UIImage?,seconds:Double) {
@@ -587,9 +690,9 @@ struct MobileGridCard: View {
         shared.samples.append(["event":"paint-preparation","seconds":seconds,"success":success])
     }
     private static func writeSamples() {
-        if let data = try? JSONSerialization.data(withJSONObject:shared.samples,options:[.sortedKeys]) {
-            try? data.write(to:FileManager.default.temporaryDirectory.appendingPathComponent("oriv-transition-metrics.json"),options:.atomic)
-        }
+        shared.writeRevision += 1
+        let payload = SamplePayload(revision:shared.writeRevision,rows:shared.samples)
+        Task { await writer.write(payload) }
     }
 }
 #endif

@@ -192,8 +192,34 @@ struct MobileAddressMenuSource: UIViewRepresentable {
     }
 }
 
+/// History uses the same native, above-bar menu anchor as the address menu.
+/// A one-row SwiftUI Menu can otherwise overlap its source and lose taps there.
+struct MobileHistoryMenuSource: UIViewRepresentable {
+    let tab: BrowserTab?
+    let forward: Bool
+    func makeUIView(context:Context) -> MobileAddressMenuButton { MobileAddressMenuButton(frame:.zero) }
+    func updateUIView(_ button:MobileAddressMenuButton,context:Context) {
+        button.accessibilityLabel = forward ? "Forward" : "Back"
+        button.isEnabled = forward ? tab?.canGoForward == true : tab?.canGoBack == true
+        button.tap = { if forward { tab?.goForward() } else { tab?.goBack() } }
+        button.menuProvider = { [weak tab] in
+            guard let tab, tab.isInstantiated else { return UIMenu(children:[]) }
+            let items = forward ? tab.webView.backForwardList.forwardList : Array(tab.webView.backForwardList.backList.reversed())
+            return UIMenu(children:items.map { item in
+                UIAction(title:item.title ?? URLDisplay.site(item.url) ?? item.url.absoluteString) { _ in
+                    #if DEBUG
+                    MobileTransitionMetrics.note("history-action",["forward":forward,"belongs":(tab.webView.backForwardList.backList + tab.webView.backForwardList.forwardList).contains { $0 === item }])
+                    #endif
+                    tab.go(to:item)
+                }
+            })
+        }
+    }
+}
+
 final class MobileAddressMenuButton: UIControl {
     var menu: UIMenu?
+    var menuProvider: (() -> UIMenu?)?
     var tap: (() -> Void)?
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -206,7 +232,7 @@ final class MobileAddressMenuButton: UIControl {
     @objc private func tapped() { tap?() }
     override func accessibilityActivate() -> Bool { tap?(); return true }
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        let menu = menu
+        let menu = menuProvider?() ?? menu
         let configuration = UIContextMenuConfiguration(actionProvider: { _ in menu })
         configuration.preferredMenuElementOrder = .fixed
         return configuration
@@ -248,6 +274,14 @@ final class MobileAddressMenuButton: UIControl {
     var finishingSwipe = false
     @ObservationIgnored private var cancellation: MobileGestureCancellation?
     init() { cancellation = MobileGestureCancellation { [weak self] in self?.cancel() } }
+    static func commitsSwipe(_ distance:CGFloat,predicted:CGFloat,target:TabSwipeTarget) -> Bool {
+        guard target != .boundary else { return false }
+        if abs(distance) > (target == .newTab ? 125 : 70) { return true }
+        // A short, deliberate flick should commit without requiring the same
+        // distance as a drag. Projection must continue in the drag's direction.
+        let velocity = (predicted-distance)/0.2
+        return target != .newTab && abs(distance)>25 && distance*velocity>0 && abs(velocity)>=500
+    }
     func cancel() {
         translation = 0; axis = nil; source = nil; finishingSwipe = false
         gridProgress = gridPresented ? 1 : 0
@@ -276,8 +310,7 @@ final class MobileAddressMenuButton: UIControl {
             if axis == .horizontal {
                 let direction = delta.width < 0 ? 1 : -1
                 let target = session.tabSwipeTarget(direction)
-                if abs(delta.width) > (target == .newTab ? 125 : 70) ||
-                    (target != .newTab && abs(delta.width) > 25 && abs(predicted.width) > 180) {
+                if Self.commitsSwipe(delta.width,predicted:predicted.width,target:target) {
                     session.commitTabSwipe(direction, from: source)
                 }
             } else { openGrid = gridProgress > 0.3 }
@@ -289,20 +322,24 @@ final class MobileAddressMenuButton: UIControl {
 }
 
 
-/// Observe only touches which START inside the rendered capsule. Attaching to
-/// the window lets UIKit arbitrate with its system gesture gate; no screen-edge
-/// deferral, competing page recognizer or full-screen SwiftUI hit region is used.
+/// Observe only touches which START inside the rendered capsule. The bar's
+/// hosting view keeps floating UIKit menus outside this recognizer's subtree;
+/// UIKit still gives system edge gestures their normal precedence.
 struct MobileCapsulePan: UIViewRepresentable {
     let enabled: Bool
+    var availability:(() -> Bool)? = nil
     let action: (UIGestureRecognizer.State, CGSize, CGSize) -> Void
     func makeUIView(context:Context) -> Host { Host() }
-    func updateUIView(_ host:Host,context:Context) { host.action = action; host.enabled = enabled }
+    func updateUIView(_ host:Host,context:Context) { host.action = action; host.enabled = enabled; host.availability = availability }
     static func dismantleUIView(_ host:Host,coordinator:()) { host.detach() }
 
     final class Host: UIView, UIGestureRecognizerDelegate {
         var action: ((UIGestureRecognizer.State,CGSize,CGSize) -> Void)?
         var enabled = true
+        var availability:(() -> Bool)?
+        var acceptsInput:Bool { enabled && (availability?() ?? true) }
         private weak var attachedWindow: UIWindow?
+        private weak var attachedView: UIView?
         private var cancellation: MobileGestureCancellation?
         private(set) var tracking = false
         private lazy var pan: UIPanGestureRecognizer = {
@@ -321,9 +358,19 @@ struct MobileCapsulePan: UIViewRepresentable {
             super.didMoveToWindow()
             guard attachedWindow !== window else { return }
             detach()
-            if let window { attachedWindow = window; window.addGestureRecognizer(pan) }
+            if let window {
+                var responder: UIResponder? = self
+                var root: UIView?
+                while let next = responder?.next {
+                    if let controller = next as? UIViewController { root = controller.view; break }
+                    responder = next
+                }
+                attachedWindow = window
+                attachedView = root ?? window
+                attachedView?.addGestureRecognizer(pan)
+            }
         }
-        func detach() { cancel(); attachedWindow?.removeGestureRecognizer(pan); attachedWindow = nil }
+        func detach() { cancel(); attachedView?.removeGestureRecognizer(pan); attachedView = nil; attachedWindow = nil }
         func cancel() {
             let wasTracking = tracking; tracking = false
             if wasTracking { action?(.cancelled,.zero,.zero) }
@@ -336,15 +383,15 @@ struct MobileCapsulePan: UIViewRepresentable {
                 point.x >= safe.minX+20 && point.x < safe.maxX-20
         }
         func gestureRecognizer(_ recognizer:UIGestureRecognizer,shouldReceive touch:UITouch) -> Bool {
-            guard enabled, cancellation?.suspended != true, let window else { return false }
+            guard acceptsInput, cancellation?.suspended != true, let window else { return false }
             let accepted = Self.acceptsStart(touch.location(in:window),bar:convert(bounds,to:window),window:window.bounds,insets:window.safeAreaInsets)
             #if DEBUG
-            MobileTransitionMetrics.note("capsule-touch",["accepted":accepted,"x":touch.location(in:window).x,"y":touch.location(in:window).y,"bar":NSCoder.string(for:convert(bounds,to:window))])
+            MobileTransitionMetrics.note("capsule-touch",["accepted":accepted,"x":touch.location(in:window).x,"y":touch.location(in:window).y,"bar":NSCoder.string(for:convert(bounds,to:window)),"view":touch.view.map { String(describing:type(of:$0)) } ?? "none","parent":touch.view?.superview.map { String(describing:type(of:$0)) } ?? "none"])
             #endif
             return accepted
         }
         override func gestureRecognizerShouldBegin(_ recognizer:UIGestureRecognizer) -> Bool {
-            guard enabled, cancellation?.suspended != true, let pan = recognizer as? UIPanGestureRecognizer else { return false }
+            guard acceptsInput, cancellation?.suspended != true, let pan = recognizer as? UIPanGestureRecognizer else { return false }
             let v = pan.velocity(in:window)
             #if DEBUG
             MobileTransitionMetrics.note("capsule-intent",["x":v.x,"y":v.y])
@@ -352,11 +399,12 @@ struct MobileCapsulePan: UIViewRepresentable {
             return abs(v.x) > abs(v.y)*1.35 || v.y < -abs(v.x)*1.35
         }
         @objc private func changed(_ pan:UIPanGestureRecognizer) {
-            if pan.state == .began { tracking = enabled && cancellation?.suspended != true }
+            if pan.state == .began { tracking = acceptsInput && cancellation?.suspended != true }
             guard tracking else { return }
+            guard acceptsInput else { cancel(); return }
             let delta = pan.translation(in:window), velocity = pan.velocity(in:window)
             #if DEBUG
-            if pan.state != .changed { MobileTransitionMetrics.note("capsule-phase",["phase":pan.state.rawValue,"x":delta.x,"y":delta.y]) }
+            if pan.state != .changed { MobileTransitionMetrics.note("capsule-phase",["phase":pan.state.rawValue,"x":delta.x,"y":delta.y,"velocityX":velocity.x,"velocityY":velocity.y]) }
             #endif
             let predicted = CGSize(width:delta.x+velocity.x*0.2,height:delta.y+velocity.y*0.2)
             action?(pan.state,CGSize(width:delta.x,height:delta.y),predicted)

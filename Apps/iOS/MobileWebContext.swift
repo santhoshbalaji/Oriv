@@ -150,6 +150,7 @@ extension MobileWebDelegate: @preconcurrency UIEditMenuInteractionDelegate, UIGe
                 guard let presenter = MobileWebDelegate.presenter else { return }
                 let preview = MobileLinkPreview(url: url, title: self?.touchedLinkTitle ?? "Link", source: tab, session: session)
                 preview.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak preview] _ in preview?.dismiss(animated: true) })
+                preview.navigationItem.rightBarButtonItem?.accessibilityIdentifier = "linkPreviewDone"
                 presenter.present(UINavigationController(rootViewController: preview), animated: true)
                 preview.loadViewIfNeeded(); preview.loadPreview()
             },

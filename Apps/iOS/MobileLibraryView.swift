@@ -134,7 +134,7 @@ struct MobileTabsView: View {
                     ToolbarSpacer(.flexible, placement: .bottomBar)
                     ToolbarItem(placement: .bottomBar) {
                         Button(action: finishBrowsingMode) { Image(systemName: "checkmark").font(.system(size: 22)).frame(minWidth: 44, minHeight: 44) }
-                            .tint(.primary).accessibilityLabel("Done")
+                            .tint(.primary).accessibilityLabel("Done").accessibilityIdentifier("tabGridDone")
                             .contextMenu { Button("Close All Tabs", role: .destructive) { closeModeTabs() } }.menuOrder(.fixed)
                     }
                 }

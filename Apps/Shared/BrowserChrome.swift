@@ -21,6 +21,12 @@ private typealias PlatformColor = UIColor
     private(set) var isDark = true
     private(set) var animatesColor = false
     private(set) var hasScrolled = false
+    #if os(iOS)
+    private(set) var hasPaintedContent = false
+    @ObservationIgnored private var paintEpoch = 0
+    @ObservationIgnored private var expectedPaintDocument:Double?
+    @ObservationIgnored private var paintedDocuments:Set<Double> = []
+    #endif
     /// Keep the canvas/header extension at the top; otherwise let native content
     /// and the system scroll edge supply the backdrop. Private pages stay opaque.
     var showsContentUnderChrome: Bool { hasScrolled && sampledTop == nil && !privatePage }
@@ -48,7 +54,13 @@ private typealias PlatformColor = UIColor
     @ObservationIgnored private var lastScrollTime = 0.0
     @ObservationIgnored private var navigationSeed: (key:String, color:ChromeColor)?
     @ObservationIgnored private var remembered: [String: ChromeColor] = [:]
-    @ObservationIgnored private var navigationObservers: [NSObjectProtocol] = []
+    private final class NotificationOwner {
+        var tokens:[NSObjectProtocol] = []
+        deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
+    }
+    @ObservationIgnored private let navigationOwner = NotificationOwner()
+    /// Lets native lifecycle tests track registration ownership without exposing tokens.
+    var observerLifetime:AnyObject { navigationOwner }
 
     /// Install before load, including window.open and background tabs. The script
     /// is idempotent and uses an isolated world; it never reads page text/images.
@@ -104,7 +116,7 @@ private typealias PlatformColor = UIColor
     @ObservationIgnored private var bandTask: Task<Void, Never>?
     private static let contentWorld = WKContentWorld.world(name: "OrivPageChrome")
     #if DEBUG
-    @ObservationIgnored private var timingObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private let timingOwner = NotificationOwner()
     #endif
     var foreground: Color { isDark ? .white : .black }
 
@@ -118,23 +130,36 @@ private typealias PlatformColor = UIColor
             old.evaluateJavaScript("window.__orivChromeStop?.(); void 0", in: nil, in: Self.contentWorld) { _ in }
         }
         #if DEBUG
-        timingObservers.forEach(NotificationCenter.default.removeObserver); timingObservers.removeAll()
+        timingOwner.tokens.forEach(NotificationCenter.default.removeObserver); timingOwner.tokens.removeAll()
         if let view { for (name, event) in [(BrowserTab.navigationStarted, "navigationStart"), (BrowserTab.navigationCommitted, "commit")] {
-            timingObservers.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak view] _ in
+            timingOwner.tokens.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak view] _ in
                 MainActor.assumeIsolated { ChromeTiming.event(event, web: view) }
             })
         } }
         #endif
-        navigationObservers.forEach(NotificationCenter.default.removeObserver); navigationObservers.removeAll()
+        navigationOwner.tokens.forEach(NotificationCenter.default.removeObserver); navigationOwner.tokens.removeAll()
         observations.removeAll()
         generation += 1; sampledTop = nil; bodyBackground = nil; htmlBackground = nil; dimmingLayer = false; hasScrolled = false; installed = false
         privatePage = isPrivate; webView = view
+        #if os(iOS)
+        resetPaintState()
+        #endif
         navigationPainting = true; animatesColor = false; documentID = 0; lastScrollTime = 0; navigationSeed = nil
         guard let view else { apply(Self.rgba(PlatformColor(Theme.t3Code.canvas))!); return }
         Self.install(on: view)
-        navigationObservers.append(NotificationCenter.default.addObserver(forName: BrowserTab.navigationStarted, object: view, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.beginNavigation() }
+        navigationOwner.tokens.append(NotificationCenter.default.addObserver(forName: BrowserTab.navigationStarted, object: view, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                #if os(iOS)
+                self?.resetPaintState()
+                #endif
+                self?.beginNavigation()
+            }
         })
+        #if os(iOS)
+        navigationOwner.tokens.append(NotificationCenter.default.addObserver(forName: BrowserTab.documentCommitted, object:view, queue:.main) { [weak self,weak view] _ in
+            MainActor.assumeIsolated { if let view { self?.identifyPaintedDocument(view) } }
+        })
+        #endif
         Self.owners = Self.owners.filter { $0.value.value != nil }
         if let previous = Self.owners[ObjectIdentifier(view)]?.value, previous !== self { previous.observe(nil) }
         Self.owners[ObjectIdentifier(view)] = ObserverOwner(self)
@@ -363,7 +388,12 @@ private typealias PlatformColor = UIColor
     }
 
     static var observerScript: String {
-        """
+        #if os(iOS)
+        let paintSignal = "window.webkit?.messageHandlers?.chromeEdge?.postMessage({painted:performance.timeOrigin});"
+        #else
+        let paintSignal = ""
+        #endif
+        return """
         (() => {
             if (window.__orivChromeStop) { window.__orivChromeSend?.(); return; }
             let timer, deadline, edgeTimer, frame, lastEdge = -Infinity, initial = true;
@@ -393,7 +423,7 @@ private typealias PlatformColor = UIColor
                 else if (!edgeTimer) edgeTimer = setTimeout(sendEdge, 125 - (performance.now() - lastEdge));
             };
             const ready = () => { sendEdge(); nextPaint(); };
-            const painted = () => { sendEdge(); nextPaint(); };
+            const painted = () => { sendEdge(); \(paintSignal) nextPaint(); };
             const loaded = () => {
                 // DOM readiness must end the initial phase even when a hidden
                 // window throttles rAF. Send the ready paint before confirmation
@@ -434,7 +464,15 @@ private typealias PlatformColor = UIColor
     }
 
     fileprivate func receiveScroll(_ message: WKScriptMessage) {
-        guard !privatePage, message.webView === webView, message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
+        guard message.webView === webView, message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
+        #if os(iOS)
+        if let document = body["painted"] as? Double {
+            paintedDocuments.insert(document)
+            if document == expectedPaintDocument { hasPaintedContent = true }
+            return
+        }
+        #endif
+        guard !privatePage else { return }
         if let edge = body["edge"] as? [String: Any] {
             guard Self.matchesDocument(edge["href"] as? String, url: webView?.url) else { return }
             if let id = edge["documentID"] as? Double {
@@ -452,6 +490,24 @@ private typealias PlatformColor = UIColor
         }
         if body["sample"] as? Bool == true { refresh(); requestSample() }
     }
+
+    #if os(iOS)
+    private func resetPaintState() {
+        paintEpoch += 1; expectedPaintDocument = nil; paintedDocuments.removeAll(); hasPaintedContent = false
+    }
+    private func identifyPaintedDocument(_ view:WKWebView) {
+        let request = paintEpoch
+        // Bind FCP to the committed document, including a same-URL reload.
+        // A message from the previous page must never release its backing.
+        view.callAsyncJavaScript("return {id:performance.timeOrigin,painted:performance.getEntriesByType('paint').some(e=>e.name==='first-contentful-paint')};",
+            arguments:[:],in:nil,in:Self.contentWorld) { [weak self,weak view] result in
+                guard let self, let view, self.webView === view, self.paintEpoch == request,
+                      let value = (try? result.get()) as? [String:Any], let id = value["id"] as? Double else { return }
+                self.expectedPaintDocument = id
+                if value["painted"] as? Bool == true || self.paintedDocuments.contains(id) { self.hasPaintedContent = true }
+            }
+    }
+    #endif
 
     #if DEBUG
     private func recordDiagnostics() {

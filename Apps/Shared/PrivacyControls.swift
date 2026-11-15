@@ -89,23 +89,16 @@ struct PrivacyAcknowledgements: View {
 }
 
 struct HTTPFallbackView: View {
-    @Environment(\.browserTheme) private var theme
     let tab: BrowserTab
     var body: some View {
-        ContentUnavailableView {
-            Label("This site doesn't support a secure connection", systemImage: "lock.slash")
-                .foregroundStyle(theme.text)
-        } description: {
-            Text(tab.httpWarningURL?.host ?? "").foregroundStyle(theme.secondaryText)
-            Text("Continuing uses unencrypted HTTP. Your choice is remembered for this exact host in this profile; private choices last only for this session.")
-                .foregroundStyle(theme.secondaryText)
-        } actions: {
-            Button { tab.cancelHTTPFallback() } label: {
-                Text("Go Back").foregroundStyle(theme.accentText).frame(minHeight: 44)
-            }.buttonStyle(.plain)
-            Button { tab.continueToHTTP() } label: {
-                Text("Continue to HTTP").foregroundStyle(theme.accentText).frame(minHeight: 44)
-            }.buttonStyle(.plain)
-        }
+        Color.clear
+            .alert("This site doesn't support a secure connection",
+                   isPresented:Binding(get:{ tab.httpWarningURL != nil },set:{ _ in }),
+                   presenting:tab.httpWarningURL) { destination in
+                Button("Go Back",role:.cancel) { tab.cancelHTTPFallback() }
+                Button("Continue to HTTP") { tab.continueToHTTP(destination) }
+            } message: { destination in
+                Text("\(destination.host ?? "")\n\nContinuing uses unencrypted HTTP. Your choice is remembered for this exact host in this profile; private choices last only for this session.")
+            }
     }
 }

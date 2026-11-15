@@ -75,6 +75,8 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
         let upgrade = request.url.map { ["http", "https"].contains($0.scheme?.lowercased() ?? "") && !HTTPSUpgradePolicy.isExempt($0) } == true
             && (request.httpMethod ?? "GET").uppercased() == "GET" && request.httpBody == nil && request.httpBodyStream == nil
             && isEnabled(.httpsUpgrade, for: request.url, isPrivate: isPrivate)
-        preferences.preferredHTTPSNavigationPolicy = upgrade ? .userMediatedFallbackToHTTP : .keepAsRequested
+        // Oriv presents one native, exact-host consent prompt. WebKit must
+        // return an error, never perform an automatic unencrypted fallback.
+        preferences.preferredHTTPSNavigationPolicy = upgrade ? .errorOnFailure : .keepAsRequested
     }
 }

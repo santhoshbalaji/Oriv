@@ -127,7 +127,7 @@ struct MobileSiteSettings: View {
                 }.listRowBackground(theme.surface)
             }
         }.scrollContentBackground(.hidden).background(theme.canvas).navigationTitle("Site settings")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("siteSettingsDone") } }
     }
     private func permission(_ title: String, path: WritableKeyPath<SiteRule, SitePermission>, url: URL) -> some View {
         Picker(title, selection: Binding(get: { rule[keyPath: path] }, set: { var updated = rule; updated[keyPath: path] = $0; session.settings.setRule(updated, for: url, isPrivate: tab.isPrivate); if $0 == .block { tab.stopCapture() } })) {

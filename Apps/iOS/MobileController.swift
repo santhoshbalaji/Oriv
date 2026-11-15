@@ -14,6 +14,8 @@ import WebKit
     var addressFocusRequest = 0
     var message: String?
     let tabPresentation = MobileTabPresentation()
+    let tabSwipe = MobileTabSwipe()
+    let viewportLayout = MobileViewportLayout()
     @ObservationIgnored private var chromes: [UUID:PageChrome] = [:]
     @ObservationIgnored private let homeChrome = PageChrome()
     func chrome(for tab:BrowserTab?) -> PageChrome {
@@ -52,13 +54,19 @@ import WebKit
                 await session?.importLegacyBookmarks(from: root.appendingPathComponent("workspace.sqlite"))
             }
         }
-        memoryObserver = MobileMemoryObserver { [weak self] in self?.trimBackgroundTabs(limit:1) }
+        memoryObserver = MobileMemoryObserver { [weak self] in
+            self?.tabPresentation.releaseCachedSnapshots()
+            self?.trimBackgroundTabs(limit:1)
+        }
         session.configureWebView = { [weak self] view, tab in
             #if DEBUG
             ChromeTiming.install(on: view)
             #endif
             PageChrome.install(on: view)
             guard let self else { return }
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+            viewportLayout.prepare(view,window:scene?.keyWindow)
             let chrome = chromes[tab.id] ?? PageChrome(); chromes[tab.id] = chrome
             chrome.observe(view,isPrivate:tab.isPrivate)
             let adapter = MobileWebDelegate(session: session, tab: tab); adapter.controller = self
@@ -88,9 +96,9 @@ import WebKit
     /// navigation policy. An immediate first URL still waits for protection.
     func warmProtection() {
         guard protectionWarmup == nil, session.adBlocker.mode != .off || session.adBlocker.cookieBannersEnabled else { return }
-        protectionWarmup = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do { try await session.adBlocker.prepare() }
+        protectionWarmup = Task { @MainActor [weak blocker = session.adBlocker] in
+            guard let blocker else { return }
+            do { try await blocker.prepare() }
             catch { /* The existing navigation policy reports preparation errors. */ }
         }
     }
@@ -99,15 +107,32 @@ import WebKit
         trimTask?.cancel()
         trimTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for:.seconds(1))
-            guard !Task.isCancelled, let self, tabPresentation.activeID == nil, sheet != .tabs else { return }
-            let live = session.tabs.filter(\.isInstantiated).sorted { lastUsed[$0.id,default:0] < lastUsed[$1.id,default:0] }
-            var remaining = live.count
-            for tab in live where remaining > limit {
-                guard !Task.isCancelled, tabPresentation.activeID == nil else { return }
-                let discarded = await withCheckedContinuation { continuation in
-                    tab.discardBackgroundWebView { continuation.resume(returning:$0) }
+            // Retry one transient native IPC failure; each request still has
+            // its own deadline and cannot act after expiring.
+            for _ in 0..<2 {
+                guard !Task.isCancelled, self != nil, self?.tabPresentation.activeID == nil, self?.sheet != .tabs,
+                      let live = self?.session.tabs.filter(\.isInstantiated).sorted(by:{
+                          (self?.lastUsed[$0.id,default:0] ?? 0) < (self?.lastUsed[$1.id,default:0] ?? 0)
+                      }) else { return }
+                // Independent WebKit IPC requests overlap in bounded waves. Never
+                // retain the controller across an await. Each wave is bounded by the known excess.
+                var remaining = live.count, index = 0
+                while remaining > limit && index < live.count {
+                    guard !Task.isCancelled, self != nil, self?.tabPresentation.activeID == nil, self?.sheet != .tabs else { return }
+                    let count = min(4,min(remaining-limit,live.count-index))
+                    let wave = Array(live[index..<(index+count)]); index += count
+                    let reclaimed:Int = await withCheckedContinuation { continuation in
+                        var outstanding = wave.count, successes = 0
+                        for tab in wave {
+                            tab.discardBackgroundWebView { discarded in
+                                if discarded { successes += 1 }
+                                outstanding -= 1
+                                if outstanding == 0 { continuation.resume(returning:successes) }
+                            }
+                        }
+                    }
+                    remaining -= reclaimed
                 }
-                if discarded { remaining -= 1 }
             }
         }
     }

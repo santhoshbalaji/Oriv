@@ -223,12 +223,35 @@ import WebKit
         chrome.observe(web)
         tab.navigate(to:URL(string:"http://127.0.0.1:8768/chrome-paint")!)
         try await wait { chrome.sampledTop != nil }
+        try await wait { chrome.hasPaintedContent }
         XCTAssertTrue(web.isLoading,"The page colour must arrive while the delayed image still loads")
         XCTAssertEqual(firstPaintAnimated,false,"Initial paint must not fade from the previous page")
         let rgb = UIColor(chrome.color)
         var red:CGFloat=0, green:CGFloat=0, blue:CGFloat=0, alpha:CGFloat=0
         rgb.getRed(&red,green:&green,blue:&blue,alpha:&alpha)
         XCTAssertEqual(red,99.0/255,accuracy:0.002); XCTAssertEqual(blue,221.0/255,accuracy:0.002)
+    }
+
+    func testPreviousDocumentPaintCannotReleaseANewNavigation() async throws {
+        let c = MobileController(); defer { c.session.shutdown() }
+        let tab = try XCTUnwrap(c.session.selectedTab), web = tab.webView, chrome = PageChrome()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where:\.isKeyWindow), window = UIWindow(windowScene:scene)
+        let host = UIViewController(); host.view = MobileWebHost(webView:web)
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { chrome.observe(nil); window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        chrome.observe(web)
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/two")!)
+        try await wait { chrome.hasPaintedContent && !web.isLoading }
+        let origin = try await web.evaluateJavaScript("performance.timeOrigin")
+        let oldDocument = try XCTUnwrap(origin as? Double)
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/chrome-paint?firstByteDelay=1&delay=4")!)
+        try await wait { !chrome.hasPaintedContent && web.isLoading }
+        _ = try await web.callAsyncJavaScript("window.webkit.messageHandlers.chromeEdge.postMessage({painted:id}); return true;",
+            arguments:["id":oldDocument],in:nil,in:.world(name:"OrivPageChrome"))
+        XCTAssertFalse(chrome.hasPaintedContent,"A late signal from the previous page is not the committed document's paint")
+        try await wait { chrome.hasPaintedContent }
+        XCTAssertTrue(web.isLoading)
     }
 
     func testTransitionReparentingKeepsWebKitViewportAndRestoresItsHost() async throws {

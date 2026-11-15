@@ -31,7 +31,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public private(set) var hasOnlySecureContent = false
     public private(set) var hasEditedFields = false
     public private(set) var httpWarningURL: URL?
-    @ObservationIgnored private var pendingHTTPUpgrade: URL?
+    private struct HTTPUpgradeAttempt {
+        let url:URL
+        var navigation:WKNavigation?
+    }
+    @ObservationIgnored private var pendingHTTPUpgrade: HTTPUpgradeAttempt?
     @ObservationIgnored private var pendingCleanedURL: URL?
     public var cleanedURL: URL? { url.map(URLCleaner.clean) }
 
@@ -44,6 +48,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored public var onExternalURL: ((URL) -> Void)?
     @ObservationIgnored public var onOpenLink: ((URL, Bool) -> Void)?
     @ObservationIgnored public var onAuthentication: ((URLAuthenticationChallenge, @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) -> Void)?
+    #if os(iOS)
+    @ObservationIgnored var discardTimeout:Duration = .seconds(8)
+    #endif
     @ObservationIgnored private var savedInteractionState: Any?
     @ObservationIgnored private var savedViewSize: CGSize?
     @ObservationIgnored private var savedScrollOffset: CGPoint?
@@ -183,14 +190,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func discardBackgroundWebView(completion:@escaping @MainActor (Bool) -> Void) {
         guard let view = backingWebView, canDiscard(view) else { completion(false); return }
         let revision = documentRevision
-        view.requestMediaPlaybackState { [weak self,weak view] playback in
+        let request = DiscardRequest(timeout:discardTimeout,completion:completion)
+        view.requestMediaPlaybackState { [weak self,weak view,request] playback in
             Task { @MainActor in
-                guard let self, let view, playback == .none, self.canDiscard(view), self.documentRevision == revision else { completion(false); return }
+                guard request.isPending, let self, let view, playback == .none, self.canDiscard(view), self.documentRevision == revision else { request.finish(false); return }
                 // An unattached WebKit page can have a DOM scroll position that
                 // UIScrollView has not mirrored yet. Read only its coordinates.
-                view.evaluateJavaScript("[scrollX,scrollY]") { [weak self,weak view] value,_ in
-                    guard let self, let view, self.canDiscard(view), self.documentRevision == revision,
-                          let state = view.interactionState else { completion(false); return }
+                view.evaluateJavaScript("[scrollX,scrollY]") { [weak self,weak view,request] value,_ in
+                    guard request.isPending, let self, let view, self.canDiscard(view), self.documentRevision == revision,
+                          let state = view.interactionState else { request.finish(false); return }
                     let offset = value as? [Double]
                     let scroll = view.scrollView
                     self.savedScrollOffset = offset.flatMap { $0.count == 2 ? CGPoint(x:$0[0],y:$0[1]) : nil } ??
@@ -200,9 +208,29 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                     view.navigationDelegate = nil; view.uiDelegate = nil; self.onAuthentication = nil
                     self.savedViewSize = view.bounds.size
                     self.savedInteractionState = state; self.backingWebView = nil; self.hasLoaded = false
-                    completion(true)
+                    request.finish(true)
                 }
             }
+        }
+    }
+
+    @MainActor private final class DiscardRequest {
+        private var completion:(@MainActor (Bool) -> Void)?
+        private var timeout:Task<Void,Never>?
+        var isPending:Bool { completion != nil }
+        init(timeout duration:Duration,completion:@escaping @MainActor (Bool) -> Void) {
+            self.completion = completion
+            // Keep the one-shot completion alive even if WebKit drops its
+            // callback. The deadline or a reply breaks this bounded ownership.
+            timeout = Task { @MainActor in
+                do { try await Task.sleep(for:duration) } catch { return }
+                self.finish(false)
+            }
+        }
+        func finish(_ discarded:Bool) {
+            guard let completion else { return }
+            self.completion = nil; timeout?.cancel(); timeout = nil
+            completion(discarded)
         }
     }
 
@@ -320,23 +348,18 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if rule.microphone == .block { view.setMicrophoneCaptureState(.none, completionHandler: nil) }
     }
     public func dismissError() { errorMessage = nil }
-    /// WebKit's user-mediated fallback is intercepted before any unencrypted reload.
-    /// Only the original GET is eligible; certificate errors never arrive here as a bypass.
-    public func continueToHTTP() {
-        guard let destination = httpWarningURL else { return }
+    /// Consent applies only to the exact destination displayed by the prompt.
+    public func continueToHTTP(_ destination:URL) {
+        guard destination == httpWarningURL else { return }
         settings?.privacy.setException(true, .httpsUpgrade, for: destination, isPrivate: isPrivate)
         httpWarningURL = nil; pendingHTTPUpgrade = nil
         navigate(to: destination)
     }
-    func interceptHTTPFallback(_ request: URLRequest, kind: PrivacyNavigationKind) -> Bool {
+    func recordHTTPUpgrade(_ request: URLRequest, kind: PrivacyNavigationKind) {
+        pendingHTTPUpgrade = nil
         guard let destination = request.url, destination.scheme == "http", kind == .newNavigation,
-              (request.httpMethod ?? "GET").uppercased() == "GET", request.httpBody == nil, request.httpBodyStream == nil else { return false }
-        if let pendingHTTPUpgrade, Self.sameHTTPAttempt(pendingHTTPUpgrade, destination) {
-            httpWarningURL = destination; isLoading = false
-            return true
-        }
-        pendingHTTPUpgrade = destination
-        return false
+              (request.httpMethod ?? "GET").uppercased() == "GET", request.httpBody == nil, request.httpBodyStream == nil else { return }
+        pendingHTTPUpgrade = HTTPUpgradeAttempt(url:destination)
     }
     private static func sameHTTPAttempt(_ lhs: URL, _ rhs: URL) -> Bool {
         guard let a = URLComponents(url: lhs, resolvingAgainstBaseURL: false),
@@ -357,6 +380,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
 
     public func close() {
+        guard !isClosed else { return }
+        // Adapters must unregister while their live view is still reachable,
+        // including session shutdown (which does not call didCloseTab).
+        onWebViewDiscarded?(); onWebViewDiscarded = nil
+        onAuthentication = nil; onWebViewCreated = nil
         endRefreshing()
         #if os(iOS)
         backingWebView?.findInteraction?.dismissFindNavigator()
@@ -413,6 +441,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public static let navigationStarted = Notification.Name("OrivNavigationStarted")
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        // Server/HTTPS upgrade redirects keep their WKNavigation identity.
+        // A replacement, including a script navigation, cannot inherit consent.
+        if let previous = pendingHTTPUpgrade?.navigation, previous !== navigation {
+            pendingHTTPUpgrade = nil
+        } else { pendingHTTPUpgrade?.navigation = navigation }
         #if os(iOS)
         webView.findInteraction?.dismissFindNavigator()
         #endif
@@ -426,8 +459,14 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     #if DEBUG
     public static let navigationCommitted = Notification.Name("OrivNavigationCommitted")
     #endif
+    #if os(iOS)
+    public static let documentCommitted = Notification.Name("OrivDocumentCommitted")
+    #endif
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        #if os(iOS)
+        NotificationCenter.default.post(name:Self.documentCommitted,object:webView)
+        #endif
         #if DEBUG
         NotificationCenter.default.post(name: Self.navigationCommitted, object: webView)
         #endif
@@ -458,9 +497,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                                 url: webView.url, isPrivate: isPrivate)
     }
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        handle(error)
+        handle(error,navigation:navigation)
     }
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { handle(error) }
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { handle(error,navigation:navigation) }
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         endRefreshing()
         guard !isClosed else { return }
@@ -489,10 +528,29 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     func recordAllowedMainFrameNavigation(_ request: URLRequest) {
         pendingNavigationMethod = request.httpMethod?.uppercased() ?? "GET"
     }
-    private func handle(_ error: Error) {
+    private func handle(_ error: Error,navigation:WKNavigation?) {
         isRestoringWebView = false; savedScrollOffset = nil; applyingRestoration = false
         endRefreshing()
         let nsError = error as NSError
+        // Only a failed upgrade of an original HTTP GET may offer consent.
+        // Explicit HTTPS URLs, certificate errors, unrelated/stale failures,
+        // form submissions and history traversals never become bypasses.
+        let connectionErrors = [NSURLErrorTimedOut, NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost,
+                                NSURLErrorNetworkConnectionLost, NSURLErrorSecureConnectionFailed]
+        let failedURL = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL
+            ?? (nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String).flatMap(URL.init(string:))
+        if nsError.domain == NSURLErrorDomain, connectionErrors.contains(nsError.code),
+           let attempt = pendingHTTPUpgrade, attempt.navigation === navigation, let failedURL {
+            let original = attempt.url
+            var upgraded = URLComponents(url:original,resolvingAgainstBaseURL:false)
+            upgraded?.scheme = "https"
+            if upgraded?.port == 80 { upgraded?.port = nil }
+            if Self.sameHTTPAttempt(original,failedURL) || upgraded?.url == failedURL {
+                pendingHTTPUpgrade = nil; httpWarningURL = original
+                errorMessage = nil; isLoading = false
+                return
+            }
+        }
         let certificateCodes = [NSURLErrorServerCertificateHasBadDate, NSURLErrorServerCertificateUntrusted,
                                 NSURLErrorServerCertificateHasUnknownRoot, NSURLErrorServerCertificateNotYetValid,
                                 NSURLErrorClientCertificateRejected, NSURLErrorClientCertificateRequired]
@@ -515,6 +573,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                         preferences: WKWebpagePreferences,
                         decisionHandler preferencesHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
         let decisionHandler: @MainActor (WKNavigationActionPolicy) -> Void = { preferencesHandler($0, preferences) }
+        guard !isClosed else { decisionHandler(.cancel); return }
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
         let mainFrame = navigationAction.targetFrame?.isMainFrame == true
         let kind: PrivacyNavigationKind = navigationAction.navigationType == .backForward ? .backForward : navigationAction.navigationType == .reload ? .reload : .newNavigation
@@ -531,12 +590,14 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                 webView.load(request)
                 return
             }
-            if preferences.preferredHTTPSNavigationPolicy == .userMediatedFallbackToHTTP {
-                if interceptHTTPFallback(navigationAction.request, kind: kind) {
-                    decisionHandler(.cancel)
-                    return
+            if preferences.preferredHTTPSNavigationPolicy == .errorOnFailure {
+                // A redirected HTTPS request belongs to the same upgrade;
+                // preserve its original HTTP destination until commit/failure.
+                // Explicit links/forms/history actions replace that attempt.
+                if url.scheme == "http" || navigationAction.navigationType != .other {
+                    recordHTTPUpgrade(navigationAction.request,kind:kind)
                 }
-            } else if url.scheme == "http" { pendingHTTPUpgrade = nil }
+            } else { pendingHTTPUpgrade = nil }
         }
         let scheme = url.scheme?.lowercased() ?? ""
         if ["http", "https"].contains(scheme), !AddressResolver.isWebURL(url) { decisionHandler(.cancel); return }
@@ -554,6 +615,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             }
             policyGeneration += 1
             let generation = policyGeneration
+            if adBlocker.applyIfPrepared(to:webView.configuration.userContentController,url:url,isPrivate:isPrivate) {
+                if policy == .allow { recordAllowedMainFrameNavigation(navigationAction.request) }
+                decisionHandler(policy)
+                return
+            }
             Task { @MainActor [weak self] in
                 do {
                     if adBlocker.mode != .off || adBlocker.cookieBannersEnabled { try await adBlocker.prepare() }

@@ -37,3 +37,24 @@ The shared privacy compatibility fixtures use the same off-screen `BackgroundUIM
 Shield geometry and real-popover presentation have separate native tests. Address/shield fit at default, minimum and intermediate widths, sidebar states, link cleaning, tracker blocking and cookie hiding continue to run on macOS 26 in background mode. Only `testPrivacyShieldOpensRealPopover` skips when all three conditions hold: macOS is below 27, background mode is enabled, and AppKit refuses the key window. Its skip message identifies the foreground-dependent routing restriction. The real-popover assertions run on macOS 27 and later, including background runs. Record this platform-specific skip separately; it does not certify foreground popover presentation on macOS 26.
 
 Run `python3 scripts/check-background-ui.py` to catch direct Mac activation/raising calls and window construction outside the shared policy, including shared compatibility tests. Normal app usage without either UI-mode environment variable keeps its usual activation behaviour.
+
+
+## Opt-in physical-device QA
+
+`Tests/DeviceQATests` contains device XCUITest cases; `Tests/DeviceResourceTests` contains app-hosted hardware resource measurements. Both require `ORIV_DEVICE_QA=1`, reject simulator execution, and require a `.qa` bundle identity. They are deliberately excluded from the regular project and CI schemes.
+
+Generate the local QA project under ignored `build/ios-device-qa/`, with a separate application identifier formed from the release identifier plus `.qa`, display name `Oriv QA`, development signing, empty app entitlements, and no continuity container, Handoff activity or URL-scheme registration. Keep the project specification, device selection, signing team and fixture LAN address in ignored local configuration. Verify the signed app and runner entitlements before installation. Never point these tests at the release app.
+
+Run the ignored project's `OrivDeviceQA` UI scheme and `OrivDeviceResources` hosted scheme using `xcodebuild test` with the locally configured physical-device destination. Keep derived products separate when building UI and hosted suites: a UI-only build can remove the hosted test plug-in from the app bundle. Use `-collect-test-diagnostics never` to avoid collecting broad device diagnostics after a test infrastructure failure. Results and traces belong under `build/ios-device-qa/`.
+
+For device fixtures, `scripts/qa-server.py --bind <Mac-LAN-address> --port <local-port>` explicitly binds that interface; its default stays loopback. The QA app may request Local Network permission. Do not use the Mac's loopback address from the phone. Only synthetic fixtures and read-only public pages are allowed; never sign in.
+
+The QA build alone supports `ORIV_QA_REDUCE_MOTION=1` through the `ORIV_DEVICE_QA` compilation condition. This exercises Oriv's reduced-motion path without changing the system accessibility setting. A local memory-warning notification exercises only the QA process; it does not certify behavior under real system memory pressure. Display-link callbacks do not establish composited frame rate. Keep app-process footprint separate from WebKit helper-process memory, and distinguish process launches with warm caches from a reboot-cold launch.
+
+### Release performance isolation
+
+Use an optimized QA configuration with the diagnostic compilation condition absent. Exclude local native gesture probes as well as Swift diagnostic writers and signposts; inspect the app executable for their marker strings before accepting a measured run. Keep frame/signpost evidence in a separate diagnostic build. Retained XCTest video is evidence of recorded frames, not proof of the display refresh rate; report its actual frame rate.
+
+For total memory, Activity Monitor can target all processes; VM Tracker requires individual process targets. Do not sum every WebKit process on the phone. The opt-in resource test records the identities of its own views' WebContent, Networking and GPU helpers, with epoch timestamps for aligning settled checkpoints. This debugging SPI lives exclusively in the device test bundle and is not included in either app target or distribution archive. Missing identity support must be reported, not replaced with an ownership assumption.
+
+The navigation fixture compares full Oriv chrome against a bare view with the same timing-only observer and physical viewport. Report fresh-view and reused-view samples separately. Fresh views and ephemeral stores do not establish reboot-cold caches. Navigation request-to-commit and paint-message delivery are app-side intervals; JavaScript Navigation/Paint Timing values are document-relative and must not be labelled tap latency.
