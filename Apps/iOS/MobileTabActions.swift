@@ -31,11 +31,17 @@ extension MobileController {
         let alert = UIAlertController(title: privateTabs ? (confirmAll ? "Close All Private Tabs?" : "Close Private Tabs?") : "Close All Tabs?",
             message: privateTabs ? "Private tabs cannot be recovered from History or Recently Closed." : "This closes \(ids.count) tabs. You can reopen them from Recently Closed Tabs.", preferredStyle: .alert)
         closeConfirmation = alert
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.closeConfirmation = nil; cancelled?() })
+        pendingTabClose = MobileTabCloseConfirmation(confirm:operation,cancel:cancelled ?? {})
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.resolveTabClose(confirm:false) })
         alert.addAction(UIAlertAction(title: confirmAll ? "Close All Tabs" : ids.count == 1 ? "Close Tab" : "Close Tabs", style: .destructive) { [weak self] _ in
-            self?.closeConfirmation = nil; operation()
+            self?.resolveTabClose(confirm:true)
         })
         presenter.present(alert, animated: !UIAccessibility.isReduceMotionEnabled)
+    }
+    func resolveTabClose(confirm:Bool) {
+        let request = pendingTabClose
+        pendingTabClose = nil; closeConfirmation = nil
+        request?.resolve(confirm:confirm)
     }
     func closeAllTabs() { close(session.tabsInSelectedMode.map(\.id), confirmAll: true) }
     func closeOtherTabs(_ tab: BrowserTab) {
@@ -410,5 +416,17 @@ struct MobileCapsulePan: UIViewRepresentable {
             action?(pan.state,CGSize(width:delta.x,height:delta.y),predicted)
             if pan.state == .ended || pan.state == .cancelled || pan.state == .failed { tracking = false }
         }
+    }
+}
+
+/// The alert and native frame regressions resolve the same one-shot request.
+/// Clear it before delivery so repeated confirmation cannot close twice.
+@MainActor final class MobileTabCloseConfirmation {
+    private var confirmAction:(() -> Void)?
+    private var cancelAction:(() -> Void)?
+    init(confirm:@escaping () -> Void,cancel:@escaping () -> Void) { confirmAction = confirm; cancelAction = cancel }
+    func resolve(confirm:Bool) {
+        let action = confirm ? confirmAction : cancelAction
+        confirmAction = nil; cancelAction = nil; action?()
     }
 }

@@ -27,6 +27,7 @@ import WebKit
         return chrome
     }
     @ObservationIgnored weak var closeConfirmation: UIAlertController?
+    @ObservationIgnored var pendingTabClose: MobileTabCloseConfirmation?
     weak var profiles: MobileProfiles?
     @ObservationIgnored private var protectionWarmup: Task<Void,Never>?
     @ObservationIgnored private var memoryObserver: MobileMemoryObserver?

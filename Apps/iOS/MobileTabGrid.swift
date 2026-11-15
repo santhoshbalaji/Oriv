@@ -24,7 +24,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
     func updateUIViewController(_ view: MobileTabGridController, context: Context) { view.update(self) }
 }
 
-@MainActor final class MobileTabGridController: UICollectionViewController, UICollectionViewDragDelegate, UICollectionViewDropDelegate {
+@MainActor final class MobileTabGridController: UICollectionViewController, UICollectionViewDragDelegate, UICollectionViewDropDelegate, UICollectionViewDelegateFlowLayout {
     var model: MobileTabGrid
     private var sections: [[BrowserTab]] = []
     private var identity: [String] = []
@@ -62,20 +62,40 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         if identity != next {
             identity = next
             let oldIDs = previous.flatMap { $0.map(\.id) }, newIDs = updated.flatMap { $0.map(\.id) }
+            let oldSections = previous.compactMap { $0.first?.isPrivate }
+            let newSections = updated.compactMap { $0.first?.isPrivate }
+            let removedSections = IndexSet(oldSections.indices.filter { !newSections.contains(oldSections[$0]) })
             let deletions = previous.enumerated().flatMap { section, tabs in
-                tabs.enumerated().compactMap { item, tab in newIDs.contains(tab.id) ? nil : IndexPath(item:item, section:section) }
+                tabs.enumerated().compactMap { item, tab in
+                    newIDs.contains(tab.id) || removedSections.contains(section) ? nil : IndexPath(item:item,section:section)
+                }
             }
-            let onlyDeletes = previous.count == updated.count && !deletions.isEmpty && newIDs == oldIDs.filter { newIDs.contains($0) }
-            if onlyDeletes {
-                collectionView.performBatchUpdates { collectionView.deleteItems(at: deletions) } completion: { [weak self] _ in
-                    self?.publishFrames()
+            let onlyDeletes = newIDs.count < oldIDs.count && newIDs == oldIDs.filter { newIDs.contains($0) }
+            // BrowserSession creates a fresh home tab after the final close.
+            // Keep that path, with a batch replacement instead of a reload flash.
+            let lastReplacement = oldIDs.count == 1 && newIDs.count == 1 && oldIDs != newIDs
+            if onlyDeletes || lastReplacement {
+                let rate = UIUpdateLink(view:collectionView)
+                rate.preferredFrameRateRange = CAFrameRateRange(minimum:80,maximum:120,preferred:120)
+                rate.isEnabled = true
+                UIView.animate(withDuration:model.reduceMotion ? 0.18 : 0.42,delay:0,
+                               usingSpringWithDamping:model.reduceMotion ? 1 : 0.88,initialSpringVelocity:0,
+                               options:[.beginFromCurrentState,.allowUserInteraction]) {
+                    self.collectionView.performBatchUpdates {
+                        self.collectionView.deleteSections(removedSections)
+                        self.collectionView.deleteItems(at:deletions)
+                        if lastReplacement {
+                            if oldSections == newSections { self.collectionView.insertItems(at:[IndexPath(item:0,section:0)]) }
+                            else { self.collectionView.insertSections(IndexSet(integer:0)) }
+                        }
+                    } completion: { [weak self] _ in rate.isEnabled = false; self?.publishFrames() }
                 }
             } else if oldIDs == newIDs {
-                collectionView.reconfigureItems(at: collectionView.indexPathsForVisibleItems)
+                collectionView.reconfigureItems(at:collectionView.indexPathsForVisibleItems)
             } else {
-                UIView.transition(with:collectionView, duration:model.reduceMotion ? 0.18 : 0.25, options:.transitionCrossDissolve) { self.collectionView.reloadData() }
+                UIView.transition(with:collectionView,duration:model.reduceMotion ? 0.18 : 0.25,options:.transitionCrossDissolve) { self.collectionView.reloadData() }
+                collectionView.collectionViewLayout.invalidateLayout()
             }
-            collectionView.collectionViewLayout.invalidateLayout()
         }
         collectionView.backgroundView = model.tabs.isEmpty ? UIHostingController(rootView: BrowserEmptyState("No matching tabs")).view : nil
         navigationController?.view.accessibilityViewIsModal = model.presented
@@ -123,9 +143,11 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         if layout.itemSize != size {
             layout.itemSize = size; layout.sectionInset = UIEdgeInsets(top: 12, left: 16, bottom: 20, right: 16)
             layout.minimumInteritemSpacing = 16; layout.minimumLineSpacing = 16
-            layout.headerReferenceSize = CGSize(width: collectionView.bounds.width, height: sections.count > 1 ? max(36, UIFont.preferredFont(forTextStyle: .headline, compatibleWith: traitCollection).lineHeight + 12) : 0)
             layout.invalidateLayout()
         }
+    }
+    func collectionView(_ collectionView:UICollectionView,layout:UICollectionViewLayout,referenceSizeForHeaderInSection section:Int) -> CGSize {
+        CGSize(width:collectionView.bounds.width,height:sections.count > 1 ? max(36,UIFont.preferredFont(forTextStyle:.headline,compatibleWith:traitCollection).lineHeight + 12) : 0)
     }
     private func publishFrames() {
         guard collectionView.window != nil else { return }
@@ -151,19 +173,20 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "tab", for: indexPath) as! MobileTabCell
         let tab = sections[indexPath.section][indexPath.item]
         let controller = model.controller
-        cell.contentConfiguration = UIHostingConfiguration {
+        cell.represent(tab.id)
+        cell.setCard(UIHostingConfiguration {
             MobileGridCard(tab: tab, presentation: controller.tabPresentation, selected: controller.session.selectedTabID == tab.id, largeText: model.largeText, close: { controller.close([tab.id]) })
                 .browserAppearance(controller.appearance)
-        }.margins(.all, 0)
-        cell.canInteract = { [weak self] in self?.model.presented == true && self?.reordering == false && self?.pulling == false }
+        }.margins(.all, 0))
+        cell.canInteract = { [weak self] in self?.model.presented == true && self?.reordering == false && self?.pulling == false && self?.model.controller.closeConfirmation == nil }
         cell.reduceMotion = model.reduceMotion
         cell.close = { controller.close([tab.id]) }
         cell.closeSwipe = { [weak cell] velocity in
             if tab.isPrivate { cell?.restore() }
             controller.close([tab.id], animation: { [weak cell] finish in
-                guard let cell else { finish(); return }
+                guard let cell, cell.representedTabID == tab.id else { finish(); return }
                 cell.flyAway(velocity:velocity, completion:finish)
-            }, cancelled: { [weak cell] in cell?.restore() })
+            }, cancelled: { [weak cell] in if cell?.representedTabID == tab.id { cell?.restore() } })
         }
         cell.pinchProgress = model.onPinch.map { action in { amount, ended in action(tab, amount, ended) } }
         cell.open = { [weak self] in self?.model.open(tab) }
@@ -191,7 +214,11 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         label.textColor = .secondaryLabel; label.accessibilityTraits = .header
         view.addSubview(label); return view
     }
-    override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) { model.open(sections[indexPath.section][indexPath.item]) }
+    override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard let cell = collectionView.cellForItem(at:indexPath) as? MobileTabCell,
+              cell.canInteract(), !cell.swiping, !cell.pinching, !cell.closing else { return }
+        model.open(sections[indexPath.section][indexPath.item])
+    }
     override func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
         let tab = sections[indexPath.section][indexPath.item], controller = model.controller, profiles = model.profiles
         func action(_ title: String, _ image: String, destructive: Bool = false, _ operation: @escaping () -> Void) -> UIAction {
@@ -230,6 +257,8 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         #if DEBUG
         MobileTransitionMetrics.note("grid-drag-begin", ["section":indexPath.section,"item":indexPath.item,"generation":dragGeneration])
         #endif
+        guard model.presented, !pulling, model.controller.closeConfirmation == nil,
+              !collectionView.visibleCells.contains(where: { ($0 as? MobileTabCell).map { $0.swiping || $0.pinching } ?? false }) else { return [] }
         let tab = sections[indexPath.section][indexPath.item]
         let item = UIDragItem(itemProvider: NSItemProvider(object: tab.id.uuidString as NSString)); item.localObject = tab.id
         reordering = true
@@ -297,7 +326,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         let translation = gesture.translation(in: collectionView)
         switch gesture.state {
         case .began:
-            pulling = !reordering && collectionView.contentOffset.y <= -collectionView.adjustedContentInset.top + 2 && gesture.velocity(in: collectionView).y > abs(gesture.velocity(in: collectionView).x)
+            pulling = !reordering && !collectionView.visibleCells.contains(where: { ($0 as? MobileTabCell)?.swiping == true }) && collectionView.contentOffset.y <= -collectionView.adjustedContentInset.top + 2 && gesture.velocity(in: collectionView).y > abs(gesture.velocity(in: collectionView).x)
         case .changed:
             if pulling && !reordering { model.onPull(max(0, translation.y) / max(collectionView.bounds.height, 1), false) }
         case .ended, .cancelled:
@@ -314,77 +343,154 @@ struct MobileTabGrid: UIViewControllerRepresentable {
     var open: (() -> Void)?
     var closeSwipe: ((CGFloat) -> Void)?
     var pinchProgress: ((CGFloat, Bool) -> Void)?
-    private var animationGeneration = 0
     var reduceMotion = false
     private(set) var swiping = false
     private(set) var pinching = false
+    private(set) var closing = false
+    // UICollectionView owns contentView's frame. Transform a separate surface
+    // so hosting/layout updates cannot compensate for the drag's translation.
+    let swipeSurface = UIView()
+    private(set) var representedTabID:UUID?
+    private var hostedCard: (UIView & UIContentView)?
+    private var animator: UIViewPropertyAnimator?
+    private var exitCompletion: (() -> Void)?
+    private var dragOrigin: CGFloat = 0
+    private var frameRateLink: UIUpdateLink?
     private var cancellation: MobileGestureCancellation?
     override init(frame: CGRect) {
         super.init(frame: frame)
-        let swipe = UIPanGestureRecognizer(target: self, action: #selector(swipe(_:))); swipe.maximumNumberOfTouches = 1; swipe.delegate = self
-        addGestureRecognizer(swipe)
-        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch(_:))); pinch.delegate = self; addGestureRecognizer(pinch)
+        swipeSurface.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(swipeSurface)
+        NSLayoutConstraint.activate([
+            swipeSurface.leadingAnchor.constraint(equalTo:contentView.leadingAnchor),
+            swipeSurface.trailingAnchor.constraint(equalTo:contentView.trailingAnchor),
+            swipeSurface.topAnchor.constraint(equalTo:contentView.topAnchor),
+            swipeSurface.bottomAnchor.constraint(equalTo:contentView.bottomAnchor)
+        ])
+        let swipe = UIPanGestureRecognizer(target:self,action:#selector(swipe(_:)))
+        swipe.maximumNumberOfTouches = 1; swipe.delegate = self; addGestureRecognizer(swipe)
+        let pinch = UIPinchGestureRecognizer(target:self,action:#selector(pinch(_:)))
+        pinch.delegate = self; addGestureRecognizer(pinch)
         cancellation = MobileGestureCancellation { [weak self] in self?.cancelGestures() }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func prepareForReuse() { super.prepareForReuse(); cancelGestures(); close = nil; open = nil; closeSwipe = nil; pinchProgress = nil }
+    func represent(_ id:UUID) {
+        if representedTabID != id { cancelGestures(); representedTabID = id }
+    }
+    func setCard(_ configuration: some UIContentConfiguration) {
+        if let hostedCard { hostedCard.configuration = configuration }
+        else {
+            let card = configuration.makeContentView()
+            card.translatesAutoresizingMaskIntoConstraints = false; swipeSurface.addSubview(card)
+            NSLayoutConstraint.activate([
+                card.leadingAnchor.constraint(equalTo:swipeSurface.leadingAnchor),
+                card.trailingAnchor.constraint(equalTo:swipeSurface.trailingAnchor),
+                card.topAnchor.constraint(equalTo:swipeSurface.topAnchor),
+                card.bottomAnchor.constraint(equalTo:swipeSurface.bottomAnchor)
+            ])
+            hostedCard = card
+        }
+    }
+    override func prepareForReuse() {
+        super.prepareForReuse(); cancelGestures()
+        close = nil; open = nil; closeSwipe = nil; pinchProgress = nil
+    }
+    private func finishExit() {
+        let finish = exitCompletion; exitCompletion = nil
+        // Reuse can occur inside a collection update. Deliver a committed close
+        // on the next turn rather than recursively mutating that batch.
+        if let finish { Task { @MainActor in finish() } }
+    }
     func cancelGestures() {
-        animationGeneration += 1
-        if pinching { pinchProgress?(0, true) }
+        animator?.stopAnimation(true); animator = nil
+        finishExit(); closing = false
+        if pinching { pinchProgress?(0,true) }
         swiping = false; pinching = false
         for gesture in gestureRecognizers ?? [] { gesture.isEnabled = false; gesture.isEnabled = true }
-        contentView.layer.removeAllAnimations()
-        contentView.transform = .identity; contentView.alpha = 1
+        swipeSurface.layer.removeAllAnimations()
+        swipeSurface.transform = .identity; swipeSurface.alpha = 1
+        stopFrameRate()
     }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-        guard canInteract(), !swiping, !pinching, cancellation?.suspended != true else { return false }
-        if let pan = gesture as? UIPanGestureRecognizer { let v = pan.velocity(in: self); return v.x < -abs(v.y) * 1.4 }
+        guard canInteract(), !swiping, !pinching, !closing, cancellation?.suspended != true else { return false }
+        if let pan = gesture as? UIPanGestureRecognizer { let v = pan.velocity(in:self); return v.x < -abs(v.y) * 1.4 }
         if let pinch = gesture as? UIPinchGestureRecognizer { return pinch.scale > 1 }
         return true
     }
     static func swipeCommits(distance: CGFloat, velocity: CGFloat, width: CGFloat) -> Bool {
-        distance < -max(60, width * 0.35) || (distance < -20 && velocity < -650 && distance + velocity * 0.18 < -width * 0.5)
+        distance < -max(60,width * 0.35) || (distance < -20 && velocity < -650 && distance + velocity * 0.18 < -width * 0.5)
+    }
+    private func interruptSpring() {
+        let layer = swipeSurface.layer.presentation()
+        let transform = layer?.affineTransform() ?? swipeSurface.transform
+        let alpha = CGFloat(layer?.opacity ?? Float(swipeSurface.alpha))
+        animator?.stopAnimation(true); animator = nil
+        swipeSurface.transform = transform; swipeSurface.alpha = alpha
     }
     @objc func swipe(_ gesture: UIPanGestureRecognizer) {
-        if gesture.state == .began { swiping = canInteract() && !pinching && cancellation?.suspended != true }
-        let distance = gesture.translation(in:self).x, width = max(bounds.width, 1)
-        if gesture.state == .changed && swiping {
-            // Follow the finger; resist backwards motion and over-travel.
-            let x = distance > 0 ? distance * 0.18 : distance < -width ? -width - sqrt(-distance-width)*4 : distance
-            if !reduceMotion { contentView.transform = CGAffineTransform(translationX:x, y:0) }
-            contentView.alpha = max(0.2, 1 - abs(x) / width * 0.65)
-        } else if gesture.state == .ended || gesture.state == .cancelled {
-            let commit = gesture.state == .ended && swiping && Self.swipeCommits(distance:distance, velocity:gesture.velocity(in:self).x, width:width)
+        if gesture.state == .began {
+            swiping = canInteract() && !pinching && !closing && cancellation?.suspended != true
+            if swiping { interruptSpring(); dragOrigin = swipeSurface.transform.tx; startFrameRate() }
+        }
+        guard swiping else { return }
+        let distance = gesture.translation(in:self).x + dragOrigin, width = max(bounds.width,1)
+        if gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
+            // No layout, snapshot capture, or observable state writes here.
+            // Keep leftward tracking 1:1, including travel beyond the card width.
+            let x = distance > 0 ? distance * 0.18 : distance
+            if !reduceMotion { swipeSurface.transform = CGAffineTransform(translationX:x,y:0) }
+            swipeSurface.alpha = max(0.55,1 - abs(x) / width * 0.22)
+        }
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            let velocity = gesture.velocity(in:self).x
+            let commit = gesture.state == .ended && Self.swipeCommits(distance:distance,velocity:velocity,width:width)
             swiping = false
-            if commit { if let closeSwipe { closeSwipe(gesture.velocity(in:self).x) } else { close?(); restore() } }
-            else { restore() }
+            if commit { if let closeSwipe { closeSwipe(velocity) } else { close?(); restore() } }
+            else { restore(velocity:velocity) }
         }
     }
-    func restore() {
-        UIView.animate(withDuration:reduceMotion ? 0.18 : 0.38, delay:0, usingSpringWithDamping:0.8, initialSpringVelocity:0,
-                       options:[.beginFromCurrentState,.allowUserInteraction]) {
-            self.contentView.transform = .identity; self.contentView.alpha = 1
-        }
+    func restore(velocity:CGFloat = 0) {
+        guard !closing else { return }
+        interruptSpring(); startFrameRate()
+        animate(to:0,alpha:1,velocity:velocity) { [weak self] in self?.stopFrameRate() }
     }
     func flyAway(velocity: CGFloat, completion: @escaping () -> Void) {
-        animationGeneration += 1
-        let request = animationGeneration
-        let remaining = max(1, bounds.width + contentView.transform.tx)
-        let duration = reduceMotion ? 0.18 : min(0.3, max(0.12, remaining / max(800, -velocity)))
-        UIView.animate(withDuration:duration, delay:0, options:[.beginFromCurrentState,.curveEaseIn]) {
-            if !self.reduceMotion { self.contentView.transform = CGAffineTransform(translationX:-self.bounds.width*1.35, y:0) }
-            self.contentView.alpha = 0
-        } completion: { [weak self] _ in
-            guard let self, request == self.animationGeneration, self.cancellation?.suspended != true else { return }
-            completion()
+        guard !closing else { return }
+        interruptSpring(); closing = true; exitCompletion = completion; startFrameRate()
+        // A right-column card must traverse its distance to the viewport edge,
+        // not merely its own width. Retain the hosted thumbnail until completion.
+        let edge = window.map { convert(bounds,to:$0).maxX } ?? bounds.width
+        animate(to:reduceMotion ? 0 : -edge - 24,alpha:0,velocity:min(0,velocity)) { [weak self] in
+            guard let self else { return }
+            self.stopFrameRate(); self.finishExit()
         }
     }
+    private func animate(to x:CGFloat,alpha:CGFloat,velocity:CGFloat,completion:@escaping () -> Void) {
+        let distance = x - swipeSurface.transform.tx
+        let timing:UITimingCurveProvider = reduceMotion ? UICubicTimingParameters(animationCurve:.easeOut) :
+            UISpringTimingParameters(dampingRatio:0.94,initialVelocity:CGVector(dx:abs(distance)>1 ? max(-12,min(12,velocity/distance)) : 0,dy:0))
+        let animation = UIViewPropertyAnimator(duration:reduceMotion ? 0.18 : 0.42,timingParameters:timing)
+        animation.addAnimations { self.swipeSurface.transform = CGAffineTransform(translationX:x,y:0); self.swipeSurface.alpha = alpha }
+        animation.addCompletion { [weak self] position in
+            guard position == .end else { return }
+            self?.animator = nil; completion()
+        }
+        animator = animation; animation.startAnimation()
+    }
+    private func startFrameRate() {
+        guard frameRateLink == nil else { return }
+        let link = UIUpdateLink(view:swipeSurface)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum:80,maximum:120,preferred:120)
+        link.isEnabled = true; frameRateLink = link
+    }
+    private func stopFrameRate() { frameRateLink?.isEnabled = false; frameRateLink = nil }
+    isolated deinit { frameRateLink?.isEnabled = false }
     @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
-        if gesture.state == .began { pinching = canInteract() && !swiping && cancellation?.suspended != true }
+        if gesture.state == .began { pinching = canInteract() && !swiping && !closing && cancellation?.suspended != true }
         if gesture.state == .changed && pinching {
             if let pinchProgress { pinchProgress(min(1,max(0,(gesture.scale-1)/0.8)),false) }
-            else if !reduceMotion { contentView.transform = CGAffineTransform(scaleX:min(1.12,gesture.scale), y:min(1.12,gesture.scale)) }
-            else { contentView.alpha = max(0.6,2-gesture.scale) }
+            else if !reduceMotion { swipeSurface.transform = CGAffineTransform(scaleX:min(1.12,gesture.scale),y:min(1.12,gesture.scale)) }
+            else { swipeSurface.alpha = max(0.6,2-gesture.scale) }
         } else if gesture.state == .ended || gesture.state == .cancelled {
             let valid = gesture.state == .ended && pinching
             if let pinchProgress, pinching { pinchProgress(valid ? min(1,max(0,(gesture.scale-1)/0.8)) : 0,true) }
@@ -392,7 +498,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             pinching = false; restore()
         }
     }
-    override func accessibilityActivate() -> Bool { open?(); return true }
+    override func accessibilityActivate() -> Bool { guard canInteract(), !closing else { return false }; open?(); return true }
 }
 
 struct MobileGridCard: View {
