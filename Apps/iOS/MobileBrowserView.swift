@@ -32,7 +32,7 @@ struct MobileBrowserView: View {
     private var liveTabs:[BrowserTab] {
         controller.session.tabs.filter {
             ($0.id == controller.session.selectedTabID || $0.id == swipe.destinationID || $0.id == fallbackDestinationID) &&
-                $0.url != nil && $0.errorMessage == nil && $0.httpWarningURL == nil
+                $0.isInstantiated && $0.url != nil && $0.errorMessage == nil && $0.httpWarningURL == nil
         }
     }
     private var solidChrome: Bool { reduceTransparency || contrast == .increased }
@@ -144,6 +144,7 @@ struct MobileBrowserView: View {
             }
             .onChange(of:geometry.size) { old, new in if old != new { cancelTransition() } }
         }.ignoresSafeArea()
+            .background { MobileGridProgressView(morph:controller.gridMorph).frame(width:1,height:1).allowsHitTesting(false).accessibilityHidden(true) }
             .preferredColorScheme(statusScheme)
     }
     private var browser: some View {
@@ -194,7 +195,14 @@ struct MobileBrowserView: View {
                     await Task.yield()
                     consumeFocusRequest()
                 }
-                .onChange(of: controller.session.tabs.count) { _, _ in profiles.finishExternalGroupIfEmpty() }
+                .onChange(of:controller.session.tabs.map(\.id)) { old, ids in
+                    // The presentation model can clear activeID before this
+                    // callback runs. The moving image still owns its identity.
+                    let removedDuringTransition = gridOrigin != nil && old.contains { !ids.contains($0) }
+                    let removedSnapshot = controller.gridMorph.tabID.map { !ids.contains($0) } ?? false
+                    if removedDuringTransition || removedSnapshot { cancelTransition() }
+                    profiles.finishExternalGroupIfEmpty()
+                }
                 .onChange(of: tab?.id) { _, _ in
                     if gestures.source != nil { cancelTransition() }
                     editingAddress = false; nativeFinding = false
@@ -228,6 +236,7 @@ struct MobileBrowserView: View {
                     }
                     if oldSheet == sheet, sheet == .tabs { gestures.gridProgress = 1; return }
                     if sheet == .tabs {
+                        transitionGeneration += 1; gestures.gridClosing = false
                         if gridOrigin == nil { gridOrigin = .page }
                         let progress = gestures.gridProgress
                         gestures.cancel(); gestures.gridProgress = progress
@@ -236,7 +245,7 @@ struct MobileBrowserView: View {
                         animateGrid(to:1) { gridOrigin = nil; presentation.settleInGrid(tab) }
                     }
                     else if sheet != nil { cancelTransition() }
-                    else if !gestures.gridClosing && gestures.gridProgress > 0 { closeGrid() }
+                    else if !gestures.gridClosing && (gestures.gridProgress > 0 || controller.gridMorph.isAnimating || presentation.activeID != nil) { closeGrid() }
                     else if !gestures.gridClosing { consumeFocusRequest() }
                 }
                 .sheet(item: Binding(get: { controller.sheet == .tabs ? nil : controller.sheet }, set: { controller.sheet = $0 }), onDismiss: consumeFocusRequest) { sheet in
@@ -367,17 +376,31 @@ struct MobileBrowserView: View {
     private func animateGrid(to value: CGFloat, completion: @escaping () -> Void = {}) {
         transitionGeneration += 1
         let request = transitionGeneration
-        withAnimation(reduceMotion ? .easeInOut(duration:0.2) : .spring(response:0.42,dampingFraction:0.86), completionCriteria:.removed) {
-            gestures.gridProgress = value
-        } completion: {
+        controller.gridMorph.animate(from:gestures.gridProgress,to:value,reduceMotion:reduceMotion,
+            tabID:presentation.activeID,
+            update:{ gestures.gridProgress = $0 }) {
             guard request == transitionGeneration else { return }
             completion()
         }
     }
+
     private func closeGrid() {
         guard !gestures.gridClosing else { return }
+        transitionGeneration += 1
+        controller.gridMorph.pause()
         gestures.gridClosing = true
         if gridOrigin == nil { gridOrigin = .grid }
+        let changesPage = presentation.pendingNewTab != nil ||
+            (presentation.pendingSelection != nil && presentation.pendingSelection != tab?.id)
+        if changesPage && gestures.gridProgress < 1 {
+            // A card tap may interrupt entry. Keep the outgoing live document
+            // until it reaches its card; only then install another document
+            // behind the opaque grid and run the same progress clock in reverse.
+            animateGrid(to:1) { prepareGridDestinationAndClose() }
+        } else { prepareGridDestinationAndClose() }
+    }
+    private func prepareGridDestinationAndClose() {
+        guard gestures.gridClosing else { return }
         let selection = presentation.pendingSelection
         let newTab = presentation.pendingNewTab
         // Install the destination behind the opaque grid, before any expansion.
@@ -436,6 +459,7 @@ struct MobileBrowserView: View {
                 else if origin == .grid, controller.sheet == nil { restoringGridState = true; controller.sheet = .tabs }
             }
             gestures.gridPresented = controller.sheet == .tabs
+            controller.gridMorph.cancel(to:gestures.gridPresented ? 1 : 0)
             gestures.cancel(); presentation.finish(); presentation.inserting = false
             presentation.insertionProgress = 0
         }
@@ -447,7 +471,11 @@ struct MobileBrowserView: View {
         if ended {
             if progress > 0.25 { closeGrid() }
             else { animateGrid(to:1) { gridOrigin = nil; presentation.settleInGrid(tab) } }
-        } else { transitionGeneration += 1; gestures.gridProgress = 1-min(max(progress,0),1) }
+        } else {
+            transitionGeneration += 1; controller.gridMorph.pause(at:gestures.gridProgress)
+            gestures.gridProgress = 1-min(max(progress,0),1)
+            controller.gridMorph.track(gestures.gridProgress,tabID:tab?.id)
+        }
     }
     private func pinchGrid(_ target: BrowserTab, _ progress: CGFloat, _ ended: Bool) {
         guard scenePhase == .active else { cancelTransition(); return }
@@ -456,13 +484,18 @@ struct MobileBrowserView: View {
         if ended {
             if progress > 0.25 { presentation.pendingSelection = target.id; closeGrid() }
             else { animateGrid(to:1) { gridOrigin = nil; presentation.settleInGrid(tab) } }
-        } else { transitionGeneration += 1; gestures.gridProgress = 1-min(max(progress,0),1) }
+        } else {
+            transitionGeneration += 1; controller.gridMorph.pause(at:gestures.gridProgress)
+            gestures.gridProgress = 1-min(max(progress,0),1)
+            controller.gridMorph.track(gestures.gridProgress,tabID:target.id)
+        }
     }
     private var capsuleGesture: some View {
         MobileCapsulePan(enabled:true,availability:{
             !editingAddress && controller.sheet == nil && !gestures.finishingSwipe && !gestures.gridClosing
         }) { phase, delta, predicted in
             if phase == .cancelled || phase == .failed { cancelTransition(); return }
+            if phase == .began { controller.gridMorph.pause() }
             guard !editingAddress, controller.sheet == nil, scenePhase == .active else { return }
             // A short pan may go from a zero-translation begin straight to end.
             // Mount/prepare its horizontal destination before resolving the
@@ -476,7 +509,11 @@ struct MobileBrowserView: View {
                     swipe.cancel()
                 }
                 _ = gestures.capsule(finishingHorizontalIntent ? .changed : phase,translation:delta,session:controller.session)
-                if gestures.axis == .vertical { if gridOrigin == nil { gridOrigin = .page }; transitionGeneration += 1; presentation.begin(tab) }
+                if gestures.axis == .vertical {
+                    if gridOrigin == nil { gridOrigin = .page }
+                    transitionGeneration += 1; presentation.begin(tab)
+                    controller.gridMorph.track(gestures.gridProgress,tabID:tab?.id)
+                }
                 else if gestures.translation != 0, case .tab(let id) = controller.session.tabSwipeTarget(gestures.translation < 0 ? 1 : -1),
                         let next = controller.session.tabs.first(where: { $0.id == id }), let source = gestures.source {
                     let delta = gestures.translation
@@ -665,9 +702,12 @@ struct MobileBrowserView: View {
             } else { Color.clear.allowsHitTesting(false) }
         } else { home.safeAreaPadding(.top, top).safeAreaPadding(.bottom, bottom).safeAreaPadding(.leading,windowInsets.left).safeAreaPadding(.trailing,windowInsets.right) }
     }
-    private func livePage(_ tab:BrowserTab, top:CGFloat, bottom:CGFloat, card:CGRect, progress:CGFloat) -> some View {
+    @ViewBuilder private func livePage(_ tab:BrowserTab, top:CGFloat, bottom:CGFloat, card:CGRect, progress:CGFloat) -> some View {
+        // A retained child graph may receive its last update after shutdown.
+        // Rendering must not invoke the lazy getter for a discarded/closed tab.
+        if tab.isInstantiated {
         let revision = tab.documentRevision
-        return MobileWebView(webView:tab.webView,chrome:controller.chrome(for:tab),
+        MobileWebView(webView:tab.webView,chrome:controller.chrome(for:tab),
             topInset:max(top,windowInsets.top), bottomInset:max(bottom,bottomOcclusion)+(nativeFinding ? 0 : barHeight),
             reduceTransparency:solidChrome,obscured:tab.id != controller.session.selectedTabID || swipe.isActive || editingAddress || gestures.finishingSwipe || gestures.translation != 0 || gestures.gridClosing || gestures.gridProgress > 0 || controller.sheet == .tabs,
             onFindVisibilityChange:{ visible in if controller.session.selectedTabID == tab.id { nativeFinding = visible } },
@@ -692,6 +732,7 @@ struct MobileBrowserView: View {
                 else { cancelTransition() }
             },swipe:swipe,tabID:tab.id,selected:tab.id == controller.session.selectedTabID,
             viewportLayout:controller.viewportLayout,baseBottomInset:max(bottom,windowInsets.bottom),includesBar:!nativeFinding)
+        }
     }
     private var otherProfiles: Bool { profiles.profiles.filter { $0.archivedAt == nil }.count > 1 }
     private var homeBookmarks: [Bookmark] { Array(controller.session.bookmarks.prefix(6)) }
@@ -867,9 +908,7 @@ private struct MobilePageMorph: View {
     let background: Color
     var body: some View {
         let p = min(max(progress,0),1)
-        let rect = reduceMotion ? full : CGRect(x:full.minX+(card.minX-full.minX)*p,
-            y:full.minY+(card.minY-full.minY)*p, width:full.width+(card.width-full.width)*p,
-            height:full.height+(card.height-full.height)*p)
+        let rect = reduceMotion ? full : MobileGridMorph.frame(full:full,card:card,progress:p)
         ZStack(alignment:.top) {
             background
             if let image { Image(uiImage:image).resizable().scaledToFill().frame(width:rect.width,height:rect.height,alignment:.top).clipped() }

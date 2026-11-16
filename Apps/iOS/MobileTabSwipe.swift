@@ -410,7 +410,12 @@ struct MobileTopBar:View,Animatable {
     let reduceMotion:Bool
     nonisolated var animatableData:AnimatablePair<CGFloat,CGFloat> {
         get { AnimatablePair(gridProgress,swipeProgress) }
-        set { gridProgress = newValue.first; swipeProgress = newValue.second }
+        set {
+            #if DEBUG
+            MobileTransitionMetrics.gridInterpolations += 1
+            #endif
+            gridProgress = newValue.first; swipeProgress = newValue.second
+        }
     }
     var body:some View {
         let p = min(max(gridProgress,0),1), s = min(max(swipeProgress,0),1)

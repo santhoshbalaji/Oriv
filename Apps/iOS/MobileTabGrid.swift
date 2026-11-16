@@ -98,11 +98,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             }
         }
         collectionView.backgroundView = model.tabs.isEmpty ? UIHostingController(rootView: BrowserEmptyState("No matching tabs")).view : nil
-        navigationController?.view.accessibilityViewIsModal = model.presented
-        view.isHidden = !model.visible
-        view.accessibilityElementsHidden = !model.presented
-        navigationController?.view.isHidden = !model.visible
-        navigationController?.view.accessibilityElementsHidden = !model.presented
+        synchronizeVisibility()
         if model.presented && !wasPresented { revealSelected(announce:true) }
     }
     private func revealSelected(announce:Bool) {
@@ -117,12 +113,16 @@ struct MobileTabGrid: UIViewControllerRepresentable {
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        synchronizeVisibility()
+        revealSelected(announce:model.presented)
+    }
+    private func synchronizeVisibility() {
+        guard isViewLoaded else { return }
         navigationController?.view.accessibilityViewIsModal = model.presented
         view.isHidden = !model.visible
         view.accessibilityElementsHidden = !model.presented
         navigationController?.view.isHidden = !model.visible
         navigationController?.view.accessibilityElementsHidden = !model.presented
-        revealSelected(announce:model.presented)
     }
     override func viewWillTransition(to size:CGSize,with coordinator:any UIViewControllerTransitionCoordinator) {
         cancelGestures()
@@ -134,6 +134,12 @@ struct MobileTabGrid: UIViewControllerRepresentable {
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        // Navigation containment can arrive after the first model update. A
+        // cached hosting graph must still hide its newly attached navigation UI.
+        synchronizeVisibility()
+        #if DEBUG
+        MobileTransitionMetrics.gridLayouts += 1
+        #endif
         publishFrames()
         guard let layout = collectionViewLayout as? UICollectionViewFlowLayout else { return }
         let columns: CGFloat = model.largeText ? 1 : 2
@@ -721,6 +727,9 @@ struct MobileGridCard: View {
 /// Main-thread display-link intervals, buffered in memory during an opt-in run.
 /// This measures scheduling on the Simulator, not physical ProMotion rendering.
 @MainActor final class MobileTransitionMetrics: NSObject {
+    nonisolated(unsafe) static var gridInterpolations = 0
+    static var gridLayouts = 0
+    static var webMorphUpdates = 0
     static var snapshotCount = 0
     private static let shared = MobileTransitionMetrics()
     private let log = OSLog(subsystem:"Oriv",category:"TabTransitions")

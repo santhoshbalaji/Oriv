@@ -123,6 +123,9 @@ final class MobileWebHost: UIView {
     }
     private let clip = UIView()
     private var morphAnimator: UIViewPropertyAnimator?
+    #if DEBUG
+    var isMorphAnimating:Bool { morphAnimator != nil }
+    #endif
     private var morphProgress: CGFloat = 0
     private var morphCard: CGRect = .zero
     private var viewportSize: CGSize = .zero
@@ -322,6 +325,9 @@ final class MobileWebHost: UIView {
     /// A single host owns the live layer for its entire lifetime. Only its clip
     /// and affine transform change; WebKit never gets a card-sized viewport.
     func applyMorph(progress:CGFloat,card:CGRect,animated:Bool) {
+        #if DEBUG
+        MobileTransitionMetrics.webMorphUpdates += 1
+        #endif
         let progress = min(max(progress,0),1)
         guard morphProgress != progress || morphCard != card else { return }
         if let animator = morphAnimator {
@@ -352,9 +358,7 @@ final class MobileWebHost: UIView {
             webView.transform = .identity; webView.layer.position = .zero
             return
         }
-        let rect = CGRect(x:morphCard.minX*p,y:morphCard.minY*p,
-            width:bounds.width+(morphCard.width-bounds.width)*p,
-            height:bounds.height+(morphCard.height-bounds.height)*p)
+        let rect = MobileGridMorph.frame(full:bounds,card:morphCard,progress:p)
         clip.frame = rect; clip.layer.cornerRadius = 18*p
         let scale = p == 0 ? 1 : rect.width/bounds.width
         webView.transform = CGAffineTransform(scaleX:scale,y:scale)

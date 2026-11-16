@@ -15,15 +15,19 @@ import WebKit
     var message: String?
     let tabPresentation = MobileTabPresentation()
     let tabSwipe = MobileTabSwipe()
+    let gridMorph = MobileGridMorph()
     let topChrome = MobileTopChrome()
     let viewportLayout = MobileViewportLayout()
     @ObservationIgnored private var chromes: [UUID:PageChrome] = [:]
     @ObservationIgnored private let homeChrome = PageChrome()
     func chrome(for tab:BrowserTab?) -> PageChrome {
         guard let tab, tab.url != nil || tab.hasLoaded else { return homeChrome }
-        if let chrome = chromes[tab.id] { chrome.observe(tab.webView,isPrivate:tab.isPrivate); return chrome }
+        // configureWebView and onWebViewDiscarded own observer attachment.
+        // A render-time lookup must stay read-only: reconnecting here can
+        // publish PageChrome changes recursively during a hosting-graph update.
+        if let chrome = chromes[tab.id] { return chrome }
         let chrome = PageChrome(); chromes[tab.id] = chrome
-        chrome.observe(tab.webView,isPrivate:tab.isPrivate)
+        if tab.isInstantiated { chrome.observe(tab.webView,isPrivate:tab.isPrivate) }
         return chrome
     }
     @ObservationIgnored weak var closeConfirmation: UIAlertController?
