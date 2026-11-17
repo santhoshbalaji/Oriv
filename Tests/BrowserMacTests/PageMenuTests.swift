@@ -76,7 +76,13 @@ import XCTest
         tab.webView.loadHTMLString("<body><input id='edit' value='Page focus'></body>", baseURL: URL(string: "https://fixture.invalid/menu"))
         let probe = Presentations()
         let window = makeWindow(controller, probe: probe); defer { window.close() }
-        try await Task.sleep(for: .milliseconds(700))
+        // Wait for the fixture document instead of a fixed delay; CI loads slower.
+        var ready = false
+        for _ in 0..<200 where !ready {
+            try await Task.sleep(for: .milliseconds(50))
+            ready = (try? await tab.webView.evaluateJavaScript("document.querySelector('#edit') !== null")) as? Bool == true
+        }
+        XCTAssertTrue(ready, "Fixture input must load before focusing it")
         let button = try XCTUnwrap(marker("browserPageMenuGeometry", in: window))
         for index in 0..<20 {
             window.makeFirstResponder(tab.webView)
