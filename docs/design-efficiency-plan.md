@@ -154,7 +154,7 @@ As specified in the consolidated plan: CKSyncEngine with persisted state, push e
 Needs Mac captures first, then owner review of a short before/after board.
 
 - Start page leads with continuation and recent items; identity is reduced to a quiet profile chip shown only when there are several profiles.
-- The page menu is grouped by frequency, with zoom as one control group.
+- The Mac page menu now uses a native SwiftUI pull-down, grouped by frequency: page actions, a zoom section, tab actions, and page tools. Copy Original Link and Downloads in Progress remain available under their existing conditions. Background interaction/layout evidence and visual limitations are recorded in `build/page-menu/REPORT.md`. The iPhone already uses a native menu; its broader grouping remains a separate follow-up.
 - Mac paths are de-duplicated to one primary path per action, plus its menu command and shortcut.
 - Settings explanations move to section footers.
 - The bottom-address and collapsing-chrome experiments run only on the physical iPhone, with owner trials.

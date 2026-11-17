@@ -256,3 +256,12 @@ These need the owner's devices or permissions. They are batched with the physica
 - The production release hold stays in place.
 - Original user data and stable app data are untouched.
 - Test builds use isolated bundle identifiers and synthetic data only.
+
+
+## Mac Browser Actions menu (17 November 2026)
+
+Replaced the custom page-actions overlay with a native SwiftUI menu, with a full 36 × 32 pt label target and the existing header glass. Page commands come first; zoom is one section of three plain rows (an on-screen check showed a palette hides the reset label), followed by tab commands and page tools. Native menu rendering owns material, selection, keyboard navigation and dismissal. The iPhone menu was inspected and remains unchanged.
+
+The background snapshot matrix is `ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=page-menu scripts/capture-mac-visuals.sh --glass <empty-output-directory>`, covering light, dark, private and 760 pt windows. Raw `-chrome.png` evidence preserves overlays that the labelled WebKit-composited fallback could cover. Expanded native menus and compositor Liquid Glass are explicit foreground-only skips; this evidence does not establish full HIG or accessibility acceptance. See `build/page-menu/REPORT.md` for reproduction and validation.
+
+Apple references: [Menus](https://developer.apple.com/design/human-interface-guidelines/menus), [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars), [Materials](https://developer.apple.com/design/human-interface-guidelines/materials), [Pull-down buttons](https://developer.apple.com/design/human-interface-guidelines/pull-down-buttons).

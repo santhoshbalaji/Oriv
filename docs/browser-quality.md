@@ -2,6 +2,10 @@
 
 # Browser quality and coverage
 
+## 0.13.1 (20)
+
+The Mac Browser Actions (ellipsis) button now opens a native grouped pull-down menu. The full 36 × 32 pt glass label is the hit target, and the titlebar accessory forwards its strip to the content view, so edge and padding clicks no longer miss. Regression coverage clicks 18 edge and padding points at two widths and repeats activation with page focus; the opened menu was checked on screen in light, dark, private and narrow windows.
+
 ## 0.13.0 (19)
 
 This version combines the 0.12.5 All Tabs button morph with external private-window presentation, incremental continuity reconciliation and ordered session saves, lighter top-bar colour observation, and safe Mac tab reclamation/process recovery. Silent CloudKit zone pushes request immediate reconciliation after continuity opt-in; polling remains the fallback, and slows only after verified delivery evidence. See [continuity](browser-continuity.md) and [architecture](architecture.md) for behavior and limits.

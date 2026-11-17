@@ -14,7 +14,6 @@ struct BrowserWindow: View {
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
     @Bindable var controller: BrowserController
     var profiles: BrowserProfiles? = nil
-    var initialPageMenu = false
     @State private var windowWidth: CGFloat = 1250
     @State private var fullscreen = false
     @State private var windowActive = true
@@ -32,7 +31,6 @@ struct BrowserWindow: View {
     @State private var suggestionIndex: Int?
     @State private var pageChrome = PageChrome()
     @State private var showTabs = false
-    @State private var showPageMenu = false
     @FocusState private var findFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
@@ -65,7 +63,6 @@ struct BrowserWindow: View {
         routedContent
         .focusedSceneValue(\.browserController, controller)
         .onAppear {
-            showPageMenu = initialPageMenu
             session.activateSelectedTab(); syncAddress(); if tab?.url == nil { controller.focusAddress() }
             if !session.isExternalPrivate {
                 profiles?.showRegularWindow = { openWindow(id: "browser") }
@@ -80,7 +77,6 @@ struct BrowserWindow: View {
         .onChange(of: address) { _, _ in suggestionIndex = nil }
         .onChange(of: session.selectedTabID) { _, _ in addressFocused = false; syncAddress(); showFind = false; showSiteInfo = false; showProtection = false }
         .onChange(of: tab?.url) { _, _ in if !addressFocused { syncAddress() } }
-        .onChange(of: controller.addressFocusRequest) { _, _ in showPageMenu = false }
         .onChange(of: controller.findRequest) { _, _ in showFind = true; findFocused = true }
         .onChange(of: controller.findNextRequest) { _, _ in
             showFind = true
@@ -132,14 +128,6 @@ struct BrowserWindow: View {
         .background(BrowserWindowChrome(windowContext: windowContext,
             externalPresentationRequest: session.isExternalPrivate ? profiles?.externalPresentationRequest : nil,
             stateChanged: { fullscreen = $0; windowActive = $1 }))
-        .overlay(alignment: .topTrailing) {
-            if showPageMenu {
-                ZStack(alignment: .topTrailing) {
-                    Color.clear.contentShape(Rectangle()).onTapGesture { showPageMenu = false }
-                    pageActionsPanel.padding(12).padding(.top, MacBrowserLayout.headerHeight)
-                }
-            }
-        }
         .overlayPreferenceValue(MacAddressBounds.self) { anchor in
             GeometryReader { geometry in
                 if let anchor, addressFocused && !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -308,7 +296,7 @@ struct BrowserWindow: View {
                     Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
                         .labelStyle(.iconOnly).help("View downloads in progress")
                 }
-                Button { showPageMenu = false; showProtection.toggle() } label: {
+                Button { showProtection.toggle() } label: {
                     Image(systemName: "shield.lefthalf.filled").frame(width: 28, height: 28).foregroundStyle(chromeForeground)
                 }
                 .help("Site Privacy").accessibilityLabel("Site Privacy")
@@ -329,43 +317,21 @@ struct BrowserWindow: View {
     }
 
     private var toolbarMenu: some View {
-                Button { showPageMenu.toggle() } label: { Image(systemName: "ellipsis") }
-                    .help("Browser actions").accessibilityLabel("Browser actions")
-                    .foregroundStyle(chromeForeground)
-                    .buttonStyle(.plain).frame(width: 36, height: 32).modifier(chromeGlass)
-                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
-                    .popover(isPresented: $showPasswords) { PasswordsGuide(compact: true) }
-    }
-
-    private var pageActionsPanel: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(tab?.displayTitle ?? "Oriv").font(.headline).lineLimit(2).padding(8)
-                    Button("New Tab", systemImage: "plus") { showPageMenu = false; controller.newTab() }
-                    Button("New Private Tab", systemImage: "eyeglasses") { showPageMenu = false; controller.newTab(isPrivate: true) }
-                    if controller.downloads.hasActiveDownloads {
-                        Button("Downloads in Progress", systemImage: "arrow.down.circle.fill") { showPageMenu = false; controller.library = .downloads }
-                    }
-                    Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { showPageMenu = false; session.reopenClosedTab() }.disabled(!session.canReopenTab)
-                    Divider()
-                    if let url = tab?.url {
-                        Button("Copy Link", systemImage: "doc.on.doc") { PrivacyPasteboard.copy(url); showPageMenu = false }
-                        Button("Copy Original Link") { PrivacyPasteboard.copy(url, original: true); showPageMenu = false }
-                    }
-                    if let profiles { SendPageMenu(continuity: profiles.continuity, session: session, profile: controller.profile) }
-                    Button(session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: "bookmark") { showPageMenu = false; controller.saveCurrentPage() }
-                        .disabled(tab?.url == nil || tab?.isPrivate == true)
-                    Button("Find on Page", systemImage: "magnifyingglass") { showPageMenu = false; showFind = true; findFocused = true }.disabled(tab?.url == nil)
-                    Button("Zoom In", systemImage: "plus.magnifyingglass") { showPageMenu = false; tab?.zoomIn() }.disabled(tab?.url == nil)
-                    Button("Zoom Out", systemImage: "minus.magnifyingglass") { showPageMenu = false; tab?.zoomOut() }.disabled(tab?.url == nil)
-                    Button("Reset Page Zoom") { showPageMenu = false; tab?.resetZoom() }.disabled(tab?.url == nil)
-                    Button("Read Page Text", systemImage: "doc.text") { showPageMenu = false; controller.openReader() }.disabled(tab?.url == nil)
-                    Button("Site Privacy", systemImage: "shield.lefthalf.filled") { showPageMenu = false; showProtection = true }
-                    Button("Password AutoFill Help", systemImage: "key") { showPageMenu = false; showPasswords = true }
+        MacPageMenu {
+            MacPageActions(controller: controller, profiles: profiles,
+                findOnPage: { showFind = true; findFocused = true },
+                showSitePrivacy: { showProtection = true }, showPasswordsGuide: { showPasswords = true })
+        } label: {
+            Image(systemName: "ellipsis")
+                .frame(width: 36, height: 32)
+                .modifier(chromeGlass).contentShape(Rectangle())
         }
-        .buttonStyle(PageMenuButtonStyle()).labelStyle(.titleAndIcon).font(OrivType.body)
-        .padding(16).frame(width: 282, alignment: .leading)
-        .foregroundStyle(theme.text).browserGlass(radius: 22)
-        .focusSection().onExitCommand { showPageMenu = false }
+        .help("Browser Actions").accessibilityLabel("Browser Actions")
+        .accessibilityIdentifier("browserPageMenu")
+        .foregroundStyle(chromeForeground)
+        .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+        .background(BrowserGeometryMarker(name: "browserPageMenuGeometry"))
+        .popover(isPresented: $showPasswords) { PasswordsGuide(compact: true) }
     }
 
     private var panels: some View {
@@ -386,7 +352,6 @@ struct BrowserWindow: View {
                 }
             }.padding(24).frame(width: 760, height: 500)
         }
-        .onChange(of: controller.library) { _, value in if value != nil { showPageMenu = false } }
         .sheet(item: $controller.library) { section in
             LibraryView(controller: controller, profiles: profiles, section: section)
         }
@@ -569,9 +534,21 @@ struct MacAddressGlass: ViewModifier {
 
 /// Disabled navigation keeps its disabled action/AX state without reducing the
 /// glyph's contrast against a page of arbitrary colour.
-private struct MacChromeButtonStyle: ButtonStyle {
+struct MacChromeButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.contentShape(Rectangle())
+        MacChromeButtonFace(label: configuration.label, pressed: configuration.isPressed)
+    }
+}
+
+private struct MacChromeButtonFace<Label: View>: View {
+    let label: Label
+    let pressed: Bool
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovered = false
+    var body: some View {
+        label.contentShape(Rectangle())
+            .background(.primary.opacity(enabled ? (pressed ? 0.12 : hovered ? 0.07 : 0) : 0), in: Capsule())
+            .onHover { hovered = $0 }
     }
 }
 
@@ -605,13 +582,5 @@ struct AddressSuggestionList: View {
         }.font(OrivType.body).padding(6).background(theme.surface, in: .rect(cornerRadius: OrivRadius.medium))
             .overlay { RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.separator) }
             .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
-    }
-}
-
-private struct PageMenuButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-            .padding(.horizontal, 8).contentShape(Rectangle())
-            .background(configuration.isPressed ? Color.white.opacity(0.1) : .clear, in: .rect(cornerRadius: 8))
     }
 }

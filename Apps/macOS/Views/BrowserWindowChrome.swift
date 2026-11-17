@@ -117,7 +117,8 @@ struct BrowserWindowChrome: NSViewRepresentable {
             if accessory == nil {
                 let controller = NSTitlebarAccessoryViewController()
                 controller.layoutAttribute = .bottom
-                controller.view = BrowserGeometryMarker.Marker(frame: NSRect(x: 0, y: 0, width: 1, height: 16))
+                controller.view = TitlebarContentHitRegion(frame: NSRect(x: 0, y: 0, width: window.frame.width, height: 16))
+                controller.view.autoresizingMask = [.width]
                 controller.fullScreenMinHeight = 0
                 window.addTitlebarAccessoryViewController(controller)
                 accessory = controller
@@ -146,6 +147,18 @@ struct BrowserWindowChrome: NSViewRepresentable {
                 DispatchQueue.main.async { [weak self] in self?.stateChanged?(state[0], state[1]) }
             }
         }
+    }
+}
+
+/// The accessory extends the titlebar to align the traffic lights with the 44 pt
+/// header. Its otherwise-empty container must not eat the bottom edge of header
+/// controls. Route those hits to the full-size content view, where buttons and
+/// the explicit drag region already decide how to handle them.
+private final class TitlebarContentHitRegion: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(convert(point, from: superview)),
+              let content = window?.contentView, let parent = content.superview else { return nil }
+        return content.hitTest(parent.convert(point, from: superview))
     }
 }
 

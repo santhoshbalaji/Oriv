@@ -126,6 +126,8 @@ expected = {
 }
 if sys.argv[4] == "1": expected = {"mac-glass-" + mode for mode in ("light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "private", "reduced", "insecure")}
 if sys.argv[4] == "1" and os.environ.get("ORIV_GLASS_SCENE", "all") != "all": expected = {"mac-glass-" + os.environ["ORIV_GLASS_SCENE"]}
+if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":
+    expected = {"mac-glass-" + mode for mode in ("menu", "menu-dark", "menu-private", "menu-narrow")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
     expected = {"mac-glass-sidebar-" + mode for mode in ("light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest", "covered")}
 if os.environ.get("ORIV_LIVE_SITES"):

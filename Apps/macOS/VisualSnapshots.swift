@@ -270,20 +270,20 @@ import WebKit
 
     private static func renderGlassScenes(into directory: URL, activate: Bool) async {
         let requested = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"] ?? "all"
-        for mode in ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "private", "reduced", "insecure"] where requested == "all" || mode == requested {
+        for mode in ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "menu-dark", "menu-private", "menu-narrow", "private", "reduced", "insecure"] where (requested == "all" && !mode.hasPrefix("menu-")) || mode == requested || (requested == "page-menu" && mode.hasPrefix("menu")) {
             let profiles = BrowserProfiles(testing: true)
             var controller = profiles.controller
-            if mode == "private" {
+            if mode == "private" || mode == "menu-private" {
                 profiles.handleIncomingURL(URL(string: "https://docs.example.com/designing-calm-interfaces")!, sourceName: "Example App")
                 controller = profiles.externalPrivate!
             }
             let tab = controller.session.selectedTab!
             let address = "\(mode == "insecure" ? "http" : "https")://docs.example.com/designing-calm-interfaces"
-            var html = ChromeVisualFixture.html(dark: mode.hasPrefix("dark") || mode.hasPrefix("theme") || mode == "private")
+            var html = ChromeVisualFixture.html(dark: mode.hasPrefix("dark") || mode.hasPrefix("theme") || mode == "private" || mode == "menu-dark" || mode == "menu-private")
             if mode.hasPrefix("theme") { html = html.replacingOccurrences(of: "#111111", with: "#1F6F5C") }
-            if mode == "private" { html = html.replacingOccurrences(of: "#111111", with: "#000000") }
+            if mode == "private" || mode == "menu-private" { html = html.replacingOccurrences(of: "#111111", with: "#000000") }
             tab.webView.loadHTMLString(html, baseURL: URL(string: address))
-            if mode != "private" {
+            if mode != "private" && mode != "menu-private" {
                 for (card, path) in [(1, "room"), (2, "materials")] {
                     let url = URL(string: "https://docs.example.com/\(path)")!
                     let backgroundTab = controller.session.addTab(url: url, select: false, load: false)
@@ -291,7 +291,7 @@ import WebKit
                 }
             }
             try? await Task.sleep(for: .milliseconds(900))
-            await capture("mac-glass-\(mode)", directory, CGSize(width: 1440, height: 848), key: activate, settle: 1_400, compositeWeb: tab.webView,
+            await capture("mac-glass-\(mode)", directory, CGSize(width: mode == "menu-narrow" ? 760 : 1440, height: 848), key: activate, settle: 1_400, compositeWeb: tab.webView,
                           expectedFields: ["addressField": mode == "focused" ? address : "docs.example.com"],
                           prepare: { window in
                 if mode.hasSuffix("scrolled") {
@@ -320,8 +320,11 @@ import WebKit
                     try? data.write(to: directory.appendingPathComponent("mac-glass-\(mode)-geometry.json"))
                 }
             }) {
-                BrowserWindow(controller: controller, profiles: profiles, initialPageMenu: mode == "menu")
+                BrowserWindow(controller: controller, profiles: profiles)
                     .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled || mode == "reduced")
+            }
+            if mode.hasPrefix("menu") {
+                manifest.skipped.append("mac-glass-\(mode)-expanded: native Menu is a separate AppKit tracking window, constrained to a display. Opening it would violate the background-only policy. Toolbar/layout evidence only.")
             }
             profiles.shutdown()
         }
@@ -764,6 +767,9 @@ import WebKit
         } else if webView != nil { manifest.skipped.append("\(name)-page: visual-foreground-only; off-screen WebKit fixture stayed blank after three in-process snapshot attempts") }
         if let frame = window.contentView?.superview, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
             frame.layoutSubtreeIfNeeded(); frame.cacheDisplay(in: frame.bounds, to: bitmap)
+            if name.hasPrefix("mac-glass-menu"), let raw = bitmap.representation(using: .png, properties: [:]) {
+                save(raw, suffix: "chrome", note: "Uncomposited off-screen cacheDisplay of the real window; WebKit and glass may be blank. Preserves overlays that page compositing would cover.")
+            }
             if let pageImage, let host = webView?.superview {
                 var rect = host.convert(host.bounds, to: frame)
                 if frame.isFlipped { rect.origin.y = frame.bounds.maxY - rect.maxY }
