@@ -217,4 +217,13 @@ import AppKit
         guard let window else { return }
         show(window)
     }
+
+    static func showExternalPrivateWindow(_ window: NSWindow) {
+        // Restoring a miniaturized window can itself bring it on-screen.
+        if window.isMiniaturized {
+            if isEnabled { checkFrontmost(); return }
+            window.deminiaturize(nil)
+        }
+        show(window, activate: true)
+    }
 }

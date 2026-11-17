@@ -129,7 +129,9 @@ struct BrowserWindow: View {
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
-        .background(BrowserWindowChrome(windowContext: windowContext, stateChanged: { fullscreen = $0; windowActive = $1 }))
+        .background(BrowserWindowChrome(windowContext: windowContext,
+            externalPresentationRequest: session.isExternalPrivate ? profiles?.externalPresentationRequest : nil,
+            stateChanged: { fullscreen = $0; windowActive = $1 }))
         .overlay(alignment: .topTrailing) {
             if showPageMenu {
                 ZStack(alignment: .topTrailing) {

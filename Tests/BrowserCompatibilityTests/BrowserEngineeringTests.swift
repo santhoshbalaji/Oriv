@@ -6,18 +6,24 @@ import XCTest
 
 private final class CountingSessionStore: BrowserSessionStore {
     let file: SessionFileStore
-    var attempts = 0, writes = 0
-    var fail = false
+    private let lock = NSLock()
+    private var attemptCount = 0, writeCount = 0, shouldFail = false
+    var attempts: Int { lock.lock(); defer { lock.unlock() }; return attemptCount }
+    var writes: Int { lock.lock(); defer { lock.unlock() }; return writeCount }
+    var fail: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return shouldFail }
+        set { lock.lock(); shouldFail = newValue; lock.unlock() }
+    }
     init(_ root: URL) { file = SessionFileStore(fileURL: root.appendingPathComponent("session.json")) }
     func load() throws -> SessionLoadResult { try file.load() }
     func save(_ snapshot: BrowserSnapshot, discardPrevious: Bool) throws -> Bool {
-        attempts += 1
+        lock.lock(); attemptCount += 1; lock.unlock()
         if fail { throw URLError(.cannotWriteToFile) }
         let wrote = try file.save(snapshot, discardPrevious: discardPrevious)
-        if wrote { writes += 1 }
+        if wrote { lock.lock(); writeCount += 1; lock.unlock() }
         return wrote
     }
-    func reset() { attempts = 0; writes = 0 }
+    func reset() { lock.lock(); attemptCount = 0; writeCount = 0; lock.unlock() }
 }
 
 /// Real WebKit configuration and delegate paths, with synthetic document state and no network requests.
@@ -59,7 +65,7 @@ private final class CountingSessionStore: BrowserSessionStore {
         let tab = try XCTUnwrap(session.selectedTab), view = view(for: tab)
         view.pageURL = URL(string: "https://example.test/progress")
         view.pageTitle = "Steady title"
-        tab.refresh(from: view); session.saveNow(); store.reset()
+        tab.refresh(from: view); session.saveNow(); session.flushPersistence(); store.reset()
         var changes = 0
         let onChange = tab.onChange
         tab.onChange = { changes += 1; onChange?() }
@@ -77,9 +83,9 @@ private final class CountingSessionStore: BrowserSessionStore {
         defer { session.shutdown() }
         var notifications = 0
         session.onContinuityChange = { notifications += 1 }
-        session.saveNow(); XCTAssertEqual(store.writes, 1); XCTAssertEqual(notifications, 1)
+        session.saveNow(); session.flushPersistence(); XCTAssertEqual(store.writes, 1); XCTAssertEqual(notifications, 1)
         store.reset(); notifications = 0
-        for _ in 0..<10 { session.saveNow() }
+        for _ in 0..<10 { session.saveNow(); session.flushPersistence() }
         XCTAssertEqual(store.attempts, 0); XCTAssertEqual(store.writes, 0); XCTAssertEqual(notifications, 0)
     }
     func testRestoredIdenticalSnapshotDoesNotWriteOrNotify() throws {
@@ -89,13 +95,13 @@ private final class CountingSessionStore: BrowserSessionStore {
         let session = session(store)
         defer { session.shutdown() }
         var notifications = 0; session.onContinuityChange = { notifications += 1 }
-        session.saveNow()
+        session.saveNow(); session.flushPersistence()
         XCTAssertEqual(store.writes, 0); XCTAssertEqual(notifications, 0)
     }
     func testRealURLChangeSavesWithinDebounceAndNotifiesOnce() async throws {
         let store = CountingSessionStore(root), session = session(store)
         defer { session.shutdown() }
-        session.saveNow(); store.reset()
+        session.saveNow(); session.flushPersistence(); store.reset()
         var notifications = 0; session.onContinuityChange = { notifications += 1 }
         let tab = try XCTUnwrap(session.selectedTab), view = view(for: tab)
         let changed = URL(string: "https://example.test/changed")!
@@ -109,7 +115,7 @@ private final class CountingSessionStore: BrowserSessionStore {
     }
     func testShutdownFlushesLatestStateAndCancelsPendingDebounce() async throws {
         let store = CountingSessionStore(root), session = session(store)
-        session.saveNow(); store.reset()
+        session.saveNow(); session.flushPersistence(); store.reset()
         let tab = try XCTUnwrap(session.selectedTab)
         tab.setPinned(true); session.shutdown()
         XCTAssertEqual(store.writes, 1)
@@ -121,7 +127,7 @@ private final class CountingSessionStore: BrowserSessionStore {
         let store = CountingSessionStore(root), session = session(store)
         defer { session.shutdown() }
         let tab = session.addTab(isPrivate: true, load: false), view = view(for: tab)
-        session.saveNow(); store.reset()
+        session.saveNow(); session.flushPersistence(); store.reset()
         view.pageURL = URL(string: "https://private.test/secret"); view.pageTitle = "Private title"
         commit(tab, view: view); tab.webView(view, didFinish: nil)
         view.pageTitle = "Later private title"; tab.refresh(from: view)
@@ -133,25 +139,25 @@ private final class CountingSessionStore: BrowserSessionStore {
     func testSaveFailureRetainsNoticeAndRetriesWithoutNotifyingEarly() throws {
         let store = CountingSessionStore(root), session = session(store)
         defer { session.shutdown() }
-        session.saveNow(); store.reset()
+        session.saveNow(); session.flushPersistence(); store.reset()
         var notifications = 0; session.onContinuityChange = { notifications += 1 }
-        session.selectedTab?.setPinned(true); store.fail = true; session.saveNow()
+        session.selectedTab?.setPinned(true); store.fail = true; session.saveNow(); session.flushPersistence()
         XCTAssertTrue(session.persistenceNotice?.contains("could not be saved") == true)
         XCTAssertEqual(store.writes, 0); XCTAssertEqual(notifications, 0)
-        store.fail = false; session.saveNow()
+        store.fail = false; session.saveNow(); session.flushPersistence()
         XCTAssertEqual(store.writes, 1); XCTAssertEqual(notifications, 1)
     }
     func testContinuityApplicationRemainsDurableAndRollsBackOnFailure() throws {
         let store = CountingSessionStore(root), session = session(store)
         defer { session.shutdown() }
-        session.saveNow(); store.reset()
+        session.saveNow(); session.flushPersistence(); store.reset()
         let entry = HistoryEntry(title: "Remote", url: URL(string: "https://remote.test")!)
         store.fail = true
         XCTAssertThrowsError(try session.applyContinuity(bookmarks: [], history: [entry]))
         XCTAssertTrue(session.history.isEmpty)
         store.fail = false; try session.applyContinuity(bookmarks: [], history: [entry])
         XCTAssertEqual(try store.file.load().snapshot?.history, [entry])
-        store.reset(); session.saveNow(); XCTAssertEqual(store.attempts, 0)
+        store.reset(); session.saveNow(); session.flushPersistence(); XCTAssertEqual(store.attempts, 0)
     }
     func testLateTitleUpdatesNewestVisitWithoutChangingIdentityOrRecency() throws {
         let session = session(); defer { session.shutdown() }
@@ -276,11 +282,11 @@ private final class CountingSessionStore: BrowserSessionStore {
         commit(tab, view: view)
         let dataStore = view.configuration.websiteDataStore
         XCTAssertFalse(dataStore.isPersistent)
-        session.saveNow(); store.reset()
+        session.saveNow(); session.flushPersistence(); store.reset()
         var notifications = 0; session.onContinuityChange = { notifications += 1 }
         tab.webViewWebContentProcessDidTerminate(view)
         XCTAssertEqual(view.reloads, 1); XCTAssertTrue(view.configuration.websiteDataStore === dataStore)
-        tab.webView(view, didFinish: nil); session.saveNow()
+        tab.webView(view, didFinish: nil); session.saveNow(); session.flushPersistence()
         XCTAssertTrue(session.history.isEmpty); XCTAssertFalse(session.snapshot().tabs.contains { $0.id == tab.id })
         XCTAssertEqual(store.writes, 0); XCTAssertEqual(notifications, 0)
         tab.close(); tab.webViewWebContentProcessDidTerminate(view); XCTAssertEqual(view.reloads, 1)

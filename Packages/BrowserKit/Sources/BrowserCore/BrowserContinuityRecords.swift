@@ -169,6 +169,14 @@ public struct ContinuityReplica: Codable, Sendable {
     /// Persisted before applying incoming changes. A crash cannot mistake an unapplied remote addition for a local deletion.
     public var pendingApplication = false
     public var seedKeys: Set<String> = []
+    // Optional so a version-1 local replica from an older build safely retries all records once.
+    private var dirtyRecordKeys: Set<String>? = []
+    public var dirtyKeys: Set<String> { dirtyRecordKeys ?? Set(records.keys) }
+    public var dirtyRecords: [ContinuityRecord] { dirtyKeys.compactMap { records[$0] } }
+    public mutating func acknowledge(_ uploaded: [ContinuityRecord]) {
+        if dirtyRecordKeys == nil { dirtyRecordKeys = Set(records.keys) }
+        for record in uploaded where records[record.id] == record { dirtyRecordKeys?.remove(record.id) }
+    }
     public init(deviceName: String) { self.deviceName = deviceName }
     public mutating func bindAccount(_ id: String) throws {
         guard accountID == nil || accountID == id else { throw ContinuityError.accountChanged }
@@ -177,60 +185,88 @@ public struct ContinuityReplica: Codable, Sendable {
     public mutating func put(_ id: String, _ payload: ContinuityPayload?, seed: Bool = false) throws {
         if let current = records[id], current.payload == payload { return }
         guard records.count < 100_000 || records[id] != nil else { throw ContinuityError.storageFull }
-        if seed && records[id] == nil { seedKeys.insert(id) } else { seedKeys.remove(id) }
         guard counter < Int64.max - 100_001 else { throw ContinuityError.storageFull }
+        let record = try ContinuityRecord(id: id, counter: counter + 1, writer: deviceID, payload: payload).validated()
+        if seed && records[id] == nil { seedKeys.insert(id) } else { seedKeys.remove(id) }
+        if dirtyRecordKeys == nil { dirtyRecordKeys = Set(records.keys) }
+        dirtyRecordKeys?.insert(id)
         counter += 1
-        records[id] = try ContinuityRecord(id: id, counter: counter, writer: deviceID, payload: payload).validated()
+        records[id] = record
     }
     public mutating func merge(_ incoming: [ContinuityRecord]) throws {
         // Validate the complete batch before mutation: unknown/corrupt data must not cause partial imports.
         let valid = try incoming.map { try $0.validated() }
         guard Set(records.keys).union(valid.map(\.id)).count <= 100_000 else { throw ContinuityError.storageFull }
+        if dirtyRecordKeys == nil { dirtyRecordKeys = Set(records.keys) }
         for record in valid {
             counter = max(counter, record.counter)
-            if seedKeys.remove(record.id) != nil || records[record.id].map({ record.supersedes($0) }) ?? true { records[record.id] = record }
+            if seedKeys.remove(record.id) != nil || records[record.id].map({ record.supersedes($0) }) ?? true {
+                records[record.id] = record; dirtyRecordKeys?.remove(record.id)
+            } else if records[record.id] == record { dirtyRecordKeys?.remove(record.id) }
+            else { dirtyRecordKeys?.insert(record.id) }
         }
         try redactClearedHistory(); try pruneHistory()
     }
-    public mutating func capture(profile: BrowserProfile, bookmarks: [Bookmark], history: [HistoryEntry], regularTabs: [TabRecord], preferences: [String: String]) throws {
+    public mutating func capture(profile: BrowserProfile, bookmarks: [Bookmark], history: [HistoryEntry], regularTabs: [TabRecord],
+                                 preferences: [String: String], previous: BrowserSnapshot? = nil,
+                                 previousPreferences: [String: String]? = nil) throws {
         try put(ContinuityRecord.profileKey(profile.id), .profile(ContinuityProfile(profile)), seed: true)
-        let present = Set(bookmarks.map(\.id))
-        for removed in observedBookmarks[profile.id, default: []] where !present.contains(removed.id) {
-            // The same link may have been saved independently on two devices. Removing it removes all known copies.
-            let keys = records.values.compactMap { record -> String? in
-                if case .bookmark(let owner, let value) = record.payload, owner == profile.id, value.url == removed.url { return record.id }
-                return nil
+        if previous?.bookmarks != bookmarks {
+            let present = Set(bookmarks.map(\.id))
+            for removed in observedBookmarks[profile.id, default: []] where !present.contains(removed.id) {
+                // Independently saved copies of the same link are deleted together.
+                let keys = records.values.compactMap { record -> String? in
+                    if case .bookmark(let owner, let value) = record.payload, owner == profile.id, value.url == removed.url { return record.id }
+                    return nil
+                }
+                for key in keys { try put(key, nil) }
             }
-            for key in keys { try put(key, nil) }
+            let previouslyVisible = Dictionary(observedBookmarks[profile.id, default: []].map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            for bookmark in bookmarks where ContinuityRecord.safeURL(bookmark.url) {
+                let key = ContinuityRecord.bookmarkKey(profile.id, bookmark.id)
+                // An unchanged local copy must not resurrect a remotely deleted bookmark.
+                if records[key] == nil || previouslyVisible[bookmark.id] != bookmark {
+                    try put(key, .bookmark(profile.id, bookmark), seed: previouslyVisible[bookmark.id] == nil)
+                }
+            }
+            observedBookmarks[profile.id] = bookmarks
         }
-        let previouslyVisible = Dictionary(observedBookmarks[profile.id, default: []].map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for bookmark in bookmarks where ContinuityRecord.safeURL(bookmark.url) {
-            let key = ContinuityRecord.bookmarkKey(profile.id, bookmark.id)
-            // An unchanged local copy must not resurrect a remotely deleted bookmark.
-            if records[key] == nil || previouslyVisible[bookmark.id] != bookmark { try put(key, .bookmark(profile.id, bookmark), seed: previouslyVisible[bookmark.id] == nil) }
+        if previous?.history != history {
+            let oldHistory = Dictionary((previous?.history ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            for entry in history where oldHistory[entry.id] != entry && ContinuityRecord.safeURL(entry.url) && !historyWasCleared(profile.id, entry.visitedAt) {
+                let key = ContinuityRecord.historyKey(profile.id, entry.id)
+                if records[key] == nil { try put(key, .history(profile.id, entry), seed: true) }
+                else if case .history = records[key]?.payload {
+                    // Late titles update the same visit, never a deletion tombstone.
+                    try put(key, .history(profile.id, entry))
+                }
+            }
+            try pruneHistory()
         }
-        observedBookmarks[profile.id] = bookmarks
-        for entry in history where ContinuityRecord.safeURL(entry.url) && !historyWasCleared(profile.id, entry.visitedAt) {
-            let key = ContinuityRecord.historyKey(profile.id, entry.id)
-            if records[key] == nil { try put(key, .history(profile.id, entry), seed: true) }
-            else if case .history = records[key]?.payload {
-                // Late document titles update the existing visit, never a deletion tombstone.
-                try put(key, .history(profile.id, entry))
+        if previous?.tabs != regularTabs {
+            let tabKeys = Set(regularTabs.filter { $0.url.map(ContinuityRecord.safeURL) == true }.map { ContinuityRecord.tabKey(profile.id, deviceID, $0.id) })
+            let oldKeys: [String]
+            if let previous {
+                oldKeys = previous.tabs.filter { $0.url.map(ContinuityRecord.safeURL) == true }
+                    .map { ContinuityRecord.tabKey(profile.id, deviceID, $0.id) }
+            } else {
+                oldKeys = records.values.compactMap { record -> String? in
+                    if case .tab(let owner, let device, _, _) = record.payload, owner == profile.id, device == deviceID { return record.id }
+                    return nil
+                }
+            }
+            for key in oldKeys where !tabKeys.contains(key) { try put(key, nil) }
+            for (position, tab) in regularTabs.enumerated() where tab.url.map(ContinuityRecord.safeURL) == true {
+                var shared = tab
+                shared.url = tab.url.map(URLCleaner.clean)
+                try put(ContinuityRecord.tabKey(profile.id, deviceID, tab.id), .tab(profile.id, device: deviceID, tab: shared, position: position))
             }
         }
-        try pruneHistory()
-        let tabKeys = Set(regularTabs.filter { $0.url.map(ContinuityRecord.safeURL) == true }.map { ContinuityRecord.tabKey(profile.id, deviceID, $0.id) })
-        let oldKeys = records.values.compactMap { record -> String? in
-            if case .tab(let owner, let device, _, _) = record.payload, owner == profile.id, device == deviceID { return record.id }
-            return nil
+        if previousPreferences != preferences {
+            for (key, value) in preferences where ContinuityRecord.preferenceKeys.contains(key) {
+                try put(ContinuityRecord.preferenceKey(profile.id, key), .preference(profile.id, key: key, value: value), seed: true)
+            }
         }
-        for key in oldKeys where !tabKeys.contains(key) { try put(key, nil) }
-        for (position, tab) in regularTabs.enumerated() where tab.url.map(ContinuityRecord.safeURL) == true {
-            var shared = tab
-            shared.url = tab.url.map(URLCleaner.clean)
-            try put(ContinuityRecord.tabKey(profile.id, deviceID, tab.id), .tab(profile.id, device: deviceID, tab: shared, position: position))
-        }
-        for (key, value) in preferences where ContinuityRecord.preferenceKeys.contains(key) { try put(ContinuityRecord.preferenceKey(profile.id, key), .preference(profile.id, key: key, value: value), seed: true) }
     }
     public mutating func clearHistory(profile: UUID, since: Date, through: Date = .now) throws {
         try put("clear.\(profile).\(UUID())", .historyClear(profile, since: since, through: through))
@@ -315,12 +351,18 @@ public struct ContinuityReplica: Codable, Sendable {
     public func validated() throws -> Self {
         guard version == 1 else { throw ContinuityError.newerFormat }
         guard records.count <= 100_000, counter >= 0, counter < Int64.max - 100_000, !deviceName.isEmpty, deviceName.count <= 80 else { throw ContinuityError.invalidData }
+        guard dirtyRecordKeys?.allSatisfy({ records[$0] != nil }) ?? true else { throw ContinuityError.invalidData }
         for (key, record) in records { guard key == record.id, record.counter <= counter else { throw ContinuityError.invalidData }; _ = try record.validated() }
         return self
     }
 }
 
-public struct ContinuityStore: Sendable {
+public protocol ContinuityReplicaStore: Sendable {
+    func load() throws -> ContinuityReplica?
+    func save(_ state: ContinuityReplica) throws
+}
+
+public struct ContinuityStore: ContinuityReplicaStore {
     public let url: URL
     public init(url: URL) { self.url = url }
     public func load() throws -> ContinuityReplica? {

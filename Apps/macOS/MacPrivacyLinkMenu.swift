@@ -10,19 +10,29 @@ import WebKit
     weak var session: BrowserSession?
     private var destination: URL?
     private var revision = 0
-    init(tab: BrowserTab, session: BrowserSession, view: WKWebView) {
-        self.tab = tab; self.session = session
-        super.init()
-        let world = WKContentWorld.world(name: "OrivLinkMenu")
-        view.configuration.userContentController.add(self, contentWorld: world, name: "privacyLink")
-        view.configuration.userContentController.addUserScript(WKUserScript(source: """
+    private weak var contentController: WKUserContentController?
+    private static let script = """
         document.addEventListener('contextmenu', event => {
             const link = event.target.closest && event.target.closest('a[href]');
             if (!event.isTrusted || !link || !/^https?:/.test(link.href)) return;
             event.preventDefault();
             window.webkit.messageHandlers.privacyLink.postMessage({url:link.href});
         }, true);
-        """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
+        """
+    init(tab: BrowserTab, session: BrowserSession, view: WKWebView) {
+        self.tab = tab; self.session = session
+        super.init()
+        contentController = view.configuration.userContentController
+        let world = WKContentWorld.world(name: "OrivLinkMenu")
+        view.configuration.userContentController.add(self, contentWorld: world, name: "privacyLink")
+        if !view.configuration.userContentController.userScripts.contains(where: { $0.source == Self.script }) {
+            view.configuration.userContentController.addUserScript(WKUserScript(source: Self.script,
+                injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
+        }
+    }
+    func invalidate() {
+        contentController?.removeScriptMessageHandler(forName: "privacyLink", contentWorld: .world(name: "OrivLinkMenu"))
+        contentController = nil; destination = nil
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let tab, let session, session.isProfileActive, session.selectedTabID == tab.id,

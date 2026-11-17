@@ -119,8 +119,10 @@ import XCTest
         let workController = profiles.controller
         let bookmark = Bookmark(title: "Work only", url: URL(string: "https://example.test/saved")!)
         workController.session.importBookmarks([bookmark])
-        var opened = 0, closed = 0
-        profiles.showExternalWindow = { opened += 1 }; profiles.closeExternalWindow = { closed += 1 }
+        var opened = 0, closed = 0, presentationRequests: [Int] = []
+        XCTAssertEqual(profiles.externalPresentationRequest, 0)
+        profiles.showExternalWindow = { opened += 1; presentationRequests.append(profiles.externalPresentationRequest) }
+        profiles.closeExternalWindow = { closed += 1 }
         profiles.handleIncomingURL(URL(string: "https://example.test/original")!, sourceName: "Test App")
         let context = try XCTUnwrap(profiles.externalPrivate)
         XCTAssertNil(context.profile)
@@ -131,6 +133,7 @@ import XCTest
         XCTAssertFalse(store.isPersistent)
         profiles.handleIncomingURL(URL(string: "https://example.test/second")!)
         XCTAssertTrue(profiles.externalPrivate === context); XCTAssertEqual(context.session.tabs.count, 2); XCTAssertEqual(opened, 2)
+        XCTAssertEqual(presentationRequests, [1, 2], "Both first and subsequent URLs must request presentation before opening the scene")
         XCTAssertTrue(context.session.selectedTab?.webView.configuration.websiteDataStore === store)
         let current = URL(string: "https://example.test/after-navigation")!
         context.session.setProfileActive(false)
@@ -157,10 +160,12 @@ import XCTest
         profiles.openExternalLinksPrivately = false
         let url = URL(string: "https://example.test/regular")!
         profiles.handleIncomingURL(url)
+        XCTAssertEqual(profiles.externalPresentationRequest, 0)
         XCTAssertNil(profiles.externalPrivate); XCTAssertEqual(profiles.controller.session.selectedTab?.url, url)
         XCTAssertFalse(profiles.controller.session.selectedTab?.isPrivate ?? true)
         profiles.openExternalLinksPrivately = true
         profiles.handleIncomingURL(URL(string: "file:///tmp/synthetic")!)
+        XCTAssertEqual(profiles.externalPresentationRequest, 0)
         XCTAssertNil(profiles.externalPrivate)
         profiles.handleIncomingURL(URL(string: "https://example.test/private")!)
         let context = try XCTUnwrap(profiles.externalPrivate)

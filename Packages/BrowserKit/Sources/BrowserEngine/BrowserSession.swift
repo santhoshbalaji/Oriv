@@ -36,11 +36,14 @@ public final class BrowserSession {
     @ObservationIgnored public var shouldSelectTab: ((BrowserTab) -> Bool)?
     @ObservationIgnored public var didSelectTab: ((BrowserTab) -> Void)?
     @ObservationIgnored public var didCloseTab: ((UUID) -> Void)?
+    @ObservationIgnored var onContinuitySnapshotChange: (() -> Void)?
     @ObservationIgnored public var onContinuityChange: (() -> Void)?
     @ObservationIgnored public var onContinuityHistoryRemoved: ((UUID) -> Void)?
     @ObservationIgnored public var onContinuityHistoryCleared: ((Date) -> Void)?
     @ObservationIgnored private let store: (any BrowserSessionStore)?
-    @ObservationIgnored private var lastSavedData: Data?
+    @ObservationIgnored private var lastQueuedSnapshot: BrowserSnapshot?
+    @ObservationIgnored private var lastSavedSnapshot: BrowserSnapshot?
+    @ObservationIgnored private let writer: OrderedSessionWriter?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     private var legacyBookmarksImported = false
     private var importingLegacyBookmarks = false
@@ -49,11 +52,17 @@ public final class BrowserSession {
     private var recentlyClosed: [TabRecord] = []
     @ObservationIgnored private let regularDataStore: WKWebsiteDataStore
     @ObservationIgnored private var privateDataStore: WKWebsiteDataStore?
+    #if os(macOS)
+    @ObservationIgnored private(set) var tabReclamationMonitor: TabReclamationMonitor?
+    @ObservationIgnored private var tabReclamationTask: Task<Void, Never>?
+    @ObservationIgnored private var isReclaimingTabs = false
+    #endif
 
     public init(store: (any BrowserSessionStore)? = nil, dataStore: WKWebsiteDataStore = .default(),
                 adBlocker: AdBlocker = AdBlocker(), settings: BrowserSettings = BrowserSettings(), externalPrivate: Bool = false) {
         isExternalPrivate = externalPrivate
         self.store = externalPrivate ? nil : store
+        writer = externalPrivate ? nil : store.map { OrderedSessionWriter(store: $0) }
         self.adBlocker = adBlocker
         self.settings = settings
         websiteData = WebsiteDataManager(store: dataStore)
@@ -62,6 +71,7 @@ public final class BrowserSession {
             do {
                 let result = try store.load()
                 if let snapshot = result.snapshot {
+                    lastSavedSnapshot = snapshot; lastQueuedSnapshot = snapshot
                     legacyBookmarksImported = snapshot.legacyBookmarksImported == true
                     appliedOpenRequests = snapshot.appliedOpenRequests ?? []
                     bookmarks = snapshot.bookmarks
@@ -91,6 +101,17 @@ public final class BrowserSession {
         adBlocker.onChange = { [weak self] in self?.tabs.forEach { $0.refreshContentBlocking() } }
         settings.onRulesChanged = { [weak self] in self?.tabs.forEach { $0.applySiteSettings() } }
         updateTabSelection()
+        #if os(macOS)
+        if !externalPrivate {
+            tabReclamationMonitor = TabReclamationMonitor { [weak self] pressure in
+                guard let self, !self.isShutDown, self.tabReclamationTask == nil else { return }
+                self.tabReclamationTask = Task { @MainActor [weak self] in
+                    _ = await self?.reclaimBackgroundTabs(underMemoryPressure: pressure)
+                    self?.tabReclamationTask = nil
+                }
+            }
+        }
+        #endif
     }
 
     private func updateTabSelection() { tabs.forEach { $0.setSelected($0.id == selectedTabID) } }
@@ -98,17 +119,44 @@ public final class BrowserSession {
     public func activateSelectedTab() { if let selectedTab { didSelectTab?(selectedTab); selectedTab.activate() } }
 
     public func setProfileActive(_ active: Bool) {
+        if !active { saveNow(); flushPersistence() }
         isProfileActive = active
         tabs.forEach { $0.setProfileActive(active) }
     }
     public func shutdown() {
-        saveNow()
-        onContinuityChange = nil; onContinuityHistoryRemoved = nil; onContinuityHistoryCleared = nil
+        saveNow(); flushPersistence()
+        onContinuitySnapshotChange = nil; onContinuityChange = nil; onContinuityHistoryRemoved = nil; onContinuityHistoryCleared = nil
         isShutDown = true
+        #if os(macOS)
+        tabReclamationMonitor?.stop(); tabReclamationMonitor = nil
+        tabReclamationTask?.cancel(); tabReclamationTask = nil
+        #endif
         tabs.forEach { $0.close() }
         saveTask?.cancel()
         configureWebView = nil; handleDownload = nil; handleExternalURL = nil; didCloseTab = nil; shouldSelectTab = nil; didSelectTab = nil
     }
+
+    #if os(macOS)
+    /// Reclaim oldest eligible views first. WebKit state stays in RAM and never
+    /// enters session persistence or continuity. Each IPC request is bounded.
+    @discardableResult public func reclaimBackgroundTabs(underMemoryPressure: Bool = false) async -> Int {
+        guard !isShutDown, !isReclaimingTabs else { return 0 }
+        isReclaimingTabs = true
+        defer { isReclaimingTabs = false }
+        let minimumIdle = underMemoryPressure ? TabDiscardPolicy.recentUseInterval : TabDiscardPolicy.idleInterval
+        let candidates = tabs.filter(\.isInstantiated).sorted { $0.lastSelectedTime < $1.lastSelectedTime }
+        var reclaimed = 0
+        for tab in candidates {
+            guard !isShutDown, !Task.isCancelled else { break }
+            guard TabDiscardPolicy.isOldEnough(lastUsed: tab.lastSelectedTime, now: tab.recoveryClock(), underMemoryPressure: underMemoryPressure) else { continue }
+            let discarded = await withCheckedContinuation { continuation in
+                tab.discardBackgroundWebView(minimumIdle: minimumIdle) { continuation.resume(returning: $0) }
+            }
+            if discarded { reclaimed += 1 }
+        }
+        return reclaimed
+    }
+    #endif
 
     @discardableResult public func addTab(url: URL? = nil, isPrivate: Bool = false,
                                           configuration: WKWebViewConfiguration? = nil,
@@ -373,17 +421,42 @@ public final class BrowserSession {
 
     public func saveNow(discardPrevious: Bool = false) {
         saveTask?.cancel()
+        completeWrites()
         guard canPersist, !isShutDown else { return }
-        do {
-            let snapshot = snapshot()
-            let data = try SessionFileStore.encodedSnapshot(snapshot)
-            // A privacy deletion must still reach the store to discard an older backup.
-            guard discardPrevious || data != lastSavedData else { return }
-            let wrote = try store?.save(snapshot, discardPrevious: discardPrevious) ?? false
-            if store != nil { lastSavedData = data }
-            if wrote { onContinuityChange?() }
+        let snapshot = snapshot()
+        onContinuitySnapshotChange?()
+        guard let writer, discardPrevious || snapshot != lastQueuedSnapshot else { return }
+        if discardPrevious {
+            // Privacy erasure is a durability boundary, including deletion of a prior backup.
+            do {
+                try writer.saveAndWait(snapshot, discardPrevious: true)
+                completeWrites()
+                let changed = snapshot != lastSavedSnapshot
+                lastQueuedSnapshot = snapshot; lastSavedSnapshot = snapshot
+                if changed { onContinuityChange?() }
+            } catch { lastQueuedSnapshot = nil; persistenceNotice = "Your session could not be saved: \(error.localizedDescription)" }
+        } else {
+            lastQueuedSnapshot = snapshot
+            writer.enqueue(snapshot) { [weak self] in Task { @MainActor in self?.completeWrites() } }
         }
-        catch { persistenceNotice = "Your session could not be saved: \(error.localizedDescription)" }
+    }
+
+    private func completeWrites() {
+        for completion in writer?.takeCompletions() ?? [] {
+            switch completion.result {
+            case .success(let wrote):
+                lastSavedSnapshot = completion.snapshot
+                if wrote { onContinuityChange?() }
+            case .failure(let error):
+                if lastQueuedSnapshot == completion.snapshot { lastQueuedSnapshot = nil }
+                persistenceNotice = "Your session could not be saved: \(error.localizedDescription)"
+            }
+        }
+    }
+    public func flushPersistence() {
+        do { try writer?.flush() }
+        catch { lastQueuedSnapshot = nil; persistenceNotice = "Your session could not be saved: \(error.localizedDescription)" }
+        completeWrites()
     }
 
     /// Save the receipt atomically with the new regular tab, before activating its WebView.
@@ -401,8 +474,8 @@ public final class BrowserSession {
         tabs.append(tab); appliedOpenRequests.insert(request.id); selectedTabID = tab.id
         do {
             let snapshot = snapshot()
-            try store?.save(snapshot, discardPrevious: false)
-            if store != nil { lastSavedData = try SessionFileStore.encodedSnapshot(snapshot) }
+            try writer?.saveAndWait(snapshot)
+            if store != nil { completeWrites(); lastSavedSnapshot = snapshot; lastQueuedSnapshot = snapshot }
         } catch {
             tabs.removeAll { $0 === tab }; appliedOpenRequests.remove(request.id); selectedTabID = previousSelection
             tab.close(); throw error
@@ -419,14 +492,14 @@ public final class BrowserSession {
         self.bookmarks = bookmarks; self.history = history
         do {
             let snapshot = snapshot()
-            let data = try SessionFileStore.encodedSnapshot(snapshot)
-            try store?.save(snapshot, discardPrevious: true)
-            if store != nil { lastSavedData = data }
+            try writer?.saveAndWait(snapshot, discardPrevious: true)
+            if store != nil { completeWrites(); lastSavedSnapshot = snapshot; lastQueuedSnapshot = snapshot }
         }
         catch { self.bookmarks = oldBookmarks; self.history = oldHistory; throw error }
     }
 
     private func scheduleSave() {
+        onContinuitySnapshotChange?()
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(350)) } catch { return }

@@ -3,11 +3,17 @@ import BrowserEngine
 import BrowserCore
 
 @main struct OrivMobileApp: App {
-    @State private var profiles = MobileProfiles()
+    @UIApplicationDelegateAdaptor(MobileAppDelegate.self) private var appDelegate
+    @State private var profiles: MobileProfiles
     @Environment(\.scenePhase) private var phase
     #if DEBUG && targetEnvironment(simulator)
     @State private var routedSimulatorLinks = false
     #endif
+    init() {
+        let initial = MobileProfiles()
+        _profiles = State(initialValue: initial)
+        appDelegate.profiles = initial
+    }
     var body: some Scene {
         WindowGroup {
             MobileRootView(controller: profiles.current, profiles: profiles).id(profiles.current.profileID).browserAppearance(profiles.current.appearance, followsPage: true)
@@ -51,6 +57,38 @@ import BrowserCore
                 .task { await BrowserUpgradeCleanup.retireOldAlerts() }
                 .onOpenURL { profiles.route($0) }
                 .onChange(of: phase) { _, value in value == .active ? profiles.foreground() : profiles.background() }
+        }
+    }
+}
+
+/// Connected before scene creation so a silent background launch can fetch without a view appearing.
+@MainActor final class MobileAppDelegate: NSObject, UIApplicationDelegate {
+    weak var profiles: MobileProfiles?
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        profiles?.continuity.configurePushRegistration { [weak self] in
+            let environment = ProcessInfo.processInfo.environment
+            guard environment["XCTestConfigurationFilePath"] == nil, environment["BROWSER_TESTING"] != "1" else {
+                self?.profiles?.continuity.remoteNotificationRegistration(succeeded: false); return
+            }
+            application.registerForRemoteNotifications()
+        }
+        return true
+    }
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        profiles?.continuity.remoteNotificationRegistration(succeeded: true)
+    }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        profiles?.continuity.remoteNotificationRegistration(succeeded: false)
+    }
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        guard let continuity = profiles?.continuity else { completionHandler(.noData); return }
+        continuity.receiveRemoteNotification(userInfo) { result in
+            switch result {
+            case .newData: completionHandler(.newData)
+            case .noData: completionHandler(.noData)
+            case .failed: completionHandler(.failed)
+            }
         }
     }
 }

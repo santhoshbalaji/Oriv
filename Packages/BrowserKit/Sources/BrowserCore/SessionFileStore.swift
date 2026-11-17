@@ -27,6 +27,7 @@ public enum SessionFileError: LocalizedError {
 /// Platform-independent storage. Only non-private records may be passed here.
 public struct SessionFileStore: Sendable, BrowserSessionStore {
     public let fileURL: URL
+    private let state = SessionFileState()
     public var backupURL: URL { fileURL.appendingPathExtension("backup") }
 
     public init(fileURL: URL) { self.fileURL = fileURL }
@@ -53,31 +54,40 @@ public struct SessionFileStore: Sendable, BrowserSessionStore {
 
     public static func encodedSnapshot(_ snapshot: BrowserSnapshot) throws -> Data {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(snapshot.sanitized())
     }
 
     @discardableResult public func save(_ snapshot: BrowserSnapshot, discardPrevious: Bool = false) throws -> Bool {
-        let data = try Self.encodedSnapshot(snapshot)
+        state.lock.lock(); defer { state.lock.unlock() }
+        let snapshot = snapshot.sanitized()
         let oldData = try? Data(contentsOf: fileURL)
+        if state.snapshot == snapshot, oldData == state.data {
+            if discardPrevious { try discardBackup(); state.backupMade = true }
+            return false
+        }
+        let data = try Self.encodedSnapshot(snapshot)
         // Protect a newer format even if it appeared after the session was loaded.
         struct Header: Decodable { let version: Int }
         if let oldData, let header = try? JSONDecoder().decode(Header.self, from: oldData),
            !(1...3).contains(header.version) { throw SessionFileError.unsupportedVersion(header.version) }
         if oldData == data {
-            if discardPrevious { try discardBackup() }
+            if discardPrevious { try discardBackup(); state.backupMade = true }
+            state.snapshot = snapshot; state.data = data
             return false
         }
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Keep the last valid session; a damaged primary never replaces the backup.
-        if !discardPrevious, let oldData,
+        if !discardPrevious, !state.backupMade, let oldData,
            let old = try? JSONDecoder().decode(BrowserSnapshot.self, from: oldData), (1...3).contains(old.version) {
             try oldData.write(to: backupURL, options: [.atomic])
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
+            state.backupMade = true
         }
         try data.write(to: fileURL, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-        if discardPrevious { try discardBackup() }
+        if discardPrevious { try discardBackup(); state.backupMade = true }
+        state.snapshot = snapshot; state.data = data
         return true
     }
 
@@ -95,4 +105,12 @@ public struct SessionFileStore: Sendable, BrowserSessionStore {
         let snapshot = try JSONDecoder().decode(BrowserSnapshot.self, from: data)
         return snapshot.sanitized()
     }
+}
+
+// Copies of a store share its per-launch backup policy and serialize direct callers too.
+private final class SessionFileState: @unchecked Sendable {
+    let lock = NSLock()
+    var backupMade = false
+    var snapshot: BrowserSnapshot?
+    var data: Data?
 }

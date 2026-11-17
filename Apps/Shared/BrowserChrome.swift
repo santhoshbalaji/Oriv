@@ -37,6 +37,8 @@ private typealias PlatformColor = UIColor
     @ObservationIgnored private var dimmingLayer = false
     #if DEBUG
     private(set) var sampleCount = 0
+    @ObservationIgnored private(set) var edgeMessageCount = 0
+    @ObservationIgnored private(set) var scrollMessageCount = 0
     static var diagnosticObserver: ((PageChrome) -> Void)?
     @ObservationIgnored private var diagnosticFrames: [[String: Any]] = []
     @ObservationIgnored private var diagnosticValues: [String: Any] = [:]
@@ -55,6 +57,7 @@ private typealias PlatformColor = UIColor
     @ObservationIgnored private var navigationSeed: (key:String, color:ChromeColor)?
     @ObservationIgnored private var remembered: [String: ChromeColor] = [:]
     @ObservationIgnored private var lastMeasured:ChromeColor?
+    @ObservationIgnored private var appliedColor:ChromeColor?
     private final class NotificationOwner {
         var tokens:[NSObjectProtocol] = []
         deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
@@ -65,11 +68,37 @@ private typealias PlatformColor = UIColor
 
     /// Install before load, including window.open and background tabs. The script
     /// is idempotent and uses an isolated world; it never reads page text/images.
-    static func install(on web: WKWebView) {
+    static func install(on web: WKWebView, isPrivate: Bool = false) {
         let controller = web.configuration.userContentController
-        guard !controller.userScripts.contains(where: { $0.source == observerScript }) else { return }
-        controller.addUserScript(WKUserScript(source: observerScript, injectionTime: .atDocumentStart,
+        let source = observerSource(isPrivate: isPrivate)
+        let scripts = controller.userScripts
+        let ownScripts = scripts.filter { isChromeScript($0.source) }
+        let expected = source.map { [$0] } ?? []
+        if ownScripts.map(\.source) == expected { return }
+        if !ownScripts.isEmpty {
+            // Materialise the retained scripts before mutating WebKit's list.
+            let retained = scripts.filter { !isChromeScript($0.source) }
+            controller.removeAllUserScripts()
+            retained.forEach(controller.addUserScript)
+            web.evaluateJavaScript("window.__orivChromeStop?.(); void 0", in:nil, in:contentWorld) { _ in }
+        }
+        guard let source else { return }
+        controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
             forMainFrameOnly: true, in: contentWorld))
+    }
+    private static func observerSource(isPrivate: Bool) -> String? {
+        #if os(iOS)
+        isPrivate ? paintObserverScript : observerScript
+        #else
+        isPrivate ? nil : observerScript
+        #endif
+    }
+    private static func isChromeScript(_ source: String) -> Bool {
+        #if os(iOS)
+        source == observerScript || source == paintObserverScript
+        #else
+        source == observerScript
+        #endif
     }
     private func beginNavigation() {
         resetTransitions()
@@ -155,7 +184,7 @@ private typealias PlatformColor = UIColor
             if lastMeasured == nil { apply(Self.rgba(PlatformColor(Theme.t3Code.canvas))!) }
             return
         }
-        Self.install(on: view)
+        Self.install(on: view, isPrivate: isPrivate)
         navigationOwner.tokens.append(NotificationCenter.default.addObserver(forName: BrowserTab.navigationStarted, object: view, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 #if os(iOS)
@@ -174,7 +203,11 @@ private typealias PlatformColor = UIColor
         Self.owners[ObjectIdentifier(view)] = ObserverOwner(self)
         // A deallocated observer may have left its weak message adapter installed.
         view.configuration.userContentController.removeScriptMessageHandler(forName:"chromeEdge",contentWorld:Self.contentWorld)
+        #if os(iOS)
         view.configuration.userContentController.add(PageChromeScrollHandler(owner: self), contentWorld: Self.contentWorld, name: "chromeEdge")
+        #else
+        if !isPrivate { view.configuration.userContentController.add(PageChromeScrollHandler(owner: self), contentWorld: Self.contentWorld, name: "chromeEdge") }
+        #endif
         observations = [
             view.observe(\.underPageBackgroundColor, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor [weak self] in self?.refresh(); self?.requestSample() }
@@ -286,6 +319,10 @@ private typealias PlatformColor = UIColor
         // Rubber band snapshots are not new viewport paint. Preserve the last
         // band and mode until WebKit reports a real document position again.
         guard offset.isFinite, offset >= 0 else { return }
+        // Edge messages also carry scroll state. Advance the ordering watermark
+        // so an older native evaluation or queued threshold message cannot undo
+        // a newer atomic edge/scroll update when in-bucket scroll posts are omitted.
+        if let time = values["sampleTime"] as? Double { lastScrollTime = time }
         updateScroll(offset)
         let band = Band(edge: decode("edge"), body: decode("body"), html: decode("html"),
                         underPage: webView.flatMap { Self.rgba($0.underPageBackgroundColor) }, dimming: values["dimming"] as? Bool ?? false)
@@ -404,10 +441,31 @@ private typealias PlatformColor = UIColor
     }()
 
     private func installObserver(_ web: WKWebView) {
-        guard !installed, !privatePage else { return }
+        guard !installed, let source = Self.observerSource(isPrivate: privatePage) else { return }
         installed = true
-        web.evaluateJavaScript(Self.observerScript, in: nil, in: Self.contentWorld) { _ in }
+        web.evaluateJavaScript(source, in: nil, in: Self.contentWorld) { _ in }
     }
+
+    #if os(iOS)
+    /// Private tabs still need FCP to release the navigation/swipe backing.
+    /// They never sample page colours or observe mutations and scrolling.
+    static let paintObserverScript = """
+    (() => {
+        if (window.__orivChromeStop) { window.__orivChromeSend?.(); return; }
+        const painted = () => window.webkit?.messageHandlers?.chromeEdge?.postMessage({painted:performance.timeOrigin});
+        const send = () => { if (performance.getEntriesByType('paint').some(e => e.name === 'first-contentful-paint')) painted(); };
+        const observer = new PerformanceObserver(list => {
+            if (list.getEntries().some(e => e.name === 'first-contentful-paint')) painted();
+        });
+        observer.observe({type:'paint', buffered:true});
+        window.__orivChromeSend = send;
+        window.__orivChromeStop = () => {
+            observer.disconnect(); delete window.__orivChromeStop; delete window.__orivChromeSend;
+        };
+        send();
+    })()
+    """
+    #endif
 
     static var observerScript: String {
         #if os(iOS)
@@ -418,20 +476,29 @@ private typealias PlatformColor = UIColor
         return """
         (() => {
             if (window.__orivChromeStop) { window.__orivChromeSend?.(); return; }
-            let timer, deadline, edgeTimer, frame, lastEdge = -Infinity, initial = true;
+            let timer, deadline, edgeTimer, frame, forceFrame = false, lastEdge = -Infinity, initial = true;
+            let lastPosted, lastScrollBucket;
+            // Match both the native hysteresis and initial-paint boundary exactly.
+            const scrollBucket = y => y <= \(ChromeScrollState.leaveOffset) ? 0 : y <= \(ChromeScrollState.enterOffset) ? 1 : 2;
             const readEdge = () => { const inset = 0, viewWidth = innerWidth;
                 \(Self.edgeScript)
             };
-            const sendEdge = () => {
+            const sendEdge = (force = false) => {
                 clearTimeout(edgeTimer); edgeTimer = null; lastEdge = performance.now();
                 if (!window.webkit?.messageHandlers?.chromeEdge || !document.documentElement || !document.body) return;
                 const edge = {...readEdge(), documentID:performance.timeOrigin, initialComplete:!initial};
                 window.__orivChromeLatest = edge;
+                if (!Number.isFinite(edge.scrollY) || edge.scrollY < 0) return;
+                const bucket = scrollBucket(edge.scrollY);
+                const key = JSON.stringify([edge.edge, edge.body, edge.html, edge.dimming, edge.initialComplete, edge.href, bucket]);
+                if (!force && !initial && key === lastPosted) return;
                 window.webkit?.messageHandlers?.chromeEdge?.postMessage({edge});
+                lastPosted = key; lastScrollBucket = bucket;
             };
             const send = () => { clearTimeout(timer); clearTimeout(deadline); timer = deadline = null; sendEdge(); };
-            const nextPaint = () => {
-                if (!frame) frame = requestAnimationFrame(() => { frame = null; sendEdge(); });
+            const nextPaint = (force = false) => {
+                forceFrame ||= force;
+                if (!frame) frame = requestAnimationFrame(() => { frame = null; const force = forceFrame; forceFrame = false; sendEdge(force); });
             };
             const changed = () => {
                 if (initial) { nextPaint(); return; }
@@ -439,18 +506,23 @@ private typealias PlatformColor = UIColor
                 if (!deadline) deadline = setTimeout(send, 1000);
             };
             const scroll = () => {
-                if (window.scrollY < 0) return;
-                window.webkit?.messageHandlers?.chromeEdge?.postMessage({scrollY:window.scrollY,scrollTime:performance.timeOrigin + performance.now()});
+                const y = window.scrollY;
+                if (!Number.isFinite(y) || y < 0) return;
+                const bucket = scrollBucket(y);
+                if (bucket !== lastScrollBucket && window.webkit?.messageHandlers?.chromeEdge) {
+                    window.webkit.messageHandlers.chromeEdge.postMessage({scrollY:y,scrollTime:performance.timeOrigin + performance.now()});
+                    lastScrollBucket = bucket;
+                }
                 if (performance.now() - lastEdge >= 125) sendEdge();
                 else if (!edgeTimer) edgeTimer = setTimeout(sendEdge, 125 - (performance.now() - lastEdge));
             };
-            const ready = () => { sendEdge(); nextPaint(); };
-            const painted = () => { sendEdge(); \(paintSignal) nextPaint(); };
+            const ready = () => { sendEdge(true); nextPaint(true); };
+            const painted = () => { sendEdge(true); \(paintSignal) nextPaint(true); };
             const loaded = () => {
                 // DOM readiness must end the initial phase even when a hidden
                 // window throttles rAF. Send the ready paint before confirmation
                 // becomes active, then mark the phase complete atomically.
-                sendEdge(); initial = false; sendEdge(); nextPaint();
+                sendEdge(true); initial = false; sendEdge(true); nextPaint(true);
             };
             const paintObserver = new PerformanceObserver(list => {
                 if (list.getEntries().some(e => e.name === 'first-contentful-paint')) painted();
@@ -487,6 +559,10 @@ private typealias PlatformColor = UIColor
 
     fileprivate func receiveScroll(_ message: WKScriptMessage) {
         guard message.webView === webView, message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
+        #if DEBUG
+        if body["edge"] != nil { edgeMessageCount += 1 }
+        if body["scrollY"] != nil { scrollMessageCount += 1 }
+        #endif
         #if os(iOS)
         if let document = body["painted"] as? Double {
             paintedDocuments.insert(document)
@@ -504,10 +580,12 @@ private typealias PlatformColor = UIColor
             scrollRevision += 1; accept(edge); return
         }
         if let offset = body["scrollY"] as? Double {
+            guard offset.isFinite, offset >= 0 else { return }
             if let time = body["scrollTime"] as? Double {
                 guard time >= lastScrollTime else { return }
                 lastScrollTime = time
             }
+            scrollRevision += 1
             updateScroll(offset)
         }
         if body["sample"] as? Bool == true { refresh(); requestSample() }
@@ -601,6 +679,8 @@ private typealias PlatformColor = UIColor
         return rgba.usable ? rgba : nil
     }
     private func apply(_ rgb: ChromeColor) {
+        guard appliedColor != rgb else { return }
+        appliedColor = rgb
         luminance = rgb.luminance; isDark = rgb.whiteForeground
         #if DEBUG
         ChromeTiming.event("colourTarget", web: webView, extra: ["rgb": [rgb.red, rgb.green, rgb.blue], "scrolled":hasScrolled])

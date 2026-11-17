@@ -254,6 +254,30 @@ import WebKit
         XCTAssertTrue(web.isLoading)
     }
 
+    func testPrivateChromeKeepsPaintGatingWithoutEdgeOrScrollObservation() async throws {
+        let c = MobileController(); defer { c.session.shutdown() }
+        let tab = c.session.addTab(isPrivate:true,select:true,load:false)
+        let web = tab.webView, chrome = PageChrome()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where:\.isKeyWindow)
+        let host = UIViewController(); host.view = MobileWebHost(webView:web)
+        let window = UIWindow(windowScene:scene); window.rootViewController = host; window.makeKeyAndVisible()
+        defer { chrome.observe(nil); window.isHidden = true; previous?.makeKeyAndVisible() }
+        web.frame = CGRect(x:0,y:0,width:390,height:700)
+        chrome.observe(web,isPrivate:true)
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/chrome-paint")!)
+        try await wait { chrome.hasPaintedContent }
+        XCTAssertTrue(web.isLoading,"Private paint gating must also release before a delayed image finishes")
+        let scripts = web.configuration.userContentController.userScripts.map(\.source)
+        XCTAssertTrue(scripts.contains(PageChrome.paintObserverScript))
+        XCTAssertFalse(scripts.contains(PageChrome.observerScript))
+        _ = try await web.evaluateJavaScript("document.body.style.background='red';window.dispatchEvent(new Event('scroll'))")
+        try await Task.sleep(for:.milliseconds(400))
+        XCTAssertEqual(chrome.edgeMessageCount,0)
+        XCTAssertEqual(chrome.scrollMessageCount,0)
+        XCTAssertEqual(chrome.luminance,0)
+    }
+
     func testTransitionReparentingKeepsWebKitViewportAndRestoresItsHost() async throws {
         let c = MobileController(); defer { c.session.shutdown() }
         let tab = try XCTUnwrap(c.session.selectedTab), web = tab.webView

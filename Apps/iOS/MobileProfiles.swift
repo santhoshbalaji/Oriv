@@ -50,7 +50,7 @@ import BrowserEngine
             self.profiles = try registry.importingContinuity(incoming).profiles; self.persist()
         })
         continuity.didOpenRequest = { [weak self] profileID, tabID in
-            guard let self, let profile = self.profiles.first(where: { $0.id == profileID }) else { return }
+            guard let self, self.continuity.isForeground, let profile = self.profiles.first(where: { $0.id == profileID }) else { return }
             self.current.sheet = nil; self.select(profile); self.current.session.selectTab(tabID)
         }
     }

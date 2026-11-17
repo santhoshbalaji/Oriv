@@ -35,12 +35,14 @@ enum MacBrowserLayout {
 /// hierarchy, preserving native actions, inactive appearance and tiling popovers.
 struct BrowserWindowChrome: NSViewRepresentable {
     let windowContext: MacBrowserWindowContext
+    var externalPresentationRequest: Int? = nil
     var stateChanged: (Bool, Bool) -> Void
 
     func makeNSView(context: Context) -> WindowChromeView { WindowChromeView() }
     func updateNSView(_ view: WindowChromeView, context: Context) {
         view.stateChanged = stateChanged
         view.windowContext = windowContext
+        view.externalPresentationRequest = externalPresentationRequest
         view.configure()
     }
     static func dismantleNSView(_ view: WindowChromeView, coordinator: ()) { view.detach() }
@@ -48,6 +50,8 @@ struct BrowserWindowChrome: NSViewRepresentable {
     final class WindowChromeView: NSView {
         var stateChanged: ((Bool, Bool) -> Void)?
         var windowContext: MacBrowserWindowContext?
+        var externalPresentationRequest: Int?
+        private let externalPresenter = ExternalPrivateWindowPresenter()
         private var observers: [NSObjectProtocol] = []
         private var lastState: [Bool] = []
         private var configuring = false
@@ -77,6 +81,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         }
         override func layout() { super.layout(); configure() }
         func detach() {
+            externalPresenter.cancel()
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
             if let accessory, let window = observedWindow,
@@ -92,6 +97,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         func configure() {
             guard let window, !configuring else { return }
             windowContext?.window = window
+            if let externalPresentationRequest { externalPresenter.request(externalPresentationRequest, in: window) }
             configuring = true
             defer { configuring = false }
             if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }

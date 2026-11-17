@@ -101,7 +101,7 @@ import AppKit
         let a = try XCTUnwrap(s.selectedTab), b = s.addTab(load: false), c = s.addTab(load: false)
         s.togglePinned(b.id); s.moveTab(c.id, to: a.id)
         let privateTab = s.addTab(isPrivate: true, load: false)
-        s.selectTab(c.id); s.saveNow()
+        s.selectTab(c.id); s.saveNow(); s.flushPersistence()
         let restored = session(store: store); defer { restored.shutdown() }
         XCTAssertEqual(restored.orderedTabs.map(\.id), [b.id, c.id, a.id])
         XCTAssertEqual(restored.selectedTabID, c.id)

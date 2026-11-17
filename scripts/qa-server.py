@@ -130,6 +130,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/quality':
             self.page('Browser quality fixture', '<article><h2>Quiet browser testing</h2><p>Alpha beta Alpha. Search, read and save this synthetic page.</p><p>No personal information is used.</p><input id="draft" aria-label="Test draft"><a href="/two" target="_blank" id="new-tab">Open second tab</a><a href="/large-download">Download test data</a></article>')
             return
+        if path == '/tab-memory-history':
+            self.page('Tab history fixture', '<article style="min-height:6000px"><h2>History and scroll restoration</h2><p>Local synthetic page</p><input id="draft"></article>')
+            return
         if path == '/basic-auth':
             if self.headers.get('Authorization') != 'Basic dGVzdDpwYXNz':
                 self.send_response(401)

@@ -74,7 +74,7 @@ import WebKit
             #if DEBUG
             ChromeTiming.install(on: view)
             #endif
-            PageChrome.install(on: view)
+            PageChrome.install(on: view, isPrivate: tab.isPrivate)
             guard let self else { return }
             let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
@@ -90,6 +90,9 @@ import WebKit
                 self?.delegates.removeValue(forKey:id)?.invalidate()
             }
             delegates[tab.id] = adapter; view.uiDelegate = adapter
+            // Mobile downloads own their progress/delegate lifetime. Protect all
+            // tabs while that owner reports an active transfer.
+            tab.hasActiveDownloads = { [weak self] in (self?.downloads.activeCount ?? 0) > 0 }
             adapter.installContextTracking(on: view)
             tab.onAuthentication = { [weak adapter] challenge, completion in
                 guard let adapter else { completion(.cancelAuthenticationChallenge, nil); return }

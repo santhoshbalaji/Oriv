@@ -14,6 +14,7 @@ import Observation
     var showManager = false
     var pendingSelection: UUID?
     private(set) var externalPrivate: BrowserController?
+    private(set) var externalPresentationRequest = 0
     var externalSourceName: String?
     var externalBannerVisible = true
     var externalMoveProfileID = BrowserProfile.personalID
@@ -59,7 +60,7 @@ import Observation
             try self.commit(self.registry.importingContinuity(incoming))
         })
         continuity.didOpenRequest = { [weak self] profileID, tabID in
-            guard let self else { return }
+            guard let self, self.continuity.isForeground else { return }
             self.perform {
                 try self.select(profileID); self.controller.session.selectTab(tabID)
                 self.showRegularWindow?()
@@ -159,7 +160,7 @@ import Observation
     func perform(_ operation: () throws -> Void) {
         do { try operation() } catch { self.error = error.localizedDescription }
     }
-    func saveAll() { allControllers.forEach { $0.session.saveNow() } }
+    func saveAll() { allControllers.forEach { $0.session.saveNow(); $0.session.flushPersistence() } }
     func shutdown() { continuity.shutdown(); allControllers.forEach { $0.shutdown() } }
 
     func openContinuityPage(_ page: ContinuityPage) {
@@ -194,6 +195,7 @@ import Observation
         externalSourceName = sourceName
         externalMoveProfileID = active.id
         externalBannerVisible = true
+        externalPresentationRequest += 1
         showExternalWindow?()
     }
     func moveExternalTab() throws {

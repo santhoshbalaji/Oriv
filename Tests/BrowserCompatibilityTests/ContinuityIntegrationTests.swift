@@ -8,14 +8,16 @@ import WebKit
     var records: [String: ContinuityRecord] = [:]
     var pushes = 0, fetches = 0, accountChecks = 0
     var failFetch = false, failPush = false, changeAccountBeforePush = false
+    private var accountChanged: (@MainActor () -> Void)?
+    func watchAccountChanges(_ handler: @escaping @MainActor () -> Void) { accountChanged = handler }
     func accountIdentifier() async throws -> String {
         accountChecks += 1
-        if changeAccountBeforePush && accountChecks.isMultiple(of: 2) { return "different-account" }
         return account
     }
     func fetch(allowZoneCreation: Bool) async throws -> [ContinuityRecord] {
         fetches += 1
         if failFetch { throw URLError(.notConnectedToInternet) }
+        if changeAccountBeforePush { accountChanged?() }
         return Array(records.values)
     }
     func push(_ incoming: [ContinuityRecord]) async throws -> [ContinuityRecord] {
@@ -181,6 +183,8 @@ import WebKit
         first.setEnabled(true); await first.syncNow(); second.setEnabled(true); await second.syncNow()
         XCTAssertEqual(phoneAppearance, macAppearance)
         macAppearance[work.id] = "T3 Code"
+        // This synthetic dictionary is not observable; notify the changed source explicitly.
+        first.refreshLocal(profileID: work.id)
         await first.syncNow(); await second.syncNow()
         XCTAssertEqual(phoneAppearance[work.id], "T3 Code"); XCTAssertEqual(phoneAppearance[BrowserProfile.personalID], "Light")
         XCTAssertEqual(second.state.preferences(for: work.id)["appearance"], "T3 Code")

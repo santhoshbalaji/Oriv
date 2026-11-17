@@ -37,6 +37,7 @@ import WebKit
         XCTAssertTrue(session.canUndoBookmarkRemoval); XCTAssertEqual(session.bookmarks, [second])
         session.undoBookmarkRemoval()
         XCTAssertEqual(session.bookmarks, [first, second]); XCTAssertFalse(session.canUndoBookmarkRemoval)
+        session.flushPersistence()
         XCTAssertEqual(try store.load().snapshot?.bookmarks, [first, second])
         session.removeBookmark(first.id)
         let replacement = Bookmark(title: "Saved again", url: first.url)

@@ -45,5 +45,7 @@
 	<string>$(ORIV_BUILD_CHANNEL)</string>
 	<key>OrivContinuityContainer</key>
 	<string>$(ORIV_CONTINUITY_CONTAINER)</string>
+	<key>OrivPushEnvironment</key>
+	<string>$(ORIV_PUSH_ENVIRONMENT)</string>
 </dict>
 </plist>

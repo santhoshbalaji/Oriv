@@ -9,7 +9,9 @@ enum BrowserWebConfiguration {
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.preferences.isElementFullscreenEnabled = true
         configuration.preferences.isSiteSpecificQuirksModeEnabled = true
-        // Throttle idle, detached tabs without suspending active media or networking.
+        // Keep live background networking and media on WebKit's throttle policy.
+        // Eligible old GET pages are reclaimed separately with interaction state;
+        // suspension is not a substitute for the form/capture/download safeguards.
         configuration.preferences.inactiveSchedulingPolicy = .throttle
         configuration.allowsAirPlayForMediaPlayback = true
         // Require a gesture for audio; video autoplay still follows WebKit's

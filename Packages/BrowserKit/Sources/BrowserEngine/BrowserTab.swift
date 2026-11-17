@@ -30,6 +30,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public private(set) var isCapturingMicrophone = false
     public private(set) var hasOnlySecureContent = false
     public private(set) var hasEditedFields = false
+    public private(set) var hasRequestedDisplayCapture = false
     public private(set) var httpWarningURL: URL?
     private struct HTTPUpgradeAttempt {
         let url:URL
@@ -48,9 +49,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored public var onExternalURL: ((URL) -> Void)?
     @ObservationIgnored public var onOpenLink: ((URL, Bool) -> Void)?
     @ObservationIgnored public var onAuthentication: ((URLAuthenticationChallenge, @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) -> Void)?
-    #if os(iOS)
     @ObservationIgnored var discardTimeout:Duration = .seconds(8)
-    #endif
+    @ObservationIgnored var lastSelectedTime = ProcessInfo.processInfo.systemUptime
+    /// The platform download owner includes active and resumable downloads.
+    @ObservationIgnored public var hasActiveDownloads: (() -> Bool)?
+    @ObservationIgnored private var didStartDownload = false
     @ObservationIgnored private var savedInteractionState: Any?
     @ObservationIgnored private var savedViewSize: CGSize?
     @ObservationIgnored private var savedScrollOffset: CGPoint?
@@ -67,6 +70,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored private var contentProcessTerminated = false
     @ObservationIgnored private var pendingNavigationMethod: String?
     @ObservationIgnored private var committedNavigationMethod: String?
+    @ObservationIgnored private var pendingNavigationHasBody = false
+    @ObservationIgnored private var committedNavigationHasBody = false
     @ObservationIgnored private var lastAutomaticReload: TimeInterval?
     // Internal seams exercise real delegate paths without killing a WebKit process or replaying a form.
     @ObservationIgnored var recoveryClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
@@ -96,7 +101,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         super.init()
         let world = WKContentWorld.world(name: "OrivTabState")
         contentController.add(EditedFieldHandler(tab: self), contentWorld: world, name: "editedField")
-        contentController.addUserScript(WKUserScript(source: """
+        let editedFieldScript = WKUserScript(source: """
             (() => {
             if (window.orivEditTracking) return;
             window.orivEditTracking = true;
@@ -109,7 +114,36 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             document.addEventListener('input', reportEdit, true);
             document.addEventListener('change', reportEdit, true);
             })();
-            """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
+            """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world)
+        if !contentController.userScripts.contains(where: { $0.source == editedFieldScript.source }) {
+            contentController.addUserScript(editedFieldScript)
+        }
+        #if os(macOS)
+        // Public WebKit has no display-capture state property. Conservatively
+        // protect a document for its entire lifetime after any display request,
+        // including a pending/denied request. Read no stream or page contents.
+        contentController.add(DisplayCaptureHandler(tab: self), contentWorld: .page, name: "displayCaptureRequested")
+        let displayCaptureScript = WKUserScript(source: """
+            (() => {
+                const protect = () => {
+                    try { window.webkit.messageHandlers.displayCaptureRequested.postMessage(true); } catch {}
+                };
+                try {
+                    const proto = window.MediaDevices?.prototype;
+                    const original = proto?.getDisplayMedia;
+                    if (!original) return;
+                    const wrapped = new Proxy(original, { apply(target, receiver, args) {
+                        protect(); return Reflect.apply(target, receiver, args);
+                    }});
+                    proto.getDisplayMedia = wrapped;
+                    if (proto.getDisplayMedia !== wrapped) protect();
+                } catch { protect(); }
+            })();
+            """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        if !contentController.userScripts.contains(where: { $0.source == displayCaptureScript.source }) {
+            contentController.addUserScript(displayCaptureScript)
+        }
+        #endif
     }
 
     public var record: TabRecord {
@@ -170,6 +204,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         view.setAllMediaPlaybackSuspended(mediaSuspended || !isProfileActive, completionHandler: nil)
         if let state = savedInteractionState {
             savedInteractionState = nil; hasLoaded = true; isRestoringWebView = true
+            // Only a committed GET can enter the saved-state path. WebKit may
+            // restore it without sending a fresh navigation-action callback.
+            pendingNavigationMethod = "GET"
+            pendingNavigationHasBody = false
             view.interactionState = state
         }
         return view
@@ -183,32 +221,42 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         navigate(to: url)
     }
 
-    #if os(iOS)
     /// Reclaim only an unattached, idle GET page. Forms, private tabs, media,
     /// loading pages and selected tabs retain their live state. WebKit's public
     /// interaction state preserves its history and scroll position in memory.
-    public func discardBackgroundWebView(completion:@escaping @MainActor (Bool) -> Void) {
-        guard let view = backingWebView, canDiscard(view) else { completion(false); return }
+    public func discardBackgroundWebView(minimumIdle: TimeInterval = 0, completion:@escaping @MainActor (Bool) -> Void) {
+        guard let view = backingWebView, canDiscard(view, minimumIdle: minimumIdle) else { completion(false); return }
         let revision = documentRevision
         let request = DiscardRequest(timeout:discardTimeout,completion:completion)
         view.requestMediaPlaybackState { [weak self,weak view,request] playback in
             Task { @MainActor in
-                guard request.isPending, let self, let view, playback == .none, self.canDiscard(view), self.documentRevision == revision else { request.finish(false); return }
+                guard request.isPending, let self, let view, playback == .none, self.canDiscard(view, minimumIdle: minimumIdle), self.documentRevision == revision else { request.finish(false); return }
                 // An unattached WebKit page can have a DOM scroll position that
                 // UIScrollView has not mirrored yet. Read only its coordinates.
                 view.evaluateJavaScript("[scrollX,scrollY]") { [weak self,weak view,request] value,_ in
-                    guard request.isPending, let self, let view, self.canDiscard(view), self.documentRevision == revision,
-                          let state = view.interactionState else { request.finish(false); return }
+                    guard request.isPending, let view else { request.finish(false); return }
                     let offset = value as? [Double]
-                    let scroll = view.scrollView
-                    self.savedScrollOffset = offset.flatMap { $0.count == 2 ? CGPoint(x:$0[0],y:$0[1]) : nil } ??
-                        CGPoint(x:scroll.contentOffset.x+scroll.contentInset.left,y:scroll.contentOffset.y+scroll.contentInset.top)
-                    self.onWebViewDiscarded?()
-                    self.policyGeneration += 1; self.observations.removeAll()
-                    view.navigationDelegate = nil; view.uiDelegate = nil; self.onAuthentication = nil
-                    self.savedViewSize = view.bounds.size
-                    self.savedInteractionState = state; self.backingWebView = nil; self.hasLoaded = false
-                    request.finish(true)
+                    // Playback may start while JavaScript/IPC is in flight. Make
+                    // its final query the last asynchronous step before release.
+                    view.requestMediaPlaybackState { [weak self,weak view,request] playback in
+                        guard request.isPending, let self, let view, playback == .none,
+                              self.canDiscard(view, minimumIdle: minimumIdle), self.documentRevision == revision,
+                              let state = view.interactionState else { request.finish(false); return }
+                        self.savedScrollOffset = offset.flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x:$0[0],y:$0[1]) : nil }
+                        #if os(iOS)
+                        if self.savedScrollOffset == nil {
+                            let scroll = view.scrollView
+                            self.savedScrollOffset = CGPoint(x:scroll.contentOffset.x+scroll.contentInset.left,y:scroll.contentOffset.y+scroll.contentInset.top)
+                        }
+                        #endif
+                        guard self.savedScrollOffset != nil else { request.finish(false); return }
+                        self.onWebViewDiscarded?()
+                        self.policyGeneration += 1; self.observations.removeAll()
+                        view.navigationDelegate = nil; view.uiDelegate = nil; self.onAuthentication = nil
+                        self.savedViewSize = view.bounds.size
+                        self.savedInteractionState = state; self.backingWebView = nil; self.hasLoaded = false
+                        request.finish(true)
+                    }
                 }
             }
         }
@@ -237,7 +285,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     private func restoreScrollPosition(force:Bool = false) {
         guard let target = savedScrollOffset, let view = backingWebView, isRestoringWebView,
               !applyingRestoration, force || !view.isLoading else { return }
+        #if os(iOS)
         guard !view.scrollView.isTracking else { savedScrollOffset = nil; isRestoringWebView = false; return }
+        #endif
         applyingRestoration = true
         let revision = documentRevision
         view.evaluateJavaScript("window.scrollTo(\(target.x),\(target.y)); void 0") { [weak self,weak view] _,_ in
@@ -248,14 +298,18 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         }
     }
 
-    private func canDiscard(_ view:WKWebView) -> Bool {
-        !isClosed && !isSelected && !isPrivate && !hasEditedFields && !isLoading && !view.isLoading && view.url == url &&
-                !isCapturingCamera && !isCapturingMicrophone && view.superview == nil &&
-                backingWebView === view && url.map(AddressResolver.isWebURL) == true &&
-                (committedNavigationMethod == nil || committedNavigationMethod == "GET")
+    private func canDiscard(_ view:WKWebView, minimumIdle: TimeInterval) -> Bool {
+        let policy = TabDiscardPolicy(isSelected: isSelected, isPinned: isPinned, isPrivate: isPrivate,
+            hasEditedFields: hasEditedFields, isLoading: isLoading || view.isLoading || isRestoringWebView,
+            isCapturing: isCapturingCamera || isCapturingMicrophone || hasRequestedDisplayCapture ||
+                view.cameraCaptureState != .none || view.microphoneCaptureState != .none,
+            hasDownloads: hasActiveDownloads?() ?? didStartDownload, hasTerminated: contentProcessTerminated,
+            hasRequestBody: pendingNavigationHasBody || committedNavigationHasBody,
+            committedMethod: committedNavigationMethod, pendingMethod: pendingNavigationMethod)
+        return !isClosed && policy.allowsDiscard && recoveryClock() - lastSelectedTime >= minimumIdle &&
+            view.url == url && view.superview == nil && view.window == nil &&
+            backingWebView === view && url.map(AddressResolver.isWebURL) == true
     }
-
-    #endif
 
     public func navigate(to destination: URL) {
         guard AddressResolver.isWebURL(destination) else { return }
@@ -323,6 +377,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if active { recoverContentProcessIfPossible() }
     }
     func setSelected(_ selected: Bool) {
+        if selected || isSelected { lastSelectedTime = recoveryClock() }
         #if os(iOS)
         if !selected {
             backingWebView?.findInteraction?.searchText = nil
@@ -397,6 +452,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         backingWebView?.uiDelegate = nil
         observations.removeAll()
         configuration.userContentController.removeScriptMessageHandler(forName: "editedField", contentWorld: .world(name: "OrivTabState"))
+        #if os(macOS)
+        configuration.userContentController.removeScriptMessageHandler(forName: "displayCaptureRequested", contentWorld: .page)
+        #endif
+        hasActiveDownloads = nil
         backingWebView = nil
     }
 
@@ -473,18 +532,20 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         httpWarningURL = nil
         pendingHTTPUpgrade = nil
         committedNavigationMethod = pendingNavigationMethod
+        committedNavigationHasBody = pendingNavigationHasBody
+        pendingNavigationHasBody = false
         pendingNavigationMethod = nil
         contentProcessTerminated = false
         lastVisitedURL = nil
         hasEditedFields = false
+        hasRequestedDisplayCapture = false
         refresh(from: webView)
         applySiteSettings()
     }
     func recordFieldEdit() { if !isClosed { hasEditedFields = true } }
+    func recordDisplayCaptureRequest() { if !isClosed { hasRequestedDisplayCapture = true } }
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        #if os(iOS)
         restoreScrollPosition(force:true)
-        #endif
         endRefreshing()
         refresh(from: webView)
         if let url, AddressResolver.isWebURL(url), !isPrivate {
@@ -501,11 +562,17 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { handle(error,navigation:navigation) }
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard !isClosed, backingWebView === webView else { return }
         endRefreshing()
-        guard !isClosed else { return }
         isLoading = false
         contentProcessTerminated = true
-        errorMessage = "This tab’s website process stopped. Reload to continue."
+        var message = "This tab’s website process stopped. Reload to continue."
+        if hasEditedFields {
+            message += " Automatic recovery is paused because this page contains edited fields."
+        } else if (pendingNavigationMethod ?? committedNavigationMethod) != "GET" || committedNavigationMethod == "POST" || pendingNavigationHasBody || committedNavigationHasBody {
+            message += " Automatic recovery cannot safely replay this page’s request."
+        }
+        errorMessage = message
         recoverContentProcessIfPossible()
     }
 
@@ -514,6 +581,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         // No tab, navigation record, history entry or continuity record is exported here.
         guard contentProcessTerminated, isSelected, isProfileActive, !isClosed,
               !hasEditedFields, (pendingNavigationMethod ?? committedNavigationMethod) == "GET",
+              !pendingNavigationHasBody, !committedNavigationHasBody,
               committedNavigationMethod != "POST", let view = backingWebView,
               view.url.map(AddressResolver.isWebURL) == true else { return }
         let now = recoveryClock()
@@ -527,6 +595,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     func recordAllowedMainFrameNavigation(_ request: URLRequest) {
         pendingNavigationMethod = request.httpMethod?.uppercased() ?? "GET"
+        pendingNavigationHasBody = request.httpBody != nil || request.httpBodyStream != nil
     }
     private func handle(_ error: Error,navigation:WKNavigation?) {
         isRestoringWebView = false; savedScrollOffset = nil; applyingRestoration = false
@@ -650,9 +719,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
     }
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        didStartDownload = true
         onDownload?(download)
     }
     public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        didStartDownload = true
         onDownload?(download)
     }
     public func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
@@ -663,6 +734,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         onAuthentication(challenge, completionHandler)
     }
 }
+
+#if os(macOS)
+@MainActor private final class DisplayCaptureHandler: NSObject, WKScriptMessageHandler {
+    private weak var tab: BrowserTab?
+    init(tab: BrowserTab) { self.tab = tab }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.body as? Bool == true { tab?.recordDisplayCaptureRequest() }
+    }
+}
+#endif
 
 @MainActor private final class EditedFieldHandler: NSObject, WKScriptMessageHandler {
     weak var tab: BrowserTab?

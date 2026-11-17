@@ -6,6 +6,7 @@ options:
     macOS: '26.0'
     iOS: '26.0'
   createIntermediateGroups: true
+  postGenCommand: python3 scripts/normalize-xcode-capabilities.py
 configs:
   Debug: debug
   BrowserDevelopment: debug
@@ -25,11 +26,14 @@ settings:
     ORIV_BUILD_CHANNEL: Release
     ORIV_CONTINUITY_CONTAINER: ''
     ORIV_HANDOFF_ACTIVITY: com.santhoshbalaji.oriv.dev.browsing
+    ORIV_PUSH_ENVIRONMENT: production
   configs:
     Debug:
+      ORIV_PUSH_ENVIRONMENT: development
       ORIV_APP_NAME: Oriv-Dev
       ORIV_BUILD_CHANNEL: Development
     ContinuityDevelopment:
+      ORIV_PUSH_ENVIRONMENT: development
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_IDENTITY: Apple Development
       DEVELOPMENT_TEAM: ''
@@ -45,6 +49,7 @@ settings:
       ORIV_CONTINUITY_CONTAINER: iCloud.com.santhoshbalaji.oriv.browser.dev
       ORIV_HANDOFF_ACTIVITY: com.santhoshbalaji.oriv.browsing
     BrowserDevelopment:
+      ORIV_PUSH_ENVIRONMENT: development
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_IDENTITY: Apple Development
       DEVELOPMENT_TEAM: ''
@@ -54,6 +59,8 @@ targets:
   PersonalBrowser:
     attributes:
       SystemCapabilities:
+        com.apple.Push:
+          enabled: 1
         com.apple.iCloud:
           enabled: 1
     type: application
@@ -91,8 +98,8 @@ targets:
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent: true
         CODE_SIGN_ENTITLEMENTS: Apps/macOS/PersonalBrowser.entitlements
         ENABLE_HARDENED_RUNTIME: true
-        MARKETING_VERSION: 0.12.5
-        CURRENT_PROJECT_VERSION: '18'
+        MARKETING_VERSION: 0.13.0
+        CURRENT_PROJECT_VERSION: '19'
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: local.personalbrowser.qa
@@ -113,12 +120,17 @@ targets:
           - https
         OrivBuildChannel: "$(ORIV_BUILD_CHANNEL)"
         OrivContinuityContainer: "$(ORIV_CONTINUITY_CONTAINER)"
+        OrivPushEnvironment: "$(ORIV_PUSH_ENVIRONMENT)"
         NSUserActivityTypes:
         - "$(ORIV_HANDOFF_ACTIVITY)"
         NSPrincipalClass: NSApplication
   OrivMobile:
     attributes:
       SystemCapabilities:
+        com.apple.Push:
+          enabled: 1
+        com.apple.BackgroundModes:
+          enabled: 1
         com.apple.iCloud:
           enabled: 1
     type: application
@@ -150,8 +162,8 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Apps/iOS/Mobile.entitlements
         GENERATE_INFOPLIST_FILE: true
         TARGETED_DEVICE_FAMILY: '1,2'
-        MARKETING_VERSION: 0.12.5
-        CURRENT_PROJECT_VERSION: '18'
+        MARKETING_VERSION: 0.13.0
+        CURRENT_PROJECT_VERSION: '19'
         INFOPLIST_KEY_CFBundleDisplayName: Oriv-Dev
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:
@@ -186,6 +198,9 @@ targets:
           - https
         OrivBuildChannel: "$(ORIV_BUILD_CHANNEL)"
         OrivContinuityContainer: "$(ORIV_CONTINUITY_CONTAINER)"
+        OrivPushEnvironment: "$(ORIV_PUSH_ENVIRONMENT)"
+        UIBackgroundModes:
+        - remote-notification
         NSUserActivityTypes:
         - "$(ORIV_HANDOFF_ACTIVITY)"
         UISupportedInterfaceOrientations:

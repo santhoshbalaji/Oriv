@@ -6,6 +6,142 @@ import XCTest
 @testable import PersonalBrowser
 
 @MainActor final class BrowserChromeTests: BackgroundUITestCase {
+    func testChromeMessageCountsForTextTimerAndScrollBands() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { chrome.observe(nil); window.close() }
+        chrome.observe(web)
+        web.loadHTMLString("""
+            <style>body{margin:0;height:5000px;background:white}
+            header{margin-top:200px;position:sticky;top:0;height:80px;background:#6600cc}</style>
+            <header>Sticky band</header><p id="timer">0</p>
+            <script>let ticks=0;setInterval(()=>document.querySelector('#timer').textContent=++ticks,150)</script>
+            """, baseURL:nil)
+        try await wait { !web.isLoading && chrome.sampleCount > 0 }
+        try await Task.sleep(for:.milliseconds(2500))
+        let idleEdges = chrome.edgeMessageCount
+        let ticksBefore = try await web.evaluateJavaScript("Number(document.querySelector('#timer').textContent)") as? Int ?? 0
+        try await Task.sleep(for:.milliseconds(2200))
+        let timerEdges = chrome.edgeMessageCount - idleEdges
+        let ticksAfter = try await web.evaluateJavaScript("Number(document.querySelector('#timer').textContent)") as? Int ?? 0
+        XCTAssertGreaterThan(ticksAfter,ticksBefore,"The page must keep mutating during the message-count window")
+        let scrollStart = chrome.scrollMessageCount
+        // Exercise both exact boundaries, movement within a bucket, and the
+        // arrival/departure of a sticky coloured band inside the >10 bucket.
+        for y in [0,1,2,4,8,10,11,30,60,100,150,220,300,360,420,300,100,30,10,8,2,1,0] {
+            _ = try await web.evaluateJavaScript("window.scrollTo(0,\(y));window.dispatchEvent(new Event('scroll'))")
+            try await Task.sleep(for:.milliseconds(160))
+            if y == 300 {
+                try await wait { chrome.sampledTop != nil }
+                XCTAssertEqual(chrome.sampledTop?.blue ?? -1,0.8,accuracy:0.002)
+                XCTAssertFalse(chrome.showsContentUnderChrome)
+            }
+            if y == 100 { try await wait { chrome.hasScrolled && chrome.sampledTop == nil && chrome.showsContentUnderChrome } }
+        }
+        try await wait { !chrome.hasScrolled && chrome.sampledTop == nil }
+        let scrollPosts = chrome.scrollMessageCount - scrollStart
+        print("Chrome message counts: timerEdges=\(timerEdges), scrollPosts=\(scrollPosts), scrollSteps=23")
+        XCTAssertEqual(timerEdges,0,"Text-only churn must not send unchanged edge paint")
+        XCTAssertEqual(scrollPosts,4,"Only crossings of 1px and 10px in either direction need scroll messages")
+        XCTAssertFalse(chrome.isDark)
+    }
+
+    func testForcedLifecycleSamplesAndReattachmentBypassEdgeDeduplication() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { chrome.observe(nil); window.close() }
+        web.loadHTMLString("<body style='background:#6600cc'>Lifecycle</body>",baseURL:nil)
+        try await wait { !web.isLoading && web.url != nil }
+        chrome.observe(web)
+        try await wait { chrome.edgeMessageCount > 0 }
+        try await Task.sleep(for:.milliseconds(700))
+        for event in ["pageshow","resize","popstate","hashchange"] {
+            let count = chrome.edgeMessageCount
+            _ = try await web.evaluateJavaScript("window.dispatchEvent(new Event('\(event)'))")
+            try await wait { chrome.edgeMessageCount > count }
+        }
+        for script in ["window.__orivChromeSend();",PageChrome.observerScript] {
+            let count = chrome.edgeMessageCount
+            _ = try await web.callAsyncJavaScript(script + "; return true;",arguments:[:],in:nil,contentWorld:.world(name:"OrivPageChrome"))
+            try await wait { chrome.edgeMessageCount > count }
+        }
+        chrome.observe(nil)
+        let count = chrome.edgeMessageCount
+        chrome.observe(web)
+        try await wait { chrome.edgeMessageCount > count && chrome.isDark }
+        XCTAssertEqual(NSColor(chrome.color).usingColorSpace(.sRGB)!.blueComponent,0.8,accuracy:0.002)
+    }
+
+    func testPrivatePagesInstallNeitherChromeObserverNorMessageHandler() async throws {
+        let controller = BrowserController(testing:true)
+        defer { controller.shutdown() }
+        let tab = controller.session.addTab(isPrivate:true,select:true,load:false)
+        let web = tab.webView, chrome = PageChrome()
+        let window = samplingWindow(web); defer { chrome.observe(nil); window.close() }
+        chrome.observe(web,isPrivate:true)
+        web.loadHTMLString("<body>Private<script>setInterval(()=>document.body.firstChild.textContent=Date.now(),150)</script></body>",baseURL:nil)
+        try await wait { !web.isLoading && web.url != nil }
+        func installed() async throws -> [String:Bool] {
+            let value = try await web.callAsyncJavaScript("return {observer:typeof window.__orivChromeStop === 'function',handler:!!window.webkit?.messageHandlers?.chromeEdge};",
+                arguments:[:],in:nil,contentWorld:.world(name:"OrivPageChrome"))
+            return try XCTUnwrap(value as? [String:Bool])
+        }
+        let initiallyInstalled = try await installed()
+        XCTAssertEqual(initiallyInstalled,["observer":false,"handler":false])
+        XCTAssertFalse(web.configuration.userContentController.userScripts.contains { $0.source == PageChrome.observerScript })
+        // Also remove an already-running normal observer when privacy changes.
+        chrome.observe(web)
+        try await wait { chrome.edgeMessageCount > 0 }
+        let otherScript = WKUserScript(source:"window.unrelatedScript = true",injectionTime:.atDocumentStart,forMainFrameOnly:true)
+        web.configuration.userContentController.addUserScript(otherScript)
+        chrome.observe(web,isPrivate:true)
+        let privatelyInstalled = try await installed()
+        XCTAssertEqual(privatelyInstalled,["observer":false,"handler":false])
+        XCTAssertTrue(web.configuration.userContentController.userScripts.contains { $0.source == otherScript.source })
+        let edges = chrome.edgeMessageCount, scrolls = chrome.scrollMessageCount
+        _ = try await web.evaluateJavaScript("window.dispatchEvent(new Event('scroll'));document.body.style.background='white'")
+        try await Task.sleep(for:.milliseconds(1400))
+        XCTAssertEqual(chrome.edgeMessageCount,edges)
+        XCTAssertEqual(chrome.scrollMessageCount,scrolls)
+        XCTAssertEqual(chrome.luminance,0)
+    }
+
+    func testThresholdMessagesCancelDwellAndRejectOutOfOrderPaintAndScroll() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { chrome.observe(nil); window.close() }
+        chrome.observe(web)
+        web.loadHTMLString("<style>body{margin:0;height:5000px;background:white}</style>",baseURL:nil)
+        try await wait { !web.isLoading && chrome.sampleCount > 0 }
+        func scroll(_ y: Int) async throws {
+            _ = try await web.evaluateJavaScript("window.scrollTo(0,\(y));window.dispatchEvent(new Event('scroll'))")
+        }
+        try await scroll(30)
+        try await Task.sleep(for:.milliseconds(25))
+        try await scroll(5)
+        try await Task.sleep(for:.milliseconds(150))
+        XCTAssertFalse(chrome.hasScrolled,"Returning below 10px cancels pending entry")
+        try await scroll(30)
+        try await wait { chrome.hasScrolled }
+        try await scroll(0)
+        try await Task.sleep(for:.milliseconds(25))
+        try await scroll(5)
+        try await Task.sleep(for:.milliseconds(150))
+        XCTAssertTrue(chrome.hasScrolled,"Returning above 1px cancels pending exit")
+        // Deliver an edge after a threshold message, then an older edge and an
+        // older scroll. Neither may undo the latest atomic scroll state.
+        _ = try await web.callAsyncJavaScript("""
+            const handler = window.webkit.messageHandlers.chromeEdge;
+            const time = performance.timeOrigin + performance.now();
+            const edge = {body:[1,1,1,1],html:null,edge:null,dimming:false,
+                href:location.href,documentID:performance.timeOrigin,initialComplete:true};
+            handler.postMessage({scrollY:30,scrollTime:time});
+            handler.postMessage({edge:{...edge,scrollY:0,sampleTime:time-2}});
+            handler.postMessage({edge:{...edge,scrollY:30,sampleTime:time+2}});
+            handler.postMessage({scrollY:0,scrollTime:time+1});
+            return true;
+            """,arguments:[:],in:nil,contentWorld:.world(name:"OrivPageChrome"))
+        try await Task.sleep(for:.milliseconds(100))
+        XCTAssertTrue(chrome.hasScrolled,"Older callbacks must not reverse a newer edge/scroll update")
+    }
+
     func testDetachingLightPageResetsHomeInsteadOfRetainingAnotherTabsTint() async throws {
         let view = makeWebView(), chrome = PageChrome()
         let window = samplingWindow(view); defer { window.close() }

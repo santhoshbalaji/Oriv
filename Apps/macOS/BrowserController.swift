@@ -54,18 +54,28 @@ final class BrowserController {
             #if DEBUG
             ChromeTiming.install(on: view)
             #endif
-            PageChrome.install(on: view)
+            PageChrome.install(on: view, isPrivate: tab.isPrivate)
             guard let self else { return }
             let adapter = MacWebUIDelegate(session: self.session, tab: tab)
             self.adapters[tab.id] = adapter
             view.uiDelegate = adapter
+            self.privacyMenus.removeValue(forKey: tab.id)?.invalidate()
             self.privacyMenus[tab.id] = MacPrivacyLinkMenu(tab: tab, session: self.session, view: view)
+            let id = tab.id
+            tab.onWebViewDiscarded = { [weak self] in
+                self?.adapters.removeValue(forKey: id)
+                self?.privacyMenus.removeValue(forKey: id)?.invalidate()
+            }
+            tab.hasActiveDownloads = { [weak self, weak view] in
+                guard let view else { return false }
+                return self?.downloads.items.contains { $0.sourceView === view && (!$0.isFinished || $0.isPaused || $0.isCancelling) } == true
+            }
             tab.onAuthentication = { [weak adapter] challenge, completion in
                 guard let adapter else { completion(.cancelAuthenticationChallenge, nil); return }
                 adapter.authenticate(challenge, completion: completion)
             }
         }
-        session.didCloseTab = { [weak self] id in self?.adapters.removeValue(forKey: id); self?.privacyMenus.removeValue(forKey: id) }
+        session.didCloseTab = { [weak self] id in self?.adapters.removeValue(forKey: id); self?.privacyMenus.removeValue(forKey: id)?.invalidate() }
         session.handleDownload = { [weak self] download in
             guard let self, self.session.isProfileActive else { download.cancel { _ in }; return }
             self.downloads.begin(download)

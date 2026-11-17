@@ -6,11 +6,16 @@ import SwiftUI
 struct PersonalBrowserApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var phase
-    @State private var profiles = BrowserProfiles()
+    @State private var profiles: BrowserProfiles
     private var controller: BrowserController { profiles.controller }
     private var appearance: BrowserAppearance { controller.appearance }
 
-    init() { BackgroundUIMode.installAtLaunch() }
+    init() {
+        BackgroundUIMode.installAtLaunch()
+        let initial = BrowserProfiles()
+        _profiles = State(initialValue: initial)
+        appDelegate.profiles = initial; appDelegate.controller = initial.controller
+    }
 
     var body: some Scene {
         Window(AppIdentity.name, id: "browser") {
@@ -18,7 +23,10 @@ struct PersonalBrowserApp: App {
                 .id(profiles.active.id)
                 .onAppear { appDelegate.controller = controller; appDelegate.profiles = profiles }
                 .modifier(BrowserHandoff(continuity: profiles.continuity, session: controller.session, profile: profiles.active, open: profiles.openContinuityPage))
-                .onChange(of: phase, initial: true) { _, value in profiles.continuity.setForeground(value == .active) }
+                .onChange(of: phase, initial: true) { _, value in
+                    if value != .active { profiles.saveAll() }
+                    profiles.continuity.setForeground(value == .active)
+                }
                 .onOpenURL { url in profiles.handleIncomingURL(url, sourceName: AppDelegate.externalSourceName) }
                 .frame(minWidth: 760, minHeight: 520)
                 .browserAppearance(appearance)
@@ -63,10 +71,23 @@ struct PersonalBrowserApp: App {
     weak var profiles: BrowserProfiles?
     func applicationWillFinishLaunching(_ notification: Notification) { BackgroundUIMode.installAtLaunch() }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        profiles?.continuity.configurePushRegistration { [weak self] in
+            guard !BackgroundUIMode.isEnabled else { self?.profiles?.continuity.remoteNotificationRegistration(succeeded: false); return }
+            NSApplication.shared.registerForRemoteNotifications()
+        }
         #if DEBUG
         if let directory = VisualSnapshots.directory { Task { await VisualSnapshots.run(into: directory) }; return }
         #endif
         Task { await BrowserUpgradeCleanup.retireOldAlerts() }
+    }
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        profiles?.continuity.remoteNotificationRegistration(succeeded: true)
+    }
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        profiles?.continuity.remoteNotificationRegistration(succeeded: false)
+    }
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        profiles?.continuity.receiveRemoteNotification(userInfo)
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let controllers = profiles?.allControllers ?? controller.map { [$0] } ?? []
@@ -80,7 +101,7 @@ struct PersonalBrowserApp: App {
     }
     func applicationWillTerminate(_ notification: Notification) {
         if let profiles { profiles.saveAll(); profiles.shutdown() }
-        else { controller?.session.saveNow(); controller?.downloads.shutdown() }
+        else { controller?.session.saveNow(); controller?.session.flushPersistence(); controller?.downloads.shutdown() }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
