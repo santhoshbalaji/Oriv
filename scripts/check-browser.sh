@@ -2,6 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export ORIV_BACKGROUND_UI="${ORIV_BACKGROUND_UI:-1}"
+# xcodebuild strips TEST_RUNNER_ when forwarding variables to the test host.
+export TEST_RUNNER_CI="${CI:-false}"
+export TEST_RUNNER_GITHUB_ACTIONS="${GITHUB_ACTIONS:-false}"
 python3 scripts/check-public-safety.py
 python3 scripts/check-browser-scope.py
 python3 scripts/check-background-ui.py

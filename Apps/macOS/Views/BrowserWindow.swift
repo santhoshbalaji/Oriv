@@ -244,6 +244,7 @@ struct BrowserWindow: View {
         .accessibilityHint("Toggle sidebar with Option-Command-S")
         .accessibilityIdentifier("sidebarToggle")
         .background(BrowserGeometryMarker(name: "sidebarToggleGeometry"))
+        .background { if sidebarHeaderToggleFocused { BrowserGeometryMarker(name: "sidebarToggleKeyboardFocus") } }
         .onKeyPress(.downArrow) { sidebarTabFocusRequest += 1; return .handled }
         .accessibilitySortPriority(2)
         .foregroundStyle(Theme.sidebar.text)

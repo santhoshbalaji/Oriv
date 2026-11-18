@@ -79,6 +79,29 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
     }
 }
 
+/// Keep the request independent of the focus binding: a LazyVStack can discard
+/// focus assigned before the destination exists. Visibility is the acknowledgement
+/// that scrolling has materialized the row; no delay or retry timer is needed.
+private struct SidebarTabFocus: ViewModifier {
+    let id: UUID
+    let requestedID: UUID?
+    let focused: FocusState<UUID?>.Binding
+    @State private var visible = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollVisibilityChange { visible in
+                self.visible = visible
+                if visible { focusIfRequested() }
+            }
+            .onChange(of: requestedID) { _, _ in focusIfRequested() }
+    }
+
+    private func focusIfRequested() {
+        if visible, requestedID == id { focused.wrappedValue = id }
+    }
+}
+
 struct BrowserSidebar: View {
     private let theme = Theme.sidebar
     @Bindable var controller: BrowserController
@@ -206,7 +229,7 @@ struct BrowserSidebar: View {
         searchFocused = false
         // Finish the native field editor's resignation before requesting a
         // SwiftUI row. Doing both in one transaction can discard the new focus.
-        DispatchQueue.main.async { focusedTab = id }
+        DispatchQueue.main.async { pendingFocus = id }
     }
 
     private var tabCollection: some View {
@@ -292,14 +315,29 @@ struct BrowserSidebar: View {
             .scrollIndicators(.hidden)
             .accessibilityIdentifier("sidebarTabs")
             .onChange(of: session.selectedTabID) { _, id in if let id { reader.scrollTo(id) } }
-            .onChange(of: focusedTab) { _, id in if let id { reader.scrollTo(id) } }
+            .onChange(of: pendingFocus) { _, id in
+                if let id { reader.scrollTo(id) }
+            }
+            .onChange(of: focusedTab) { _, id in
+                if let id {
+                    reader.scrollTo(id)
+                    // Acknowledges the target, or cancels it if the user moved
+                    // focus to another row while scrolling was in progress.
+                    pendingFocus = nil
+                }
+            }
             .onChange(of: focusRequest) { _, _ in
                 pendingFocus = session.selectedTabID
-                if let id = pendingFocus { reader.scrollTo(id) }
             }
-            .onChange(of: railLayout) { _, _ in if let id = (railLayout ? railAnchor : expandedAnchor) ?? session.selectedTabID { reader.scrollTo(id) } }
+            .onChange(of: railLayout) { _, _ in
+                pendingFocus = nil
+                if let id = (railLayout ? railAnchor : expandedAnchor) ?? session.selectedTabID { reader.scrollTo(id) }
+            }
+            .onChange(of: searchFocused) { _, focused in if focused { pendingFocus = nil } }
+            .onChange(of: utilityFocus) { _, focused in if focused != nil { pendingFocus = nil } }
             .onChange(of: session.tabs.map(\.id)) { _, ids in
-                if let focusedTab, !ids.contains(focusedTab) { self.focusedTab = session.selectedTabID }
+                if let pendingFocus, !ids.contains(pendingFocus) { self.pendingFocus = nil }
+                if let focusedTab, !ids.contains(focusedTab) { pendingFocus = session.selectedTabID }
             }
         }
     }
@@ -317,25 +355,15 @@ struct BrowserSidebar: View {
             }
             .modifier(SidebarDropTargetModifier(target: .tab(tab.id), controller: controller))
             .contextMenu { tabMenu(tab) }
-            .onAppear { focusWhenReady(tab) }
-            .onChange(of: focusRequest) { _, _ in focusWhenReady(tab) }
+            .modifier(SidebarTabFocus(id: tab.id, requestedID: pendingFocus, focused: $focusedTab))
             .onKeyPress(.return) { session.selectTab(tab.id); return .handled }
             .onKeyPress(.escape) { controller.tabSearch = ""; return .handled }
             .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
-                guard let next = SidebarTabs.keyboardTarget(from: tab.id, key: press.key, tabs: filteredTabs,
+                guard let next = SidebarTabs.keyboardTarget(from: pendingFocus ?? tab.id, key: press.key, tabs: filteredTabs,
                     rail: railLayout || !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) else { return .ignored }
-                focusedTab = next.id; session.selectTab(next.id); return .handled
+                pendingFocus = focusedTab == next.id ? nil : next.id
+                session.selectTab(next.id); return .handled
             }
-    }
-
-    private func focusWhenReady(_ tab: BrowserTab) {
-        guard tab.id == session.selectedTabID else { return }
-        // Lazy targets must finish mounting before their focus binding accepts
-        // a request. Visible targets use the same next-run-loop path.
-        DispatchQueue.main.async {
-            guard pendingFocus == tab.id else { return }
-            focusedTab = tab.id; pendingFocus = nil
-        }
     }
 
     @ViewBuilder private func tabMenu(_ tab: BrowserTab) -> some View {
@@ -527,6 +555,7 @@ private struct SidebarTabItem: View {
         }
         .frame(width: rail && !peek ? 42 : (tile && !rail ? 56 : nil))
         .background(BrowserGeometryMarker(name: "sidebarItem-\(tab.id)"))
+        .background { if keyboardFocused { BrowserGeometryMarker(name: "sidebarKeyboardFocus-\(tab.id)") } }
         // The mock's lifted selection stays centred within the rail inset.
         .background(selected ? theme.selection : (hovered ? theme.thread : (tile && !rail ? theme.field.opacity(0.6) : .clear)),
                     in: .rect(cornerRadius: rail ? 10 : (tile ? 12 : 9)))

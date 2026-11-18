@@ -26,6 +26,23 @@ import XCTest
     }
     private func settle() async throws { try await Task.sleep(for: .milliseconds(300)) }
 
+    private func waitUntil(_ message: String, file: StaticString = #filePath, line: UInt = #line,
+                           condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        _ = try XCTUnwrap(condition() ? true : nil, message, file: file, line: line)
+    }
+
+    private func hasVisibleKeyboardFocus(_ id: UUID, in window: NSWindow) -> Bool {
+        guard let marker = window.contentView.flatMap({ views($0).first {
+            $0.identifier?.rawValue == "sidebarKeyboardFocus-\(id)"
+        } }), let scroll = marker.enclosingScrollView else { return false }
+        let frame = marker.convert(marker.bounds, to: scroll.contentView)
+        return frame.height > 0 && scroll.contentView.bounds.insetBy(dx: -1, dy: -1).contains(frame)
+    }
+
     private func toggleSidebar(in window: NSWindow) throws {
         let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
@@ -270,29 +287,45 @@ import XCTest
         let c = BrowserController(testing: true); defer { c.shutdown() }
         for _ in 1..<60 { _ = c.session.addTab(select: false, load: false) }
         let tabs = c.session.orderedTabs
-        let w = window(c); defer { w.close() }; try await settle()
-        c.searchTabs(); try await settle()
+        let w = window(c); defer { w.close() }
+        try await waitUntil("Initial address field did not acquire its editor") {
+            w.contentView.map { self.views($0).contains { ($0 as? FocusAwareAddressField)?.currentEditor() != nil } } == true
+        }
+        c.searchTabs()
+        try await waitUntil("Search field did not acquire its editor") {
+            w.firstResponder is NSTextView && w.contentView.map {
+                !self.views($0).contains { ($0 as? FocusAwareAddressField)?.currentEditor() != nil }
+            } == true
+        }
         func key(_ code: UInt16, _ text: String) throws {
             NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
                 characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code)))
         }
-        try key(125, "\u{f701}"); try await settle()
+        try key(125, "\u{f701}")
+        try await waitUntil("Search did not hand focus to the first row") { self.hasVisibleKeyboardFocus(tabs[0].id, in: w) }
         for index in 1..<60 {
             try key(125, "\u{f701}")
-            try await Task.sleep(for: .milliseconds(35))
-            guard c.session.selectedTabID == tabs[index].id else { XCTFail("Expanded arrow focus lost at lazy row \(index)"); return }
+            try await waitUntil("Expanded arrow focus lost at lazy row \(index)") {
+                c.session.selectedTabID == tabs[index].id && self.hasVisibleKeyboardFocus(tabs[index].id, in: w)
+            }
         }
         let toggle = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
             characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1))
-        XCTAssertTrue(w.performKeyEquivalent(with: toggle)); try await settle()
+        XCTAssertTrue(w.performKeyEquivalent(with: toggle))
+        try await waitUntil("Sidebar did not collapse to rail") { c.compactSidebar }
         XCTAssertTrue(c.compactSidebar)
-        try key(125, "\u{f701}"); try await settle() // Toggle -> selected rail tab.
+        try await waitUntil("Collapse did not hand focus to the surviving toggle") {
+            w.contentView.map { self.views($0).contains { $0.identifier?.rawValue == "sidebarToggleKeyboardFocus" } } == true
+        }
+        try key(125, "\u{f701}") // Toggle -> selected rail tab.
+        try await waitUntil("Toggle did not hand focus to the selected rail row") { self.hasVisibleKeyboardFocus(tabs[59].id, in: w) }
         for index in stride(from: 58, through: 0, by: -1) {
             try key(126, "\u{f700}")
-            try await Task.sleep(for: .milliseconds(35))
-            guard c.session.selectedTabID == tabs[index].id else { XCTFail("Rail arrow focus lost at lazy row \(index)"); return }
+            try await waitUntil("Rail arrow focus lost at lazy row \(index)") {
+                c.session.selectedTabID == tabs[index].id && self.hasVisibleKeyboardFocus(tabs[index].id, in: w)
+            }
         }
     }
     func testAudioEventsAggregateFramesAndResetWithNavigation() throws {
@@ -384,6 +417,9 @@ import XCTest
         }
     }
     func testHundredTabNativeScrollLayoutBudgetWithGlassAndSolid() async throws {
+        let ci = ["CI", "GITHUB_ACTIONS"].contains {
+            ["1", "true", "yes"].contains(ProcessInfo.processInfo.environment[$0, default: ""].lowercased())
+        }
         let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let records = (0..<100).map { TabRecord(title: "Tab \($0)", url: URL(string: "https://site\($0).example"), isPinned: $0 < 10) }
@@ -410,8 +446,17 @@ import XCTest
                 try await Task.sleep(for: .milliseconds(2))
             }
             let sorted = samples.sorted(), p95 = sorted[Int(Double(sorted.count - 1) * 0.95)]
-            print("SIDEBAR_SCROLL tabs=100 solid=\(solid) samples=\(samples.count) p50_ms=\(sorted[sorted.count / 2]) p95_ms=\(p95) max_ms=\(sorted.last!) over16ms=\(samples.filter { $0 > 16.67 }.count) native_layout_only=true")
-            XCTAssertLessThan(p95, 16.67, "Off-screen native scroll/layout CPU must fit a 60 Hz frame budget")
+            let measurement = "SIDEBAR_SCROLL tabs=100 solid=\(solid) samples=\(samples.count) p50_ms=\(sorted[sorted.count / 2]) p95_ms=\(p95) max_ms=\(sorted.last!) over16ms=\(samples.filter { $0 > 16.67 }.count) native_layout_only=true local_budget_enforced=\(!ci)"
+            print(measurement)
+            let attachment = XCTAttachment(string: measurement + "\nlayout_ms\n" + samples.map(String.init(describing:)).joined(separator: "\n"))
+            attachment.name = "Sidebar scroll layout (\(solid ? "solid" : "glass"))"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            // Hosted VMs record the same samples, but their scheduling latency
+            // cannot establish the owner hardware's 60 Hz CPU budget.
+            if !ci {
+                XCTAssertLessThan(p95, 16.67, "Off-screen native scroll/layout CPU must fit a 60 Hz frame budget")
+            }
             XCTAssertFalse(c.session.tabs.contains(where: \.isInstantiated), "Rows/search must never wake sleeping WebViews")
             w.contentView = nil; w.close()
         }
