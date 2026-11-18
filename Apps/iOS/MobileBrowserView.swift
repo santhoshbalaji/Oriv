@@ -11,6 +11,7 @@ struct MobileBrowserView: View {
     let profiles: MobileProfiles
     @State private var address = ""
     @State private var editingAddress = false
+    @State private var addressMatches = AddressSuggestions()
     @State private var nativeFinding = false
     @State private var keyboardOverlap:CGFloat = 0
     @State private var consumedFocusRequest = 0
@@ -225,6 +226,10 @@ struct MobileBrowserView: View {
                 .onChange(of:swipe.isActive) { wasActive, active in
                     if wasActive && !active && gestures.source != nil { cancelTransition() }
                 }
+                .environment(\.siteIcons, controller.session.siteIcons)
+                .task(id: "\(address)-\(editingAddress)-\(tab?.id.uuidString ?? "")") {
+                    await addressMatches.update(editingAddress ? address : "", session: controller.session, isPrivate: tab?.isPrivate == true)
+                }
                 .onReceive(NotificationCenter.default.publisher(for:UIResponder.keyboardWillChangeFrameNotification)) { _ in
                     if gestures.source != nil || presentation.activeID != nil || gestures.gridClosing { cancelTransition() }
                 }
@@ -263,6 +268,7 @@ struct MobileBrowserView: View {
                     case .share: if let tab, let url = tab.url { MobilePageShare(webView: tab.webView, url: URLCleaner.clean(url)) }
                     }
                     }.browserAppearance(controller.appearance)
+                        .environment(\.siteIcons, controller.session.siteIcons)
                 }
                 .alert("Unable to complete action", isPresented: Binding(get: { controller.message != nil }, set: { if !$0 { controller.message = nil } })) {
                     Button("OK") { controller.message = nil }
@@ -667,7 +673,9 @@ struct MobileBrowserView: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 if tab?.isPrivate == true { Image(systemName: "eyeglasses").font(.system(size: 20)).foregroundStyle(theme.privateAccent).accessibilityLabel("Private") }
-                CappedAddressEditor(text: $address, editing: $editingAddress, submit: submitAddress)
+                CappedAddressEditor(text: $address, editing: $editingAddress, submit: submitAddress,
+                    completion: addressMatches.completion, hasSelectedSuggestion: addressMatches.selected != nil && addressMatches.query == address, moveSelection: { addressMatches.move($0) },
+                    cancel: { editingAddress = false })
             }.padding(.horizontal, 14).padding(.vertical, 4).browserGlass()
             Button {
                 editingAddress = false; address = tab?.url?.absoluteString ?? ""
@@ -731,7 +739,7 @@ struct MobileBrowserView: View {
                 if success { presentation.didPrepareLive(token) }
                 else { cancelTransition() }
             },swipe:swipe,tabID:tab.id,selected:tab.id == controller.session.selectedTabID,
-            viewportLayout:controller.viewportLayout,baseBottomInset:max(bottom,windowInsets.bottom),includesBar:!nativeFinding)
+            viewportLayout:controller.viewportLayout,baseBottomInset:max(bottom,windowInsets.bottom),includesBar:!nativeFinding,tab:tab)
         }
     }
     private var otherProfiles: Bool { profiles.profiles.filter { $0.archivedAt == nil }.count > 1 }
@@ -775,28 +783,25 @@ struct MobileBrowserView: View {
     }
     private var suggestions: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button(action: submitAddress) {
-                        Label(AddressAction.title(for: address, engine: controller.session.settings.searchEngine, compact: typeSize.isAccessibilitySize), systemImage: AddressAction.symbol(for: address, engine: controller.session.settings.searchEngine))
-                            .foregroundStyle(theme.text).lineLimit(typeSize.isAccessibilitySize ? 3 : 1).padding(.horizontal, OrivSpacing.small).frame(minHeight: 52, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(addressMatches.rows.enumerated()), id: \.element.id) { index, match in
+                    if index == 0 || addressMatches.rows[index - 1].source != match.source {
+                        Text(match.source.rawValue).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
+                            .padding(.horizontal, 12).padding(.top, 8)
+                    }
+                    Button { chooseSuggestion(match) } label: {
+                        AddressSuggestionRow(suggestion: match, query: address, isPrivate: tab?.isPrivate == true)
+                            .padding(.horizontal, 12).frame(minHeight: 52).contentShape(Rectangle())
+                            .background { if addressMatches.selected == index { SelectedRowBackground() } }
+                    }.buttonStyle(.plain).accessibilityAddTraits(addressMatches.selected == index ? [.isSelected] : [])
                 }
-                let matches = controller.session.suggestions(for: address, isPrivate: tab?.isPrivate == true)
-                let context = URLDisplay.Context(matches.map { ($0.title, $0.url) })
-                ForEach(matches) { match in
-                    Button {
-                        editingAddress = false
-                        if let id = match.tabID { controller.session.selectTab(id) } else { controller.perform { try controller.session.navigate(match.url.absoluteString) } }
-                    } label: {
-                        PageRowContent(title: match.title, url: match.url, context: context,
-                                       isPrivate: tab?.isPrivate == true,
-                                       accessory: match.tabID != nil ? .alreadyOpen : .none)
-                            .padding(.horizontal, OrivSpacing.small).frame(minHeight: 52).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-            }.padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
+            }.padding(8).browserGlass().padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).scrollDismissesKeyboard(.interactively)
+    }
+    private func chooseSuggestion(_ match: BrowserSuggestion) {
+        editingAddress = false
+        if let id = match.tabID { controller.session.selectTab(id) }
+        else { controller.perform { try controller.session.navigate(match.url.absoluteString) } }
     }
     private var pageMenu: some View {
             Menu {
@@ -841,6 +846,9 @@ struct MobileBrowserView: View {
     }
     private func beginAddressEditing() { minimized = false; address = tab?.url?.absoluteString ?? ""; editingAddress = true }
     private func submitAddress() {
+        if addressMatches.query == address, let index = addressMatches.selected, addressMatches.rows.indices.contains(index) {
+            chooseSuggestion(addressMatches.rows[index]); return
+        }
         do { try controller.session.navigate(address); editingAddress = false }
         catch { controller.message = error.localizedDescription }
     }
@@ -857,9 +865,13 @@ private struct CappedAddressEditor: View {
     @Binding var text: String
     @Binding var editing: Bool
     let submit: () -> Void
+    var completion: String? = nil
+    var hasSelectedSuggestion = false
+    var moveSelection: (Int) -> Void = { _ in }
+    var cancel: () -> Void = {}
     @ScaledMetric(relativeTo: .body) private var height: CGFloat = 44
     var body: some View {
-        MobileAddressField(text: $text, editing: $editing, submit: submit)
+        MobileAddressField(text: $text, editing: $editing, submit: submit, completion: completion, hasSelectedSuggestion: hasSelectedSuggestion, moveSelection: moveSelection, cancel: cancel)
             .frame(height: height)
     }
 }

@@ -12,7 +12,10 @@ for relative in ('Apps', 'Packages/BrowserKit/Sources'):
         transport = path.relative_to(root).as_posix() == 'Packages/BrowserKit/Sources/BrowserEngine/ContinuityCloudTransport.swift'
         if re.search(r'^(?:@preconcurrency )?import (ProductivityKit|AssistantKit|EventKit)\b', text, re.M) or (not transport and re.search(r'^(?:@preconcurrency )?import CloudKit\b', text, re.M)):
             failures.append(f'{path.relative_to(root)} imports a retired service')
-        if re.search(r'URLSession\.(shared|configuration)|URLSession\(configuration:|EKEventStore\(|SecItem(Add|CopyMatching|Update|Delete)\(', text) or (not transport and re.search(r'CKContainer\(', text)):
+        favicon = path.relative_to(root).as_posix() == 'Packages/BrowserKit/Sources/BrowserEngine/SiteIconStore.swift'
+        if favicon and ('URLSessionConfiguration.ephemeral' not in text or 'configuration.urlCache = nil' not in text or 'URLSession.shared' in text):
+            failures.append('Site icons must use an ephemeral, uncached page-derived transport')
+        if (not favicon and re.search(r'URLSession\.(shared|configuration)|URLSession\(configuration:', text)) or re.search(r'EKEventStore\(|SecItem(Add|CopyMatching|Update|Delete)\(', text) or (not transport and re.search(r'CKContainer\(', text)):
             failures.append(f'{path.relative_to(root)} adds an app-owned service client or credential access requiring review')
 for relative in ('project.yml', 'Packages/BrowserKit/Package.swift'):
     text = (root / relative).read_text()
@@ -50,4 +53,4 @@ for platform in ('macOS', 'iOS'):
         failures.append(f'{path.relative_to(root)} has unexpected URL registrations: {schemes}')
 if failures:
     raise SystemExit('\n'.join(failures))
-print('Browser scope: two shared packages; optional browser-only CloudKit transport; no AI/EventKit clients, extension target or retired entitlements.')
+print('Browser scope: two shared packages; optional browser-only CloudKit transport; page-derived ephemeral site icons; no AI/EventKit clients, extension target or retired entitlements.')

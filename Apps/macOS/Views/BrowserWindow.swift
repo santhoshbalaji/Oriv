@@ -28,7 +28,7 @@ struct BrowserWindow: View {
     @State private var showSiteInfo = false
     @State private var findCaseSensitive = false
     @State private var addressFocused = false
-    @State private var suggestionIndex: Int?
+    @State private var addressMatches = AddressSuggestions()
     @State private var pageChrome = PageChrome()
     @State private var showTabs = false
     @FocusState private var findFocused: Bool
@@ -61,6 +61,8 @@ struct BrowserWindow: View {
 
     var body: some View {
         routedContent
+        .background(BrowserKeyRouter(session: session, overviewVisible: showTabs))
+        .environment(\.siteIcons, session.siteIcons)
         .focusedSceneValue(\.browserController, controller)
         .onAppear {
             session.activateSelectedTab(); syncAddress(); if tab?.url == nil { controller.focusAddress() }
@@ -74,7 +76,9 @@ struct BrowserWindow: View {
         .onChange(of: session.tabs.count) { _, count in
             if session.isExternalPrivate && count == 0 { dismissWindow(id: "external-private"); profiles?.endExternalPrivate() }
         }
-        .onChange(of: address) { _, _ in suggestionIndex = nil }
+        .task(id: "\(address)-\(addressFocused)-\(session.selectedTabID?.uuidString ?? "")") {
+            await addressMatches.update(addressFocused ? address : "", session: session, isPrivate: tab?.isPrivate == true)
+        }
         .onChange(of: session.selectedTabID) { _, _ in addressFocused = false; syncAddress(); showFind = false; showSiteInfo = false; showProtection = false }
         .onChange(of: tab?.url) { _, _ in if !addressFocused { syncAddress() } }
         .onChange(of: controller.findRequest) { _, _ in showFind = true; findFocused = true }
@@ -248,13 +252,10 @@ struct BrowserWindow: View {
                                  displayText: compactAddress,
                                  foreground: chromeForeground,
                                  focusRequest: controller.addressFocusRequest, submit: {
-                            if let index = suggestionIndex, suggestions.indices.contains(index) { chooseSuggestion(suggestions[index]); return true }
+                            if addressMatches.query == address, let index = addressMatches.selected, suggestions.indices.contains(index) { chooseSuggestion(suggestions[index]); return true }
                             controller.navigate(address)
                             return controller.addressError == nil
-                        }, cancel: { syncAddress() }, moveSelection: { offset in
-                            guard !suggestions.isEmpty else { return }
-                            suggestionIndex = min(suggestions.count - 1, max(0, (suggestionIndex ?? (offset > 0 ? -1 : suggestions.count)) + offset))
-                        })
+                        }, cancel: { syncAddress() }, completion: addressMatches.completion, hasSelectedSuggestion: addressMatches.selected != nil && addressMatches.query == address, moveSelection: { addressMatches.move($0) })
                         .frame(width: compactAddressWidth, height: 20)
                         .frame(maxWidth: compactAddressWidth == nil ? .infinity : nil)
                 }
@@ -343,9 +344,11 @@ struct BrowserWindow: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))]) {
                         ForEach(session.orderedTabs) { item in
                             Button { session.selectTab(item.id); showTabs = false } label: {
-                                PageRowContent(title: item.displayTitle, url: item.url, isPrivate: item.isPrivate)
+                                PageRowContent(title: item.displayTitle, url: item.url, isPrivate: item.isPrivate,
+                                               isSelected: item.id == session.selectedTabID,
+                                               accessory: item.id == session.selectedTabID ? .selected : .none)
                                     .padding(16).frame(maxWidth: .infinity, minHeight: 90)
-                                    .background(theme.surface, in: .rect(cornerRadius: 12))
+                                    .background(item.id == session.selectedTabID ? theme.selection : theme.surface, in: .rect(cornerRadius: 12))
                             }.buttonStyle(.plain)
                         }
                     }
@@ -428,7 +431,7 @@ struct BrowserWindow: View {
                 }
                 if let tab {
                     ZStack(alignment: .top) {
-                        tabContent(tab).id(tab.id)
+                        tabContent(tab)
                         if tab.httpWarningURL != nil { HTTPFallbackView(tab: tab).frame(maxWidth: .infinity, maxHeight: .infinity).background(theme.canvas) }
                         if let error = tab.errorMessage {
                             ContentUnavailableView {
@@ -467,9 +470,9 @@ struct BrowserWindow: View {
         else { StartPage(controller: controller, isPrivate: tab.isPrivate) }
     }
 
-    private var suggestions: [BrowserSuggestion] { session.suggestions(for: address, isPrivate: tab?.isPrivate == true) }
+    private var suggestions: [BrowserSuggestion] { addressMatches.rows }
     private var addressSuggestions: some View {
-        AddressSuggestionList(suggestions: suggestions, selectedIndex: suggestionIndex, address: address,
+        AddressSuggestionList(suggestions: suggestions, selectedIndex: addressMatches.selected, address: address,
                               engine: session.settings.searchEngine, isPrivate: tab?.isPrivate == true,
                               choose: chooseSuggestion,
                               submit: { controller.navigate(address); if controller.addressError == nil { addressFocused = false; NSApp.keyWindow?.makeFirstResponder(nil) } })
@@ -564,21 +567,25 @@ struct AddressSuggestionList: View {
     let submit: () -> Void
 
     var body: some View {
-        let context = URLDisplay.Context(suggestions.map { ($0.title, $0.url) })
         VStack(alignment: .leading, spacing: OrivSpacing.xs) {
             ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, match in
+                if index == 0 || suggestions[index - 1].source != match.source {
+                    Text(match.source.rawValue).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
+                        .padding(.horizontal, 10).padding(.top, 4)
+                }
                 Button { choose(match) } label: {
-                    PageRowContent(title: match.title, url: match.url, context: context,
-                                   iconSize: 20, spacing: 10, secondaryFont: .caption, isPrivate: isPrivate,
-                                   accessory: match.tabID != nil ? .alreadyOpen : .none)
-                        .padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle())
+                    AddressSuggestionRow(suggestion: match, query: address, isPrivate: isPrivate)
+                        .padding(.horizontal, 10).frame(height: 38).contentShape(Rectangle())
                         .background { if selectedIndex == index { SelectedRowBackground() } }
                 }.buttonStyle(.plain).accessibilityAddTraits(selectedIndex == index ? [.isSelected] : [])
             }
-            Button(action: submit) {
-                Label(AddressAction.title(for: address, engine: engine), systemImage: AddressAction.symbol(for: address, engine: engine))
-                    .foregroundStyle(theme.text).padding(.horizontal, 10).frame(height: 32).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.plain)
+            // Snapshot/noninteractive callers can still supply local matches.
+            if !suggestions.contains(where: { $0.source == .search }) {
+                Button { choose(BrowserSuggestion(title: "Search for ‘\(address)’", url: engine.searchURL(address), source: .search)) } label: {
+                    Label("Search for ‘\(address)’", systemImage: "magnifyingglass")
+                        .foregroundStyle(theme.text).padding(.horizontal, 10).frame(height: 32).frame(maxWidth: .infinity, alignment: .leading)
+                }.buttonStyle(.plain)
+            }
         }.font(OrivType.body).padding(6).background(theme.surface, in: .rect(cornerRadius: OrivRadius.medium))
             .overlay { RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.separator) }
             .shadow(color: .black.opacity(0.4), radius: 16, y: 6)

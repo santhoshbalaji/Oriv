@@ -183,6 +183,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         cell.setCard(UIHostingConfiguration {
             MobileGridCard(tab: tab, presentation: controller.tabPresentation, selected: controller.session.selectedTabID == tab.id, largeText: model.largeText, close: { controller.close([tab.id]) })
                 .browserAppearance(controller.appearance)
+                .environment(\.siteIcons, controller.session.siteIcons)
         }.margins(.all, 0))
         cell.canInteract = { [weak self] in self?.model.presented == true && self?.reordering == false && self?.pulling == false && self?.model.controller.closeConfirmation == nil }
         cell.reduceMotion = model.reduceMotion

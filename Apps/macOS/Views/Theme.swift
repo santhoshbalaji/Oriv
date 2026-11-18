@@ -326,9 +326,9 @@ struct SelectedRowBackground: View {
     }
 }
 
-/// Local symbols/monograms avoid sending browsing history to a favicon service.
-/// Deliberately monochrome so pages, not decoration, carry the colour.
+/// Site-owned favicons, with a local monogram while unavailable.
 struct SiteIdentity: View {
+    @Environment(\.siteIcons) private var icons
     @Environment(\.browserTheme) private var theme
     var url: URL?
     var size: CGFloat = 32
@@ -348,7 +348,12 @@ struct SiteIdentity: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
-            if let symbol {
+            if let image = icons?.icon(for: url, isPrivate: isPrivate)?.image {
+                // A pale plate keeps black/transparent monochrome marks readable
+                // on the permanent dark sidebar as well as light surfaces.
+                RoundedRectangle(cornerRadius: size * 0.2).fill(Color.white.opacity(0.88)).padding(1)
+                Image(decorative: image, scale: 2).resizable().scaledToFit().padding(size * 0.12)
+            } else if let symbol {
                 Image(systemName: symbol).font(.system(size: size * 0.42, weight: .medium))
             } else {
                 Text(String(host.prefix(1)).uppercased())
@@ -363,6 +368,9 @@ struct SiteIdentity: View {
         }
         .foregroundStyle(isPrivate ? theme.privateAccent : (isSelected ? theme.text : theme.secondaryText))
         .frame(width: size, height: size)
+        .task(id: "\(url?.absoluteString ?? "")-\(isPrivate)-\(url.flatMap { icons?.document?($0, isPrivate) } != nil)") {
+            if let url { await icons?.load(url, isPrivate: isPrivate) }
+        }
         .accessibilityHidden(true)
     }
 }

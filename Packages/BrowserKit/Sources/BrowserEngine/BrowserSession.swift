@@ -7,12 +7,15 @@ import WebKit
 public final class BrowserSession {
     public let isExternalPrivate: Bool
     public let adBlocker: AdBlocker
+    public let siteIcons: SiteIconStore
     public let settings: BrowserSettings
     public let websiteData: WebsiteDataManager
+    public let tabSnapshots = TabSnapshotCache()
+    public static let recentLiveTabCount = 3
     public private(set) var tabs: [BrowserTab] = []
     public private(set) var selectedTabID: UUID? { didSet { updateTabSelection() } }
-    public private(set) var bookmarks: [Bookmark] = []
-    public private(set) var history: [HistoryEntry] = []
+    public private(set) var bookmarks: [Bookmark] = [] { didSet { suggestionRevision += 1 } }
+    public private(set) var history: [HistoryEntry] = [] { didSet { suggestionRevision += 1 } }
     public private(set) var persistenceNotice: String?
     public private(set) var canPersist = true
     public private(set) var isProfileActive = true
@@ -45,6 +48,8 @@ public final class BrowserSession {
     @ObservationIgnored private var lastSavedSnapshot: BrowserSnapshot?
     @ObservationIgnored private let writer: OrderedSessionWriter?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private let suggestionIndex = AddressSuggestionIndex()
+    private var suggestionRevision = 0
     private var legacyBookmarksImported = false
     private var importingLegacyBookmarks = false
     private var isShutDown = false
@@ -59,7 +64,8 @@ public final class BrowserSession {
     #endif
 
     public init(store: (any BrowserSessionStore)? = nil, dataStore: WKWebsiteDataStore = .default(),
-                adBlocker: AdBlocker = AdBlocker(), settings: BrowserSettings = BrowserSettings(), externalPrivate: Bool = false) {
+                adBlocker: AdBlocker = AdBlocker(), settings: BrowserSettings = BrowserSettings(), externalPrivate: Bool = false, faviconDirectory: URL? = nil) {
+        siteIcons = SiteIconStore(directory: externalPrivate ? nil : faviconDirectory)
         isExternalPrivate = externalPrivate
         self.store = externalPrivate ? nil : store
         writer = externalPrivate ? nil : store.map { OrderedSessionWriter(store: $0) }
@@ -100,11 +106,18 @@ public final class BrowserSession {
         }
         adBlocker.onChange = { [weak self] in self?.tabs.forEach { $0.refreshContentBlocking() } }
         settings.onRulesChanged = { [weak self] in self?.tabs.forEach { $0.applySiteSettings() } }
+        siteIcons.document = { [weak self] url, isPrivate in
+            self?.tabs.first { $0.isPrivate == isPrivate && $0.isInstantiated && !$0.isLoading
+                && !$0.isRestoringWebView && $0.hasRenderedContent && $0.switchPresentation == nil
+                && $0.url.flatMap { SiteIconStore.key($0, isPrivate: isPrivate) } == SiteIconStore.key(url, isPrivate: isPrivate) }?.webView
+        }
         updateTabSelection()
         #if os(macOS)
-        if !externalPrivate {
+        do {
             tabReclamationMonitor = TabReclamationMonitor { [weak self] pressure in
-                guard let self, !self.isShutDown, self.tabReclamationTask == nil else { return }
+                guard let self, !self.isShutDown else { return }
+                if pressure { self.tabSnapshots.removeAll() }
+                guard self.tabReclamationTask == nil else { return }
                 self.tabReclamationTask = Task { @MainActor [weak self] in
                     _ = await self?.reclaimBackgroundTabs(underMemoryPressure: pressure)
                     self?.tabReclamationTask = nil
@@ -126,12 +139,14 @@ public final class BrowserSession {
     public func shutdown() {
         saveNow(); flushPersistence()
         onContinuitySnapshotChange = nil; onContinuityChange = nil; onContinuityHistoryRemoved = nil; onContinuityHistoryCleared = nil
+        siteIcons.shutdown()
         isShutDown = true
         #if os(macOS)
         tabReclamationMonitor?.stop(); tabReclamationMonitor = nil
         tabReclamationTask?.cancel(); tabReclamationTask = nil
         #endif
         tabs.forEach { $0.close() }
+        tabSnapshots.removeAll()
         saveTask?.cancel()
         configureWebView = nil; handleDownload = nil; handleExternalURL = nil; didCloseTab = nil; shouldSelectTab = nil; didSelectTab = nil
     }
@@ -140,6 +155,7 @@ public final class BrowserSession {
     /// Reclaim oldest eligible views first. WebKit state stays in RAM and never
     /// enters session persistence or continuity. Each IPC request is bounded.
     @discardableResult public func reclaimBackgroundTabs(underMemoryPressure: Bool = false) async -> Int {
+        if underMemoryPressure { tabSnapshots.removeAll() }
         guard !isShutDown, !isReclaimingTabs else { return 0 }
         isReclaimingTabs = true
         defer { isReclaimingTabs = false }
@@ -148,6 +164,9 @@ public final class BrowserSession {
         var reclaimed = 0
         for tab in candidates {
             guard !isShutDown, !Task.isCancelled else { break }
+            // Recompute after each IPC: selection may have changed while the
+            // previous candidate was being checked. Pressure may use the reserve.
+            if !underMemoryPressure && recentLiveTabIDs.contains(tab.id) { continue }
             guard TabDiscardPolicy.isOldEnough(lastUsed: tab.lastSelectedTime, now: tab.recoveryClock(), underMemoryPressure: underMemoryPressure) else { continue }
             let discarded = await withCheckedContinuation { continuation in
                 tab.discardBackgroundWebView(minimumIdle: minimumIdle) { continuation.resume(returning: $0) }
@@ -157,6 +176,11 @@ public final class BrowserSession {
         return reclaimed
     }
     #endif
+
+    public var recentLiveTabIDs: Set<UUID> {
+        Set(tabs.filter(\.isInstantiated).sorted { $0.lastSelectedTime > $1.lastSelectedTime }
+            .prefix(Self.recentLiveTabCount).map(\.id))
+    }
 
     @discardableResult public func addTab(url: URL? = nil, isPrivate: Bool = false,
                                           configuration: WKWebViewConfiguration? = nil,
@@ -210,6 +234,7 @@ public final class BrowserSession {
         tabs.remove(at: index)
         didCloseTab?(id)
         if !tabs.contains(where: \.isPrivate) {
+            siteIcons.endPrivateSession()
             privateDataStore = nil
             adBlocker.endPrivateSession()
             settings.endPrivateSession()
@@ -297,64 +322,22 @@ public final class BrowserSession {
         tabs.first { $0.id == id }?.hasEditedFields == true
     }
 
-    /// All suggestions are local to this profile. Private queries see only private open tabs.
+    /// Compatibility snapshot for noninteractive callers. Address editors use
+    /// indexedSuggestions so normalization/matching never runs on the main actor.
     public func suggestions(for query: String, isPrivate: Bool) -> [BrowserSuggestion] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return [] }
-        struct Candidate {
-            var suggestion: BrowserSuggestion
-            var titles: [String]
-            var bookmarked = false
-            var visitedAt = Date.distantPast
+        var index = LocalSuggestionIndex()
+        if !isPrivate { index.update(history: history, bookmarks: bookmarks) }
+        return index.matches(query, tabs: suggestionTabs(isPrivate: isPrivate), limit: 5)
+    }
+    private func suggestionTabs(isPrivate: Bool) -> [BrowserSuggestion] {
+        tabs.filter { $0.isPrivate == isPrivate }.compactMap { tab in
+            guard let url = tab.url, AddressResolver.isWebURL(url) else { return nil }
+            return BrowserSuggestion(title: tab.displayTitle, url: url, tabID: tab.id)
         }
-        var candidates: [URL: Candidate] = [:]
-        // Choose a stable tab identity even if several open tabs share a URL.
-        for tab in tabs.filter({ $0.isPrivate == isPrivate }).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            guard let url = tab.url, AddressResolver.isWebURL(url) else { continue }
-            if candidates[url] == nil {
-                candidates[url] = Candidate(suggestion: BrowserSuggestion(title: tab.displayTitle, url: url, tabID: tab.id), titles: [])
-            }
-            candidates[url]?.titles.append(tab.displayTitle)
-        }
-        if !isPrivate {
-            for bookmark in bookmarks {
-                if candidates[bookmark.url] == nil {
-                    candidates[bookmark.url] = Candidate(suggestion: BrowserSuggestion(title: bookmark.title, url: bookmark.url), titles: [])
-                }
-                candidates[bookmark.url]?.titles.append(bookmark.title)
-                candidates[bookmark.url]?.bookmarked = true
-            }
-            for entry in history {
-                if candidates[entry.url] == nil {
-                    candidates[entry.url] = Candidate(suggestion: BrowserSuggestion(title: entry.title, url: entry.url), titles: [])
-                }
-                candidates[entry.url]?.titles.append(entry.title)
-                let latestVisit = max(candidates[entry.url]!.visitedAt, entry.visitedAt)
-                candidates[entry.url]?.visitedAt = latestVisit
-            }
-        }
-        let hostQuery = query.hasPrefix("www.") ? String(query.dropFirst(4)) : query
-        func tier(_ candidate: Candidate) -> Int? {
-            let url = candidate.suggestion.url
-            var host = url.host?.lowercased() ?? ""
-            if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
-            let hostPrefix = !hostQuery.isEmpty && (host.hasPrefix(hostQuery) || host.split(separator: ".").contains { $0.hasPrefix(hostQuery) })
-            let titlePrefix = candidate.titles.contains { title in
-                title.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains { $0.hasPrefix(query) }
-            }
-            if candidate.suggestion.tabID != nil && (hostPrefix || titlePrefix || url.absoluteString.lowercased().hasPrefix(query)) { return 0 }
-            if hostPrefix { return 1 }
-            if titlePrefix { return 2 }
-            if url.absoluteString.lowercased().contains(query) || candidate.titles.contains(where: { $0.lowercased().contains(query) }) { return 3 }
-            return nil
-        }
-        return candidates.values.compactMap { candidate in tier(candidate).map { (candidate, $0) } }
-            .sorted { lhs, rhs in
-                if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
-                if lhs.0.bookmarked != rhs.0.bookmarked { return lhs.0.bookmarked }
-                if lhs.0.visitedAt != rhs.0.visitedAt { return lhs.0.visitedAt > rhs.0.visitedAt }
-                return lhs.0.suggestion.url.absoluteString < rhs.0.suggestion.url.absoluteString
-            }.prefix(5).map { $0.0.suggestion }
+    }
+    public func indexedSuggestions(for query: String, isPrivate: Bool) async -> [BrowserSuggestion] {
+        await suggestionIndex.matches(query, history: isPrivate ? [] : history, bookmarks: isPrivate ? [] : bookmarks,
+            revision: suggestionRevision, tabs: suggestionTabs(isPrivate: isPrivate), isPrivate: isPrivate)
     }
 
     public func isBookmarked(_ url: URL?) -> Bool {
@@ -515,6 +498,7 @@ public final class BrowserSession {
         configuration?.websiteDataStore = isPrivate ? privateDataStore! : regularDataStore
         let tab = BrowserTab(record: record, isPrivate: isPrivate, configuration: configuration,
                              dataStore: isPrivate ? privateDataStore! : regularDataStore, adBlocker: adBlocker, settings: settings)
+        tab.snapshotCache = tabSnapshots
         tab.setProfileActive(isProfileActive)
         tab.onChange = { [weak self, weak tab] in
             guard tab?.isPrivate == false else { return }
@@ -529,8 +513,9 @@ public final class BrowserSession {
         }
         tab.onVisit = { [weak self, weak tab] url, title in
             guard let self, let tab, !tab.isPrivate else { return }
+            let visits = min(1_000_000, (self.history.first { $0.url == url }?.visitCount ?? 0) + 1)
             self.history.removeAll { $0.url == url }
-            self.history.insert(HistoryEntry(title: title, url: url), at: 0)
+            self.history.insert(HistoryEntry(title: title, url: url, visitCount: visits), at: 0)
             self.history = Array(self.history.prefix(500))
             self.scheduleSave()
         }
@@ -550,11 +535,4 @@ public final class BrowserSession {
 
 public enum TabSwipeTarget: Equatable, Sendable {
     case tab(UUID), newTab, boundary
-}
-
-public struct BrowserSuggestion: Identifiable, Equatable, Sendable {
-    public let title: String
-    public let url: URL
-    public var tabID: UUID? = nil
-    public var id: URL { url }
 }

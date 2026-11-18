@@ -12,7 +12,7 @@ Oriv is developed and maintained by [Santhosh Balaji S](https://github.com/santh
 
 - Regular/private tabs, browsing profiles, pinned tabs, session recovery and local history.
 - Local bookmarks and HTML bookmark import/export on Mac.
-- Address/search input with selectable search engine; suggestions use local browser records.
+- Address/search input with selectable search engine, inline host completion and ranked local suggestions.
 - WebKit content blocking, per-site exceptions, site permissions and browsing-data controls.
 - Native website dialogs, authentication, file uploads and downloads.
 - Find, zoom, Mac reading view, print, PDF/webarchive export and system Password AutoFill support.
@@ -51,5 +51,7 @@ This runs the scope checks, shared tests, native Mac fixtures, signature/entitle
 ## Release status
 
 The browser-only changes target 0.6.0 (6). The production release hold remains until the [implementation and acceptance gates](docs/browser-implementation-plan.md) pass. The historical [0.5.0 release record](docs/releases/0.5.0.md) describes that earlier artifact, including features since removed from development.
+
+Keyboard: [Mac and address-editor shortcuts](docs/keyboard-shortcuts.md).
 
 Appearance: [T3 Code and the built-in themes](docs/appearance.md) are shared by Mac and iPhone.

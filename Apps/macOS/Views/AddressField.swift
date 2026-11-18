@@ -14,6 +14,8 @@ struct AddressField: NSViewRepresentable {
     let focusRequest: Int
     let submit: () -> Bool
     let cancel: () -> Void
+    var completion: String? = nil
+    var hasSelectedSuggestion = false
     var moveSelection: (Int) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -50,6 +52,12 @@ struct AddressField: NSViewRepresentable {
         let editing = field.currentEditor() != nil
         let value = editing ? text : (displayText ?? text)
         if field.stringValue != value { field.stringValue = value }
+        if editing, !context.coordinator.suppressCompletion, let completion,
+           completion.hasPrefix(text), completion.count > text.count,
+           let editor = field.currentEditor() as? NSTextView, !editor.hasMarkedText() {
+            field.stringValue = completion; editor.string = completion
+            editor.setSelectedRange(NSRange(location: text.utf16.count, length: completion.utf16.count - text.utf16.count))
+        }
         field.alignment = editing || displayText == nil ? .left : .center
         field.setAccessibilityValue(text)
         guard focusRequest > 0, context.coordinator.lastFocusRequest != focusRequest else { return }
@@ -64,6 +72,8 @@ struct AddressField: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: AddressField
         var lastFocusRequest = 0
+        var suppressCompletion = false
+        private var deleting = false
         init(_ parent: AddressField) { self.parent = parent }
         func controlTextDidBeginEditing(_ notification: Notification) { parent.isEditing = true }
         func controlTextDidEndEditing(_ notification: Notification) {
@@ -79,13 +89,27 @@ struct AddressField: NSViewRepresentable {
         }
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
+            suppressCompletion = deleting
+            deleting = false
             parent.text = field.stringValue
         }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.deleteBackward(_:)) || selector == #selector(NSResponder.deleteForward(_:)) {
+                deleting = true; suppressCompletion = true
+                return false
+            }
+            if selector == #selector(NSResponder.insertTab(_:)) || selector == #selector(NSResponder.moveRight(_:)) {
+                let range = textView.selectedRange()
+                if range.length > 0, NSMaxRange(range) == textView.string.utf16.count,
+                   range.location == parent.text.utf16.count, textView.string.hasPrefix(parent.text) {
+                    parent.text = textView.string; suppressCompletion = true
+                    textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0)); return true
+                }
+            }
             if selector == #selector(NSResponder.moveDown(_:)) { parent.moveSelection(1); return true }
             if selector == #selector(NSResponder.moveUp(_:)) { parent.moveSelection(-1); return true }
             if selector == #selector(NSResponder.insertNewline(_:)) {
-                parent.text = control.stringValue
+                if !parent.hasSelectedSuggestion { parent.text = control.stringValue }
                 if parent.submit() {
                     parent.isEditing = false
                     control.window?.makeFirstResponder(nil)

@@ -40,6 +40,8 @@ struct BrowserCommands: Commands {
                 .disabled(controller.session.selectedTab?.canGoForward != true)
             Button("Reload Page") { controller.session.selectedTab?.reload() }.keyboardShortcut("r")
                 .disabled(controller.session.selectedTab?.url == nil)
+            Button("Reload Page From Origin") { controller.session.selectedTab?.reloadFromOrigin() }.keyboardShortcut("r", modifiers: [.command, .shift])
+                .disabled(controller.session.selectedTab?.url == nil)
             Button("Stop Loading") { controller.session.selectedTab?.stop() }.keyboardShortcut(".")
             Button("Reload Without Cache") { controller.session.selectedTab?.reloadFromOrigin() }.keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(controller.session.selectedTab?.url == nil)
@@ -62,7 +64,7 @@ struct BrowserCommands: Commands {
         }
         CommandGroup(after: .toolbar) {
             Divider()
-            Button("Read Page Text") { controller.openReader() }.keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("Read Page Text") { controller.openReader() }
                 .disabled(controller.session.selectedTab?.url == nil || controller.session.selectedTab?.isLoading == true || controller.isPreparingReader)
             Button("Zoom In") { controller.session.selectedTab?.zoomIn() }.keyboardShortcut("+")
             Button("Zoom Out") { controller.session.selectedTab?.zoomOut() }.keyboardShortcut("-")

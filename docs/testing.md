@@ -8,6 +8,10 @@ Run `./scripts/check-browser.sh` with ports 8768 and 18768 free. It starts its o
 
 `BrowserPerformanceTests` measures host-process elapsed time and memory for 1/10/30-tab JSON restoration using five iterations. It asserts that background restoration creates no WebKit views. These are setup microbenchmarks, not whole-app launch, page speed, total WebKit-process memory or energy evidence. Wider measurements remain required.
 
+Tab-switch rendering, bounded transient snapshots and the recent-tab live reserve are covered by `TabSwitchRenderingTests` and BrowserKit's `TabSnapshotTests`. See [tab switching](tab-switching.md) for image budgets, privacy lifetime, frame evidence and the isolated 20-tab memory/CPU probe.
+
+The Mac history/scroll regression first establishes a rendered source at 1200 points and verifies two stable readbacks before discarding it. WebKit can reset history scroll after acknowledging the setup command too; that must not silently turn the source into an unscrolled page. After selection, the original history, view-release and 1200-point restoration assertions remain unchanged. Its diagnostic callback records late resets and confirms the direct WebKit fixture performs no favicon document lookups.
+
 Build iPhone with the `OrivMobile` scheme and an iOS Simulator destination. Its native WebKit tests use the same server on port 8768. The service-worker check explicitly skips when the platform capability is unavailable. Use `OrivBrowserMobile` only with the necessary managed browser grant and provisioning for device acceptance.
 
 ## Manual browser acceptance
@@ -58,3 +62,24 @@ Use an optimized QA configuration with the diagnostic compilation condition abse
 For total memory, Activity Monitor can target all processes; VM Tracker requires individual process targets. Do not sum every WebKit process on the phone. The opt-in resource test records the identities of its own views' WebContent, Networking and GPU helpers, with epoch timestamps for aligning settled checkpoints. This debugging SPI lives exclusively in the device test bundle and is not included in either app target or distribution archive. Missing identity support must be reported, not replaced with an ownership assumption.
 
 The navigation fixture compares full Oriv chrome against a bare view with the same timing-only observer and physical viewport. Report fresh-view and reused-view samples separately. Fresh views and ephemeral stores do not establish reboot-cold caches. Navigation request-to-commit and paint-message delivery are app-side intervals; JavaScript Navigation/Paint Timing values are document-relative and must not be labelled tap latency.
+
+## Shortcuts, icons and local suggestions
+
+`BrowserShortcutTests` sends actual AppKit key-down events through `NSApp` while
+WebKit content, the native address editor and a tab-overview-style sheet own
+focus. It checks wrapping/sidebar order, both hard-reload focus paths, and unique
+reload menu equivalents. `AddressCompletionTests` verifies suffix selection,
+Backspace suppression and Right Arrow acceptance with the real editor.
+
+`SiteIconAndSuggestionTests` runs on Mac and headless Simulator. The privacy
+fixture on port 18768 serves a cookie-protected SVG icon, exercising WebKit-cookie
+transfer, regular persistence, private erasure, lazy sleeping-tab lookup, and
+cache bounds. `LocalSuggestionTests` measures eight indexed queries over 10,000
+history records with an open tab; each must complete within 16 ms. Normalization
+and index construction run separately on the suggestion actor. Results print
+`SUGGESTION_QUERY` and `SUGGESTION_PERF` timings.
+
+For the four background sidebar/favicon and suggestion captures, run
+`ORIV_BACKGROUND_UI=1 ORIV_BATCH_VISUALS=1 ./scripts/capture-mac-visuals.sh build/batch-0.14/visuals`.
+Use a fresh empty output directory for each run. These app-owned, off-screen
+layout snapshots do not establish foreground Liquid Glass/compositor fidelity.

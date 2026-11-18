@@ -54,7 +54,8 @@ import WebKit
         appearance = defaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:)) ?? .t3Code
         session = BrowserSession(store: testing || root == nil ? nil : SessionFileStore(fileURL: root!.appendingPathComponent("session.json")),
             dataStore: testing || profile == nil ? .nonPersistent() : profile!.isPersonal ? .default() : WKWebsiteDataStore(forIdentifier: profile!.id),
-            adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil)
+            adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil,
+            faviconDirectory: !testing ? root?.appendingPathComponent("Favicons", isDirectory: true) : nil)
         tabSwipe.topChrome = topChrome
         tabSwipe.chromeForTab = { [weak self] id in
             guard let self, let tab = session.tabs.first(where:{ $0.id == id }) else { return (ChromeColor(0,0,0),1) }
@@ -67,6 +68,7 @@ import WebKit
             }
         }
         memoryObserver = MobileMemoryObserver { [weak self] in
+            self?.session.tabSnapshots.removeAll()
             self?.tabPresentation.releaseCachedSnapshots()
             self?.trimBackgroundTabs(limit:1)
         }

@@ -65,13 +65,13 @@ import WebKit
                 session.selectTab(session.tabs.last!.id)
             }
             window.contentView = session.selectedTab!.webView
-            if policy == "discard" {
+            if policy == "discard" || policy == "pressure" {
                 #if TAB_RECLAMATION_PRODUCT
                 for tab in session.tabs.dropLast() where tab.isInstantiated {
                     weakViews.append(WeakView(tab.webView))
                     tab.lastSelectedTime -= 601
                 }
-                _ = await session.reclaimBackgroundTabs()
+                _ = await session.reclaimBackgroundTabs(underMemoryPressure:policy == "pressure")
                 #else
                 for tab in session.tabs.dropLast() where tab.isInstantiated {
                     weakViews.append(WeakView(tab.webView))
@@ -89,6 +89,7 @@ import WebKit
             let payload: [String: Any] = ["pid": ProcessInfo.processInfo.processIdentifier, "stage": stage,
                 "activationProhibited": NSApp.activationPolicy() == .prohibited,
                 "tabs": count, "liveViews": session.tabs.filter(\.isInstantiated).count,
+                "snapshotBudgetCharge": session.tabSnapshots.cost, "snapshotCount":session.tabSnapshots.count,
                 "releasedViews": weakViews.filter { $0.value == nil }.count, "trackedViews": weakViews.count,
                 "audit": try JSONSerialization.jsonObject(with: JSONEncoder().encode(BackgroundUIMode.audit()))]
             try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]).write(to: output.appendingPathComponent("ready.json"), options: .atomic)

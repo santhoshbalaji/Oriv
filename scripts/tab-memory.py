@@ -105,7 +105,11 @@ def run(args):
     if os.environ.get("ORIV_BACKGROUND_UI") != "1" or os.environ.get("ORIV_FOREGROUND_UI") == "1":
         raise SystemExit("Requires ORIV_BACKGROUND_UI=1 and no foreground override")
     OUT.mkdir(parents=True, exist_ok=True)
-    app = build(args.product)
+    app = args.reuse_app.resolve() if args.reuse_app else build(args.product)
+    if args.reuse_app:
+        with (app / 'Contents/Info.plist').open('rb') as source:
+            if plistlib.load(source).get('CFBundleIdentifier') != 'local.oriv.tab-memory-probe':
+                raise RuntimeError('Only an isolated tab-memory probe can be reused')
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     results = []
@@ -131,7 +135,7 @@ def run(args):
                 if any(audit[k] for k in ["frontmostViolations", "activationViolations", "onscreenWindowViolations"]) or not ready["activationProhibited"]:
                     raise RuntimeError(f"Background safety audit failed: {audit}")
                 samples = [snapshot(ready["pid"])]
-                for _ in range(args.seconds):
+                for _ in range(min(2, args.seconds) if args.focus_twenty and stage != '20' else args.seconds):
                     time.sleep(1)
                     samples.append(snapshot(ready["pid"]))
                 # Integrate adjacent intervals so helpers exiting during the run are included up to their final sample.
@@ -161,7 +165,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--label", required=True)
     parser.add_argument("--seconds", type=int, default=60)
-    parser.add_argument("--policies", nargs="+", choices=["throttle", "suspend", "discard"], default=["throttle", "suspend", "discard"])
+    parser.add_argument("--policies", nargs="+", choices=["throttle", "suspend", "discard", "pressure"], default=["throttle", "suspend", "discard"])
+    parser.add_argument("--reuse-app", type=pathlib.Path, help="Reuse a saved isolated probe, for an exact before/after binary comparison")
+    parser.add_argument("--focus-twenty", action="store_true", help="Use the full CPU sampling interval at 20 tabs, and brief other checkpoints")
     parser.add_argument("--product", action="store_true", help="Exercise the real reclamation policy with a test-only clock adjustment")
     arguments = parser.parse_args()
     if arguments.seconds <= 0 or pathlib.Path(arguments.label).name != arguments.label or arguments.label in [".", ".."]:

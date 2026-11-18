@@ -44,7 +44,8 @@ final class BrowserController {
         let persistent = profile != nil && (!isTesting || rootDirectory != nil)
         session = BrowserSession(store: persistent ? SessionFileStore(fileURL: applicationSupport.appendingPathComponent("session.json")) : nil,
                                  dataStore: websiteStore ?? (isTesting || profile == nil ? .nonPersistent() : profile!.isPersonal ? .default() : WKWebsiteDataStore(forIdentifier: profile!.id)),
-                                 adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil)
+                                 adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil,
+                                 faviconDirectory: persistent ? applicationSupport.appendingPathComponent("Favicons", isDirectory: true) : nil)
         if persistent {
             bookmarkMigration = Task { [weak session] in
                 await session?.importLegacyBookmarks(from: applicationSupport.appendingPathComponent("workspace.sqlite"))

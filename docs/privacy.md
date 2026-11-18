@@ -40,3 +40,30 @@ Committed `.orivrules` resources contain an attribution/licence header and base6
 Balanced uses EasyPrivacy plus EasyList network filtering and light generic class/ID cosmetics. Strict adds broader site/generic cosmetics and the original first-party analytics supplement. Off remains available. Cookie hiding is a separate opt-in network/cosmetic pair. It **hides banners; it doesn't reject cookies**. Original scroll restoration only releases recognized OneTrust/Cookiebot lock classes after their banner is confirmed hidden; it performs no consent clicks or cookie writes and its observer is bounded.
 
 Privacy protections do not provide complete ad removal, extension/scriptlet compatibility, IP masking or a block count. Lists can break sign-in, media and layouts; the site panel provides the recovery path without reloading a form automatically. New privacy preferences/exceptions remain local per profile; they are deliberately not added to the continuity preference schema in this batch.
+
+### Site icons and address suggestions
+
+Address queries stay on this device. The editor uses the current profile's local
+bookmarks, visit frequency and visit time, plus open tabs. No remote suggestion
+service or opt-in setting has been added. The Search row uses the profile's search
+engine only after submission. Private queries see only private open tabs: neither
+regular history/bookmarks nor any private visit history is exposed. Private
+browsing never records visits or visit counts.
+
+Site icons come from icon/apple-touch-icon links in an already loaded page, with
+that site's `/favicon.ico` as a fallback. Looking up a saved-page icon never loads
+that page or wakes a sleeping tab. There is no third-party favicon service. Icon
+requests use an ephemeral URLSession with cookies copied from the matching
+WKWebsiteDataStore. Only cookies valid for the loaded page host seed the
+ephemeral jar; linked third-party icons never gain other sites' profile cookies.
+Automatic domain/path/secure cookie matching is retained.
+Neither URLCache nor credential persistence is enabled. Requests and response
+sizes are bounded. ImageIO decoding/downsampling happens off the main actor;
+WebKit rasterizes SVG when ImageIO cannot decode it and the document permits it.
+
+Each regular profile has a separate `Favicons` cache: SHA-256 origin filenames,
+64 px PNGs, a seven-day lifetime, at most 256 files / 4 MiB. The session's memory
+cache holds at most 128 decoded icons, with duplicate requests coalesced and at
+most 16 loads in flight. Private icons use a separate memory namespace, never
+read or write the disk cache, and are dropped when the last private tab closes or
+the session shuts down. The Clear Browsing Data cache/site-data choices also clear the icon cache.

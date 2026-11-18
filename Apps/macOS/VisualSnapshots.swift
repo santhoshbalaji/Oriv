@@ -55,7 +55,8 @@ import WebKit
         if BackgroundUIMode.isEnabled {
             manifest.limitations.append("All windows stay off every display. Sidebar/glass fallback fixtures use the app's opaque Reduce Transparency variant; they cannot verify Liquid Glass.")
         }
-        if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
+        if environment["ORIV_BATCH_VISUALS"] == "1" { await renderBatchScenes(into: directory, activate: activate) }
+        else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar" { await renderSidebarScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
         else { await renderScenes(into: directory, activate: activate) }
@@ -71,6 +72,39 @@ import WebKit
         do { try encoder.encode(manifest).write(to: directory.appendingPathComponent("manifest.json")) }
         catch { fputs("manifest write failed: \(error)\n", stderr); exit(3) }
         exit(manifest.failures.isEmpty ? 0 : 1)
+    }
+
+    private static func renderBatchScenes(into directory: URL, activate: Bool) async {
+        let profiles = BrowserProfiles(testing: true)
+        let controller = profiles.controller
+        defer { profiles.shutdown() }
+        let session = controller.session
+        guard let tab = session.selectedTab else { manifest.failures.append("No fixture tab"); return }
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128'><rect width='128' height='128' rx='24' fill='#217f67'/><path d='M28 64L54 90L102 38' stroke='white' stroke-width='13' fill='none'/></svg>"
+        let icon = "data:image/svg+xml;base64," + Data(svg.utf8).base64EncodedString()
+        let url = URL(string: "https://example.test/guide")!
+        tab.webView.loadHTMLString("<html><head><title>Example Guide</title><link rel='icon' href='\(icon)'></head><body style='font:22px system-ui;padding:40px;background:#f7f6f2'><h1>Example Guide</h1><p>Local visual fixture.</p></body></html>", baseURL: url)
+        for _ in 0..<200 {
+            if tab.webView.title == "Example Guide", !tab.webView.isLoading { break }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        await session.siteIcons.load(url, isPrivate: false)
+        if session.siteIcons.icon(for: url, isPrivate: false) == nil { manifest.failures.append("Fixture favicon missing") }
+        _ = session.importBookmarks([Bookmark(title: "Example Reference", url: URL(string: "https://example.test/reference")!)])
+        let matches = AddressSuggestions()
+        await matches.update("exa", session: session, isPrivate: false)
+        for (name, appearance) in [("light", BrowserAppearance.light), ("dark", .dark)] {
+            await capture("mac-batch-sidebar-\(name)", directory, CGSize(width: 1000, height: 650), key: activate, compositeWeb: tab.webView, appearance: appearance) {
+                BrowserWindow(controller: controller, profiles: profiles).frame(width: 1000, height: 650)
+                    .environment(\.chromeReduceTransparencyOverride, true)
+            }
+            await capture("mac-batch-suggestions-\(name)", directory, CGSize(width: 760, height: 380), key: activate, appearance: appearance) {
+                AddressSuggestionList(suggestions: matches.rows, selectedIndex: 0, address: "exa", engine: session.settings.searchEngine,
+                    isPrivate: false, choose: { _ in }, submit: {})
+                    .frame(width: 720).padding(20).frame(width: 760, height: 380, alignment: .top)
+                    .environment(\.siteIcons, session.siteIcons)
+            }
+        }
     }
 
     private static func renderScenes(into directory: URL, activate: Bool) async {
@@ -600,10 +634,11 @@ import WebKit
     private static func capture<Content: View>(_ name: String, _ directory: URL, _ size: CGSize, key: Bool, settle: Int = 900,
                                                compositeWeb webView: WKWebView? = nil, toolbarStyle: NSWindow.ToolbarStyle = .unified,
                                                expectedFields: [String: String] = [:],
+                                               appearance: BrowserAppearance = .t3Code,
                                                covered: Bool = false,
                                                prepare: (NSWindow) async -> Void = { _ in },
                                                @ViewBuilder content: () -> Content) async {
-        let hosting = NSHostingController(rootView: content().browserAppearance(.t3Code))
+        let hosting = NSHostingController(rootView: content().browserAppearance(appearance))
         hosting.sceneBridgingOptions = [.toolbars, .title]
         let liveGlass = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"]?.isEmpty == false || ProcessInfo.processInfo.environment["ORIV_LIVE_SITES"]?.isEmpty == false
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
@@ -611,6 +646,7 @@ import WebKit
         let window = OffscreenWindow(contentRect: CGRect(origin: .zero, size: size),
                               styleMask: style, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.appearance = appearance.colorScheme.map { NSAppearance(named: $0 == .light ? .aqua : .darkAqua)! }
         // Capture stable geometry, without an inferred WindowServer opening animation.
         window.animationBehavior = .none
         window.toolbarStyle = toolbarStyle

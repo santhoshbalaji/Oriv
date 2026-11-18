@@ -173,6 +173,7 @@ struct MobileClearBrowsingData: View {
                         if history { session.clearHistory(since: since) }
                         if permissions { session.settings.clearRules(); session.tabs.forEach { $0.stopCapture() } }
                         if cache || sites { await session.websiteData.clear(since: since, cacheOnly: !sites) }
+                        if cache || sites { await session.siteIcons.clear() }
                         working = false; completed = true
                     }
                 }

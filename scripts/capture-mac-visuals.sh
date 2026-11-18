@@ -67,7 +67,7 @@ if [[ "$GLASS" == 1 ]]; then
     --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_CAPTURE_RENDERER="${ORIV_CAPTURE_RENDERER:-}" --env ORIV_SIDEBAR_COLLAPSED="${ORIV_SIDEBAR_COLLAPSED:-}" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_CHROME_TIMING="${ORIV_CHROME_TIMING:-}" --env ORIV_FULLSCREEN_EVIDENCE="${ORIV_FULLSCREEN_EVIDENCE:-}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
     "$APP" > "$DERIVED.run.log" 2>&1 &
 else
-  ORIV_BACKGROUND_UI="$ORIV_BACKGROUND_UI" ORIV_FOREGROUND_UI="${ORIV_FOREGROUND_UI:-}" BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" \
+  ORIV_BACKGROUND_UI="$ORIV_BACKGROUND_UI" ORIV_FOREGROUND_UI="${ORIV_FOREGROUND_UI:-}" BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" ORIV_BATCH_VISUALS="${ORIV_BATCH_VISUALS:-}" \
     "$APP/Contents/MacOS/Oriv-Snapshots" > "$DERIVED.run.log" 2>&1 &
 fi
 PID=$!
@@ -124,6 +124,8 @@ expected = {
     *["mac-10-library-" + pane for pane in ("bookmarks", "history", "other-devices")],
     *["mac-11-settings-" + pane for pane in ("general", "profiles", "continuity", "appearance", "privacy", "passwords", "about")],
 }
+if os.environ.get("ORIV_BATCH_VISUALS") == "1":
+    expected = {"mac-batch-" + part + "-" + mode for part in ("sidebar", "suggestions") for mode in ("light", "dark")}
 if sys.argv[4] == "1": expected = {"mac-glass-" + mode for mode in ("light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "private", "reduced", "insecure")}
 if sys.argv[4] == "1" and os.environ.get("ORIV_GLASS_SCENE", "all") != "all": expected = {"mac-glass-" + os.environ["ORIV_GLASS_SCENE"]}
 if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":

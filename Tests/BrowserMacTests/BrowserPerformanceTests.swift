@@ -56,6 +56,16 @@ import SwiftUI
         let controller = BrowserController(testing: true)
         defer { controller.shutdown() }
         let session = controller.session, tab = try XCTUnwrap(session.selectedTab)
+        var iconDocumentLookups = 0
+        let iconDocument = session.siteIcons.document
+        session.siteIcons.document = { url, isPrivate in
+            iconDocumentLookups += 1
+            return iconDocument?(url, isPrivate)
+        }
+        var restorationChecks:[String] = []
+        tab.onScrollRestorationCheck = { target,expected,actual,attempt in
+            restorationChecks.append("attempt=\(attempt) saved=\(target) expected=\(expected) actual=\(String(describing:actual))")
+        }
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.contentView = nil; window.close() }
@@ -68,7 +78,25 @@ import SwiftUI
         }
         tab.goBack()
         try await wait { !tab.isLoading && tab.url?.path == "/tab-memory-history" }
-        _ = try await original!.evaluateJavaScript("scrollTo(0,1200)")
+        // URL/loading observation can precede WebKit's history presentation.
+        // Start the discard fixture from a rendered document and verify that
+        // the requested source offset actually exists before detaching it.
+        let rendered = WKSnapshotConfiguration(); rendered.afterScreenUpdates = true
+        _ = try await original!.takeSnapshot(configuration: rendered)
+        var sourceIsStable = false
+        for _ in 0..<3 {
+            let sourceY = try await original!.evaluateJavaScript("scrollTo(0,1200); scrollY") as? Double
+            XCTAssertEqual(try XCTUnwrap(sourceY), 1200, accuracy: 3)
+            var stableSamples = 0
+            for _ in 0..<2 {
+                try await Task.sleep(for: .milliseconds(50))
+                let observedY = try await original!.evaluateJavaScript("scrollY") as? Double
+                if abs((observedY ?? -1) - 1200) > 3 { break }
+                stableSamples += 1
+            }
+            if stableSamples == 2 { sourceIsStable = true; break }
+        }
+        XCTAssertTrue(sourceIsStable, "The source page must be at 1200 before the discard being tested; a history scroll acknowledgement alone is insufficient")
         let back = original!.backForwardList.backList.map(\.url)
         let forward = original!.backForwardList.forwardList.map(\.url)
         XCTAssertFalse(back.isEmpty); XCTAssertFalse(forward.isEmpty)
@@ -78,7 +106,9 @@ import SwiftUI
         session.addTab(load: false)
         original = nil
         tab.lastSelectedTime -= 601
-        let reclaimed = await session.reclaimBackgroundTabs()
+        // Pressure intentionally overrides the three-tab idle reserve. This
+        // fixture verifies restoration, including history and scroll, after release.
+        let reclaimed = await session.reclaimBackgroundTabs(underMemoryPressure:true)
         XCTAssertEqual(reclaimed, 1); XCTAssertFalse(tab.isInstantiated)
         try await wait { released == nil }
         session.selectTab(tab.id)
@@ -89,7 +119,10 @@ import SwiftUI
         XCTAssertEqual(tab.webView.backForwardList.forwardList.map(\.url), forward)
         XCTAssertTrue(tab.canGoBack); XCTAssertTrue(tab.canGoForward)
         let y = try await tab.webView.evaluateJavaScript("scrollY") as? Double ?? -1
+        if abs(y-1200) > 3 { print("SCROLL_RESTORATION_FAILURE: \(restorationChecks)") }
         XCTAssertEqual(y, 1200, accuracy: 3)
+        XCTAssertEqual(iconDocumentLookups, 0, "This direct WebKit fixture must remain an icon-free control for the late history-scroll race")
+        print("SCROLL_RESTORATION_CHECKS: \(restorationChecks); iconDocumentLookups=\(iconDocumentLookups)")
         XCTAssertEqual(tab.webView.configuration.userContentController.userScripts.count, scripts, "Adapter scripts must not accumulate across restoration")
         tab.goForward()
         try await wait { !tab.isLoading && tab.url?.path == "/two" }
@@ -169,11 +202,11 @@ import SwiftUI
         tab.webView.startDownload(using: URLRequest(url: base.appendingPathComponent("large-download"))) { [weak tab] download in tab?.onDownload?(download) }
         try await wait { destination != nil && controller.downloads.hasActiveDownloads }
         controller.session.addTab(load: false); tab.lastSelectedTime -= 601
-        let protected = await controller.session.reclaimBackgroundTabs()
+        let protected = await controller.session.reclaimBackgroundTabs(underMemoryPressure:true)
         XCTAssertEqual(protected, 0); XCTAssertTrue(tab.isInstantiated)
         destination?.resume(returning: nil); destination = nil
         try await wait { !controller.downloads.hasActiveDownloads }
-        let reclaimed = await controller.session.reclaimBackgroundTabs()
+        let reclaimed = await controller.session.reclaimBackgroundTabs(underMemoryPressure:true)
         XCTAssertEqual(reclaimed, 1)
     }
 
@@ -209,7 +242,7 @@ import SwiftUI
         controller.session.addTab(load: false)
         try await wait { oldView?.superview == nil && oldView?.window == nil }
         tab.lastSelectedTime -= 601
-        let reclaimed = await controller.session.reclaimBackgroundTabs()
+        let reclaimed = await controller.session.reclaimBackgroundTabs(underMemoryPressure:true)
         XCTAssertEqual(reclaimed, 1)
         try await wait { oldView == nil }
         controller.session.selectTab(tab.id)

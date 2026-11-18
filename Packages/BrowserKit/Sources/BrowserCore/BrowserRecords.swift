@@ -62,12 +62,23 @@ public struct HistoryEntry: Codable, Identifiable, Equatable, Sendable {
     public var title: String
     public var url: URL
     public var visitedAt: Date
+    public var visitCount: Int
 
-    public init(id: UUID = UUID(), title: String, url: URL, visitedAt: Date = Date()) {
+    public init(id: UUID = UUID(), title: String, url: URL, visitedAt: Date = Date(), visitCount: Int = 1) {
         self.id = id
         self.title = title
         self.url = url
+        self.visitCount = min(max(1, visitCount), 1_000_000)
         self.visitedAt = visitedAt
+    }
+    private enum CodingKeys: String, CodingKey { case id, title, url, visitedAt, visitCount }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        url = try values.decode(URL.self, forKey: .url)
+        visitedAt = try values.decode(Date.self, forKey: .visitedAt)
+        visitCount = min(max(1, try values.decodeIfPresent(Int.self, forKey: .visitCount) ?? 1), 1_000_000)
     }
 }
 

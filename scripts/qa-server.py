@@ -23,6 +23,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/favicon-page':
+            body = b'<html><head><title>Favicon fixture</title><link rel="icon" href="/favicon-image.svg"></head><body><h1>Site icon</h1><input value="Keyboard fixture"></body></html>'
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Set-Cookie', 'oriv-icon=allowed; Path=/; SameSite=Lax')
+            self.end_headers(); self.wfile.write(body)
+            return
+        if path == '/favicon-image.svg':
+            if 'oriv-icon=allowed' not in self.headers.get('Cookie', ''):
+                self.send_error(403); return
+            self.send_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="#217f67"/><path d="M28 64L54 90L102 38" stroke="white" stroke-width="13" fill="none"/></svg>', 'image/svg+xml')
+            return
         if path == '/ads-front.min.js':
             self.send_bytes(b'window.shippingTrackerLoaded=true;', 'text/javascript', no_store=True)
             return
@@ -51,6 +64,16 @@ class Handler(BaseHTTPRequestHandler):
             run = parse_qs(urlsplit(self.path).query).get('run', [''])[0][:64]
             Handler.privacy_destination_runs[run] = Handler.privacy_destination_runs.get(run, 0) + 1
             self.send_bytes(PAGE.format(title='Privacy destination', body='<h2 id="destination">Explicit destination load</h2>').encode(), 'text/html; charset=utf-8', no_store=True)
+            return
+        if path == '/tab-switch':
+            query = parse_qs(urlsplit(self.path).query)
+            try: delay = min(2, max(0, float(query.get('delay', ['0'])[0])))
+            except ValueError: delay = 0
+            time.sleep(delay)
+            tiles = ''.join(f'<section>Fixture tile {i}</section>' for i in range(4000 if query.get('heavy') == ['1'] else 12))
+            self.send_bytes(('<!doctype html><meta name="viewport" content="width=device-width"><title>Tab switch fixture</title>'
+                '<style>body{margin:0;background:#d4e8c8;color:#172d22;font:24px system-ui}main{padding:40px}section{padding:16px;margin:10px;border:2px solid #246b50}</style>'
+                '<main><h1>Tab switch fixture</h1>' + tiles + '</main>').encode(), 'text/html; charset=utf-8', no_store=True)
             return
         if path == '/chrome-revisit':
             placeholder = parse_qs(urlsplit(self.path).query).get('stage') == ['placeholder']

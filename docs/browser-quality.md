@@ -2,6 +2,14 @@
 
 # Browser quality and coverage
 
+## 0.14.0 (21)
+
+Mac tab selection now retains its native web-view host and presents a destination-only page snapshot while a discarded tab restores. Snapshots stay in an 8 MiB memory cache per session, including private pages, and never enter session or continuity records. Ordinary idle reclamation keeps the three most recently used Mac tabs live; pressure can reclaim older eligible views. Restored history scroll is checked across two settling samples before the cover releases, with bounded reapplication when WebKit resets the acknowledged position.
+
+Control-Tab and Control-Shift-Tab cycle Mac tabs through the same selection path as sidebar and Switch to Tab suggestions. Command-Shift-R reloads from origin. Site-owned favicons appear across Mac and iPhone, with separate profile caches and memory-only private icons. Discovery waits for a painted document, completed restoration and dismissal of its destination cover; delayed SVG work revalidates document eligibility. Local address suggestions rank open tabs, bookmarks and history, with native inline completion and no remote keystroke requests.
+
+Regression coverage combines the stable host, keyboard and suggestion selection, private snapshot/icon erasure, cookie isolation, lazy background tabs and restore-time discovery gating. Offscreen Mac captures and headless Simulator tests do not establish foreground compositing, actual system fullscreen, physical-iPhone frame pacing or energy use. See [tab switching](tab-switching.md), [keyboard shortcuts](keyboard-shortcuts.md) and [testing](testing.md) for behavior and acceptance boundaries.
+
 ## 0.13.1 (20)
 
 The Mac Browser Actions (ellipsis) button now opens a native grouped pull-down menu. The full 36 × 32 pt glass label is the hit target, and the titlebar accessory forwards its strip to the content view, so edge and padding clicks no longer miss. Regression coverage clicks 18 edge and padding points at two widths and repeats activation with page focus; the opened menu was checked on screen in light, dark, private and narrow windows.

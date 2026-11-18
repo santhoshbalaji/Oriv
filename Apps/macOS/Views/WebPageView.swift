@@ -7,28 +7,80 @@ struct WebPageView: NSViewRepresentable {
     var chrome: PageChrome? = nil
     var contentUnderChrome = false
     var headerInset: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    func makeNSView(context: Context) -> WebViewHost { WebViewHost(webView: tab.webView) }
-    func updateNSView(_ host: WebViewHost, context: Context) { host.headerInset = headerInset; host.onGeometryChange = { chrome?.requestSample() }; host.clipsToBounds = !contentUnderChrome; host.attachIfWindowed(); host.needsLayout = true }
+    func makeNSView(context: Context) -> WebViewHost { WebViewHost(webView: tab.webView,tab:tab) }
+    static func dismantleNSView(_ host: WebViewHost, coordinator: ()) { host.switchCover.cancel() }
+    func updateNSView(_ host: WebViewHost, context: Context) {
+        host.setTab(tab); host.headerInset = headerInset; host.onGeometryChange = { chrome?.requestSample() }
+        host.switchCover.reduceMotion = reduceMotion
+        host.clipsToBounds = !contentUnderChrome; host.attachIfWindowed(); host.needsLayout = true
+    }
 }
 
 /// SwiftUI sizes this container. WebKit owns the child view's frame and can
 /// move it into its fullscreen window without carrying SwiftUI constraints.
 /// See WebKit bug 313802 and WKWebView.fullscreenState's reparenting contract.
 final class WebViewHost: NSView {
-    let webView: WKWebView
+    private(set) var webView: WKWebView
     var headerInset: CGFloat = 0
     var onGeometryChange: (() -> Void)?
     private var fullscreenObservation: NSKeyValueObservation?
+    private weak var pendingTab: BrowserTab?
+    private var closingPresentation = false
+    private weak var tab: BrowserTab?
+    let switchCover = TabSwitchCover()
 
-    init(webView: WKWebView) {
+    init(webView: WKWebView,tab:BrowserTab? = nil) {
         self.webView = webView
+        self.tab = tab
         super.init(frame: .zero)
         clipsToBounds = true
+        addSubview(switchCover)
         attachIfWindowed()
+        if let tab { switchCover.begin(tab,in:webView) }
+        observeFullscreen()
+    }
+    func setTab(_ tab:BrowserTab) {
+        // A retained SwiftUI graph can receive one final update after close.
+        // Do not invoke that same tab's lazy getter and resurrect its view.
+        if self.tab === tab && !tab.isInstantiated { return }
+        let view = tab.webView
+        if webView !== view {
+            // WebKit owns the view while it is in its fullscreen window. Close
+            // that presentation and wait for its placeholder restoration before
+            // changing children. Rapid selection keeps only the latest target.
+            if webView.fullscreenState != .notInFullscreen {
+                pendingTab = tab
+                guard !closingPresentation else { return }
+                closingPresentation = true
+                let outgoing = webView
+                outgoing.closeAllMediaPresentations { [weak self,weak outgoing] in
+                    guard let self, self.webView === outgoing else { return }
+                    self.closingPresentation = false
+                    self.finishPendingSelection()
+                }
+                return
+            }
+            pendingTab = nil; closingPresentation = false
+            fullscreenObservation = nil
+            webView.removeFromSuperview()
+            webView = view; self.tab = tab
+            attachIfWindowed(); switchCover.begin(tab,in:view); observeFullscreen()
+        } else { pendingTab = nil }
+        switchCover.confirmIfReady(tab)
+    }
+    private func finishPendingSelection() {
+        guard webView.fullscreenState == .notInFullscreen, let pendingTab else { return }
+        self.pendingTab = nil; closingPresentation = false
+        guard pendingTab.isInstantiated else { return }
+        setTab(pendingTab)
+    }
+    private func observeFullscreen() {
         fullscreenObservation = webView.observe(\.fullscreenState, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 // Wait until WebKit has finished restoring its placeholder.
+                self?.finishPendingSelection()
                 self?.attachIfWindowed()
                 self?.needsLayout = true
             }
@@ -40,6 +92,7 @@ final class WebViewHost: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         needsLayout = true
+        if let tab { switchCover.confirmIfReady(tab) }
     }
 
     func attachIfWindowed() {
@@ -48,12 +101,14 @@ final class WebViewHost: NSView {
             webView.translatesAutoresizingMaskIntoConstraints = true
             webView.autoresizingMask = [.width, .height]
             webView.frame = bounds
-            addSubview(webView)
+            addSubview(webView,positioned:.below,relativeTo:switchCover)
         }
     }
 
     override func layout() {
         super.layout()
+        switchCover.frame = bounds
+        if let tab { switchCover.confirmIfReady(tab) }
         guard webView.fullscreenState == .notInFullscreen, webView.superview === self else { return }
         if let window {
             let rect = convert(bounds, to: nil)

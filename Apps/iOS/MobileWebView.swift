@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import BrowserEngine
 
 struct MobileWebView: UIViewRepresentable {
     let webView: WKWebView
@@ -22,13 +23,17 @@ struct MobileWebView: UIViewRepresentable {
     var viewportLayout:MobileViewportLayout?
     var baseBottomInset:CGFloat = 0
     var includesBar = true
+    var tab: BrowserTab?
 
-    func makeUIView(context: Context) -> MobileWebHost { MobileWebHost(webView: webView) }
+    func makeUIView(context: Context) -> MobileWebHost { MobileWebHost(webView: webView,tab:tab) }
     static func dismantleUIView(_ host: MobileWebHost, coordinator: ()) {
+        host.switchCover.cancel()
         host.swipe?.detach(host.swipeSurface)
         host.prepareTransition(nil); host.detachScrollView(); host.detachViewport()
     }
     func updateUIView(_ host: MobileWebHost, context: Context) {
+        host.switchCover.reduceMotion = reduceMotion
+        if let tab { host.switchCover.confirmIfReady(tab) }
         if host.isUserInteractionEnabled == obscured { host.isUserInteractionEnabled = !obscured }
         host.selected = selected
         host.swipe = swipe
@@ -92,6 +97,8 @@ struct MobileWebView: UIViewRepresentable {
 
 final class MobileWebHost: UIView {
     let webView: WKWebView
+    let switchCover = TabSwitchCover()
+    private weak var tab: BrowserTab?
     var selected = true { didSet { if oldValue != selected { connectScrollView() } } }
     let swipeSurface = UIView()
     weak var swipe:MobileTabSwipe?
@@ -160,12 +167,15 @@ final class MobileWebHost: UIView {
         updateInsets(top:viewportTop,bottom:max(viewportBottom,nativeViewport.keyboardOverlap)+(viewportIncludesBar ? nativeViewport.barHeight : 0))
     }
     func detachViewport() { nativeViewport?.remove(self); nativeViewport = nil }
-    init(webView: WKWebView) {
+    init(webView: WKWebView,tab:BrowserTab? = nil) {
         self.webView = webView
+        self.tab = tab
         installedInsets = webView.scrollView.contentInset != .zero
         super.init(frame: .zero)
         clip.clipsToBounds = true; clip.layer.cornerCurve = .continuous
         addSubview(swipeSurface); swipeSurface.addSubview(clip); clip.addSubview(webView)
+        clip.addSubview(switchCover)
+        if let tab { switchCover.begin(tab,in:webView) }
         webView.layer.anchorPoint = .zero; webView.layer.position = .zero
         // Status text follows the sampled band; web CSS continues to follow the
         // scene's system appearance. This avoids light/dark feedback from chrome.
@@ -203,6 +213,7 @@ final class MobileWebHost: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        if let tab { switchCover.confirmIfReady(tab) }
         if window == nil { refreshLink?.invalidate(); refreshLink = nil }
         updatePageAppearance(); connectScrollView(); applyViewportGeometry(); schedulePreparation()
     }
@@ -321,6 +332,8 @@ final class MobileWebHost: UIView {
             onGeometryChange?()
         }
         schedulePreparation()
+        switchCover.frame = clip.bounds
+        if let tab { switchCover.confirmIfReady(tab) }
     }
     /// A single host owns the live layer for its entire lifetime. Only its clip
     /// and affine transform change; WebKit never gets a card-sized viewport.

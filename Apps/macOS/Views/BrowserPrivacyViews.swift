@@ -113,6 +113,7 @@ struct ClearBrowsingDataView: View {
                         if clearHistory { session.clearHistory(since: since) }
                         if clearPermissions { session.settings.clearRules(); session.tabs.forEach { $0.stopCapture() } }
                         if clearCache || clearSites { await session.websiteData.clear(since: since, cacheOnly: !clearSites) }
+                        if clearCache || clearSites { await session.siteIcons.clear() }
                         working = false; dismiss()
                     }
                 }

@@ -2,7 +2,9 @@ import BrowserCore
 import Foundation
 import Observation
 import WebKit
-#if os(iOS)
+#if os(macOS)
+import AppKit
+#else
 import UIKit
 #endif
 
@@ -21,6 +23,18 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public private(set) var errorMessage: String?
     public private(set) var hasLoaded = false
     public private(set) var isRestoringWebView = false
+    /// The committed document has painted, or completed as an empty document.
+    /// Attachment still requires a native rendering barrier before revealing it.
+    public private(set) var hasRenderedContent = false
+    /// The native host owns this weak presentation marker until its destination
+    /// cover is gone. Optional document work must not compete with that handoff.
+    public weak var switchPresentation: AnyObject?
+    public private(set) var lastPageBackground: ChromeColor?
+    public var switchSnapshot: TabSnapshotCache.Snapshot? { snapshotCache?.snapshot(for: id) }
+    @ObservationIgnored var snapshotCache: TabSnapshotCache?
+    @ObservationIgnored private var snapshotGeneration = 0
+    @ObservationIgnored private var expectedPaintDocument: Double?
+    @ObservationIgnored private var paintedDocuments: Set<Double> = []
     public private(set) var isPinned: Bool
     public private(set) var pageZoom: Double = 1
     public private(set) var findResult: Bool?
@@ -76,6 +90,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     // Internal seams exercise real delegate paths without killing a WebKit process or replaying a form.
     @ObservationIgnored var recoveryClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     @ObservationIgnored var createWebView: (WKWebViewConfiguration) -> WKWebView = { WKWebView(frame: .zero, configuration: $0) }
+    #if DEBUG
+    @ObservationIgnored var onScrollRestorationCheck: ((CGPoint, CGPoint, CGPoint?, Int) -> Void)?
+    #endif
 
     public init(record: TabRecord = TabRecord(), isPrivate: Bool = false,
                 configuration: WKWebViewConfiguration? = nil, dataStore: WKWebsiteDataStore = .default(),
@@ -101,6 +118,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         super.init()
         let world = WKContentWorld.world(name: "OrivTabState")
         contentController.add(EditedFieldHandler(tab: self), contentWorld: world, name: "editedField")
+        contentController.add(TabPaintHandler(tab: self), contentWorld: world, name: "tabPaint")
+        if !contentController.userScripts.contains(where: { $0.source == Self.paintScript }) {
+            contentController.addUserScript(WKUserScript(source: Self.paintScript, injectionTime: .atDocumentStart,
+                forMainFrameOnly: true, in: world))
+        }
         let editedFieldScript = WKUserScript(source: """
             (() => {
             if (window.orivEditTracking) return;
@@ -168,6 +190,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         // navigation callback. Install the opener session's prepared protection now.
         adBlocker?.applyPrepared(to: configuration.userContentController, url: url, isPrivate: isPrivate)
         let view = createWebView(configuration)
+        hasRenderedContent = false
         if let size = savedViewSize { view.frame = CGRect(origin:.zero,size:size); savedViewSize = nil }
         view.pageZoom = pageZoom
         view.navigationDelegate = self
@@ -255,6 +278,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                         view.navigationDelegate = nil; view.uiDelegate = nil; self.onAuthentication = nil
                         self.savedViewSize = view.bounds.size
                         self.savedInteractionState = state; self.backingWebView = nil; self.hasLoaded = false
+                        self.hasRenderedContent = false
                         request.finish(true)
                     }
                 }
@@ -284,18 +308,61 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     private func restoreScrollPosition(force:Bool = false) {
         guard let target = savedScrollOffset, let view = backingWebView, isRestoringWebView,
-              !applyingRestoration, force || !view.isLoading else { return }
+              !applyingRestoration, view.url.map(AddressResolver.isWebURL) == true,
+              force || (hasRenderedContent && !view.isLoading) else { return }
         #if os(iOS)
         guard !view.scrollView.isTracking else { savedScrollOffset = nil; isRestoringWebView = false; return }
         #endif
         applyingRestoration = true
-        let revision = documentRevision
-        view.evaluateJavaScript("window.scrollTo(\(target.x),\(target.y)); void 0") { [weak self,weak view] _,_ in
-            guard let self else { return }
-            self.applyingRestoration = false
-            guard self.backingWebView === view, self.documentRevision == revision else { return }
-            self.savedScrollOffset = nil; self.isRestoringWebView = false
+        applySavedScroll(target,in:view,revision:documentRevision,attempt:0)
+    }
+
+    private func applySavedScroll(_ target:CGPoint,in view:WKWebView,revision:Int,attempt:Int) {
+        // A scrollTo acknowledgement at didFinish is not a stable restored
+        // viewport: WebKit can subsequently apply its own history scroll. Read
+        // back layout, then verify once across a bounded settling interval.
+        let script = """
+            (() => {
+            const e = document.scrollingElement || document.documentElement;
+            const mx = Math.max(0,e.scrollWidth-innerWidth), my = Math.max(0,e.scrollHeight-innerHeight);
+            const x = getComputedStyle(e).direction === 'rtl' ? Math.max(-mx,Math.min(0,\(target.x))) : Math.max(0,Math.min(mx,\(target.x)));
+            const y = Math.max(0,Math.min(my,\(target.y)));
+            window.scrollTo(x,y); return [x,y];
+            })();
+            """
+        view.evaluateJavaScript(script) { [weak self,weak view] value,_ in
+            guard let self, let view, !self.isClosed, self.backingWebView === view,
+                  self.documentRevision == revision, self.isRestoringWebView else { return }
+            guard let expected = value as? [Double], expected.count == 2 else { self.finishScrollRestoration(); return }
+            self.verifySavedScroll(target,expected:CGPoint(x:expected[0],y:expected[1]),in:view,revision:revision,attempt:attempt)
         }
+    }
+    private func verifySavedScroll(_ target:CGPoint,expected:CGPoint,in view:WKWebView,revision:Int,attempt:Int,stableSamples:Int = 0) {
+        Task { @MainActor [weak self,weak view] in
+            do { try await Task.sleep(for:.milliseconds(50)) } catch { return }
+            guard let self, let view, !self.isClosed, self.backingWebView === view,
+                  self.documentRevision == revision, self.isRestoringWebView else { return }
+            view.evaluateJavaScript("[scrollX,scrollY]") { [weak self,weak view] value,_ in
+                guard let self, let view, !self.isClosed, self.backingWebView === view,
+                      self.documentRevision == revision, self.isRestoringWebView else { return }
+                let actual = (value as? [Double]).flatMap { $0.count == 2 ? CGPoint(x:$0[0],y:$0[1]) : nil }
+                #if DEBUG
+                self.onScrollRestorationCheck?(target,expected,actual,attempt)
+                #endif
+                // A smaller provisional layout can clamp the saved point;
+                // give it the same bounded retry before accepting the clamp.
+                let reachedTarget = abs(expected.x-target.x) <= 1 && abs(expected.y-target.y) <= 1
+                let settled = reachedTarget && (actual.map { abs($0.x-expected.x) <= 1 && abs($0.y-expected.y) <= 1 } ?? false)
+                if settled && stableSamples == 0 {
+                    self.verifySavedScroll(target,expected:expected,in:view,revision:revision,attempt:attempt,stableSamples:1)
+                } else if !settled && attempt < 2 {
+                    self.applySavedScroll(target,in:view,revision:revision,attempt:attempt+1)
+                } else { self.finishScrollRestoration() }
+            }
+        }
+    }
+    private func finishScrollRestoration() {
+        savedScrollOffset = nil; isRestoringWebView = false; applyingRestoration = false
     }
 
     private func canDiscard(_ view:WKWebView, minimumIdle: TimeInterval) -> Bool {
@@ -314,6 +381,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func navigate(to destination: URL) {
         guard AddressResolver.isWebURL(destination) else { return }
         let destination = settings?.privacy.cleanedNavigationURL(destination, isPrivate: isPrivate) ?? URLCleaner.clean(destination)
+        invalidateSwitchSnapshot()
         savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil; isRestoringWebView = false; applyingRestoration = false
         pendingHTTPUpgrade = nil
         httpWarningURL = nil
@@ -352,7 +420,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if backingWebView?.url != nil { backingWebView?.reload() }
         else if let url { navigate(to: url) }
     }
-    public func stop() { backingWebView?.stopLoading(); isLoading = false; isRestoringWebView = false; savedScrollOffset = nil; endRefreshing() }
+    public func stop() { backingWebView?.stopLoading(); isLoading = false; finishScrollRestoration(); endRefreshing() }
     public func reloadFromOrigin() { errorMessage = nil; backingWebView?.reloadFromOrigin() }
     public func zoomIn() { setZoom(pageZoom + 0.1) }
     public func zoomOut() { setZoom(pageZoom - 0.1) }
@@ -377,6 +445,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if active { recoverContentProcessIfPossible() }
     }
     func setSelected(_ selected: Bool) {
+        if isSelected && !selected { captureSwitchSnapshot() }
         if selected || isSelected { lastSelectedTime = recoveryClock() }
         #if os(iOS)
         if !selected {
@@ -434,8 +503,77 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         onChange?()
     }
 
+    private static let paintScript = """
+        (() => {
+            if (window.orivTabPaint) return;
+            window.orivTabPaint = true;
+            const observer = new PerformanceObserver(list => {
+                if (list.getEntries().some(e => e.name === 'first-contentful-paint')) {
+                    window.webkit.messageHandlers.tabPaint.postMessage(performance.timeOrigin);
+                    observer.disconnect();
+                }
+            });
+            observer.observe({type:'paint', buffered:true});
+        })();
+        """
+
+    private func identifyPaintedDocument(_ view: WKWebView) {
+        let revision = documentRevision
+        view.callAsyncJavaScript("return {id:performance.timeOrigin,painted:performance.getEntriesByType('paint').some(e=>e.name==='first-contentful-paint')};",
+            arguments:[:],in:nil,in:.world(name:"OrivTabState")) { [weak self,weak view] result in
+                guard let self, !self.isClosed, self.backingWebView === view, self.documentRevision == revision,
+                      let value = (try? result.get()) as? [String:Any], let id = value["id"] as? Double else { return }
+                self.expectedPaintDocument = id
+                if value["painted"] as? Bool == true || self.paintedDocuments.contains(id) { self.hasRenderedContent = true }
+            }
+    }
+    func recordFirstPaint(_ id: Double) {
+        guard !isClosed, id.isFinite else { return }
+        // At most a few messages can race a commit; never retain an unbounded
+        // document history or accept a previous document's delayed signal.
+        if paintedDocuments.count >= 4 { paintedDocuments.removeAll() }
+        paintedDocuments.insert(id)
+        if expectedPaintDocument == id { hasRenderedContent = true }
+    }
+    private func invalidateSwitchSnapshot() {
+        snapshotGeneration += 1; snapshotCache?.remove(id)
+    }
+    private func captureSwitchSnapshot() {
+        guard !isClosed, hasRenderedContent, !isRestoringWebView, let view = backingWebView,
+              view.bounds.width > 0, view.bounds.height > 0, let cache = snapshotCache,
+              let token = cache.beginCapture() else { return }
+        let generation = snapshotGeneration, revision = documentRevision
+        #if os(macOS)
+        let scale = view.window?.backingScaleFactor ?? 2
+        let color = view.underPageBackgroundColor.usingColorSpace(.sRGB)
+        if let color { lastPageBackground = ChromeColor(color.redComponent,color.greenComponent,color.blueComponent) }
+        #else
+        let scale = view.traitCollection.displayScale
+        var r:CGFloat = 0, g:CGFloat = 0, b:CGFloat = 0, a:CGFloat = 0
+        if view.underPageBackgroundColor.getRed(&r,green:&g,blue:&b,alpha:&a) { lastPageBackground = ChromeColor(r,g,b) }
+        #endif
+        let config = WKSnapshotConfiguration()
+        config.snapshotWidth = NSNumber(value: min(view.bounds.width,view.bounds.width/view.bounds.height*CGFloat(TabSnapshotCache.maximumDimension),CGFloat(TabSnapshotCache.maximumDimension))/max(1,scale))
+        // Flush pending drawing: didFinish can precede presentation on iOS.
+        // The callback never blocks selection, nor initiates a page load.
+        config.afterScreenUpdates = true
+        view.takeSnapshot(with:config) { [weak self,weak view,weak cache] image,_ in
+            guard let cache, cache.finishCapture(token), let self, let view, !self.isClosed,
+                  self.snapshotGeneration == generation, self.documentRevision == revision,
+                  self.backingWebView === view, let image else { return }
+            #if os(macOS)
+            let cg = image.cgImage(forProposedRect:nil,context:nil,hints:nil)
+            #else
+            let cg = image.cgImage
+            #endif
+            if let cg, let snapshot = TabSnapshotCache.compress(cg) { cache.insert(snapshot,for:self.id) }
+        }
+    }
+
     public func close() {
         guard !isClosed else { return }
+        invalidateSwitchSnapshot()
+        snapshotCache = nil
         // Adapters must unregister while their live view is still reachable,
         // including session shutdown (which does not call didCloseTab).
         onWebViewDiscarded?(); onWebViewDiscarded = nil
@@ -452,6 +590,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         backingWebView?.uiDelegate = nil
         observations.removeAll()
         configuration.userContentController.removeScriptMessageHandler(forName: "editedField", contentWorld: .world(name: "OrivTabState"))
+        configuration.userContentController.removeScriptMessageHandler(forName: "tabPaint", contentWorld: .world(name: "OrivTabState"))
         #if os(macOS)
         configuration.userContentController.removeScriptMessageHandler(forName: "displayCaptureRequested", contentWorld: .page)
         #endif
@@ -500,6 +639,12 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public static let navigationStarted = Notification.Name("OrivNavigationStarted")
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        guard !isClosed, backingWebView === webView else { return }
+        if applyingRestoration { finishScrollRestoration() }
+        expectedPaintDocument = nil; paintedDocuments.removeAll(); hasRenderedContent = false
+        // A retained discard image remains until restoration paints. Ordinary
+        // navigation cannot reuse a screenshot of the previous document.
+        if !isRestoringWebView { invalidateSwitchSnapshot() }
         // Server/HTTPS upgrade redirects keep their WKNavigation identity.
         // A replacement, including a script navigation, cannot inherit consent.
         if let previous = pendingHTTPUpgrade?.navigation, previous !== navigation {
@@ -523,6 +668,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     #endif
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard !isClosed, backingWebView === webView else { return }
+        identifyPaintedDocument(webView)
         #if os(iOS)
         NotificationCenter.default.post(name:Self.documentCommitted,object:webView)
         #endif
@@ -545,7 +692,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     func recordFieldEdit() { if !isClosed { hasEditedFields = true } }
     func recordDisplayCaptureRequest() { if !isClosed { hasRequestedDisplayCapture = true } }
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard !isClosed, backingWebView === webView else { return }
         restoreScrollPosition(force:true)
+        // Empty pages, PDFs and unsupported Paint Timing documents must also
+        // become usable. The host's afterScreenUpdates barrier still runs.
+        hasRenderedContent = true
         endRefreshing()
         refresh(from: webView)
         if let url, AddressResolver.isWebURL(url), !isPrivate {
@@ -563,6 +714,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { handle(error,navigation:navigation) }
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard !isClosed, backingWebView === webView else { return }
+        hasRenderedContent = false
         endRefreshing()
         isLoading = false
         contentProcessTerminated = true
@@ -750,5 +902,14 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     init(tab: BrowserTab) { self.tab = tab }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.body as? Bool == true { tab?.recordFieldEdit() }
+    }
+}
+
+@MainActor private final class TabPaintHandler: NSObject, WKScriptMessageHandler {
+    weak var tab: BrowserTab?
+    init(tab: BrowserTab) { self.tab = tab }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let id = message.body as? Double else { return }
+        tab?.recordFirstPaint(id)
     }
 }

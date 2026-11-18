@@ -21,7 +21,7 @@ Use the selective tokens in `Theme.swift`; retain intentional platform geometry 
 | `OrivType` on Mac | `body` 13, `detail` 12, `caption` 11, `title` 17 pt (semibold) |
 | `OrivType` on iPhone | `body` → body, `detail` → footnote, `caption` → caption, `title` → headline |
 
-`PageRowContent` shares the local site monogram, title, disambiguated address and optional “Already open” badge or selection checkmark. Mac keeps compact inline rows (title only in its tab sidebar); iPhone stacks the address and moves the accessory underneath at accessibility text sizes. Titles may use two lines at accessibility sizes; addresses always use one line with middle truncation so host, port and path tokens never split across lines. Pass each visible list’s `URLDisplay.Context`. Full URLs remain available as accessibility custom content named “Address”; Mac callers keep hover help. Buttons, List/Form selection, close targets, swipe actions and context menus belong to the platform container. Keep the existing 24 pt Mac and 44 pt iPhone minimum control targets.
+`PageRowContent` shares the site favicon (with local monogram fallback), title, disambiguated address and optional “Already open” badge or selection checkmark. Mac keeps compact inline rows (title only in its tab sidebar); iPhone stacks the address and moves the accessory underneath at accessibility text sizes. Titles may use two lines at accessibility sizes; addresses always use one line with middle truncation so host, port and path tokens never split across lines. Pass each visible list’s `URLDisplay.Context`. Full URLs remain available as accessibility custom content named “Address”; Mac callers keep hover help. Buttons, List/Form selection, close targets, swipe actions and context menus belong to the platform container. Keep the existing 24 pt Mac and 44 pt iPhone minimum control targets.
 
 `BrowserEmptyState` shows one explanatory message and an optional native action. Use it for empty home, saved-page lists, downloads, website data, other-device states and searches with no matches. The message wraps at accessibility sizes; do not add a decorative icon, separate heading or second explanatory paragraph. Page-load failures retain their diagnostic and recovery presentation.
 
@@ -51,3 +51,19 @@ The resting iPhone address shows the host; editing exposes the complete URL with
 Preserve existing WebKit instances during address editing and sheet navigation. Native scrolling, focus, sheets, menus, system permission prompts and selection behavior take precedence over decoration. Keep large content readable, avoid nested global navigation, and use explicit scope language for profile data and privacy controls.
 
 Release acceptance still includes real-device reachability, VoiceOver and Full Keyboard Access, Increase Contrast and Reduce Transparency, landscape/narrow layouts, localization and media/camera permission flows. Local build and simulator evidence does not establish complete accessibility, HIG or web-standards conformance. Current evidence is recorded in [the UX implementation report](ux-implementation.md).
+
+## Site identities and address results
+
+`SiteIdentity` uses the profile/session icon environment. Keep the monogram as a
+fallback and the separate glasses/text cue for private browsing. Transparent
+icons sit on a subtle pale plate so monochrome marks survive the dark sidebar.
+The same component serves sidebar, overview, tab lists and Library rows.
+
+Address results use shared `AddressSuggestionRow` content and native field
+editors. Group up to seven local matches under Switch to Tab, Bookmarks and
+History, followed by one explicit Search row. Highlight query text in title and
+address; keep selection visible with the existing marker. iPhone uses the existing
+Liquid Glass treatment, adapting to Reduce Transparency and Increased Contrast.
+Inline completion selects only the host suffix; accepting it is distinct from
+choosing a result. Local ranking uses prefix strength, bookmarks, visit frequency
+and recency; an actor maintains normalized prefix and trigram indexes off-main.
