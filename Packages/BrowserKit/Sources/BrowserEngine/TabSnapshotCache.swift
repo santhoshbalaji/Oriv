@@ -22,6 +22,8 @@ import Observation
     @ObservationIgnored private var entries: [UUID: Snapshot] = [:]
     @ObservationIgnored private var order: [UUID] = []
     @ObservationIgnored private var captureID: UUID?
+    @ObservationIgnored private var captureStart = ContinuousClock.now
+    private static let captureDeadline: Duration = .milliseconds(750)
     @ObservationIgnored private var deadline: Task<Void, Never>?
 
     public init(byteLimit: Int = 8 * 1024 * 1024) { self.byteLimit = max(0, byteLimit) }
@@ -51,8 +53,10 @@ import Observation
         NotificationCenter.default.post(name:Self.invalidated,object:self)
     }
     func beginCapture() -> UUID? {
+        // An expired capture never blocks the next switch, even if its timer hasn't run yet.
+        if captureID != nil, ContinuousClock.now - captureStart >= Self.captureDeadline { cancelCapture() }
         guard captureID == nil, byteLimit > 0 else { return nil }
-        let id = UUID(); captureID = id
+        let id = UUID(); captureID = id; captureStart = .now
         deadline = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: .milliseconds(750)) } catch { return }
             if self?.captureID == id { self?.cancelCapture() }
@@ -61,7 +65,8 @@ import Observation
     }
     func finishCapture(_ id: UUID) -> Bool {
         guard captureID == id else { return false }
-        cancelCapture(); return true
+        let expired = ContinuousClock.now - captureStart >= Self.captureDeadline
+        cancelCapture(); return !expired
     }
     private func cancelCapture() { captureID = nil; deadline?.cancel(); deadline = nil }
 
