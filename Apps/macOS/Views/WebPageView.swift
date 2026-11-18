@@ -154,7 +154,8 @@ struct BrowserTitlebar: NSViewRepresentable {
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); configure() }
         func configure() {
             guard let window else { return }
-            window.titlebarAppearsTransparent = true
+            // BrowserWindowChrome owns transparency, including the opaque
+            // fullscreen reveal host. Page-color changes must not reset it.
             window.titlebarSeparatorStyle = .none
             window.titleVisibility = .hidden
             window.toolbarStyle = .unified

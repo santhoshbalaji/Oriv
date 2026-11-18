@@ -152,6 +152,12 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
         if missing: problems.append(f"missing sidebar contrast composites: {sorted(missing)}")
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-live":
     expected = {"mac-glass-sidebar-live-" + state for state in ("expanded", "rail", "overlay")}
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-attached":
+    expected = {f"mac-glass-sidebar-attached-{mode}-{screen}-{layout}-{state}"
+                for mode in ("light", "dark") for screen in ("windowed", "fullscreen")
+                for layout in ("expanded", "rail", "overlay")
+                for state in (("default",) if screen == "fullscreen" or layout == "overlay"
+                              else ("default", "mouse-toggle", "mouse-row", "keyboard", "selected-focused"))}
 elif os.environ.get("ORIV_LIVE_SITES"):
     expected = {f"mac-glass-site{i+1}" for i, _ in enumerate(os.environ["ORIV_LIVE_SITES"].split(","))}
 if m.get("keyWindowsRequested", m["activated"]) and sys.argv[4] != "1": expected.add("mac-05-start-inactive-window")

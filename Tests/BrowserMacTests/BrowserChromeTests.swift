@@ -270,7 +270,7 @@ import XCTest
         XCTAssertEqual(chrome.sampleCount, 0)
     }
 
-    func testTransparentTitlebarHasNoDividerAndRemainsWindowLocal() {
+    func testTitlebarColorPreservesChromeTransparencyAndRemainsWindowLocal() {
         let window = BackgroundUIMode.Window(), other = BackgroundUIMode.Window()
         window.isReleasedWhenClosed = false
         other.isReleasedWhenClosed = false
@@ -280,8 +280,11 @@ import XCTest
         bridge.color = .white
         bridge.reduceMotion = true
         window.contentView!.addSubview(bridge)
-        bridge.configure()
-        XCTAssertTrue(window.titlebarAppearsTransparent)
+        for transparent in [true, false] {
+            window.titlebarAppearsTransparent = transparent
+            bridge.configure()
+            XCTAssertEqual(window.titlebarAppearsTransparent, transparent)
+        }
         XCTAssertEqual(window.titlebarSeparatorStyle, .none)
         XCTAssertEqual(window.backgroundColor, .white)
         XCTAssertEqual(other.backgroundColor, otherColor)

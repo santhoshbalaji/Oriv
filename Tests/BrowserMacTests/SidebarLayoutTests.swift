@@ -7,10 +7,10 @@ import XCTest
 
 @MainActor final class SidebarLayoutTests: BackgroundUITestCase {
     private func makeWindow(_ controller: BrowserController, profiles: BrowserProfiles? = nil,
-                            width: CGFloat = 1000, rtl: Bool = false) -> NSWindow {
+                            width: CGFloat = 1000, rtl: Bool = false, largestText: Bool = true) -> NSWindow {
         let root = BrowserWindow(controller: controller, profiles: profiles)
             .browserAppearance(.t3Code)
-            .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight).dynamicTypeSize(.accessibility5)
+            .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight).dynamicTypeSize(largestText ? .accessibility5 : .large)
         let host = NSHostingController(rootView: root)
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 60, y: 60, width: width, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -27,6 +27,10 @@ import XCTest
     private func address(in window: NSWindow) -> NSTextField? {
         window.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "addressField" } }
     }
+    private func frame(_ name: String, in window: NSWindow) throws -> NSRect {
+        let view = try XCTUnwrap(marker(name, in: window), name)
+        return view.convert(view.bounds, to: nil)
+    }
     private func wait(_ condition: () -> Bool) async throws {
         for _ in 0..<100 { if condition() { return }; try await Task.sleep(for: .milliseconds(50)) }
         XCTFail("Sidebar layout did not settle")
@@ -41,7 +45,8 @@ import XCTest
         XCTAssertEqual(topFrame.maxY, content.convert(content.bounds, to: nil).maxY, accuracy: 1, file: file, line: line)
         XCTAssertEqual(topFrame.height, MacBrowserLayout.headerHeight, accuracy: 1, file: file, line: line)
         do {
-            let sidebar = try XCTUnwrap(marker("browserSidebarGeometry", in: window), file: file, line: line)
+            // Measure the actual material, not its formerly padded wrapper.
+            let sidebar = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: window), file: file, line: line)
             let rect = sidebar.convert(sidebar.bounds, to: nil)
             XCTAssertEqual(rect.minX, 0, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(rect.minY, 0, accuracy: 0.5, file: file, line: line)
@@ -49,7 +54,7 @@ import XCTest
             XCTAssertEqual(rect.height, content.bounds.height, accuracy: 0.5, file: file, line: line)
         }
     }
-    func testInsetSidebarAndRailAtMinimumAndAfterResize() async throws {
+    func testAttachedSidebarAndRailAtMinimumAndAfterResize() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles, width: 760); defer { window.close() }
         try await wait { (self.marker("browserSidebarGeometry", in: window)?.bounds.height ?? 0) > 500 && profiles.controller.sidebar.rail }
@@ -57,6 +62,90 @@ import XCTest
         window.setContentSize(NSSize(width: 1280, height: 820))
         try await Task.sleep(for: .milliseconds(200))
         try checkGeometry(window, collapsed: false)
+    }
+    func testExpandedAndNarrowOverlayUseEightPointGuttersAndFivePointFooterGap() async throws {
+        let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
+        let controller = profiles.controller
+        let window = makeWindow(controller, profiles: profiles, largestText: false); defer { window.close() }
+        for width: CGFloat in [1000, 780] {
+            window.setContentSize(NSSize(width: width, height: 600))
+            try await Task.sleep(for: .milliseconds(300))
+            controller.compactSidebar = false
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(controller.sidebar.narrowOverlay, width == 780)
+            let surface = try frame("sidebarSurfaceGeometry", in: window)
+            let tab = try XCTUnwrap(controller.session.selectedTabID)
+            for name in ["sidebarSearchGeometry", "sidebarItem-\(tab)", "sidebarSelection-\(tab)", "sidebarNewTabGeometry", "sidebarFooterGeometry"] {
+                let rect = try frame(name, in: window)
+                XCTAssertEqual(rect.minX - surface.minX, 8, accuracy: 0.5, name)
+                XCTAssertEqual(surface.maxX - rect.maxX, 8, accuracy: 0.5, name)
+            }
+            let row = try frame("sidebarItem-\(tab)", in: window)
+            let icon = try frame("sidebarFavicon-\(tab)", in: window)
+            XCTAssertEqual(row.height, 36, accuracy: 0.5)
+            XCTAssertEqual(icon.minX - row.minX, 8, accuracy: 0.5)
+            XCTAssertEqual(try frame("sidebarSection-Tabs", in: window).minX, icon.minX, accuracy: 0.5)
+            let footer = try frame("sidebarFooterGeometry", in: window)
+            XCTAssertEqual(footer.minY - surface.minY, 8, accuracy: 0.5)
+            XCTAssertEqual(try frame("sidebarNewTabGeometry", in: window).minY - footer.maxY, 5, accuracy: 0.5)
+            XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 0.5)
+            XCTAssertEqual(surface.maxY - (try frame("sidebarProfileGeometry", in: window)).maxY, 40, accuracy: 0.5)
+            XCTAssertEqual(surface.maxY - (try frame("sidebarToggleGeometry", in: window)).midY, 16, accuracy: 0.5)
+        }
+    }
+
+    func testRailUsesCenteredTargetsAndEightPointBottomInsetInBothTopLayouts() async throws {
+        let controller = BrowserController(testing: true); defer { controller.shutdown() }
+        controller.compactSidebar = true
+        let window = makeWindow(controller, largestText: false); defer { window.close() }
+        try await Task.sleep(for: .milliseconds(300))
+        let chrome = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first })
+        for fullscreen in [false, true] {
+            chrome.simulatesFullscreenLayout = fullscreen; chrome.configure()
+            try await Task.sleep(for: .milliseconds(300))
+            let surface = try frame("sidebarSurfaceGeometry", in: window)
+            let tab = try XCTUnwrap(controller.session.selectedTabID)
+            for name in ["sidebarToggleGeometry", "sidebarSearchGeometry", "sidebarNewTabGeometry", "sidebarItem-\(tab)", "sidebarFooter-Settings"] {
+                let rect = try frame(name, in: window)
+                XCTAssertEqual(rect.midX, surface.midX, accuracy: 0.5, name)
+                XCTAssertEqual(rect.width, 42, accuracy: 0.5, name)
+                XCTAssertEqual(rect.height, 36, accuracy: 0.5, name)
+            }
+            let toggle = try frame("sidebarToggleGeometry", in: window)
+            XCTAssertEqual(surface.maxY - toggle.maxY, fullscreen ? 8 : 36, accuracy: 0.5)
+            XCTAssertEqual(try frame("sidebarFooter-Settings", in: window).minY - surface.minY, 8, accuracy: 0.5)
+        }
+    }
+
+    func testFullscreenProfileSharesToggleLineWithoutRevealRelayout() async throws {
+        let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
+        let window = makeWindow(profiles.controller, profiles: profiles, largestText: false); defer { window.close() }
+        try await Task.sleep(for: .milliseconds(300))
+        let chrome = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first })
+        chrome.simulatesFullscreenLayout = true; chrome.configure()
+        try await Task.sleep(for: .milliseconds(300))
+        let surface = try frame("sidebarSurfaceGeometry", in: window)
+        let profile = try frame("sidebarProfileGeometry", in: window)
+        let toggle = try frame("sidebarToggleGeometry", in: window)
+        XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 0, accuracy: 0.5)
+        XCTAssertEqual(surface.maxY - profile.maxY, 8, accuracy: 0.5)
+        XCTAssertEqual(surface.maxY - toggle.maxY, 8, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(toggle.minX - profile.maxX, 8)
+        // Visibility represents the two reveal states without a system Space
+        // transition. Native host painting still needs foreground acceptance.
+        for hidden in [true, false, true] {
+            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(type)?.isHidden = hidden }
+            chrome.configure()
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(try frame("sidebarProfileGeometry", in: window), profile)
+            XCTAssertEqual(try frame("sidebarToggleGeometry", in: window), toggle)
+            XCTAssertFalse(window.titlebarAppearsTransparent, "The revealed system titlebar must cover underlying chrome")
+            XCTAssertTrue(window.titlebarAccessoryViewControllers.isEmpty, "No extra reveal height is reserved")
+        }
+        chrome.simulatesFullscreenLayout = false; chrome.configure()
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(window.titlebarAppearsTransparent)
+        XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 0.5)
     }
     func testPrivacyShieldAndAddressFitDefaultAndMinimumWithSidebar() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
@@ -145,8 +234,11 @@ import XCTest
                 let button = try XCTUnwrap(window.standardWindowButton(type))
                 XCTAssertTrue(button.superview === parents[i])
                 let frame = button.convert(button.bounds, to: nil)
-                XCTAssertEqual(frame.minX, (collapsed ? MacBrowserLayout.railWidth + 12 : MacBrowserLayout.lightsInset) + CGFloat(i) * MacBrowserLayout.lightsSpacing, accuracy: 1)
-                XCTAssertEqual(window.contentView!.bounds.maxY - frame.midY, collapsed ? MacBrowserLayout.headerHeight / 2 : 37, accuracy: 1)
+                XCTAssertFalse(button.isHiddenOrHasHiddenAncestor)
+                XCTAssertTrue(button.window === window && window.isVisible)
+                XCTAssertEqual(frame.minX, (collapsed ? 15 : MacBrowserLayout.lightsInset) + CGFloat(i) * MacBrowserLayout.lightsSpacing, accuracy: 1)
+                XCTAssertEqual(window.contentView!.bounds.maxY - frame.midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)
+                XCTAssertLessThanOrEqual(frame.maxX, collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
                 XCTAssertTrue(button.superview!.bounds.contains(button.frame), "Native hit testing must include the entire button")
             }
         }
@@ -231,7 +323,7 @@ import XCTest
         try await Task.sleep(for: .milliseconds(800))
         try checkGeometry(window, collapsed: true)
         let button = try XCTUnwrap(window.standardWindowButton(.closeButton))
-        XCTAssertEqual(window.contentView!.bounds.maxY - button.convert(button.bounds, to: nil).midY, MacBrowserLayout.headerHeight / 2, accuracy: 1)
+        XCTAssertEqual(window.contentView!.bounds.maxY - button.convert(button.bounds, to: nil).midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)
     }
     func testExternalPrivateWindowUsesSameLayout() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
@@ -318,6 +410,15 @@ import XCTest
                 XCTAssertTrue(window.standardWindowButton(type)?.isHidden == true)
             }
         }
+        // Return the simulated system-owned controls to the real windowed path.
+        chrome.simulatesFullscreenLayout = false
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(type)?.isHidden = false }
+        chrome.configure()
+        try await Task.sleep(for: .milliseconds(300))
+        try checkGeometry(window, collapsed: true)
+        let returned = try XCTUnwrap(window.standardWindowButton(.closeButton))
+        XCTAssertFalse(returned.isHiddenOrHasHiddenAncestor)
+        XCTAssertEqual(returned.convert(returned.bounds, to: nil).minX, 15, accuracy: 1)
         if BackgroundUIMode.isEnabled {
             XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, ProcessInfo.processInfo.processIdentifier)
         }

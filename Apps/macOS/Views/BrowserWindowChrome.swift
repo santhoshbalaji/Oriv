@@ -7,6 +7,13 @@ enum MacBrowserLayout {
     static let sidebarWidth: CGFloat = 296
     static let railWidth: CGFloat = 84
     static let headerHeight: CGFloat = 60
+    static let sidebarInset: CGFloat = 8
+    static let sidebarRowInset: CGFloat = 8
+    static let sidebarTitlebarHeight: CGFloat = 32
+    static let sidebarFooterGap: CGFloat = 5
+    static let railItemWidth: CGFloat = 42
+    static let railItemHeight: CGFloat = 36
+    static let railInset = (railWidth - railItemWidth) / 2
     static let lightsWidth: CGFloat = 54
     static let lightsInset: CGFloat = 26
     static let lightsSpacing: CGFloat = 20
@@ -68,11 +75,11 @@ struct BrowserWindowChrome: NSViewRepresentable {
         private var observers: [NSObjectProtocol] = []
         private var lastState: [Bool] = []
         private var configuring = false
+        private var enteringFullscreen = false
         #if DEBUG
         var simulatesFullscreenLayout = false
         #endif
         private weak var observedWindow: NSWindow?
-        private var accessory: NSTitlebarAccessoryViewController?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
@@ -86,8 +93,14 @@ struct BrowserWindowChrome: NSViewRepresentable {
                          NSWindow.didResignKeyNotification, NSWindow.willEnterFullScreenNotification,
                          NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification,
                          NSWindow.willBeginSheetNotification, NSWindow.didEndSheetNotification] {
-                observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.configure() }
+                observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
+                    let entering = note.name == NSWindow.willEnterFullScreenNotification
+                    let finished = note.name == NSWindow.didEnterFullScreenNotification || note.name == NSWindow.didExitFullScreenNotification
+                    MainActor.assumeIsolated {
+                        if entering { self?.enteringFullscreen = true }
+                        if finished { self?.enteringFullscreen = false }
+                        self?.configure()
+                    }
                 })
             }
             configure()
@@ -98,15 +111,11 @@ struct BrowserWindowChrome: NSViewRepresentable {
             externalPresenter.cancel()
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
-            if let accessory, let window = observedWindow,
-               let index = window.titlebarAccessoryViewControllers.firstIndex(of: accessory) {
-                window.removeTitlebarAccessoryViewController(at: index)
-            }
             observedWindow?.setAccessibilityChildrenInNavigationOrder(nil)
             if windowContext?.window === observedWindow { windowContext?.window = nil }
-            accessory = nil
             observedWindow = nil
             lastState = []
+            enteringFullscreen = false
         }
         func configure() {
             guard let window, !configuring else { return }
@@ -123,7 +132,6 @@ struct BrowserWindowChrome: NSViewRepresentable {
             configuring = true
             defer { configuring = false }
             if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
-            window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.titlebarSeparatorStyle = .none
             window.isMovableByWindowBackground = false
@@ -132,24 +140,23 @@ struct BrowserWindowChrome: NSViewRepresentable {
             // through menu reveal and auto-hide, so they share one backing surface.
             if window.toolbar != nil { window.toolbar = nil }
             #if DEBUG
-            let fullscreen = window.styleMask.contains(.fullScreen) || simulatesFullscreenLayout
+            let fullscreen = window.styleMask.contains(.fullScreen) || enteringFullscreen || simulatesFullscreenLayout
             #else
-            let fullscreen = window.styleMask.contains(.fullScreen)
+            let fullscreen = window.styleMask.contains(.fullScreen) || enteringFullscreen
             #endif
-            if accessory == nil {
-                let controller = NSTitlebarAccessoryViewController()
-                controller.layoutAttribute = .bottom
-                controller.view = TitlebarContentHitRegion(frame: NSRect(x: 0, y: 0, width: window.frame.width, height: 16))
-                controller.view.autoresizingMask = [.width]
-                controller.fullScreenMinHeight = 0
-                window.addTitlebarAccessoryViewController(controller)
-                accessory = controller
-            }
+            // Fullscreen's native reveal host paints its own titlebar over the
+            // fixed content. An opaque titlebar prevents the compact profile and
+            // toggle showing through the revealed lights. Never derive content
+            // spacing from their visibility: revealing them must not move it.
+            window.titlebarAppearsTransparent = !fullscreen
             if !fullscreen {
                 for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                     guard let button = window.standardWindowButton(type), let parent = button.superview else { continue }
-                    let target = parent.convert(NSPoint(x: (compact ? MacBrowserLayout.railWidth + 12 : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing,
-                        y: window.frame.height - (compact ? MacBrowserLayout.headerHeight / 2 : 37)), from: nil)
+                    // Only position controls in this window. During fullscreen
+                    // AppKit moves them to its auto-revealing titlebar host.
+                    guard button.window === window else { continue }
+                    let target = parent.convert(NSPoint(x: (compact ? 15 : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing,
+                        y: window.frame.height - MacBrowserLayout.sidebarTitlebarHeight / 2), from: nil)
                     button.setFrameOrigin(NSPoint(x: target.x, y: target.y - button.frame.height / 2))
                 }
             }
@@ -181,18 +188,6 @@ struct BrowserWindowChrome: NSViewRepresentable {
                 DispatchQueue.main.async { [weak self] in self?.stateChanged?(state[0], state[1]) }
             }
         }
-    }
-}
-
-/// The accessory extends the titlebar to align the traffic lights with the 60 pt
-/// header. Its otherwise-empty container must not eat the bottom edge of header
-/// controls. Route those hits to the full-size content view, where buttons and
-/// the explicit drag region already decide how to handle them.
-private final class TitlebarContentHitRegion: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(convert(point, from: superview)),
-              let content = window?.contentView, let parent = content.superview else { return nil }
-        return content.hitTest(parent.convert(point, from: superview))
     }
 }
 

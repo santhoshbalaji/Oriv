@@ -20,6 +20,7 @@ struct BrowserWindow: View {
     @State private var fullscreen = false
     @State private var windowActive = true
     @State private var windowContext = MacBrowserWindowContext()
+    @State private var chromeFocus = ChromeFocusState()
     @FocusState private var sidebarHeaderToggleFocused: Bool
     @State private var sidebarContainsKeyboardFocus = false
     @State private var sidebarTabFocusRequest = 0
@@ -47,7 +48,7 @@ struct BrowserWindow: View {
     private var showsToolbarDownloads: Bool { controller.downloads.hasActiveDownloads && (pageRail || windowWidth >= 800) }
     private var addressWidth: CGFloat {
         let actions = windowWidth < 1000 && !pageRail ? 28 : 30 * CGFloat(3 + (tab?.url == nil ? 0 : 1) + (showsToolbarDownloads ? 1 : 0))
-        let reserved = (pageRail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) + (pageRail ? 74 : 0) + 24 + 58 + 36 + 20 + actions
+        let reserved = (pageRail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) + 24 + 58 + 36 + 20 + actions
         return min(640, max(230, windowWidth - reserved))
     }
     private var compactAddress: String? { tab?.url.flatMap(URLDisplay.site) }
@@ -64,6 +65,7 @@ struct BrowserWindow: View {
 
     var body: some View {
         routedContent
+        .environment(\.chromeFocusState, chromeFocus)
         .background(BrowserKeyRouter(session: session, overviewVisible: showTabs))
         .environment(\.siteIcons, session.siteIcons)
         .focusedSceneValue(\.browserController, controller)
@@ -112,6 +114,7 @@ struct BrowserWindow: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             sidebarPanel
                 .frame(width: sidebarClipWidth, alignment: .leading).contentShape(Rectangle()).clipped()
+                .shadow(color: .black.opacity(controller.sidebar.overlay ? 0.12 : 0), radius: 8, x: 4)
                 .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
                 .allowsHitTesting(!controller.sidebar.webpageFullscreen)
                 .accessibilityHidden(controller.sidebar.webpageFullscreen)
@@ -139,7 +142,7 @@ struct BrowserWindow: View {
             if !open { restoreSearchFocus() }
         }
         .onDisappear { controller.sidebar.cancel(); controller.sidebarTooltip.dismiss() }
-        .background(SidebarWindowEvents(controller: controller, dismiss: dismissSidebarOverlay))
+        .background(SidebarWindowEvents(controller: controller, input: chromeFocus, dismiss: dismissSidebarOverlay))
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
@@ -183,19 +186,27 @@ struct BrowserWindow: View {
     private var sidebarPanel: some View {
         VStack(spacing: 0) {
             sidebarHeader
-            BrowserSidebar(controller: controller, profiles: profiles, focusRequest: sidebarTabFocusRequest)
-                .padding(.top, railHeader ? 6 : 0)
+            BrowserSidebar(controller: controller, profiles: profiles, focusRequest: sidebarTabFocusRequest,
+                           profileTrailingInset: fullscreen ? 38 : 0)
                 .environment(\.layoutDirection, layoutDirection)
                 .onPreferenceChange(SidebarKeyboardFocusKey.self) {
                     sidebarContainsKeyboardFocus = $0; controller.sidebar.focusInside = $0 || sidebarHeaderToggleFocused
                 }
 
         }
-        .frame(width: controller.sidebar.width - 20).frame(maxHeight: .infinity)
-        .padding(.top, 10)
-        .background { Color.clear.modifier(MacSidebarGlass()).padding(.top, 10) }
-        .padding(.horizontal, 10).padding(.bottom, 10)
-        .frame(width: controller.sidebar.width)
+        .frame(width: controller.sidebar.width).frame(maxHeight: .infinity)
+        // One surviving toggle preserves focus across rail/fullscreen changes.
+        // In fullscreen it shares the profile line instead of reserving a band.
+        .overlay(alignment: .topLeading) {
+            sidebarToggle
+                .padding(.leading, railHeader ? MacBrowserLayout.railInset : controller.sidebar.width - MacBrowserLayout.sidebarInset - 30)
+                .padding(.top, railHeader ? (fullscreen ? 8 : MacBrowserLayout.sidebarTitlebarHeight + 4) : (fullscreen ? 8 : 1))
+                .opacity(windowActive ? 1 : 0.75)
+        }
+        .background {
+            Color.clear.modifier(MacSidebarGlass())
+                .background(BrowserGeometryMarker(name: "sidebarSurfaceGeometry"))
+        }
         .onHover { inside in controller.sidebar.panelInside = inside }
         .onChange(of: sidebarHeaderToggleFocused) { _, focused in controller.sidebar.focusInside = focused || sidebarContainsKeyboardFocus }
         .background(BrowserGeometryMarker(name: "browserSidebarGeometry"))
@@ -220,23 +231,19 @@ struct BrowserWindow: View {
 
     private var railHeader: Bool { compact || controller.sidebar.peeking }
     private var sidebarHeader: some View {
-        HStack(spacing: 10) {
-            if !fullscreen && !railHeader { Color.clear.frame(width: MacBrowserLayout.lightsWidth).accessibilityHidden(true) }
-            if !railHeader { Spacer(minLength: 0) }
-            sidebarToggle
-        }
-        .padding(.horizontal, railHeader ? 11 : 16).frame(height: railHeader ? 36 : 54).padding(.top, railHeader ? 13 : 0)
-        .frame(maxWidth: .infinity, alignment: railHeader ? .leading : .center)
-        .opacity(windowActive ? 1 : 0.75)
-        .background(BrowserDragRegion())
-        .accessibilityIdentifier("sidebarHeader")
+        Color.clear
+            .frame(height: railHeader ? (fullscreen ? 44 : MacBrowserLayout.sidebarTitlebarHeight + 40) : (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight))
+            .background(BrowserDragRegion())
+            .background(BrowserGeometryMarker(name: "sidebarTitlebarGeometry"))
+            .accessibilityHidden(true)
     }
 
     private var sidebarToggle: some View {
         Button(action: toggleSidebar) {
             Image(systemName: "sidebar.left").font(.system(size: 14)).frame(width: railHeader ? 42 : 30, height: railHeader ? 36 : 30).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).focusable().focused($sidebarHeaderToggleFocused)
+        .buttonStyle(.plain).focusable().focusEffectDisabled().focused($sidebarHeaderToggleFocused)
+        .modifier(ChromeFocusIndicator(focused: sidebarHeaderToggleFocused, color: Theme.sidebar.accent, marker: "sidebarToggleFocusIndicator"))
         .keyboardShortcut("s", modifiers: [.command, .option])
         .help(controller.sidebar.peeking ? "Keep Sidebar Expanded (⌥⌘S)" : railHeader ? "Expand Sidebar (⌥⌘S)" : "Collapse to Icon Rail (⌥⌘S)")
         .accessibilityLabel(controller.sidebar.peeking ? "Keep Sidebar Expanded" : railHeader ? "Expand Sidebar" : "Collapse Sidebar")
@@ -263,7 +270,6 @@ struct BrowserWindow: View {
 
     private var mainTopBar: some View {
         HStack(spacing: 4) {
-            if controller.sidebar.reservesRail && !fullscreen { Color.clear.frame(width: 70).accessibilityHidden(true) }
             navigationControls
             Spacer(minLength: 0)
             addressCapsule
@@ -276,6 +282,7 @@ struct BrowserWindow: View {
         .background(BrowserDragRegion())
         .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
         .accessibilityIdentifier("mainTopBar")
+        .focusEffectDisabled()
         .background(BrowserGeometryMarker(name: "browserTopBarGeometry"))
     }
 
@@ -304,7 +311,7 @@ struct BrowserWindow: View {
                                 Image(systemName: cue.symbol)
                                 if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
                             }.font(OrivType.detail).foregroundStyle(chromeForeground).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
-                        }.buttonStyle(.plain).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
+                        }.buttonStyle(MacChromeButtonStyle()).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
                             .popover(isPresented: $showSiteInfo) { SiteInformationView(session: session, tab: tab) }
                     } else {
                         Image(systemName: "magnifyingglass").font(OrivType.detail)
@@ -330,13 +337,13 @@ struct BrowserWindow: View {
                             if let tab, tab.pageZoom != 1 {
                                 Button { tab.resetZoom() } label: {
                                     Text("\(Int(tab.pageZoom * 100))%").font(.caption2).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
-                                }.buttonStyle(.plain).accessibilityLabel("Reset Page Zoom").accessibilityValue("\(Int(tab.pageZoom * 100)) percent").help("Reset Page Zoom")
+                                }.buttonStyle(MacChromeButtonStyle()).accessibilityLabel("Reset Page Zoom").accessibilityValue("\(Int(tab.pageZoom * 100)) percent").help("Reset Page Zoom")
                             }
                             Button { tab?.isLoading == true ? tab?.stop() : tab?.reload() } label: {
                                 Image(systemName: tab?.isLoading == true ? "xmark" : "arrow.clockwise")
                                     .font(OrivType.detail).frame(width: 24, height: 24)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(MacChromeButtonStyle())
                             .accessibilityLabel(tab?.isLoading == true ? "Stop loading" : "Reload page")
                             .help(tab?.isLoading == true ? "Stop loading" : "Reload (⌘R)")
                         }
@@ -347,7 +354,7 @@ struct BrowserWindow: View {
                 .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
                 .environment(\.browserTheme, toolbarTheme)
                 .overlay {
-                    Capsule().strokeBorder(addressFocused ? theme.accent : .clear, lineWidth: 1.5)
+                    Capsule().strokeBorder(addressFocused && chromeFocus.showsFocus ? theme.accent : .clear, lineWidth: 1.5)
                 }
                 .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
                 .background(BrowserGeometryMarker(name: "browserAddressGeometry"))
@@ -610,6 +617,7 @@ private struct MacChromeButtonFace<Label: View>: View {
     var body: some View {
         label.contentShape(Rectangle())
             .background(.primary.opacity(enabled ? (pressed ? 0.12 : hovered ? 0.07 : 0) : 0), in: Capsule())
+            .modifier(ChromeFocusIndicator(radius: 16))
             .onHover { hovered = $0 }
     }
 }

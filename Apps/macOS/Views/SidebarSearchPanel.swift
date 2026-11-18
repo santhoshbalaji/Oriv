@@ -20,7 +20,10 @@ struct SidebarSearchPanel: View {
                 Text("Private tabs").tag(true)
             }.pickerStyle(.segmented)
             TextField("Search titles and hosts", text: $controller.tabSearch)
-                .textFieldStyle(.roundedBorder).focused($focused).accessibilityIdentifier("railTabSearchField")
+                .textFieldStyle(.plain).focused($focused).focusEffectDisabled()
+                .padding(8).background(Theme.sidebar.field, in: .rect(cornerRadius: 9))
+                .modifier(ChromeFocusIndicator(focused: focused, color: Theme.sidebar.accent))
+                .accessibilityIdentifier("railTabSearchField")
                 .onExitCommand(perform: dismiss)
                 .onSubmit { activate() }
                 .onKeyPress(.downArrow) { selected = min(max(0, results.count - 1), selected + 1); return .handled }
@@ -37,9 +40,9 @@ struct SidebarSearchPanel: View {
                                         Text(tab.displayTitle).lineLimit(2)
                                         Text(tab.hostname).font(.caption).foregroundStyle(Theme.sidebar.secondaryText)
                                     }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
-                                }.buttonStyle(.plain).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
+                                }.buttonStyle(ContentButtonStyle()).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
                                 Button { controller.requestCloseTab(tab.id) } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
-                                    .buttonStyle(.plain).accessibilityLabel("Close \(tab.displayTitle)")
+                                    .buttonStyle(ContentButtonStyle()).accessibilityLabel("Close \(tab.displayTitle)")
                             }
                             .background(index == selected ? Theme.sidebar.selection : .clear, in: .rect(cornerRadius: 8))
                             .id(tab.id)
@@ -50,6 +53,7 @@ struct SidebarSearchPanel: View {
                 }
             }
         }.padding(14).foregroundStyle(Theme.sidebar.text)
+            .environment(\.browserTheme, Theme.sidebar).focusEffectDisabled()
             .background(Theme.sidebar.surface, in: .rect(cornerRadius: 14))
             .overlay { RoundedRectangle(cornerRadius: 14).stroke(Theme.sidebar.separator) }
             .background(BrowserGeometryMarker(name: "sidebarSearchPanel"))

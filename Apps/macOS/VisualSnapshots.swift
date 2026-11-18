@@ -64,6 +64,7 @@ import WebKit
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-attached" { await renderAttachedSidebarScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar" { await renderSidebarScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
         else { await renderScenes(into: directory, activate: activate) }
@@ -269,11 +270,10 @@ import WebKit
                                         Image(systemName: "sidebar.left").frame(width: 32, height: 32)
                                     }.padding(.horizontal, 12).frame(height: MacBrowserLayout.headerHeight)
                                         .foregroundStyle(appearance.theme.text)
-                                    BrowserSidebar(controller: controller, profiles: profiles)
+                                    BrowserSidebar(controller: controller, profiles: profiles).padding(.horizontal, 10)
                                 }
-                                .frame(width: (controller.compactSidebar ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) - 20)
-                                .background { Color.clear.modifier(MacSidebarGlass()).padding(.top, 10) }
-                                .padding(.horizontal, 10).padding(.bottom, 10)
+                                .frame(width: controller.compactSidebar ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
+                                .background { Color.clear.modifier(MacSidebarGlass()) }
                                 backdrop.overlay(alignment: .topLeading) {
                                     VStack(alignment: .leading, spacing: 24) {
                                         Text("Wikipedia").font(.system(size: 40, weight: .bold))
@@ -449,6 +449,105 @@ import WebKit
                         .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled || mode == "reduced")
                         .environment(\.layoutDirection, mode == "rtl-largest" ? .rightToLeft : .leftToRight)
                         .dynamicTypeSize(mode == "rtl-largest" ? .accessibility5 : .large)
+            }
+            profiles.shutdown()
+        }
+    }
+
+    /// Real window/control hierarchy and real local input, with no display or
+    /// system fullscreen transition. The native tests assert these same states.
+    private static func renderAttachedSidebarScenes(into directory: URL, activate: Bool) async {
+        manifest.limitations.append("Attached sidebar: opaque background layout evidence. Fullscreen is simulated; native menu/titlebar reveal, live glass and spoken VoiceOver require foreground acceptance. Focus states use synthesized window-local input, never global input.")
+        for (mode, appearance) in [("light", BrowserAppearance.light), ("dark", .dark)] {
+            let root = directory.appendingPathComponent("attached-\(mode)")
+            let records = ["Field atlas", "Research notes", "Found, don’t follow", "Reading list"].enumerated().map { index, title in
+                TabRecord(title: title, url: URL(string: "https://site\(index).example/guide"), isPinned: index == 0)
+            }
+            do {
+                try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+                    .save(BrowserSnapshot(tabs: records, selectedTabID: records[2].id), discardPrevious: true)
+            } catch { manifest.failures.append("Attached fixture: \(error)"); continue }
+            let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+            let c = profiles.controller
+            for (index, item) in c.session.orderedTabs.enumerated() {
+                item.webView.loadHTMLString(sidebarFixture(color: mode == "light" ? "#f3f5ef" : "#202a25", light: mode == "light")
+                    .replacingOccurrences(of: "<title>Found, don’t follow</title>", with: "<title>\(records[index].title)</title>"), baseURL: records[index].url)
+            }
+            for _ in 0..<100 {
+                if c.session.tabs.allSatisfy({ !$0.webView.isLoading && $0.webView.title != nil }) { break }
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            for fullscreen in [false, true] {
+                for layout in ["expanded", "rail", "overlay"] {
+                    let states = fullscreen || layout == "overlay" ? ["default"] : ["default", "mouse-toggle", "mouse-row", "keyboard", "selected-focused"]
+                    for state in states {
+                        c.dismissTabSearch(); c.sidebar.dismissOverlay(); c.sidebar.resize(availableWidth: 1280)
+                        c.compactSidebar = false; c.session.selectTab(records[2].id)
+                        let name = "mac-glass-sidebar-attached-\(mode)-\(fullscreen ? "fullscreen" : "windowed")-\(layout)-\(state)"
+                        let width: CGFloat = layout == "overlay" ? 780 : 1280
+                        let destination = state == "mouse-row" || (layout == "rail" && state == "keyboard") ? records[3].id : (state == "selected-focused" ? records[1].id : records[2].id)
+                        let page = c.session.tabs.first { $0.id == destination }!.webView
+                        await capture(name, directory, CGSize(width: width, height: 900), key: activate, compositeWeb: page, appearance: appearance,
+                                      prepare: { window in
+                            c.sidebar.resize(availableWidth: width)
+                            c.compactSidebar = layout == "rail"
+                            if fullscreen { simulateFullscreenLayout(in: window) }
+                            try? await Task.sleep(for: .milliseconds(250))
+                            func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+                            func marker(_ id: String) -> NSView? { window.contentView.flatMap { views($0).first { $0.identifier?.rawValue == id } } }
+                            @MainActor func send(_ event: NSEvent?) {
+                                if let event, let fixture = window as? OffscreenWindow { fixture.sendFixtureEvent(event) }
+                                else { manifest.failures.append("Missing local fixture input: \(name)") }
+                            }
+                            @MainActor func down() {
+                                send(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                    windowNumber: window.windowNumber, context: nil, characters: "\u{f701}", charactersIgnoringModifiers: "\u{f701}", isARepeat: false, keyCode: 125))
+                            }
+                            if state == "keyboard" || state == "selected-focused" || state == "mouse-row" {
+                                if layout == "rail" {
+                                    // Start in expanded search, then preserve the
+                                    // production keyboard handoff while collapsing.
+                                    c.compactSidebar = false
+                                }
+                                c.searchTabs(); try? await Task.sleep(for: .milliseconds(250))
+                                down(); try? await Task.sleep(for: .milliseconds(200))
+                                if state == "selected-focused" { down(); try? await Task.sleep(for: .milliseconds(200)) }
+                                if layout == "rail" {
+                                    if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option], timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: window.windowNumber, context: nil, characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1) {
+                                        if !window.performKeyEquivalent(with: event) { manifest.failures.append("Rail key equivalent failed: \(name)") }
+                                    }
+                                    try? await Task.sleep(for: .milliseconds(250))
+                                    down(); try? await Task.sleep(for: .milliseconds(200))
+                                    if state == "keyboard" { c.session.selectTab(records[3].id) }
+                                }
+                            }
+                            if state == "mouse-toggle" || state == "mouse-row" {
+                                if state == "mouse-toggle" { c.compactSidebar = layout != "rail"; try? await Task.sleep(for: .milliseconds(200)) }
+                                let id = state == "mouse-toggle" ? "sidebarToggleGeometry" : "sidebarItem-\(records[3].id)"
+                                if let target = marker(id) {
+                                    let point = target.convert(NSPoint(x: target.bounds.midX, y: target.bounds.midY), to: nil)
+                                    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                                        send(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                                    }
+                                } else { manifest.failures.append("Missing click target: \(name)") }
+                                try? await Task.sleep(for: .milliseconds(250))
+                            }
+                            if state.hasPrefix("mouse"), window.contentView.map({ views($0).contains { $0.identifier?.rawValue.hasPrefix("sidebarFocusIndicator-") == true || $0.identifier?.rawValue == "sidebarToggleFocusIndicator" } }) == true {
+                                manifest.failures.append("Mouse focus decoration: \(name)")
+                            }
+                            if c.sidebar.rail != (layout == "rail") { manifest.failures.append("Wrong sidebar mode: \(name)") }
+                            if ["keyboard", "selected-focused"].contains(state), window.contentView.map({ views($0).contains { $0.identifier?.rawValue.hasPrefix("sidebarFocusIndicator-") == true } }) != true {
+                                manifest.failures.append("Keyboard focus decoration missing: \(name)")
+                            }
+                            writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+                        }) {
+                            BrowserWindow(controller: c, profiles: profiles)
+                                .environment(\.chromeReduceTransparencyOverride, true).environment(\.sidebarCaptureReduceMotion, true)
+                        }
+                    }
+                }
             }
             profiles.shutdown()
         }
@@ -936,7 +1035,7 @@ import WebKit
             else { manifest.failures.append("\(name): requested a key window but it did not become key") }
         }
         let report = BackgroundUIMode.report(window, name: name,
-            simulatedFullscreenLayout: name.contains("sidebar-fullscreen") && !BackgroundUIMode.foregroundAllowed)
+            simulatedFullscreenLayout: (name.contains("sidebar-fullscreen") || name.contains("attached-") && name.contains("-fullscreen-")) && !BackgroundUIMode.foregroundAllowed)
         manifest.windows.append(report)
         if covered && !report.occluded { manifest.failures.append("\(name): deliberate background cover did not occlude the target") }
         func fields(in view: NSView) -> [NSTextField] {
@@ -1100,8 +1199,15 @@ import WebKit
 /// Keeps capture windows off every display, even when they become key (AppKit would otherwise
 /// move a key window on screen, where it can flash and pick up the real pointer's hover state).
 private final class OffscreenWindow: BackgroundUIMode.Window {
+    private var fixtureInput = false
+    func sendFixtureEvent(_ event: NSEvent) {
+        fixtureInput = true
+        defer { fixtureInput = false }
+        NSApp.sendEvent(event)
+    }
     /// Key appearance is needed for evidence, but real user input must never edit the scene.
     override func sendEvent(_ event: NSEvent) {
+        if fixtureInput { super.sendEvent(event); return }
         switch event.type {
         case .keyDown, .keyUp, .flagsChanged,
              .leftMouseDown, .leftMouseUp, .leftMouseDragged,

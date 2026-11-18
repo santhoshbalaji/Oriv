@@ -127,12 +127,14 @@ struct SidebarTooltipBounds: PreferenceKey {
 /// Window-scoped events; no new panel, focus request, polling, or app activation.
 struct SidebarWindowEvents: NSViewRepresentable {
     let controller: BrowserController
+    let input: ChromeFocusState
     var dismiss: () -> Void
     func makeNSView(context: Context) -> EventView { EventView() }
-    func updateNSView(_ view: EventView, context: Context) { view.controller = controller; view.dismiss = dismiss; if let window = view.window { controller.sidebarWindow = window } }
+    func updateNSView(_ view: EventView, context: Context) { view.controller = controller; view.input = input; view.dismiss = dismiss; if let window = view.window { controller.sidebarWindow = window } }
     static func dismantleNSView(_ view: EventView, coordinator: ()) { view.detach() }
     final class EventView: NSView {
         weak var controller: BrowserController?
+        var input: ChromeFocusState?
         var dismiss: (() -> Void)?
         private var monitor: Any?
         private var observers: [NSObjectProtocol] = []
@@ -142,8 +144,9 @@ struct SidebarWindowEvents: NSViewRepresentable {
             guard window != nil else { return }
             controller?.sidebarWindow = window
             controller?.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseUp]) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp]) { [weak self] event in
                 guard let self, event.window === self.window, let controller = self.controller else { return event }
+                self.input?.receive(event)
                 let tooltipVisible = controller.sidebarTooltip.tabID != nil
                 controller.sidebarTooltip.dismiss()
                 if event.type == .keyDown, event.keyCode == 53, tooltipVisible,

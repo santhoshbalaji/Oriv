@@ -34,7 +34,7 @@ struct ProfileMenu: View {
     var tabCount: Int? = nil
     var body: some View {
         Group {
-            if tabCount != nil { picker.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden) }
+            if tabCount != nil { picker.menuStyle(.button).buttonStyle(ContentButtonStyle()).menuIndicator(.hidden).focusEffectDisabled() }
             else { picker.menuStyle(.borderlessButton).menuIndicator(iconOnly ? .hidden : .automatic) }
         }
         .accessibilityLabel("Profile: \(profiles.active.name)")
