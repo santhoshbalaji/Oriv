@@ -291,7 +291,12 @@ struct ContentButtonStyle: ButtonStyle {
         let configuration: Configuration
         let contrast: ColorSchemeContrast
         @Environment(\.isFocused) private var isFocused
+        #if os(macOS)
         @Environment(\.chromeFocusState) private var input
+        private var showsKeyboardFocus: Bool { isFocused && (input?.showsFocus ?? NSApp.isFullKeyboardAccessEnabled) }
+        #else
+        private var showsKeyboardFocus: Bool { isFocused }
+        #endif
         @State private var hovered = false
         var body: some View {
             configuration.label
@@ -300,11 +305,15 @@ struct ContentButtonStyle: ButtonStyle {
                         .fill(.primary.opacity(configuration.isPressed ? 0.10 : hovered ? 0.05 : 0))
                 }
                 .overlay {
-                    if hovered && contrast == .increased && !(isFocused && (input?.showsFocus ?? NSApp.isFullKeyboardAccessEnabled)) {
+                    if hovered && contrast == .increased && !showsKeyboardFocus {
                         RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.separator, lineWidth: 1)
                     }
                 }
+                #if os(macOS)
                 .modifier(ChromeFocusIndicator(radius: OrivRadius.medium, marker: "chromeControlFocusIndicator"))
+                #else
+                .overlay { if isFocused { RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.accent, lineWidth: 2) } }
+                #endif
                 .contentShape(RoundedRectangle(cornerRadius: OrivRadius.medium))
                 .focusEffectDisabled()
                 .onHover { hovered = $0 }
