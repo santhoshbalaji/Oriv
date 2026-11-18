@@ -35,7 +35,14 @@ public struct LocalSuggestionIndex: Sendable {
     private static func trigrams(_ text: String) -> Set<UInt32> {
         let bytes = Array(text.utf8)
         guard bytes.count >= 3 else { return [] }
-        return Set((0..<(bytes.count - 2)).map { UInt32(bytes[$0]) << 16 | UInt32(bytes[$0+1]) << 8 | UInt32(bytes[$0+2]) })
+        var result = Set<UInt32>()
+        for i in 0..<(bytes.count - 2) {
+            let high = UInt32(bytes[i]) << 16
+            let middle = UInt32(bytes[i + 1]) << 8
+            let low = UInt32(bytes[i + 2])
+            result.insert(high | middle | low)
+        }
+        return result
     }
     private mutating func index(_ entry: Entry, adding: Bool) {
         let url = entry.suggestion.url
