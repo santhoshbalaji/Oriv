@@ -83,3 +83,58 @@ For the four background sidebar/favicon and suggestion captures, run
 `ORIV_BACKGROUND_UI=1 ORIV_BATCH_VISUALS=1 ./scripts/capture-mac-visuals.sh build/batch-0.14/visuals`.
 Use a fresh empty output directory for each run. These app-owned, off-screen
 layout snapshots do not establish foreground Liquid Glass/compositor fidelity.
+
+## Safari-like Mac sidebar
+
+`SidebarGlassTests` covers metadata filtering, private-pin rejection, explicit
+section drops and scoped row reorder, context-menu command dispatch, spoken
+labels, rail geometry/toggle, search focus/Escape and arrow/Return navigation, including 60 lazy rows in
+expanded and rail modes after the real keyboard toggle.
+BrowserKit additionally round-trips pin/order persistence and the existing
+continuity pin metadata allowlist. Existing Ctrl+Tab tests exercise pinned-first
+order with actual native events.
+
+Run `ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=sidebar-b ./scripts/capture-mac-visuals.sh --glass build/sidebar-b/after`
+for 18 real-window scenes: light/dark × 820/1280 pt × expanded/rail × 12/60 tabs,
+plus expanded/rail external-private windows. The pages are locally generated and
+tinted; favicons are generated PNGs read through the production cache. All data
+is synthetic and isolated. Background output explicitly labels opaque layout
+fallbacks and page snapshots; it never establishes live Liquid Glass fidelity.
+Use a fresh empty output directory. Keep side-by-side comparisons under ignored
+`build/sidebar-b/` and review the actual images.
+
+The 100-tab probe scrolls the real native scroll view for 180 steps with the
+same sleeping metadata records, first with solid accessibility material and
+then system glass. It reports p50/p95/max main-thread native layout/display CPU,
+steps over 16.67 ms, and verifies zero WebView creation. The p95 must fit a 60 Hz
+CPU frame budget. Search and toggle/reorder probes also cover 12/50/100 tabs.
+These are off-screen CPU measurements, not compositor FPS, GPU hitch, loaded-page
+memory or total WebKit-process measurements. Live tinted-page glass, inactive
+window material, VoiceOver reading/focus and real pointer drag/menu tracking
+remain foreground acceptance checks. The native AX-tree test explicitly skips
+when SwiftUI exposes no descendants in an off-screen accessory window; model
+labels and native key-event tests continue to run.
+
+For sidebar contrast regression evidence, run
+`ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=sidebar-contrast ORIV_CAPTURE_TICKS=600 ./scripts/capture-mac-visuals.sh --glass build/release-0.15.0/contrast`
+with a fresh output directory. It covers window light/dark appearances ×
+white/black/purple pages × expanded/rail/search, plus the same 18 cases with
+Reduce Transparency and Increase Contrast (54 cases). Search contains `wiki`.
+The normal cases inject a known sampled colour in place of the compositor's
+glass output and render the production contrast backing and controls. The
+PNG suffix `synthetic-composite` and manifest distinguish this from live glass.
+The sidebar is hosted separately from the header's remote glass layers; the
+page is a labelled colour swatch and the header is a layout spacer.
+Accessibility cases exercise the opaque material and selection outline through
+local capture overrides, without changing system accessibility settings.
+
+`scripts/check-contrast.py` reads the backing and highlight opacities from the
+sidebar source, composites them over both page extremes, purple and grey, and
+checks text at 4.5:1 and icons/indicators at 3:1, including nested fields,
+selection, hover, pressed utility buttons and opaque accessibility variants.
+It also covers the T3 appearance. `--negative-sidebar-test` removes the backing
+in the model and must catch the original fixed-foreground/glass mismatch.
+The 96% semantic surface backing is deliberately conservative: it bounds glass
+luminance while retaining the system glass edge. It avoids colour-scheme flips
+during navigation or scrolling. Foreground compositor fidelity remains a
+separate, explicitly authorized acceptance check.

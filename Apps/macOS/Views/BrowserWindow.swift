@@ -20,6 +20,8 @@ struct BrowserWindow: View {
     @State private var windowContext = MacBrowserWindowContext()
     @FocusState private var sidebarToggleFocused: Bool
     @FocusState private var sidebarHeaderToggleFocused: Bool
+    @State private var sidebarContainsKeyboardFocus = false
+    @State private var sidebarTabFocusRequest = 0
     @State private var address = ""
     @State private var findText = ""
     @State private var showFind = false
@@ -42,9 +44,8 @@ struct BrowserWindow: View {
     private var compact: Bool { controller.compactSidebar }
     private var showsToolbarDownloads: Bool { controller.downloads.hasActiveDownloads && (compact || windowWidth >= 800) }
     private var addressWidth: CGFloat {
-        let actions = 30 * CGFloat(3 + (tab?.url == nil ? 0 : 1) + (showsToolbarDownloads ? 1 : 0)) + 10
-        let collapsedControls: CGFloat = compact ? (fullscreen ? 36 : 96) : 0
-        let reserved = (compact ? 0 : MacBrowserLayout.sidebarWidth) + collapsedControls + 24 + 70 + 36 + 20 + actions
+        let actions = windowWidth < 1000 && !compact ? 40 : 30 * CGFloat(3 + (tab?.url == nil ? 0 : 1) + (showsToolbarDownloads ? 1 : 0)) + 10
+        let reserved = (compact ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) + (compact ? 36 : 0) + 24 + 70 + 36 + 20 + actions
         return min(640, max(230, windowWidth - reserved))
     }
     private var compactAddress: String? { tab?.url.flatMap(URLDisplay.site) }
@@ -96,24 +97,23 @@ struct BrowserWindow: View {
 
     private var shell: some View {
         HStack(spacing: 0) {
-            if !compact {
-                VStack(spacing: 0) {
-                    sidebarHeader
-                    BrowserSidebar(controller: controller, profiles: profiles)
-                        .environment(\.layoutDirection, layoutDirection)
-                }
-                .frame(width: MacBrowserLayout.sidebarWidth)
-                .frame(maxHeight: .infinity)
-                .background(MacSidebarPalette.background)
-                .background(BrowserGeometryMarker(name: "browserSidebarGeometry"))
-                .environment(\.browserTheme, MacSidebarPalette.theme)
-                .environment(\.colorScheme, .dark)
-                .overlay(alignment: .trailing) {
-                    Rectangle().fill(contrast == .increased ? Color.white.opacity(0.6) : .white.opacity(0.13))
-                        .frame(width: 1 / displayScale).allowsHitTesting(false)
-                }
-                .transition(.move(edge: .leading).combined(with: .opacity))
+            VStack(spacing: 0) {
+                sidebarHeader
+                BrowserSidebar(controller: controller, profiles: profiles, focusRequest: sidebarTabFocusRequest)
+                    .environment(\.layoutDirection, layoutDirection)
+                    .onPreferenceChange(SidebarKeyboardFocusKey.self) { sidebarContainsKeyboardFocus = $0 }
             }
+            .frame(width: (compact ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) - 20)
+            .frame(maxHeight: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: 20).fill(.clear)
+                    .modifier(MacSidebarGlass())
+                    .padding(.top, 10)
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+            .frame(width: compact ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
+            .background(BrowserGeometryMarker(name: "browserSidebarGeometry"))
             VStack(spacing: 0) {
                 // Keep the address field at one structural identity when toggling
                 // or scrolling. Rebuilding it replays old Command-L requests.
@@ -145,18 +145,8 @@ struct BrowserWindow: View {
 
     private var sidebarHeader: some View {
         HStack(spacing: 10) {
-            if !fullscreen { Color.clear.frame(width: MacBrowserLayout.lightsWidth).accessibilityHidden(true) }
-            if let profiles, !session.isExternalPrivate {
-                ProfileMenu(profiles: profiles, compact: true)
-                    .environment(\.layoutDirection, layoutDirection)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-                    .accessibilitySortPriority(3)
-            } else {
-                Label("Private", systemImage: "eyeglasses").font(OrivType.detail)
-                    .foregroundStyle(MacSidebarPalette.theme.privateAccent).lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            sidebarToggle(glass: false)
+            if !fullscreen && !compact { Color.clear.frame(width: MacBrowserLayout.lightsWidth).accessibilityHidden(true) }
+            if !compact { Spacer(minLength: 0); sidebarToggle(glass: false) }
         }
         .padding(.horizontal, 12).frame(height: MacBrowserLayout.headerHeight)
         .opacity(windowActive ? 1 : 0.75)
@@ -170,17 +160,18 @@ struct BrowserWindow: View {
         }
         .buttonStyle(.plain).focusable().focused(glass ? $sidebarToggleFocused : $sidebarHeaderToggleFocused)
         .keyboardShortcut("s", modifiers: [.command, .option])
-        .help(compact ? "Show Sidebar (⌥⌘S)" : "Hide Sidebar (⌥⌘S)")
-        .accessibilityLabel(compact ? "Show Sidebar" : "Hide Sidebar")
-        .accessibilityValue(compact ? "Collapsed" : "Expanded")
+        .help(compact ? "Expand Sidebar (⌥⌘S)" : "Collapse to Icon Rail (⌥⌘S)")
+        .accessibilityLabel(compact ? "Expand Sidebar" : "Collapse Sidebar")
+        .accessibilityValue(compact ? "Icon rail" : "Expanded")
         .accessibilityIdentifier("sidebarToggle")
+        .onKeyPress(.downArrow) { sidebarTabFocusRequest += 1; return .handled }
         .accessibilitySortPriority(2)
-        .foregroundStyle(glass ? chromeForeground : MacSidebarPalette.theme.text)
+        .foregroundStyle(glass ? chromeForeground : theme.text)
         .background { if glass { Capsule().fill(.clear).modifier(chromeGlass) } }
     }
 
     private func toggleSidebar() {
-        let returnFocus = compact ? sidebarToggleFocused : windowContext.sidebarContainsFocus
+        let returnFocus = compact ? sidebarToggleFocused : (sidebarContainsKeyboardFocus || windowContext.sidebarContainsFocus)
         if returnFocus { windowContext.window?.makeFirstResponder(nil) }
         controller.compactSidebar.toggle()
         if returnFocus {
@@ -194,7 +185,6 @@ struct BrowserWindow: View {
     private var mainTopBar: some View {
         HStack(spacing: 4) {
             if compact {
-                if !fullscreen { Color.clear.frame(width: MacBrowserLayout.lightsWidth + 2).accessibilityHidden(true) }
                 sidebarToggle(glass: true)
             }
             navigationControls
@@ -293,7 +283,7 @@ struct BrowserWindow: View {
     // Site privacy shares the content header's glass and adaptive foreground.
     private var toolbarActions: some View {
                 HStack(spacing: 2) {
-                if showsToolbarDownloads {
+                if showsToolbarDownloads && (compact || windowWidth >= 1000) {
                     Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
                         .labelStyle(.iconOnly).help("View downloads in progress")
                 }
@@ -304,14 +294,16 @@ struct BrowserWindow: View {
                 .accessibilityIdentifier("sitePrivacyButton")
                 .background(BrowserGeometryMarker(name: "browserPrivacyGeometry"))
                 .popover(isPresented: $showProtection) { AdBlockingPopover(session: session) }
-                if let url = tab?.url {
+                if let url = tab?.url, compact || windowWidth >= 1000 {
                     ShareLink(item: URLCleaner.clean(url)) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                         .help("Share Page").accessibilityLabel("Share Page")
                 }
+                if compact || windowWidth >= 1000 {
                 Button { controller.newTab() } label: { Image(systemName: "plus").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                     .help("New Tab (⌘T)").accessibilityLabel("New Tab")
                 Button { showTabs = true } label: { Image(systemName: "square.on.square").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                     .help("Tab Overview").accessibilityLabel("Tab Overview")
+                }
                 }.buttonStyle(MacChromeButtonStyle()).padding(.horizontal, 6).frame(height: 32)
                     .modifier(chromeGlass)
                     .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)

@@ -38,6 +38,7 @@ if [[ -e "$OUT" && -n "$(ls -A "$OUT" 2>/dev/null)" ]]; then
 fi
 RUN_ID="$STAMP-$$-$RANDOM"
 DERIVED=build/visual-snapshots-mac
+mkdir -p build
 xcodebuild -project PersonalBrowser.xcodeproj -scheme PersonalBrowser -configuration Debug \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DERIVED" \
   PRODUCT_BUNDLE_IDENTIFIER=local.personalbrowser.snapshots ORIV_APP_NAME=Oriv-Snapshots build > "$DERIVED.log" 2>&1 \
@@ -132,6 +133,17 @@ if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":
     expected = {"mac-glass-" + mode for mode in ("menu", "menu-dark", "menu-private", "menu-narrow")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
     expected = {"mac-glass-sidebar-" + mode for mode in ("light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest", "covered")}
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-b":
+    expected = {f"mac-glass-sidebar-b-{count}-{mode}-{width}-{state}" for count in (12, 60) for mode in ("light", "dark") for width in (820, 1280) for state in ("expanded", "rail")}
+    expected |= {"mac-glass-sidebar-b-private-" + state for state in ("expanded", "rail")}
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
+    expected = {f"mac-glass-sidebar-contrast-{mode}-{page}-{state}-{variant}"
+                for mode in ("light", "dark") for page in ("white", "black", "purple")
+                for state in ("expanded", "rail", "search") for variant in ("glass-input", "reduced", "increased")}
+    if os.environ.get("ORIV_BACKGROUND_UI") == "1" and os.environ.get("ORIV_FOREGROUND_UI") != "1":
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = {name + "-synthetic-composite" for name in expected} - evidence
+        if missing: problems.append(f"missing sidebar contrast composites: {sorted(missing)}")
 if os.environ.get("ORIV_LIVE_SITES"):
     expected = {f"mac-glass-site{i+1}" for i, _ in enumerate(os.environ["ORIV_LIVE_SITES"].split(","))}
 if m.get("keyWindowsRequested", m["activated"]) and sys.argv[4] != "1": expected.add("mac-05-start-inactive-window")

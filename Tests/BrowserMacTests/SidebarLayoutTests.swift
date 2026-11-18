@@ -36,21 +36,20 @@ import XCTest
         let content = try XCTUnwrap(window.contentView, file: file, line: line)
         let top = try XCTUnwrap(marker("browserTopBarGeometry", in: window), file: file, line: line)
         let topFrame = top.convert(top.bounds, to: nil)
-        XCTAssertEqual(topFrame.minX, collapsed ? 0 : 236, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(topFrame.minX, collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth, accuracy: 1, file: file, line: line)
         XCTAssertEqual(topFrame.maxX, content.convert(content.bounds, to: nil).maxX, accuracy: 1, file: file, line: line)
         XCTAssertEqual(topFrame.maxY, content.convert(content.bounds, to: nil).maxY, accuracy: 1, file: file, line: line)
         XCTAssertEqual(topFrame.height, 44, accuracy: 1, file: file, line: line)
-        if collapsed { XCTAssertNil(marker("browserSidebarGeometry", in: window), file: file, line: line) }
-        else {
+        do {
             let sidebar = try XCTUnwrap(marker("browserSidebarGeometry", in: window), file: file, line: line)
             let rect = sidebar.convert(sidebar.bounds, to: nil)
             XCTAssertEqual(rect.minX, 0, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(rect.minY, 0, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(rect.width, 236, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(rect.width, collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(rect.height, content.bounds.height, accuracy: 0.5, file: file, line: line)
         }
     }
-    func testSidebarFlushFullHeightAtMinimumAndAfterResize() async throws {
+    func testInsetSidebarAndRailAtMinimumAndAfterResize() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles, width: 760); defer { window.close() }
         try await wait { self.marker("browserSidebarGeometry", in: window)?.bounds.height ?? 0 > 500 }

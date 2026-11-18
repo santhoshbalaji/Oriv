@@ -64,6 +64,7 @@ struct BrowserCommands: Commands {
         }
         CommandGroup(after: .toolbar) {
             Divider()
+            Button("Search Tabs…") { controller.searchTabs() }.keyboardShortcut("a", modifiers: [.command, .shift])
             Button("Read Page Text") { controller.openReader() }
                 .disabled(controller.session.selectedTab?.url == nil || controller.session.selectedTab?.isLoading == true || controller.isPreparingReader)
             Button("Zoom In") { controller.session.selectedTab?.zoomIn() }.keyboardShortcut("+")

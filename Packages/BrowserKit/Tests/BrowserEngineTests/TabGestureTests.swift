@@ -108,6 +108,39 @@ import AppKit
         XCTAssertFalse(restored.tabs.contains { $0.id == privateTab.id })
         XCTAssertTrue(restored.recentlyClosedTabs.isEmpty)
     }
+    func testPrivateTabsCannotBePinnedThroughAnyModelEntryPoint() throws {
+        let s = session(), external = session(external: true)
+        defer { s.shutdown(); external.shutdown() }
+        let tab = s.addTab(isPrivate: true, load: false)
+        s.togglePinned(tab.id); tab.setPinned(true); s.moveTab(tab.id, intoPinnedSection: true)
+        XCTAssertFalse(tab.isPinned)
+        let injected = BrowserTab(record: TabRecord(isPinned: true), isPrivate: true)
+        defer { injected.close() }
+        XCTAssertFalse(injected.isPinned)
+        let externalTab = try XCTUnwrap(external.selectedTab)
+        external.togglePinned(externalTab.id); externalTab.setPinned(true)
+        XCTAssertFalse(externalTab.isPinned)
+        XCTAssertTrue(external.snapshot().tabs.isEmpty)
+    }
+    func testExplicitSectionDropsPersistDestinationOrderAndKeepKeyboardOrder() throws {
+        let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SessionFileStore(fileURL: root.appendingPathComponent("session.json"))
+        let s = session(store: store); defer { s.shutdown() }
+        let a = try XCTUnwrap(s.selectedTab), b = s.addTab(load: false), c = s.addTab(load: false)
+        s.moveTab(c.id, intoPinnedSection: true); s.moveTab(b.id, intoPinnedSection: true)
+        XCTAssertEqual(s.orderedTabs.map(\.id), [c.id, b.id, a.id])
+        s.selectTab(c.id); s.selectRelativeTab(1); XCTAssertEqual(s.selectedTabID, b.id)
+        s.selectRelativeTab(1); XCTAssertEqual(s.selectedTabID, a.id)
+        s.selectRelativeTab(1); XCTAssertEqual(s.selectedTabID, c.id)
+        s.moveTab(c.id, intoPinnedSection: false)
+        XCTAssertEqual(s.orderedTabs.map(\.id), [b.id, a.id, c.id])
+        s.saveNow(); s.flushPersistence()
+        let restored = session(store: store); defer { restored.shutdown() }
+        XCTAssertEqual(restored.orderedTabs.map(\.id), [b.id, a.id, c.id])
+        XCTAssertTrue(restored.tabs.first { $0.id == b.id }!.isPinned)
+        XCTAssertFalse(restored.tabs.first { $0.id == c.id }!.isPinned)
+    }
     func testSuppliedConfigurationCannotEscapeSessionDataStores() throws {
         let s = session(), other = session(); defer { s.shutdown(); other.shutdown() }
         let regular = try XCTUnwrap(s.selectedTab)

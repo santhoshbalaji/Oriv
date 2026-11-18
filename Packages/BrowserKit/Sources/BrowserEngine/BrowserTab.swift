@@ -39,6 +39,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public private(set) var pageZoom: Double = 1
     public private(set) var findResult: Bool?
     public private(set) var mediaSuspended = false
+    /// Mac sidebar metadata, updated by media events without a row polling loop.
+    public private(set) var isPlayingAudio = false
+    #if os(macOS)
+    @ObservationIgnored private var audibleFrames: Set<String> = []
+    #endif
     public private(set) var isProfileActive = true
     public private(set) var isCapturingCamera = false
     public private(set) var isCapturingMicrophone = false
@@ -101,7 +106,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         title = record.title
         url = record.url
         content = configuration != nil ? .web : record.content
-        isPinned = record.isPinned
+        isPinned = record.isPinned && !isPrivate
         self.isPrivate = isPrivate
         self.settings = settings
         pageZoom = settings?.defaultZoom ?? 1
@@ -141,6 +146,23 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             contentController.addUserScript(editedFieldScript)
         }
         #if os(macOS)
+        contentController.add(TabAudioHandler(tab: self), contentWorld: world, name: "tabAudio")
+        let audioScript = WKUserScript(source: """
+            (() => {
+                const frame = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
+                let previous = false;
+                const report = () => {
+                    const audible = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
+                    if (audible === previous) return;
+                    previous = audible;
+                    window.webkit.messageHandlers.tabAudio.postMessage({frame, audible});
+                };
+                ['play','playing','pause','ended','volumechange','emptied'].forEach(e => document.addEventListener(e, report, true));
+                window.addEventListener('pagehide', () => { previous = false; window.webkit.messageHandlers.tabAudio.postMessage({frame, audible:false}); });
+                window.addEventListener('pageshow', report);
+            })();
+            """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world)
+        if !contentController.userScripts.contains(where: { $0.source == audioScript.source }) { contentController.addUserScript(audioScript) }
         // Public WebKit has no display-capture state property. Conservatively
         // protect a document for its entire lifetime after any display request,
         // including a pending/denied request. Read no stream or page contents.
@@ -427,6 +449,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func resetZoom() { setZoom(1) }
     private func setZoom(_ value: Double) { pageZoom = min(max((value * 100).rounded() / 100, 0.5), 3); backingWebView?.pageZoom = pageZoom }
     public func setPinned(_ value: Bool) {
+        guard !isPrivate else { return }
         let previous = record
         isPinned = value
         if record != previous { onChange?() }
@@ -438,6 +461,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     public func clearFind() { findResult = nil }
     public func toggleMediaSuspension() { mediaSuspended.toggle(); backingWebView?.setAllMediaPlaybackSuspended(mediaSuspended || !isProfileActive, completionHandler: nil) }
+    #if os(macOS)
+    func recordAudio(frame: String, audible: Bool) {
+        guard !isClosed, frame.count <= 80 else { return }
+        if audible { if audibleFrames.count < 256 { audibleFrames.insert(frame) } }
+        else { audibleFrames.remove(frame) }
+        isPlayingAudio = !audibleFrames.isEmpty
+    }
+    private func resetAudio() { audibleFrames.removeAll(); isPlayingAudio = false }
+    #endif
     public func setProfileActive(_ active: Bool) {
         isProfileActive = active
         if !active { stopCapture() }
@@ -572,6 +604,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     public func close() {
         guard !isClosed else { return }
+        #if os(macOS)
+        resetAudio()
+        #endif
         invalidateSwitchSnapshot()
         snapshotCache = nil
         // Adapters must unregister while their live view is still reachable,
@@ -668,6 +703,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     #endif
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        #if os(macOS)
+        resetAudio()
+        #endif
         guard !isClosed, backingWebView === webView else { return }
         identifyPaintedDocument(webView)
         #if os(iOS)
@@ -888,6 +926,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 }
 
 #if os(macOS)
+@MainActor private final class TabAudioHandler: NSObject, WKScriptMessageHandler {
+    private weak var tab: BrowserTab?
+    init(tab: BrowserTab) { self.tab = tab }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], let frame = body["frame"] as? String,
+              let audible = body["audible"] as? Bool else { return }
+        tab?.recordAudio(frame: frame, audible: audible)
+    }
+}
+
 @MainActor private final class DisplayCaptureHandler: NSObject, WKScriptMessageHandler {
     private weak var tab: BrowserTab?
     init(tab: BrowserTab) { self.tab = tab }

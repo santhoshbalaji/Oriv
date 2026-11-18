@@ -47,5 +47,18 @@
 	<string>$(ORIV_CONTINUITY_CONTAINER)</string>
 	<key>OrivPushEnvironment</key>
 	<string>$(ORIV_PUSH_ENVIRONMENT)</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Oriv sidebar tab</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.oriv.browser.sidebar-tab</string>
+		</dict>
+	</array>
 </dict>
 </plist>

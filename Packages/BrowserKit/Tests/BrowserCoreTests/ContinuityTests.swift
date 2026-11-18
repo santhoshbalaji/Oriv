@@ -78,6 +78,17 @@ struct ContinuityTests {
         #expect(throws: (any Error).self) { try store.load() }
         #expect(try String(contentsOf: store.url, encoding: .utf8) == "invalid")
     }
+    @Test func pinnedFlagUsesExistingTabMetadataAllowlistAndRemoteOrder() throws {
+        var source = ContinuityReplica(deviceName: "Source"), receiver = ContinuityReplica(deviceName: "Receiver")
+        let regular = TabRecord(title: "Regular", url: URL(string: "https://example.test/regular")!)
+        let pinned = TabRecord(title: "Pinned", url: URL(string: "https://example.test/pinned")!, isPinned: true)
+        try source.capture(profile: profile, bookmarks: [], history: [], regularTabs: [regular, pinned], preferences: [:])
+        try receiver.merge(Array(source.records.values))
+        let tabs = receiver.tabs(for: profile.id, device: source.deviceID)
+        #expect(tabs.map(\.id) == [pinned.id, regular.id])
+        #expect(tabs.first?.isPinned == true)
+        #expect(try JSONDecoder().decode(ContinuityReplica.self, from: JSONEncoder().encode(receiver)).tabs(for: profile.id, device: source.deviceID) == tabs)
+    }
     @Test func regularTabOrderAndClosureAreOwnedByTheirDevice() throws {
         var mac = ContinuityReplica(deviceName: "Mac"), phone = ContinuityReplica(deviceName: "Phone")
         let first = TabRecord(title: "First", url: URL(string: "https://example.test/first")!)

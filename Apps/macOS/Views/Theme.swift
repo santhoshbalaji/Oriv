@@ -350,7 +350,7 @@ struct SiteIdentity: View {
             RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
             if let image = icons?.icon(for: url, isPrivate: isPrivate)?.image {
                 // A pale plate keeps black/transparent monochrome marks readable
-                // on the permanent dark sidebar as well as light surfaces.
+                // on dark sidebar material as well as light surfaces.
                 RoundedRectangle(cornerRadius: size * 0.2).fill(Color.white.opacity(0.88)).padding(1)
                 Image(decorative: image, scale: 2).resizable().scaledToFit().padding(size * 0.12)
             } else if let symbol {

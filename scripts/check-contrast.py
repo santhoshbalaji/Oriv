@@ -80,14 +80,73 @@ for mode in ("light", "dark"):
         for surface, background in surfaces.items():
             checks.append((f"Classic {mode}", token, colour, surface, background, 4.5))
 
-# The fixed Mac sidebar keeps its approved dark palette in every app appearance.
-sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text().split("enum MacSidebarPalette", 1)[1]
-sidebar_palette = hex_tokens(sidebar_source)
-sidebar_background = re.search(r"background = hex\(0x([0-9A-Fa-f]{6})\)", sidebar_source).group(1).upper()
-for surface, background in (("sidebar", sidebar_background), ("selection", sidebar_palette["selection"])):
-    for token in ("text", "secondaryText", "accentText"):
-        checks.append(("Mac fixed sidebar", token, sidebar_palette[token], surface, background, 4.5))
-    checks.append(("Mac fixed sidebar", "selection indicator", sidebar_palette["accent"], surface, background, 3.0))
+# The inset Mac sidebar bounds the composited glass with an app-owned backing.
+# Test the *composite*, including fields, selection/hover, footer press states,
+# and opaque accessibility variants. A passing palette alone missed the original
+# dark-appearance + white-page regression.
+sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
+assert "content.background(theme.surface" in sidebar_source
+assert "contrast == .increased" in sidebar_source
+assert "fill(theme.surface.opacity(Self.backingOpacity))" in sidebar_source
+assert "selected ? MacSidebarGlass.selectionOpacity" in sidebar_source
+assert "selected ? theme.selection" not in sidebar_source
+for mode in ("light", "dark"):
+    tokens, surfaces = classic(mode)
+    index = 0 if mode == "light" else 1
+    for surface in ("surface", "selection"):
+        for token in ("text", "secondaryText", "accentText", "privateAccent"):
+            checks.append((f"Mac sidebar {mode}", token, tokens[token], surface, surfaces[surface], 4.5))
+        checks.append((f"Mac sidebar {mode}", "selection indicator", classic_adaptive["accent"][index], surface, surfaces[surface], 3.0))
+    field_name = "field (white)" if mode == "light" else "field (macOS dark)"
+    checks.append((f"Mac sidebar {mode}", "focus ring", classic_adaptive["accent"][index], "field", surfaces[field_name], 3.0))
+
+def composite(front, back, opacity):
+    return "".join(f"{round(int(front[i:i+2], 16) * opacity + int(back[i:i+2], 16) * (1-opacity)):02X}" for i in (0, 2, 4))
+
+sidebar_opacity = float(re.search(r"static let backingOpacity = ([0-9.]+)", sidebar_source).group(1))
+selection_opacity = float(re.search(r"static let selectionOpacity = ([0-9.]+)", sidebar_source).group(1))
+hover_opacity = float(re.search(r"static let hoverOpacity = ([0-9.]+)", sidebar_source).group(1))
+field_opacity = float(re.search(r"background\(theme.field.opacity\(([0-9.]+)\)", sidebar_source).group(1))
+footer_opacity = float(re.search(r"background\(theme.field.opacity\(([0-9.]+)\)", sidebar_source[sidebar_source.index("private var footer:"):]).group(1))
+button_source = block("struct ContentButtonStyle", "struct SwitchToTabBadge")
+press_opacity = float(re.search(r"isPressed \? ([0-9.]+)", button_source).group(1))
+sidebar_negative = "--negative-sidebar-test" in sys.argv
+if sidebar_negative:
+    sidebar_opacity = 0  # Original bug: uncontrolled glass behind fixed theme text.
+sidebar_checks_start = len(checks)
+for mode in ("light", "dark", "t3"):
+    if mode == "t3":
+        tokens, surface, field, accent = t3, t3["surface"], t3["field"], t3["accent"]
+    else:
+        tokens, surfaces = classic(mode)
+        surface = surfaces["surface"]
+        field = surfaces["field (white)" if mode == "light" else "field (macOS dark)"]
+        accent = classic_adaptive["accent"][0 if mode == "light" else 1]
+    primary = "000000" if mode == "light" else "FFFFFF"
+    # Black/white bound every channel of any sampled/tinted glass pixel. Include
+    # the requested purple explicitly and mid-grey from the reported failure.
+    for page in ("FFFFFF", "000000", "6000D9", "888888"):
+        for accessibility in ("glass", "reduce transparency", "increase contrast"):
+            panel = composite(surface, page, sidebar_opacity if accessibility == "glass" else 1)
+            backgrounds = {"panel": panel, "selection / rail": composite(primary, panel, selection_opacity),
+                           "hover": composite(primary, panel, hover_opacity),
+                           "search": composite(field, panel, field_opacity),
+                           "footer": composite(field, panel, footer_opacity)}
+            label = f"Mac sidebar {mode}, page #{page}, {accessibility}"
+            for state, background in backgrounds.items():
+                for token in ("text", "secondaryText", "accentText", "privateAccent"):
+                    checks.append((label, token, tokens[token], state, background, 4.5))
+                checks.append((label, "selection / focus indicator", accent, state, background, 3.0))
+            # Sidebar utility buttons use ContentButtonStyle. The New Tab hint
+            # inherits primary text; footer buttons contain only secondary icons.
+            pressed = composite(primary, panel, press_opacity)
+            checks.append((label, "New Tab / shortcut pressed", tokens["text"], "pressed", pressed, 4.5))
+            pressed_footer = composite(primary, backgrounds["footer"], press_opacity)
+            checks.append((label, "footer icons pressed", tokens["secondaryText"], "pressed footer", pressed_footer, 3.0))
+sidebar_checks = checks[sidebar_checks_start:]
+for threshold, description in ((4.5, "text"), (3.0, "icons / indicators")):
+    worst = min((check for check in sidebar_checks if check[-1] == threshold), key=lambda check: ratio(check[2], check[4]))
+    print(f"Sidebar minimum {description}: {ratio(worst[2], worst[4]):.2f}:1 ({worst[0]}, {worst[1]} on {worst[3]})")
 
 # Chrome's app-owned backing is composited ahead of the system glass. Check its
 # worst cases against both page extremes, using the actual opacity from the source.
@@ -123,11 +182,11 @@ for theme, token, colour, surface, background, minimum in checks:
     if value < minimum:
         failures += 1
         print(f"FAIL {theme}: {token} #{colour} on {surface} #{background} = {value:.2f}:1 (needs {minimum}:1)")
-if negative_test:
+if negative_test or sidebar_negative:
     if not failures:
-        print("FAIL negative test: brand accent as text was not caught")
+        print("FAIL negative test: low-contrast foreground was not caught")
         sys.exit(1)
-    print(f"Negative test passed: caught {failures} low-contrast brand-accent text uses")
+    print(f"Negative test passed: caught {failures} low-contrast foreground uses")
 else:
     print(f"{len(checks) - failures}/{len(checks)} contrast checks pass")
     sys.exit(1 if failures else 0)

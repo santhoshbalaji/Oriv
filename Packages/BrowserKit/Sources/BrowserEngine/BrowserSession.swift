@@ -256,8 +256,17 @@ public final class BrowserSession {
     }
 
     public func togglePinned(_ id: UUID) {
-        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        guard let tab = tabs.first(where: { $0.id == id }), !tab.isPrivate else { return }
         tab.setPinned(!tab.isPinned); scheduleSave()
+    }
+    /// An explicit drop on a section heading changes pin state, then appends to
+    /// that section. Row drops continue to preserve pin and privacy boundaries.
+    public func moveTab(_ id: UUID, intoPinnedSection pinned: Bool) {
+        guard let tab = tabs.first(where: { $0.id == id }), !tab.isPrivate else { return }
+        tab.setPinned(pinned)
+        let peers = orderedTabs.filter { !$0.isPrivate && $0.isPinned == pinned }
+        if let position = peers.firstIndex(where: { $0.id == id }) { moveTab(id, offset: peers.count - position - 1) }
+        scheduleSave()
     }
     public func moveTab(_ id: UUID, offset: Int) {
         guard let source = tabs.firstIndex(where: { $0.id == id }) else { return }

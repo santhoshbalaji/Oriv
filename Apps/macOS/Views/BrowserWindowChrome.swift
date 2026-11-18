@@ -4,7 +4,8 @@ import SwiftUI
 /// Shared geometry for the content header and the real AppKit window controls.
 /// The sidebar stays on the physical left, including in right-to-left locales.
 enum MacBrowserLayout {
-    static let sidebarWidth: CGFloat = 236
+    static let sidebarWidth: CGFloat = 296
+    static let railWidth: CGFloat = 84
     static let headerHeight: CGFloat = 44
     static let lightsWidth: CGFloat = 54
     static let lightsInset: CGFloat = 12

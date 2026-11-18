@@ -67,3 +67,65 @@ Liquid Glass treatment, adapting to Reduce Transparency and Increased Contrast.
 Inline completion selects only the host suffix; accepting it is distinct from
 choosing a result. Local ranking uses prefix strength, bookmarks, visit frequency
 and recency; an actor maintains normalized prefix and trigram indexes off-main.
+
+## Mac sidebar: Safari-like glass (B)
+
+The Mac sidebar is a single inset system Liquid Glass panel with 20 pt corners
+and a 10 pt window inset. The expanded panel is 276 pt wide (296 pt including
+insets); the icon rail is 64 pt (84 pt including insets). The existing toggle and
+⌥⌘S animate between them, respecting Reduce Motion. The address editor and page
+host retain their identity. The iPhone interface is unchanged.
+
+Use `GlassEffectContainer` and `.glassEffect(.regular)` for the panel on the
+macOS 26 deployment target. Rows and the footer use quiet fills, without extra
+per-row glass effects. Reduce Transparency and Increase Contrast replace the
+panel material with the semantic light/dark surface; increased contrast adds a
+strong boundary and selected/focused row outlines. The observed page colour
+continues behind the panel and transparent titlebar. Do not mirror page text
+into the titlebar or force a dark sidebar in a light window.
+
+The profile picker shows its name, tab count and chevron, followed by persistent
+Search tabs. Pinned favicons occupy at most two rows of four; additional pins
+appear as a labelled lazy list. Tabs and Private have independent headings and
+counts. New Tab and the Library/Settings footer stay fixed while the tab
+collection scrolls. The rail retains full accessibility labels, selection marks,
+context menus and a search button that expands the title-bearing results.
+
+Search filters only active-profile tab metadata by title or hostname, including
+pins and private tabs in a separate section. It never instantiates a webview.
+⇧⌘A expands the sidebar and focuses search; Escape clears it and returns focus
+to the selected tab. Matching pins become titled rows during search. A selection
+outside the current filter clears it. Arrow keys navigate the grid/list, Return
+activates, and Tab/Shift-Tab reach controls and close buttons. Down Arrow from
+the toggle enters the selected tab; focus waits for a lazy target to mount.
+Focus ownership stays with the containing window during collapse. Down Arrow from
+the sidebar toggle enters the selected tab, including in the rail. Titles, hosts,
+selected/pinned/private/loading/audio states are spoken; favicons are decorative.
+Close remains an accessibility action and a keyboard/VoiceOver control when its
+glyph is hidden. Pins close through their context menu or ⌘W.
+
+Pin/unpin commands use the existing `TabRecord.isPinned` model and version-3
+session snapshot; no migration is needed. Dragging onto Pinned pins a regular
+tab, and dropping onto Tabs unpins it, appending to the destination group. Row
+and tile drops reorder within the current pin/privacy section. Drags are scoped
+to the controller, so another window/profile cannot move its tabs. Move Up/Down
+provide keyboard alternatives. Private tabs reject pinning in both the UI and
+model. Bulk close preserves pins and the other privacy group. Pinned tabs keep
+the existing idle-discard exclusion alongside selected, private, edited, media,
+capture, download and request-safety rules.
+
+Optional continuity already allows `TabRecord.isPinned` in regular-tab metadata,
+with profile/device ownership and pinned-first ordering. Pins therefore use that
+existing path; no new payload, preference or allowlist is added. Receiving remote
+tabs does not replace local tabs. Private tabs never enter session persistence
+or continuity. The search query and rail focus remain local transient state.
+
+Rows reuse `SiteIdentity`/`SiteIconStore`'s bounded shared cache. The normal,
+overflow-pin and private collections use a lazy stack with stable tab IDs. Audio
+indication is event-driven for HTML audio/video, including child frames; there
+are no per-row timers or playback polling loops. Web Audio-only pages require a
+separate future public-API strategy; pause/block still applies through WebKit.
+
+At narrow expanded widths, Share, New Tab and Overview remain in Browser Actions
+and the fixed sidebar controls, leaving the 230 pt address minimum and privacy
+button reachable. Active downloads also have a sidebar badge.

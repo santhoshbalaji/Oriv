@@ -53,10 +53,16 @@ import WebKit
         }
         BackgroundUIMode.installAtLaunch()
         if BackgroundUIMode.isEnabled {
-            manifest.limitations.append("All windows stay off every display. Sidebar/glass fallback fixtures use the app's opaque Reduce Transparency variant; they cannot verify Liquid Glass.")
+            if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" {
+                manifest.limitations.append("All windows stay off every display. Contrast matrix uses the real sidebar with a known white/black/purple glass input and labelled page swatch; the header is a layout spacer. It renders the production contrast backing and controls; reduced/increased variants use the opaque accessibility path. These are synthetic compositing/layout images, not live Liquid Glass acceptance.")
+            } else {
+                manifest.limitations.append("All windows stay off every display. Sidebar/glass fallback fixtures use the app's opaque Reduce Transparency variant; they cannot verify Liquid Glass.")
+            }
         }
         if environment["ORIV_BATCH_VISUALS"] == "1" { await renderBatchScenes(into: directory, activate: activate) }
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar" { await renderSidebarScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
         else { await renderScenes(into: directory, activate: activate) }
@@ -215,6 +221,147 @@ import WebKit
         *{box-sizing:border-box}body{margin:0;background:\(color);color:\(ink);font-family:Georgia,serif}header{height:66px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff50;font:600 12px -apple-system,sans-serif}header strong{font-size:25px;color:\(heading);letter-spacing:-1px}.hero{padding:32px max(30px,14vw) 60px;min-height:530px}h1{font-size:48px;font-weight:500;line-height:1.05;color:\(heading);letter-spacing:-2px;margin:0 0 38px}h1 span{display:block;margin-left:80px}.copy{margin-left:80px;max-width:780px;font-size:29px;line-height:1.12;letter-spacing:-1px}.copy p{margin:0 0 32px}.story{background:#e0ebed;color:#35134d;padding:26px max(30px,14vw) 80px;min-height:1400px}.story blockquote{margin:0;border-top:1px solid #958ca5;border-bottom:1px solid #958ca5;padding:24px 0;font-size:28px}.story h2{font:700 28px -apple-system,sans-serif;margin-top:56px}.story p{font-size:30px;line-height:1.3}@media(max-width:700px){header strong{font-size:17px}.hero{padding:32px 30px 50px}h1{font-size:42px}.copy{font-size:25px;margin-left:28px}h1 span{margin-left:28px}}
         </style></head><body><header><span>[START]</span><strong>ENTREPRENEURS FIRST</strong><span>[MENU]</span></header><section class="hero"><h1>FOUND,<span>↳DON’T FOLLOW</span></h1><div class="copy"><p>We turn exceptional individuals into funded founders. We back you first, then give you a bridge to Silicon Valley.</p><p>You might have an early idea, or be testing a cofounder. You might have nothing. What we’re most interested in is you and your potential.</p></div></section><section class="story"><blockquote>“Joining EF was a life-changing decision.”</blockquote><h2>WE BUILD COFOUNDING TEAMS FROM SCRATCH.</h2><p>Your potential is the starting point.</p><p>Meet people with the ambition to build something new. Explore ideas, share what you know and find your next collaborator.</p></section></body></html>
         """
+    }
+
+    private static func renderSidebarContrastScenes(into directory: URL, activate: Bool) async {
+        let root = directory.appendingPathComponent("contrast-fixture")
+        let records = [TabRecord(title: "Maps", url: URL(string: "https://maps.example"), isPinned: true),
+                       TabRecord(title: "Wikipedia – Liquid", url: URL(string: "https://wiki.example/liquid")),
+                       TabRecord(title: "Reading list", url: URL(string: "https://reading.example"))]
+        do {
+            try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: records, selectedTabID: records[1].id), discardPrevious: true)
+        } catch { manifest.failures.append("Contrast fixture: \(error)"); return }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let controller = profiles.controller
+        _ = controller.session.addTab(isPrivate: true, select: false, load: false)
+        guard let tab = controller.session.selectedTab else { manifest.failures.append("No contrast fixture tab"); return }
+        for (page, hex, backdrop) in [("white", "#ffffff", Color.white), ("black", "#000000", Color.black),
+                                      ("purple", "#6000d9", Color(red: 96.0 / 255, green: 0, blue: 217.0 / 255))] {
+            let title = "Wikipedia – \(page) fixture"
+            tab.webView.loadHTMLString("<title>\(title)</title><body style='margin:0;background:\(hex);color:\(page == "white" ? "black" : "white");font:24px system-ui;padding:60px;height:2000px'><h1>Wikipedia</h1><p>Local contrast fixture: \(page).</p></body>", baseURL: records[1].url)
+            for _ in 0..<200 {
+                if tab.webView.title == title && !tab.webView.isLoading { break }
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            guard tab.webView.title == title else { manifest.failures.append("Contrast page did not load: \(page)"); continue }
+            for (mode, appearance) in [("light", BrowserAppearance.light), ("dark", .dark)] {
+                for variant in ["glass-input", "reduced", "increased"] {
+                    for state in ["expanded", "rail", "search"] {
+                        controller.compactSidebar = state == "rail"
+                        controller.tabSearch = state == "search" ? "wiki" : ""
+                        let name = "mac-glass-sidebar-contrast-\(mode)-\(page)-\(state)-\(variant)"
+                        await capture(name, directory, CGSize(width: 1000, height: 760), key: activate, settle: 300,
+                                      expectedFields: state == "search" ? ["tabSearchField": "wiki"] : [:], appearance: appearance,
+                                      prepare: { window in
+                                          if state == "search" { controller.searchTabs(); try? await Task.sleep(for: .milliseconds(100)) }
+                                          writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+                                      }) {
+                            // Isolate the real sidebar from the header's remote
+                            // glass layers, which AppKit cannot cache off-screen.
+                            // The page is a labelled exact-colour swatch, not WKWebView.
+                            HStack(spacing: 0) {
+                                VStack(spacing: 0) {
+                                    HStack {
+                                        Spacer()
+                                        Image(systemName: "sidebar.left").frame(width: 32, height: 32)
+                                    }.padding(.horizontal, 12).frame(height: MacBrowserLayout.headerHeight)
+                                        .foregroundStyle(appearance.theme.text)
+                                    BrowserSidebar(controller: controller, profiles: profiles)
+                                }
+                                .frame(width: (controller.compactSidebar ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) - 20)
+                                .background { Color.clear.modifier(MacSidebarGlass()).padding(.top, 10) }
+                                .padding(.horizontal, 10).padding(.bottom, 10)
+                                backdrop.overlay(alignment: .topLeading) {
+                                    VStack(alignment: .leading, spacing: 24) {
+                                        Text("Wikipedia").font(.system(size: 40, weight: .bold))
+                                        Text("Synthetic \(page) page / sampled glass input")
+                                    }.foregroundStyle(page == "white" ? .black : .white).padding(48)
+                                }
+                            }
+                                .frame(width: 1000, height: 760).background(backdrop)
+                                .environment(\.siteIcons, controller.session.siteIcons)
+                                .environment(\.sidebarCaptureBackdrop, backdrop)
+                                .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
+                                .environment(\.sidebarCaptureContrast, variant == "increased" ? .increased : .standard)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Same real-window fixture before and after the sidebar change. Sleeping tabs
+    /// are metadata only; generated local icons go through the production cache.
+    private static func renderSidebarBScenes(into directory: URL, activate: Bool) async {
+        let titles = ["Maps", "Mail", "Developer notes", "Books", "Design resources", "Weekend in the mountains",
+                      "A field guide to quieter interfaces and more considered everyday browsing", "Evening radio",
+                      "Reading list", "Earth from above", "Ideas for the next chapter"]
+        for count in [12, 60] {
+            let root = directory.appendingPathComponent("fixture-\(count)")
+            let records = (0..<(count - 1)).map { index in
+                TabRecord(title: titles[index % titles.count] + (index >= titles.count ? " \(index + 1)" : ""),
+                          url: URL(string: "https://site\(index % titles.count).example/story/\(index)"), isPinned: index < 4)
+            }
+            do {
+                let profileRoot = BrowserProfile.personal.directory(in: root)
+                try SessionFileStore(fileURL: profileRoot.appendingPathComponent("session.json"))
+                    .save(BrowserSnapshot(tabs: records, selectedTabID: records[6].id), discardPrevious: true)
+                let disk = SiteIconDiskCache(directory: profileRoot.appendingPathComponent("Favicons"))
+                for index in titles.indices {
+                    let image = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+                        NSColor(calibratedHue: CGFloat(index) / 12, saturation: 0.55, brightness: 0.72, alpha: 1).setFill()
+                        NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14).fill()
+                        let symbols = ["map.fill", "envelope.fill", "curlybraces", "book.closed.fill", "square.3.layers.3d", "mountain.2.fill", "leaf.fill", "waveform", "text.alignleft", "globe", "paintpalette.fill"]
+                        NSImage(systemSymbolName: symbols[index], accessibilityDescription: nil)?
+                            .withSymbolConfiguration(.init(pointSize: 32, weight: .medium))?
+                            .draw(in: rect.insetBy(dx: 12, dy: 12))
+                        return true
+                    }
+                    if let data = image.tiffRepresentation, let icon = await disk.decode(data),
+                       let key = SiteIconStore.key(records[index].url!, isPrivate: false) {
+                        await disk.write(icon, key: key)
+                    }
+                }
+            } catch { manifest.failures.append("Sidebar fixture: \(error)"); continue }
+            let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+            let controller = profiles.controller, session = controller.session
+            let privateTab = session.addTab(isPrivate: true, select: false, load: false)
+            privateTab.webView.loadHTMLString("<title>A gift, kept private</title><body>Private fixture</body>", baseURL: URL(string: "https://private.example"))
+            for record in records.prefix(titles.count) { await session.siteIcons.load(record.url!, isPrivate: false) }
+            let tab = session.selectedTab!
+            for (mode, appearance) in [("light", BrowserAppearance.light), ("dark", .dark)] {
+                tab.webView.loadHTMLString(sidebarFixture(color: mode == "light" ? "#ede6f5" : "#351553", light: mode == "light"), baseURL: records[6].url)
+                for _ in 0..<100 { if !tab.webView.isLoading && tab.webView.title != nil { break }; try? await Task.sleep(for: .milliseconds(25)) }
+                for width in [820, 1280] {
+                    for rail in [false, true] {
+                        controller.compactSidebar = rail
+                        let name = "mac-glass-sidebar-b-\(count)-\(mode)-\(width)-\(rail ? "rail" : "expanded")"
+                        await capture(name, directory, CGSize(width: width, height: 900), key: activate, compositeWeb: tab.webView, appearance: appearance,
+                                      prepare: { writeSidebarGeometry($0, to: directory.appendingPathComponent(name + "-geometry.json")) }) {
+                            BrowserWindow(controller: controller, profiles: profiles)
+                                .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled)
+                        }
+                    }
+                }
+            }
+            profiles.shutdown()
+        }
+        let profiles = BrowserProfiles(testing: true)
+        profiles.handleIncomingURL(URL(string: "https://private.example/story")!, sourceName: "Example App")
+        if let controller = profiles.externalPrivate, let tab = controller.session.selectedTab {
+            tab.webView.loadHTMLString(sidebarFixture(color: "#351553", light: false), baseURL: URL(string: "https://private.example/story"))
+            try? await Task.sleep(for: .milliseconds(700))
+            for rail in [false, true] {
+                controller.compactSidebar = rail
+                await capture("mac-glass-sidebar-b-private-\(rail ? "rail" : "expanded")", directory, CGSize(width: 820, height: 900),
+                              key: activate, compositeWeb: tab.webView, appearance: .dark) {
+                    BrowserWindow(controller: controller, profiles: profiles).environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled)
+                }
+            }
+        }
+        profiles.shutdown()
     }
 
     private static func renderSidebarScenes(into directory: URL, activate: Bool) async {
@@ -650,7 +797,13 @@ import WebKit
         // Capture stable geometry, without an inferred WindowServer opening animation.
         window.animationBehavior = .none
         window.toolbarStyle = toolbarStyle
-        window.contentViewController = hosting
+        if name.hasPrefix("mac-glass-sidebar-contrast-") {
+            // Direct hosting avoids scene toolbar/title bridging, whose remote
+            // layer tree is absent from AppKit's off-screen bitmap cache.
+            window.contentView = NSHostingView(rootView: content().browserAppearance(appearance))
+        } else {
+            window.contentViewController = hosting
+        }
         window.setContentSize(size)
         window.setFrameOrigin(liveGlass ? (BackgroundUIMode.isEnabled && size.width == 1800 ? .zero : NSPoint(x: 40, y: 60)) : NSPoint(x: -30_000, y: -30_000))
         BackgroundUIMode.show(window, key: key, activate: key && BackgroundUIMode.foregroundAllowed)
@@ -801,8 +954,16 @@ import WebKit
            let tiff = image.tiffRepresentation, let data = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
             save(data, suffix: "page", note: "In-process WKWebView.takeSnapshot, page only; no glass/chrome acceptance")
         } else if webView != nil { manifest.skipped.append("\(name)-page: visual-foreground-only; off-screen WebKit fixture stayed blank after three in-process snapshot attempts") }
-        if let frame = window.contentView?.superview, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
-            frame.layoutSubtreeIfNeeded(); frame.cacheDisplay(in: frame.bounds, to: bitmap)
+        let contrastFixture = name.hasPrefix("mac-glass-sidebar-contrast-")
+        let target = contrastFixture ? window.contentView : window.contentView?.superview
+        if let frame = target, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
+            frame.layoutSubtreeIfNeeded()
+            frame.needsDisplay = true
+            window.contentView?.needsDisplay = true
+            window.display()
+            window.contentView?.display()
+            window.contentView?.layer?.displayIfNeeded()
+            frame.cacheDisplay(in: frame.bounds, to: bitmap)
             if name.hasPrefix("mac-glass-menu"), let raw = bitmap.representation(using: .png, properties: [:]) {
                 save(raw, suffix: "chrome", note: "Uncomposited off-screen cacheDisplay of the real window; WebKit and glass may be blank. Preserves overlays that page compositing would cover.")
             }
@@ -816,7 +977,9 @@ import WebKit
                 NSGraphicsContext.restoreGraphicsState()
             }
             if let data = bitmap.representation(using: .png, properties: [:]) {
-                save(data, suffix: "opaque-fallback", note: "cacheDisplay non-glass chrome plus clipped WKWebView snapshot. Reduce Transparency variant; no Liquid Glass acceptance. Inspect before accepting.")
+                save(data, suffix: contrastFixture ? "synthetic-composite" : "opaque-fallback", note: contrastFixture
+                     ? "Real sidebar over synthetic sampled glass input and labelled page swatch, with production contrast backing/controls. Header is a layout spacer. Reduced/increased scenes use opaque accessibility material. No live Liquid Glass acceptance."
+                     : "cacheDisplay non-glass chrome plus clipped WKWebView snapshot. Reduce Transparency variant; no Liquid Glass acceptance. Inspect before accepting.")
             }
         }
     }

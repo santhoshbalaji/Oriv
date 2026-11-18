@@ -12,6 +12,10 @@ final class BrowserController {
     let session: BrowserSession
     let downloads = DownloadManager()
     var compactSidebar: Bool { didSet { profileDefaults?.set(compactSidebar, forKey: "compactSidebar") } }
+    var tabSearch = ""
+    var tabSearchFocusRequest = 0
+    let sidebarDragID = UUID()
+    func searchTabs() { compactSidebar = false; tabSearchFocusRequest += 1 }
     var addressFocusRequest = 0
     var findRequest = 0
     var findNextRequest = 0

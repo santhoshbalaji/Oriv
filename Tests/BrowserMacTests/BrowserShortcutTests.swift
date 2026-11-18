@@ -90,6 +90,14 @@ import XCTest
         let reader = try XCTUnwrap(all.first { $0.title == "Read Page Text" })
         XCTAssertTrue(reader.keyEquivalent.isEmpty)
     }
+    func testTabSearchMenuHasOneNonconflictingShiftCommandA() throws {
+        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
+        let matches = items(try XCTUnwrap(NSApp.mainMenu)).filter {
+            $0.keyEquivalent.lowercased() == "a" && $0.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control]) == [.command, .shift]
+        }
+        XCTAssertEqual(matches.count, 1)
+        XCTAssertEqual(matches.first?.title, "Search Tabs…")
+    }
     func testCommandShiftRRealEventReloadsOriginFromAddressFocus() async throws {
         let controller = BrowserController(testing: true); defer { controller.shutdown() }
         let tab = try XCTUnwrap(controller.session.selectedTab)

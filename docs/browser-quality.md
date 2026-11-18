@@ -2,6 +2,10 @@
 
 # Browser quality and coverage
 
+## 0.15.0 (22)
+
+The Mac sidebar becomes an inset Liquid Glass panel: profile header with tab count, Search Tabs (⇧⌘A), a pinned favicon grid, lazy Tabs and Private sections, New Tab above a fixed footer, and a favicon-only rail. Pins reuse the persisted tab record and the existing continuity allowlist; private tabs cannot be pinned. Reduce Transparency and Increase Contrast use adaptive opaque surfaces. Background 100-tab scrolling stays at 5.3 ms p95 CPU per step; live compositor smoothness, VoiceOver and pointer drag remain foreground checks.
+
 ## 0.14.0 (21)
 
 Mac tab selection now retains its native web-view host and presents a destination-only page snapshot while a discarded tab restores. Snapshots stay in an 8 MiB memory cache per session, including private pages, and never enter session or continuity records. Ordinary idle reclamation keeps the three most recently used Mac tabs live; pressure can reclaim older eligible views. Restored history scroll is checked across two settling samples before the cover releases, with bounded reapplication when WebKit resets the acknowledged position.
