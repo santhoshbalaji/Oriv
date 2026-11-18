@@ -64,6 +64,8 @@ struct BrowserCommands: Commands {
         }
         CommandGroup(after: .toolbar) {
             Divider()
+            Button(controller.sidebar.rail ? "Expand Sidebar" : "Collapse Sidebar") { controller.sidebarToggleRequest += 1 }
+                .keyboardShortcut("s", modifiers: [.command, .option])
             Button("Search Tabs…") { controller.searchTabs() }.keyboardShortcut("a", modifiers: [.command, .shift])
             Button("Read Page Text") { controller.openReader() }
                 .disabled(controller.session.selectedTab?.url == nil || controller.session.selectedTab?.isLoading == true || controller.isPreparingReader)
@@ -77,6 +79,7 @@ struct BrowserCommands: Commands {
             Button("Bookmarks") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.library = .bookmarks }.keyboardShortcut("b", modifiers: [.command, .shift])
             Button("History") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.library = .history }.keyboardShortcut("y")
             Button("Downloads") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.library = .downloads }.keyboardShortcut("j", modifiers: [.command, .option])
+            Button("Other Devices") { controller.library = .devices }
             Divider()
             Button("Import Bookmarks…") { controller.importBookmarks() }
             Button("Export Bookmarks…") { controller.exportBookmarks() }.disabled(controller.savedBookmarks.isEmpty)

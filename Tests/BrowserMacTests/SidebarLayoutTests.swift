@@ -31,7 +31,7 @@ import XCTest
         for _ in 0..<100 { if condition() { return }; try await Task.sleep(for: .milliseconds(50)) }
         XCTFail("Sidebar layout did not settle")
     }
-    private func checkGeometry(_ window: NSWindow, collapsed: Bool, file: StaticString = #filePath, line: UInt = #line) throws {
+    private func checkGeometry(_ window: NSWindow, collapsed: Bool, overlay: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
         window.contentView?.layoutSubtreeIfNeeded()
         let content = try XCTUnwrap(window.contentView, file: file, line: line)
         let top = try XCTUnwrap(marker("browserTopBarGeometry", in: window), file: file, line: line)
@@ -39,21 +39,21 @@ import XCTest
         XCTAssertEqual(topFrame.minX, collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth, accuracy: 1, file: file, line: line)
         XCTAssertEqual(topFrame.maxX, content.convert(content.bounds, to: nil).maxX, accuracy: 1, file: file, line: line)
         XCTAssertEqual(topFrame.maxY, content.convert(content.bounds, to: nil).maxY, accuracy: 1, file: file, line: line)
-        XCTAssertEqual(topFrame.height, 44, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(topFrame.height, MacBrowserLayout.headerHeight, accuracy: 1, file: file, line: line)
         do {
             let sidebar = try XCTUnwrap(marker("browserSidebarGeometry", in: window), file: file, line: line)
             let rect = sidebar.convert(sidebar.bounds, to: nil)
             XCTAssertEqual(rect.minX, 0, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(rect.minY, 0, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(rect.width, collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(rect.width, overlay ? MacBrowserLayout.sidebarWidth : (collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth), accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(rect.height, content.bounds.height, accuracy: 0.5, file: file, line: line)
         }
     }
     func testInsetSidebarAndRailAtMinimumAndAfterResize() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles, width: 760); defer { window.close() }
-        try await wait { self.marker("browserSidebarGeometry", in: window)?.bounds.height ?? 0 > 500 }
-        try checkGeometry(window, collapsed: false)
+        try await wait { (self.marker("browserSidebarGeometry", in: window)?.bounds.height ?? 0) > 500 && profiles.controller.sidebar.rail }
+        try checkGeometry(window, collapsed: true)
         window.setContentSize(NSSize(width: 1280, height: 820))
         try await Task.sleep(for: .milliseconds(200))
         try checkGeometry(window, collapsed: false)
@@ -77,7 +77,7 @@ import XCTest
             for collapsed in [false, true] {
                 controller.compactSidebar = collapsed
                 try await Task.sleep(for: .milliseconds(400))
-                try checkGeometry(window, collapsed: collapsed)
+                try checkGeometry(window, collapsed: controller.sidebar.reservesRail, overlay: controller.sidebar.overlay)
                 let header = try XCTUnwrap(marker("browserTopBarGeometry", in: window))
                 let address = try XCTUnwrap(marker("browserAddressGeometry", in: window))
                 let shield = try XCTUnwrap(marker("browserPrivacyGeometry", in: window))
@@ -145,8 +145,8 @@ import XCTest
                 let button = try XCTUnwrap(window.standardWindowButton(type))
                 XCTAssertTrue(button.superview === parents[i])
                 let frame = button.convert(button.bounds, to: nil)
-                XCTAssertEqual(frame.minX, 12 + CGFloat(i) * 20, accuracy: 1)
-                XCTAssertEqual(window.contentView!.bounds.maxY - frame.midY, 22, accuracy: 1)
+                XCTAssertEqual(frame.minX, (collapsed ? MacBrowserLayout.railWidth + 12 : MacBrowserLayout.lightsInset) + CGFloat(i) * MacBrowserLayout.lightsSpacing, accuracy: 1)
+                XCTAssertEqual(window.contentView!.bounds.maxY - frame.midY, collapsed ? MacBrowserLayout.headerHeight / 2 : 37, accuracy: 1)
                 XCTAssertTrue(button.superview!.bounds.contains(button.frame), "Native hit testing must include the entire button")
             }
         }
@@ -177,8 +177,8 @@ import XCTest
         let window = makeWindow(controller, profiles: profiles); defer { window.close() }
         try await wait { self.address(in: window) != nil }
         let field = try XCTUnwrap(address(in: window))
-        try await wait { abs(tab.webView.obscuredContentInsets.top - 44) < 1 }
-        XCTAssertEqual(tab.webView.obscuredContentInsets.top, 44, accuracy: 1)
+        try await wait { abs(tab.webView.obscuredContentInsets.top - MacBrowserLayout.headerHeight) < 1 }
+        XCTAssertEqual(tab.webView.obscuredContentInsets.top, MacBrowserLayout.headerHeight, accuracy: 1)
         window.makeFirstResponder(tab.webView)
         try await wait { field.currentEditor() == nil }
         controller.focusAddress()
@@ -203,7 +203,7 @@ import XCTest
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles, width: 760, rtl: true); defer { window.close() }
         try await Task.sleep(for: .milliseconds(350))
-        try checkGeometry(window, collapsed: false)
+        try checkGeometry(window, collapsed: true)
         let field = try XCTUnwrap(address(in: window))
         XCTAssertGreaterThan(field.bounds.width, 40)
         XCTAssertTrue(window.contentView!.bounds.contains(field.convert(field.bounds, to: window.contentView)))
@@ -231,7 +231,7 @@ import XCTest
         try await Task.sleep(for: .milliseconds(800))
         try checkGeometry(window, collapsed: true)
         let button = try XCTUnwrap(window.standardWindowButton(.closeButton))
-        XCTAssertEqual(window.contentView!.bounds.maxY - button.convert(button.bounds, to: nil).midY, 22, accuracy: 1)
+        XCTAssertEqual(window.contentView!.bounds.maxY - button.convert(button.bounds, to: nil).midY, MacBrowserLayout.headerHeight / 2, accuracy: 1)
     }
     func testExternalPrivateWindowUsesSameLayout() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
@@ -239,7 +239,7 @@ import XCTest
         let controller = try XCTUnwrap(profiles.externalPrivate)
         let window = makeWindow(controller, profiles: profiles, width: 760); defer { window.close() }
         try await Task.sleep(for: .milliseconds(350))
-        try checkGeometry(window, collapsed: false)
+        try checkGeometry(window, collapsed: true)
         controller.compactSidebar = true
         try await Task.sleep(for: .milliseconds(400))
         try checkGeometry(window, collapsed: true)

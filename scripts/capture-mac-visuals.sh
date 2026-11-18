@@ -134,7 +134,13 @@ if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
     expected = {"mac-glass-sidebar-" + mode for mode in ("light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest", "covered")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-b":
-    expected = {f"mac-glass-sidebar-b-{count}-{mode}-{width}-{state}" for count in (12, 60) for mode in ("light", "dark") for width in (820, 1280) for state in ("expanded", "rail")}
+    expected = {f"mac-glass-sidebar-b-{count}-{mode}-{width}-{state}" for count in (12, 50, 100) for mode in ("light", "dark") for width in (820, 1280) for state in ("expanded", "rail")}
+    expected |= {f"mac-glass-sidebar-b-12-{mode}-1280-{state}-{variant}"
+                 for mode in ("light", "dark") for state in ("expanded", "rail")
+                 for variant in ("hover", "focus", "reduced", "increased", "motion")}
+    expected |= {f"mac-glass-sidebar-b-12-{mode}-1280-rail-{variant}"
+                 for mode in ("light", "dark") for variant in ("peek", "search", "tooltip")}
+    expected |= {f"mac-glass-sidebar-b-12-{mode}-760-expanded-narrow" for mode in ("light", "dark")}
     expected |= {"mac-glass-sidebar-b-private-" + state for state in ("expanded", "rail")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
     expected = {f"mac-glass-sidebar-contrast-{mode}-{page}-{state}-{variant}"
@@ -144,7 +150,9 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-synthetic-composite" for name in expected} - evidence
         if missing: problems.append(f"missing sidebar contrast composites: {sorted(missing)}")
-if os.environ.get("ORIV_LIVE_SITES"):
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-live":
+    expected = {"mac-glass-sidebar-live-" + state for state in ("expanded", "rail", "overlay")}
+elif os.environ.get("ORIV_LIVE_SITES"):
     expected = {f"mac-glass-site{i+1}" for i, _ in enumerate(os.environ["ORIV_LIVE_SITES"].split(","))}
 if m.get("keyWindowsRequested", m["activated"]) and sys.argv[4] != "1": expected.add("mac-05-start-inactive-window")
 if os.environ.get("ORIV_BACKGROUND_UI") == "1" and os.environ.get("ORIV_FOREGROUND_UI") != "1":

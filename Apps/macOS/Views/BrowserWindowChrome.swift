@@ -6,9 +6,9 @@ import SwiftUI
 enum MacBrowserLayout {
     static let sidebarWidth: CGFloat = 296
     static let railWidth: CGFloat = 84
-    static let headerHeight: CGFloat = 44
+    static let headerHeight: CGFloat = 60
     static let lightsWidth: CGFloat = 54
-    static let lightsInset: CGFloat = 12
+    static let lightsInset: CGFloat = 26
     static let lightsSpacing: CGFloat = 20
 }
 
@@ -36,12 +36,18 @@ enum MacBrowserLayout {
 /// hierarchy, preserving native actions, inactive appearance and tiling popovers.
 struct BrowserWindowChrome: NSViewRepresentable {
     let windowContext: MacBrowserWindowContext
+    var compact = false
+    var initialContentFocus: NSView? = nil
     var externalPresentationRequest: Int? = nil
     var stateChanged: (Bool, Bool) -> Void
+    var contentWidthChanged: (CGFloat) -> Void = { _ in }
 
     func makeNSView(context: Context) -> WindowChromeView { WindowChromeView() }
     func updateNSView(_ view: WindowChromeView, context: Context) {
+        view.initialContentFocus = initialContentFocus
+        view.compact = compact
         view.stateChanged = stateChanged
+        view.contentWidthChanged = contentWidthChanged
         view.windowContext = windowContext
         view.externalPresentationRequest = externalPresentationRequest
         view.configure()
@@ -49,7 +55,13 @@ struct BrowserWindowChrome: NSViewRepresentable {
     static func dismantleNSView(_ view: WindowChromeView, coordinator: ()) { view.detach() }
 
     final class WindowChromeView: NSView {
+        weak var initialContentFocus: NSView?
+        private var didSetInitialFocus = false
+        var compact = false
         var stateChanged: ((Bool, Bool) -> Void)?
+        var contentWidthChanged: ((CGFloat) -> Void)?
+        private var widthTask: Task<Void, Never>?
+        private var lastContentWidth: CGFloat?
         var windowContext: MacBrowserWindowContext?
         var externalPresentationRequest: Int?
         private let externalPresenter = ExternalPrivateWindowPresenter()
@@ -82,6 +94,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         }
         override func layout() { super.layout(); configure() }
         func detach() {
+            widthTask?.cancel(); widthTask = nil; lastContentWidth = nil
             externalPresenter.cancel()
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
@@ -98,6 +111,14 @@ struct BrowserWindowChrome: NSViewRepresentable {
         func configure() {
             guard let window, !configuring else { return }
             windowContext?.window = window
+            if !didSetInitialFocus, let target = initialContentFocus, target.window === window {
+                didSetInitialFocus = true
+                window.initialFirstResponder = target
+                DispatchQueue.main.async { [weak window, weak target] in
+                    guard let window, let target, !(window.firstResponder is NSTextView), !(window.firstResponder is NSTextField) else { return }
+                    window.makeFirstResponder(target)
+                }
+            }
             if let externalPresentationRequest { externalPresenter.request(externalPresentationRequest, in: window) }
             configuring = true
             defer { configuring = false }
@@ -127,8 +148,8 @@ struct BrowserWindowChrome: NSViewRepresentable {
             if !fullscreen {
                 for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                     guard let button = window.standardWindowButton(type), let parent = button.superview else { continue }
-                    let target = parent.convert(NSPoint(x: MacBrowserLayout.lightsInset + CGFloat(index) * MacBrowserLayout.lightsSpacing,
-                        y: window.frame.height - MacBrowserLayout.headerHeight / 2), from: nil)
+                    let target = parent.convert(NSPoint(x: (compact ? MacBrowserLayout.railWidth + 12 : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing,
+                        y: window.frame.height - (compact ? MacBrowserLayout.headerHeight / 2 : 37)), from: nil)
                     button.setFrameOrigin(NSPoint(x: target.x, y: target.y - button.frame.height / 2))
                 }
             }
@@ -142,6 +163,18 @@ struct BrowserWindowChrome: NSViewRepresentable {
                 let rest = elements.filter { child in !lights.contains { ($0 as AnyObject) === (child as AnyObject) } }
                 if rest.count + lights.count == elements.count { window.setAccessibilityChildrenInNavigationOrder(lights + rest) }
             } else { window.setAccessibilityChildrenInNavigationOrder(nil) }
+            if let width = window.contentView?.bounds.width, width > 0, width != lastContentWidth {
+                lastContentWidth = width; widthTask?.cancel()
+                // Coalesce initial hosting/layout sizes; only the actual window's
+                // settled content width participates in adaptive hysteresis.
+                widthTask = Task { @MainActor [weak self, weak window] in
+                    await Task.yield()
+                    guard !Task.isCancelled, let self, let window, self.window === window,
+                          let actualWidth = window.contentView?.bounds.width, actualWidth > 0 else { return }
+                    self.contentWidthChanged?(actualWidth)
+                    self.widthTask = nil
+                }
+            }
             let state = [fullscreen, window.isKeyWindow]
             if state != lastState {
                 lastState = state
@@ -151,7 +184,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
     }
 }
 
-/// The accessory extends the titlebar to align the traffic lights with the 44 pt
+/// The accessory extends the titlebar to align the traffic lights with the 60 pt
 /// header. Its otherwise-empty container must not eat the bottom edge of header
 /// controls. Route those hits to the full-size content view, where buttons and
 /// the explicit drag region already decide how to handle them.
@@ -190,6 +223,6 @@ struct BrowserGeometryMarker: NSViewRepresentable {
     func makeNSView(context: Context) -> Marker {
         let view = Marker(); view.identifier = NSUserInterfaceItemIdentifier(name); return view
     }
-    func updateNSView(_ view: Marker, context: Context) {}
+    func updateNSView(_ view: Marker, context: Context) { view.identifier = NSUserInterfaceItemIdentifier(name) }
     final class Marker: NSView { override func hitTest(_ point: NSPoint) -> NSView? { nil } }
 }

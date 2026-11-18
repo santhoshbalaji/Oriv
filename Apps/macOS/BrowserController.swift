@@ -11,11 +11,49 @@ final class BrowserController {
     var appearance: BrowserAppearance { didSet { profileDefaults?.set(appearance.rawValue, forKey: "browserAppearance") } }
     let session: BrowserSession
     let downloads = DownloadManager()
-    var compactSidebar: Bool { didSet { profileDefaults?.set(compactSidebar, forKey: "compactSidebar") } }
+    let sidebar = SidebarPresentation()
+    let sidebarTooltip = SidebarTooltip()
+    var compactSidebar: Bool {
+        get { sidebar.preferredRail }
+        set {
+            let changed = sidebar.preferredRail != newValue
+            sidebar.setPreference(newValue)
+            if changed { profileDefaults?.set(newValue, forKey: "compactSidebar") }
+        }
+    }
+    var hoverSidebar: Bool {
+        get { sidebar.hoverEnabled }
+        set {
+            guard sidebar.hoverEnabled != newValue else { return }
+            sidebar.hoverEnabled = newValue
+            profileDefaults?.set(newValue, forKey: "hoverSidebar")
+        }
+    }
+    var sidebarToggleRequest = 0
+    @ObservationIgnored weak var sidebarWindow: NSWindow?
+    @ObservationIgnored weak var tabSearchReturnFocus: NSResponder?
+    var tabSearchPanel = false
     var tabSearch = ""
     var tabSearchFocusRequest = 0
     let sidebarDragID = UUID()
-    func searchTabs() { compactSidebar = false; tabSearchFocusRequest += 1 }
+    func searchTabs() {
+        sidebarTooltip.dismiss()
+        if sidebar.reservesRail {
+            if !tabSearchPanel {
+                let responder = sidebarWindow?.firstResponder
+                tabSearchReturnFocus = (responder as? NSTextView)?.delegate as? NSView ?? responder
+            }
+            tabSearchPanel = true; sidebar.searchOpen = true
+        }
+        tabSearchFocusRequest += 1
+    }
+    func dismissTabSearch() { tabSearchPanel = false; tabSearch = ""; sidebar.searchOpen = false }
+    func toggleSidebar() {
+        let previous = compactSidebar
+        let next = sidebar.toggle()
+        if previous != next { profileDefaults?.set(next, forKey: "compactSidebar") }
+        sidebarTooltip.dismiss(); dismissTabSearch()
+    }
     var addressFocusRequest = 0
     var findRequest = 0
     var findNextRequest = 0
@@ -43,7 +81,8 @@ final class BrowserController {
         let bundleID = Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac"
         let defaults: UserDefaults? = isTesting || profile == nil ? nil : profile!.isPersonal ? .standard : UserDefaults(suiteName: profile!.defaultsName(bundleID: bundleID)!)
         profileDefaults = defaults
-        compactSidebar = defaults?.bool(forKey: "compactSidebar") ?? false
+        sidebar.preferredRail = defaults?.bool(forKey: "compactSidebar") ?? false
+        sidebar.hoverEnabled = defaults?.bool(forKey: "hoverSidebar") ?? false
         appearance = defaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:)) ?? .t3Code
         let persistent = profile != nil && (!isTesting || rootDirectory != nil)
         session = BrowserSession(store: persistent ? SessionFileStore(fileURL: applicationSupport.appendingPathComponent("session.json")) : nil,
@@ -96,7 +135,7 @@ final class BrowserController {
         }
     }
 
-    func shutdown() { bookmarkMigration?.cancel(); session.shutdown(); downloads.shutdown() }
+    func shutdown() { sidebar.cancel(); sidebarTooltip.dismiss(); bookmarkMigration?.cancel(); session.shutdown(); downloads.shutdown() }
 
     var savedBookmarks: [Bookmark] { session.bookmarks }
     func saveCurrentPage() { session.toggleBookmark() }
@@ -112,7 +151,7 @@ final class BrowserController {
             }
         })
     }
-    func newTab(isPrivate: Bool = false) { session.addTab(isPrivate: isPrivate); focusAddress() }
+    func newTab(isPrivate: Bool? = nil) { session.addTab(isPrivate: isPrivate ?? session.selectedTab?.isPrivate ?? session.isExternalPrivate); focusAddress() }
     func focusAddress() { addressFocusRequest += 1 }
     func closeTabOrPanel() {
         // A browser shortcut must never close a background tab while Settings is active.

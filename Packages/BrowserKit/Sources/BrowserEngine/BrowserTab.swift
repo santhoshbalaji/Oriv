@@ -22,13 +22,17 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public private(set) var canGoForward = false
     public private(set) var errorMessage: String?
     public private(set) var hasLoaded = false
-    public private(set) var isRestoringWebView = false
+    public private(set) var isRestoringWebView = false {
+        didSet { if !isRestoringWebView { notifyDocumentReady() } }
+    }
     /// The committed document has painted, or completed as an empty document.
     /// Attachment still requires a native rendering barrier before revealing it.
     public private(set) var hasRenderedContent = false
     /// The native host owns this weak presentation marker until its destination
     /// cover is gone. Optional document work must not compete with that handoff.
-    public weak var switchPresentation: AnyObject?
+    public weak var switchPresentation: AnyObject? {
+        didSet { if switchPresentation == nil { notifyDocumentReady() } }
+    }
     public private(set) var lastPageBackground: ChromeColor?
     public var switchSnapshot: TabSnapshotCache.Snapshot? { snapshotCache?.snapshot(for: id) }
     @ObservationIgnored var snapshotCache: TabSnapshotCache?
@@ -61,6 +65,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     @ObservationIgnored public var onChange: (() -> Void)?
     @ObservationIgnored public var onVisit: ((URL, String) -> Void)?
+    @ObservationIgnored var onDocumentReady: ((URL) -> Void)?
+    @ObservationIgnored private var finishedDocumentRevision: Int?
     @ObservationIgnored public var onTitleChange: ((URL, String) -> Void)?
     @ObservationIgnored public var onWebViewDiscarded: (() -> Void)?
     @ObservationIgnored public var onWebViewCreated: ((WKWebView) -> Void)?
@@ -474,7 +480,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         isProfileActive = active
         if !active { stopCapture() }
         backingWebView?.setAllMediaPlaybackSuspended(mediaSuspended || !active, completionHandler: nil)
-        if active { recoverContentProcessIfPossible() }
+        if active { recoverContentProcessIfPossible(); notifyDocumentReady() }
     }
     func setSelected(_ selected: Bool) {
         if isSelected && !selected { captureSwitchSnapshot() }
@@ -671,10 +677,22 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         }
     }
 
+    /// Optional document work starts only after navigation and restoration
+    /// finish and the native destination cover is gone. Each readiness edge
+    /// uses the store's coalescing/cache, never a sidebar presentation task.
+    private func notifyDocumentReady() {
+        guard !isClosed, isProfileActive, finishedDocumentRevision == documentRevision,
+              !isLoading, !isRestoringWebView, hasRenderedContent, switchPresentation == nil,
+              let view = backingWebView, !view.isLoading, let url = view.url,
+              AddressResolver.isWebURL(url) else { return }
+        onDocumentReady?(url)
+    }
+
     public static let navigationStarted = Notification.Name("OrivNavigationStarted")
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard !isClosed, backingWebView === webView else { return }
+        finishedDocumentRevision = nil
         if applyingRestoration { finishScrollRestoration() }
         expectedPaintDocument = nil; paintedDocuments.removeAll(); hasRenderedContent = false
         // A retained discard image remains until restoration paints. Ordinary
@@ -737,6 +755,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         hasRenderedContent = true
         endRefreshing()
         refresh(from: webView)
+        finishedDocumentRevision = documentRevision
+        notifyDocumentReady()
         if let url, AddressResolver.isWebURL(url), !isPrivate {
             lastVisitedURL = url
             onVisit?(url, displayTitle)

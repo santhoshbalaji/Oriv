@@ -94,6 +94,13 @@ struct AppearanceSettings: View {
             }
             Text("T3 Code uses black surfaces and blue accents. System follows your Mac. Websites keep their own colors.")
                 .font(.callout).foregroundStyle(theme.secondaryText).lineSpacing(3)
+            GroupBox("Sidebar") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
+                    Text("Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.")
+                        .font(.caption).foregroundStyle(theme.secondaryText)
+                }.padding(8)
+            }
             Spacer()
         }.padding(24)
     }

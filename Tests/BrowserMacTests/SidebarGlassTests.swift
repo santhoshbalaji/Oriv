@@ -12,16 +12,165 @@ import XCTest
         guard depth < 24, let node = element as? any NSAccessibilityProtocol else { return [] }
         return [node] + (node.accessibilityChildren() ?? []).flatMap { nodes($0, depth: depth + 1) }
     }
-    private func window(_ controller: BrowserController, solid: Bool = false) -> NSWindow {
+    private func window(_ controller: BrowserController, solid: Bool = false, reduceMotion: Bool? = nil,
+                        appearance: BrowserAppearance = .light) -> NSWindow {
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 760),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = NSHostingController(rootView: BrowserWindow(controller: controller)
-            .browserAppearance(.light).environment(\.chromeReduceTransparencyOverride, solid))
+            .browserAppearance(appearance).environment(\.chromeReduceTransparencyOverride, solid)
+            .environment(\.sidebarCaptureReduceMotion, reduceMotion))
+        window.setContentSize(NSSize(width: 1000, height: 760))
         BackgroundUIMode.show(window, key: true)
         return window
     }
     private func settle() async throws { try await Task.sleep(for: .milliseconds(300)) }
+
+    private func toggleSidebar(in window: NSWindow) throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1))
+        XCTAssertTrue(window.performKeyEquivalent(with: event), "Use the live sidebar shortcut action")
+    }
+
+    private func checkRail(_ controller: BrowserController, in window: NSWindow, settled: Bool = true,
+                           file: StaticString = #filePath, line: UInt = #line) throws {
+        window.contentView?.layoutSubtreeIfNeeded()
+        let all = views(try XCTUnwrap(window.contentView, file: file, line: line))
+        func frame(_ name: String) throws -> NSRect {
+            let marker = try XCTUnwrap(all.first { $0.identifier?.rawValue == name }, name, file: file, line: line)
+            return marker.convert(marker.bounds, to: nil)
+        }
+        let sidebar = try frame("browserSidebarGeometry")
+        if settled { XCTAssertEqual(sidebar.width, MacBrowserLayout.railWidth, accuracy: 1, file: file, line: line) }
+        XCTAssertFalse(all.contains { $0.identifier?.rawValue.hasPrefix("sidebarClose-") == true },
+                       "A rail must not retain expanded close buttons", file: file, line: line)
+        for tab in controller.session.orderedTabs {
+            let icon = try frame("sidebarFavicon-\(tab.id)")
+            let item = try frame("sidebarItem-\(tab.id)")
+            XCTAssertEqual(icon.midX, sidebar.midX, accuracy: 1, "Favicon \(tab.id)", file: file, line: line)
+            XCTAssertEqual(item.width, 42, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(item.height, 36, accuracy: 1, file: file, line: line)
+            if tab.id == controller.session.selectedTabID {
+                let highlight = try frame("sidebarSelection-\(tab.id)")
+                XCTAssertEqual(highlight.midX, sidebar.midX, accuracy: 1, file: file, line: line)
+                XCTAssertEqual(highlight.midX, icon.midX, accuracy: 1, file: file, line: line)
+                XCTAssertEqual(highlight.midY, icon.midY, accuracy: 1, file: file, line: line)
+                let accent = try frame("sidebarAccent-\(tab.id)")
+                XCTAssertFalse(accent.intersects(icon), "Selection accent must stay beside the favicon", file: file, line: line)
+            }
+        }
+    }
+
+    private func checkLiveRailToggle(reduceMotion: Bool) async throws {
+        let controller = BrowserController(testing: true); defer { controller.shutdown() }
+        for _ in 1..<4 { _ = controller.session.addTab(select: false, load: false) }
+        let selected = controller.session.orderedTabs[1].id
+        controller.session.selectTab(selected)
+        let window = window(controller, solid: true, reduceMotion: reduceMotion, appearance: .dark); defer { window.close() }
+        window.setContentSize(NSSize(width: 1000, height: 760))
+        try await settle()
+        for _ in 0..<2 {
+            XCTAssertFalse(controller.compactSidebar)
+            try toggleSidebar(in: window)
+            for _ in 0..<4 {
+                try await Task.sleep(for: .milliseconds(40))
+                try checkRail(controller, in: window, settled: false)
+            }
+            try await settle() // Also check after the live 220 ms collapse animation.
+            XCTAssertTrue(controller.compactSidebar)
+            XCTAssertEqual(controller.session.selectedTabID, selected)
+            try checkRail(controller, in: window)
+            try toggleSidebar(in: window)
+            try await settle()
+            XCTAssertFalse(controller.compactSidebar)
+            let all = views(try XCTUnwrap(window.contentView))
+            XCTAssertEqual(all.filter { $0.identifier?.rawValue.hasPrefix("sidebarClose-") == true }.count, 4)
+        }
+    }
+
+    func testLiveShortcutRailGeometryWithAnimation() async throws { try await checkLiveRailToggle(reduceMotion: false) }
+    func testLiveShortcutRailGeometryWithReduceMotion() async throws { try await checkLiveRailToggle(reduceMotion: true) }
+
+    private func checkRestoredRail(reduceMotion: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let profile = BrowserProfile(name: "Rail regression")
+        let defaultsName = try XCTUnwrap(profile.defaultsName(bundleID: Bundle.main.bundleIdentifier!))
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer {
+            defaults.removePersistentDomain(forName: defaultsName)
+            try? FileManager.default.removeItem(at: root)
+        }
+        var selected: UUID?
+        do {
+            let controller = BrowserController(profile: profile, rootDirectory: root, testing: false, websiteStore: .nonPersistent())
+            defer { controller.shutdown() }
+            for _ in 1..<4 { _ = controller.session.addTab(select: false, load: false) }
+            selected = controller.session.orderedTabs[1].id
+            controller.session.selectTab(selected!)
+            let window = window(controller, solid: true, reduceMotion: reduceMotion, appearance: .dark); defer { window.close() }
+            window.setContentSize(NSSize(width: 1000, height: 760))
+            try await settle()
+            XCTAssertFalse(controller.compactSidebar)
+            try toggleSidebar(in: window)
+            try await settle()
+            try checkRail(controller, in: window)
+            XCTAssertTrue(defaults.bool(forKey: "compactSidebar"))
+            controller.session.saveNow(discardPrevious: true)
+        }
+        let restored = BrowserController(profile: profile, rootDirectory: root, testing: false, websiteStore: .nonPersistent())
+        defer { restored.shutdown() }
+        XCTAssertTrue(restored.compactSidebar)
+        XCTAssertEqual(restored.session.selectedTabID, selected)
+        XCTAssertEqual(restored.session.tabs.count, 4)
+        let window = window(restored, solid: true, reduceMotion: reduceMotion, appearance: .dark); defer { window.close() }
+        window.setContentSize(NSSize(width: 1000, height: 760))
+        try await settle()
+        try checkRail(restored, in: window)
+    }
+
+    func testLiveShortcutRailPersistsAcrossRelaunchWithAnimation() async throws { try await checkRestoredRail(reduceMotion: false) }
+    func testLiveShortcutRailPersistsAcrossRelaunchWithReduceMotion() async throws { try await checkRestoredRail(reduceMotion: true) }
+
+    func testFaviconPlatesFollowDominantGlyphLuminanceAndPreserveArtwork() async throws {
+        let cache = SiteIconDiskCache(directory: nil)
+        for white in [false, true] {
+            let image = NSImage(size: NSSize(width: 32, height: 32), flipped: false) { _ in
+                (white ? NSColor.white : .black).setFill()
+                NSBezierPath(ovalIn: NSRect(x: 6, y: 6, width: 20, height: 20)).fill()
+                return true
+            }
+            let decoded = await cache.decode(try XCTUnwrap(image.tiffRepresentation))
+            let icon = try XCTUnwrap(decoded)
+            XCTAssertTrue(icon.hasTransparency)
+            XCTAssertEqual(icon.lightPlate(onDark: !white, selected: false), !white)
+            XCTAssertNil(icon.lightPlate(onDark: white, selected: true))
+        }
+        let opaque = NSImage(size: NSSize(width: 32, height: 32), flipped: false) { rect in
+            NSColor.systemBlue.setFill(); NSBezierPath(rect: rect).fill()
+            NSColor.white.setFill(); NSBezierPath(ovalIn: rect.insetBy(dx: 8, dy: 8)).fill()
+            return true
+        }
+        let decoded = await cache.decode(try XCTUnwrap(opaque.tiffRepresentation))
+        let icon = try XCTUnwrap(decoded)
+        XCTAssertFalse(icon.hasTransparency)
+        XCTAssertNil(icon.lightPlate(onDark: true, selected: true))
+        XCTAssertNil(icon.lightPlate(onDark: false, selected: false))
+    }
+
+    func testRestoredPageReceivesInitialFocusInsteadOfChrome() async throws {
+        let controller = BrowserController(testing: true); defer { controller.shutdown() }
+        let tab = try XCTUnwrap(controller.session.selectedTab)
+        tab.webView.loadHTMLString("<title>Initial page focus</title><body>Page</body>", baseURL: URL(string: "https://focus.example"))
+        for _ in 0..<100 {
+            if tab.webView.title == "Initial page focus", !tab.webView.isLoading { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let window = window(controller, solid: true); defer { window.close() }
+        try await settle()
+        XCTAssertTrue(window.initialFirstResponder === tab.webView)
+        XCTAssertTrue(window.firstResponder === tab.webView, "Restored-page launch must not focus the sidebar toggle")
+    }
 
     func testTitleAndHostSearchIncludesPinsAndPrivateWithoutOpeningWebViews() throws {
         let title = BrowserTab(record: TabRecord(title: "Field Guide", url: URL(string: "https://notes.example/story"), isPinned: true))
@@ -170,12 +319,12 @@ import XCTest
             XCTAssertEqual(marker.bounds.width, rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth, accuracy: 1)
         }
     }
-    func testSearchFocusExpandsRailEscapeClearsAndSelectionClearsHiddenFilter() async throws {
+    func testRailSearchPanelPreservesRailEscapeClearsAndSelectionClearsHiddenFilter() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let first = try XCTUnwrap(c.session.selectedTab), second = c.session.addTab(url: URL(string: "https://search.example"), select: false, load: false)
         let w = window(c); defer { w.close() }; try await settle()
         c.compactSidebar = true; c.searchTabs(); try await settle()
-        XCTAssertFalse(c.compactSidebar)
+        XCTAssertTrue(c.compactSidebar); XCTAssertTrue(c.tabSearchPanel)
         // A styled SwiftUI prompt need not be an NSTextField.placeholderString.
         // Verify the actual focused editor and its search binding instead.
         _ = try XCTUnwrap(w.firstResponder as? NSTextView)
@@ -197,7 +346,7 @@ import XCTest
         try XCTSkipIf(BackgroundUIMode.isEnabled && !all.contains { $0.accessibilityIdentifier() == "sidebarToggle" }, "Foreground-only VoiceOver tree: SwiftUI exposes no sidebar AX descendants in this off-screen accessory window. Model labels and native shortcut tests still run.")
         let labels = all.compactMap { $0.accessibilityLabel() }
         XCTAssertTrue(labels.contains("Search tabs"))
-        XCTAssertTrue(labels.contains("Pinned, 0 tabs")); XCTAssertTrue(labels.contains("Tabs, 2 tabs"))
+        XCTAssertFalse(labels.contains("Pinned, 0 tabs")); XCTAssertTrue(labels.contains("Tabs, 2 tabs"))
         XCTAssertTrue(labels.contains("Close New Tab"), "Hidden glyph must retain a native AX close control")
         let row = try XCTUnwrap(all.first { $0.accessibilityLabel() == SidebarTabs.label(first, selected: true) })
         XCTAssertEqual(row.accessibilityRole(), .button)

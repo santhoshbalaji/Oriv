@@ -108,15 +108,13 @@ import WebKit
         let session = session(); defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
         tab.webView.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
-        try await load(tab)
-        let url = try XCTUnwrap(tab.url)
-        XCTAssertTrue(session.siteIcons.document?(url, false) === tab.webView)
         let presentation = NSObject()
         tab.switchPresentation = presentation
+        try await load(tab)
+        let url = try XCTUnwrap(tab.url)
         XCTAssertNil(session.siteIcons.document?(url, false))
         await session.siteIcons.load(url, isPrivate: false)
         XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: false))
-        tab.switchPresentation = nil
         session.addTab(load: false)
         let discarded = await withCheckedContinuation { reply in
             tab.discardBackgroundWebView { reply.resume(returning: $0) }
@@ -133,7 +131,12 @@ import WebKit
             try await Task.sleep(for: .milliseconds(25))
         }
         XCTAssertFalse(tab.isRestoringWebView)
-        await session.siteIcons.load(url, isPrivate: false)
+        XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: false), "Restoration finishing must not discover under the destination cover")
+        tab.switchPresentation = nil
+        for _ in 0..<200 {
+            if session.siteIcons.icon(for: url, isPrivate: false) != nil { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
         XCTAssertNotNil(session.siteIcons.icon(for: url, isPrivate: false), "Blocked discovery must retry immediately after the handoff")
     }
 }

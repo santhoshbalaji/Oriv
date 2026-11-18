@@ -60,6 +60,7 @@ import WebKit
             }
         }
         if environment["ORIV_BATCH_VISUALS"] == "1" { await renderBatchScenes(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-live" { await renderLiveSidebar(into: directory, activate: activate) }
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
@@ -295,30 +296,32 @@ import WebKit
     /// Same real-window fixture before and after the sidebar change. Sleeping tabs
     /// are metadata only; generated local icons go through the production cache.
     private static func renderSidebarBScenes(into directory: URL, activate: Bool) async {
-        let titles = ["Maps", "Mail", "Developer notes", "Books", "Design resources", "Weekend in the mountains",
+        manifest.limitations.append("Benchmark matrix: 12/50/100 metadata tabs, nine pins, duplicate site icons, private tabs and long titles. Hover/focus and audio/loading visuals use Debug-only presentation inputs; native timing, focus, status labels and cancellation have separate tests. These images do not simulate real pointer movement or compositor motion.")
+        let titles = ["Atlas Maps", "Postbox", "Orbit Code", "Paper Library", "Design resources", "Weekend in the mountains",
                       "A field guide to quieter interfaces and more considered everyday browsing", "Evening radio",
                       "Reading list", "Earth from above", "Ideas for the next chapter"]
-        for count in [12, 60] {
+        for count in [12, 50, 100] {
             let root = directory.appendingPathComponent("fixture-\(count)")
             let records = (0..<(count - 1)).map { index in
                 TabRecord(title: titles[index % titles.count] + (index >= titles.count ? " \(index + 1)" : ""),
-                          url: URL(string: "https://site\(index % titles.count).example/story/\(index)"), isPinned: index < 4)
+                          url: URL(string: "https://site\((index == 10 ? 9 : index) % titles.count).example/story/\(index)"), isPinned: index < 9)
             }
             do {
                 let profileRoot = BrowserProfile.personal.directory(in: root)
                 try SessionFileStore(fileURL: profileRoot.appendingPathComponent("session.json"))
-                    .save(BrowserSnapshot(tabs: records, selectedTabID: records[6].id), discardPrevious: true)
+                    .save(BrowserSnapshot(tabs: records, selectedTabID: records[9].id), discardPrevious: true)
                 let disk = SiteIconDiskCache(directory: profileRoot.appendingPathComponent("Favicons"))
                 for index in titles.indices {
-                    let image = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
-                        NSColor(calibratedHue: CGFloat(index) / 12, saturation: 0.55, brightness: 0.72, alpha: 1).setFill()
-                        NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14).fill()
-                        let symbols = ["map.fill", "envelope.fill", "curlybraces", "book.closed.fill", "square.3.layers.3d", "mountain.2.fill", "leaf.fill", "waveform", "text.alignleft", "globe", "paintpalette.fill"]
-                        NSImage(systemSymbolName: symbols[index], accessibilityDescription: nil)?
-                            .withSymbolConfiguration(.init(pointSize: 32, weight: .medium))?
-                            .draw(in: rect.insetBy(dx: 12, dy: 12))
-                        return true
-                    }
+                    let colors: [UInt32] = [0x238A71, 0x337AD0, 0x454453, 0xAF6738, 0x8C62C4, 0x4A7B8B, 0x5B7956, 0xC84D64, 0xB88226, 0x27749A, 0xA15881]
+                    let symbols = ["map.fill", "envelope.fill", "curlybraces", "book.closed.fill", "square.stack.3d.up.fill", "mountain.2.fill", "leaf.fill", "waveform", "text.alignleft", "globe.asia.australia.fill", "paintpalette.fill"]
+                    let hex = colors[index]
+                    let renderer = ImageRenderer(content: ZStack {
+                        RoundedRectangle(cornerRadius: 7).fill(Color(.sRGB, red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1))
+                        Image(systemName: symbols[index]).font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                    }.frame(width: 32, height: 32))
+                    renderer.scale = 2
+                    guard let cg = renderer.cgImage else { manifest.failures.append("Sidebar favicon render failed"); continue }
+                    let image = NSImage(cgImage: cg, size: NSSize(width: 32, height: 32))
                     if let data = image.tiffRepresentation, let icon = await disk.decode(data),
                        let key = SiteIconStore.key(records[index].url!, isPrivate: false) {
                         await disk.write(icon, key: key)
@@ -332,17 +335,52 @@ import WebKit
             for record in records.prefix(titles.count) { await session.siteIcons.load(record.url!, isPrivate: false) }
             let tab = session.selectedTab!
             for (mode, appearance) in [("light", BrowserAppearance.light), ("dark", .dark)] {
-                tab.webView.loadHTMLString(sidebarFixture(color: mode == "light" ? "#ede6f5" : "#351553", light: mode == "light"), baseURL: records[6].url)
+                tab.webView.loadHTMLString(sidebarFixture(color: mode == "light" ? "#f3f5ef" : "#202a25", light: mode == "light").replacingOccurrences(of: "<title>Found, don’t follow</title>", with: "<title>\(titles[6])</title>"), baseURL: records[9].url)
                 for _ in 0..<100 { if !tab.webView.isLoading && tab.webView.title != nil { break }; try? await Task.sleep(for: .milliseconds(25)) }
-                for width in [820, 1280] {
-                    for rail in [false, true] {
-                        controller.compactSidebar = rail
-                        let name = "mac-glass-sidebar-b-\(count)-\(mode)-\(width)-\(rail ? "rail" : "expanded")"
-                        await capture(name, directory, CGSize(width: width, height: 900), key: activate, compositeWeb: tab.webView, appearance: appearance,
-                                      prepare: { writeSidebarGeometry($0, to: directory.appendingPathComponent(name + "-geometry.json")) }) {
-                            BrowserWindow(controller: controller, profiles: profiles)
-                                .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled)
-                        }
+                var scenes: [(Int, Bool, String)] = [820, 1280].flatMap { width in [false, true].map { (width, $0, "default") } }
+                if count == 12 {
+                    scenes += ["hover", "focus", "reduced", "increased", "motion"].flatMap { variant in [false, true].map { (1280, $0, variant) } }
+                    scenes += ["peek", "search", "tooltip"].map { (1280, true, $0) }
+                    scenes += [(760, false, "narrow")]
+                }
+                for (width, rail, variant) in scenes {
+                    controller.dismissTabSearch(); controller.sidebar.dismissOverlay(); controller.sidebarTooltip.dismiss()
+                    controller.sidebar.resize(availableWidth: 1280)
+                    controller.compactSidebar = false; controller.hoverSidebar = variant == "peek"
+                    let suffix = variant == "default" ? "" : "-" + variant
+                    let name = "mac-glass-sidebar-b-\(count)-\(mode)-\(width)-\(rail ? "rail" : "expanded")\(suffix)"
+                    let state = SidebarCaptureState(hover: variant == "hover" ? records[10].id : nil,
+                                                    focus: variant == "focus" ? records[9].id : nil,
+                                                    loading: records[10].id, audio: records[9].id)
+                    await capture(name, directory, CGSize(width: width, height: 900), key: activate, compositeWeb: tab.webView, appearance: appearance,
+                                  prepare: { window in
+                                      controller.sidebar.resize(availableWidth: 1280)
+                                      controller.sidebar.resize(availableWidth: CGFloat(width))
+                                      if rail {
+                                          let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
+                                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                                              characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1)
+                                          if let event, window.performKeyEquivalent(with: event) {
+                                              try? await Task.sleep(for: .milliseconds(300))
+                                          } else { manifest.failures.append("Sidebar shortcut unavailable: \(name)") }
+                                      }
+                                      if variant == "peek" {
+                                          controller.sidebar.pointer(true)
+                                          try? await Task.sleep(for: .milliseconds(500))
+                                          if !controller.sidebar.peeking { manifest.failures.append("Peek did not open: \(name)") }
+                                      }
+                                      if variant == "search" { controller.searchTabs(); try? await Task.sleep(for: .milliseconds(250)) }
+                                      if variant == "tooltip" {
+                                          controller.sidebarTooltip.hover(id: records[9].id, text: SidebarTabs.label(tab, selected: true))
+                                          try? await Task.sleep(for: .milliseconds(700))
+                                      }
+                                      writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+                                  }) {
+                        BrowserWindow(controller: controller, profiles: profiles)
+                            .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled || variant == "reduced")
+                            .environment(\.sidebarCaptureContrast, variant == "increased" ? .increased : .standard)
+                            .environment(\.sidebarCaptureReduceMotion, variant == "motion")
+                            .environment(\.sidebarCaptureState, state)
                     }
                 }
             }
@@ -513,6 +551,68 @@ import WebKit
 
     /// Opt-in network evidence in the isolated snapshot app. Third-party images
     /// stay in temporary/build output, never in the public fixture resources.
+    /// Explicit opt-in network evidence, outside the deterministic test gates.
+    /// Exercises production completion/cache and key-equivalent paths; no icon
+    /// seeding or direct discovery request can mask a missing lifecycle trigger.
+    private static func renderLiveSidebar(into directory: URL, activate: Bool) async {
+        let urls = (ProcessInfo.processInfo.environment["ORIV_LIVE_SITES"] ?? "").split(separator: ",").compactMap { URL(string: String($0)) }
+        guard !urls.isEmpty, urls.allSatisfy({ $0.scheme == "https" }) else {
+            manifest.failures.append("sidebar-live requires explicit HTTPS ORIV_LIVE_SITES"); return
+        }
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let c = profiles.controller, session = c.session
+        guard let first = session.selectedTab else { return }
+        first.navigate(to: urls[0])
+        let tabs = [first] + urls.dropFirst().map { session.addTab(url: $0, select: false, load: false) }
+        var narrowPageWidth: CGFloat = 0
+        for state in ["expanded", "rail", "overlay"] {
+            let size = CGSize(width: state == "expanded" ? 1000 : 780, height: 820)
+            await capture("mac-glass-sidebar-live-\(state)", directory, size, key: activate,
+                          compositeWeb: first.webView, appearance: .dark, prepare: { window in
+                if state == "expanded" {
+                    for tab in tabs {
+                        session.selectTab(tab.id)
+                        let deadline = Date().addingTimeInterval(30)
+                        while Date() < deadline {
+                            if !tab.isLoading, tab.hasRenderedContent,
+                               session.siteIcons.icon(for: tab.url, isPrivate: false) != nil { break }
+                            try? await Task.sleep(for: .milliseconds(100))
+                        }
+                        if tab.isLoading || session.siteIcons.icon(for: tab.url, isPrivate: false) == nil {
+                            manifest.failures.append("Live sidebar icon unavailable: \(tab.url?.host ?? "unknown")")
+                        }
+                    }
+                    session.selectTab(first.id)
+                    try? await Task.sleep(for: .milliseconds(600))
+                } else if state == "rail" {
+                    narrowPageWidth = first.webView.bounds.width
+                    if !c.sidebar.rail { manifest.failures.append("780pt sidebar did not auto-collapse") }
+                } else {
+                    guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                        characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1),
+                          window.performKeyEquivalent(with: event) else {
+                        manifest.failures.append("Live sidebar key equivalent was not handled"); return
+                    }
+                    c.sidebar.pointer(false); c.sidebar.panelInside = false; c.sidebar.focusInside = false
+                    try? await Task.sleep(for: .milliseconds(1500))
+                    if !c.sidebar.narrowOverlay { manifest.failures.append("Live sidebar explicit overlay closed") }
+                    if abs(first.webView.bounds.width - narrowPageWidth) > 1 { manifest.failures.append("Live sidebar overlay resized the page") }
+                }
+                let viewport = (try? await first.webView.evaluateJavaScript("innerWidth")) as? Double ?? 0
+                let geometry: [String: Any] = ["windowWidth": window.contentView?.bounds.width ?? 0,
+                    "pageWidth": first.webView.bounds.width, "viewportWidth": viewport,
+                    "sidebarWidth": c.sidebar.width, "pageReservation": c.sidebar.reservation,
+                    "overlay": c.sidebar.narrowOverlay,
+                    "icons": tabs.map { ["url": $0.url?.absoluteString ?? "", "cached": session.siteIcons.icon(for: $0.url, isPrivate: false) != nil] as [String: Any] }]
+                if let data = try? JSONSerialization.data(withJSONObject: geometry, options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: directory.appendingPathComponent("mac-glass-sidebar-live-\(state)-geometry.json"))
+                }
+            }) { BrowserWindow(controller: c, profiles: profiles).environment(\.chromeReduceTransparencyOverride, true) }
+        }
+    }
+
     private static func renderLiveSites(_ sites: String, into directory: URL, activate: Bool) async {
         let darkIndices = Set((ProcessInfo.processInfo.environment["ORIV_LIVE_DARK_INDICES"] ?? "").split(separator: ",").compactMap { Int($0) })
         let scrollIndices = Set((ProcessInfo.processInfo.environment["ORIV_LIVE_SCROLL_INDICES"] ?? "").split(separator: ",").compactMap { Int($0) })
@@ -973,6 +1073,19 @@ import WebKit
                 NSGraphicsContext.saveGraphicsState()
                 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
                 NSBezierPath(rect: rect).addClip()
+                // Page snapshots are painted behind real chrome overlays.
+                func overlays(_ view: NSView) -> [NSView] {
+                    let own = ["browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry"].contains(view.identifier?.rawValue ?? "") ? [view] : []
+                    return own + view.subviews.flatMap(overlays)
+                }
+                if let content = window.contentView {
+                    for overlay in overlays(content) {
+                        var excluded = overlay.convert(overlay.bounds, to: frame)
+                        if frame.isFlipped { excluded.origin.y = frame.bounds.maxY - excluded.maxY }
+                        let clip = NSBezierPath(rect: rect)
+                        clip.appendRect(excluded.intersection(rect)); clip.windingRule = .evenOdd; clip.addClip()
+                    }
+                }
                 pageImage.draw(in: rect)
                 NSGraphicsContext.restoreGraphicsState()
             }

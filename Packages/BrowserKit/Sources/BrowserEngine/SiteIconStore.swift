@@ -10,6 +10,46 @@ import WebKit
 public struct SiteIcon: @unchecked Sendable {
     public let image: CGImage
     public let png: Data
+    public let hasTransparency: Bool
+    public let glyphLuminance: Double
+
+    /// Nil preserves the site's artwork; true/false requests a light/dark plate.
+    public func lightPlate(onDark: Bool, selected: Bool) -> Bool? {
+        guard hasTransparency else { return nil }
+        let background = onDark ? (selected ? 0.057 : 0.021) : (selected ? 0.647 : 0.839)
+        let contrast = (max(glyphLuminance, background) + 0.05) / (min(glyphLuminance, background) + 0.05)
+        return contrast < 3 ? glyphLuminance < 0.45 : nil
+    }
+
+    /// Bounded decode-time analysis, never pixel work in a scrolling row.
+    fileprivate init(image: CGImage, png: Data) {
+        self.image = image; self.png = png
+        let side = 32
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let rendered = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8,
+                bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side)); return true
+        }
+        var transparent = 0, histogram = [Double](repeating: 0, count: 16)
+        var totals = [Double](repeating: 0, count: 16)
+        if rendered {
+            for offset in stride(from: 0, to: pixels.count, by: 4) {
+                let alpha = Double(pixels[offset + 3]) / 255
+                if alpha < 0.98 { transparent += 1 }
+                guard alpha > 0.25 else { continue }
+                let rgb = (0..<3).map { min(1, Double(pixels[offset + $0]) / 255 / alpha) }
+                let linear = rgb.map { $0 <= 0.04045 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
+                let value = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+                let bin = min(15, Int(value * 16))
+                histogram[bin] += alpha; totals[bin] += value * alpha
+            }
+        }
+        hasTransparency = transparent > side * side / 8
+        let dominant = histogram.indices.max { histogram[$0] < histogram[$1] } ?? 0
+        glyphLuminance = histogram[dominant] > 0 ? totals[dominant] / histogram[dominant] : 0.5
+    }
 }
 
 /// The only disk writer. Regular profiles have separate directories; private
@@ -112,9 +152,7 @@ public actor SiteIconDiskCache {
             }
             guard !Task.isCancelled, cacheGeneration == self.cacheGeneration, !isPrivate || generation == privateGeneration else { return }
             if let icon {
-                icons[key] = icon; touch(key)
-                while order.count > Self.memoryLimit { icons[order.removeFirst()] = nil }
-                revision += 1
+                publish(icon, key: key)
                 if !isPrivate && !cacheHit { await disk.write(icon, key: key) }
             } else if attempted, let view = attemptedView,
                       canDiscover(in: view, pageURL: url, isPrivate: isPrivate) {
@@ -125,6 +163,21 @@ public actor SiteIconDiskCache {
         requestTokens[key] = token
         requests[key] = task
         await task.value
+    }
+    /// Hydrate sleeping regular tabs without inspecting or creating a document.
+    /// Disk reads do not occupy discovery slots or swallow a racing didFinish.
+    public func loadCached(_ url: URL) async {
+        guard let key = Self.key(url, isPrivate: false) else { return }
+        if icons[key] != nil { touch(key); return }
+        let generation = cacheGeneration
+        guard let icon = await disk.read(key), !Task.isCancelled,
+              generation == cacheGeneration, icons[key] == nil else { return }
+        publish(icon, key: key)
+    }
+    private func publish(_ icon: SiteIcon, key: String) {
+        icons[key] = icon; touch(key)
+        while order.count > Self.memoryLimit { icons[order.removeFirst()] = nil }
+        revision += 1
     }
     private func touch(_ key: String) { order.removeAll { $0 == key }; order.append(key) }
     public func endPrivateSession() {

@@ -107,7 +107,8 @@ public final class BrowserSession {
         adBlocker.onChange = { [weak self] in self?.tabs.forEach { $0.refreshContentBlocking() } }
         settings.onRulesChanged = { [weak self] in self?.tabs.forEach { $0.applySiteSettings() } }
         siteIcons.document = { [weak self] url, isPrivate in
-            self?.tabs.first { $0.isPrivate == isPrivate && $0.isInstantiated && !$0.isLoading
+            guard let self, self.isProfileActive, !self.isShutDown else { return nil }
+            return self.tabs.first { $0.isPrivate == isPrivate && $0.isInstantiated && !$0.isLoading
                 && !$0.isRestoringWebView && $0.hasRenderedContent && $0.switchPresentation == nil
                 && $0.url.flatMap { SiteIconStore.key($0, isPrivate: isPrivate) } == SiteIconStore.key(url, isPrivate: isPrivate) }?.webView
         }
@@ -527,6 +528,12 @@ public final class BrowserSession {
             self.history.insert(HistoryEntry(title: title, url: url, visitCount: visits), at: 0)
             self.history = Array(self.history.prefix(500))
             self.scheduleSave()
+        }
+        tab.onDocumentReady = { [weak self, weak tab] url in
+            Task { @MainActor [weak self, weak tab] in
+                guard let self, !self.isShutDown, self.isProfileActive, let tab else { return }
+                await self.siteIcons.load(url, isPrivate: tab.isPrivate)
+            }
         }
         tab.onWebViewCreated = { [weak self, weak tab] view in
             guard let tab else { return }

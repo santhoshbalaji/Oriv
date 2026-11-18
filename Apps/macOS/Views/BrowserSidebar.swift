@@ -1,3 +1,4 @@
+import AppKit
 import BrowserEngine
 import SwiftUI
 import UniformTypeIdentifiers
@@ -79,38 +80,59 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
 }
 
 struct BrowserSidebar: View {
-    @Environment(\.browserTheme) private var theme
+    private let theme = Theme.sidebar
     @Bindable var controller: BrowserController
     var profiles: BrowserProfiles? = nil
     var focusRequest = 0
     @State private var closeOthers: UUID?
     @State private var closeToRight = false
     @State private var pendingFocus: UUID?
+    @State private var draggingTab = false
+    @State private var railAnchor: UUID?
+    @State private var expandedAnchor: UUID?
+    @State private var settledQuery = ""
     @FocusState private var searchFocused: Bool
     @FocusState private var focusedTab: UUID?
     @FocusState private var utilityFocus: String?
     private var session: BrowserSession { controller.session }
-    private var compact: Bool { controller.compactSidebar }
-    private var filteredTabs: [BrowserTab] { SidebarTabs.filtered(session.orderedTabs, query: controller.tabSearch) }
+    private var compact: Bool { controller.sidebar.rail }
+    private var peeking: Bool { controller.sidebar.peeking }
+    private var railLayout: Bool { compact || peeking }
+    private var filteredTabs: [BrowserTab] { SidebarTabs.filtered(session.orderedTabs, query: settledQuery) }
 
-    var body: some View {
-        VStack(spacing: 8) {
-            profileHeader
-                .focused($utilityFocus, equals: "profile")
+    var body: some View { sidebarContent.environment(\.browserTheme, Theme.sidebar) }
+
+    private var sidebarContent: some View {
+        VStack(spacing: railLayout ? 6 : 0) {
+            if !railLayout { profileHeader.focused($utilityFocus, equals: "profile") }
             searchField
+            if railLayout { newTab.padding(.bottom, 6) }
             if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
                 Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 14)
             }
             tabCollection
-            newTab
-            footer
+            if !railLayout { newTab.padding(.bottom, 8) }
+            footer.padding(.top, railLayout ? 0 : 8)
         }
-        .padding(.bottom, 12)
+        .padding(.bottom, railLayout ? 10 : 12)
+        .font(.system(size: 14))
         .foregroundStyle(theme.text)
+        .onDragSessionUpdated { drag in
+            switch drag.phase {
+            case .initial, .active: draggingTab = true; controller.sidebar.dragging = true; controller.sidebar.pointer(true, drag: true)
+            default: draggingTab = false; controller.sidebar.dragging = false; controller.sidebar.pointer(false)
+            }
+        }
         .transformPreference(SidebarKeyboardFocusKey.self) { $0 = $0 || searchFocused || utilityFocus != nil }
-        .onChange(of: controller.tabSearchFocusRequest) { _, _ in searchFocused = true }
+        .task(id: controller.tabSearch) {
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard !Task.isCancelled else { return }
+            settledQuery = controller.tabSearch
+        }
+        .onChange(of: controller.tabSearchFocusRequest) { _, _ in if !controller.tabSearchPanel { searchFocused = true } }
         .onChange(of: session.selectedTabID) { _, id in
-            if let id, !filteredTabs.contains(where: { $0.id == id }) { controller.tabSearch = "" }
+            controller.sidebarTooltip.dismiss()
+            if let id, !SidebarTabs.filtered(session.orderedTabs, query: controller.tabSearch).contains(where: { $0.id == id }) { controller.tabSearch = "" }
         }
         .confirmationDialog(closeToRight ? "Close tabs to the right?" : "Close other tabs?", isPresented: Binding(get: { closeOthers != nil }, set: { if !$0 { closeOthers = nil } })) {
             Button("Close Tabs", role: .destructive) { if let id = closeOthers { session.closeOtherTabs(id, toRight: closeToRight) }; closeOthers = nil }
@@ -123,11 +145,11 @@ struct BrowserSidebar: View {
                 ProfileMenu(profiles: profiles, iconOnly: compact, tabCount: session.tabs.count)
             } else {
                 HStack(spacing: 8) {
-                    Image(systemName: session.isExternalPrivate ? "eyeglasses" : "rectangle.stack")
+                    Image(systemName: session.isExternalPrivate ? "eyeglasses" : "rectangle.stack").font(.system(size: 17, weight: .semibold))
                     if !compact {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(session.isExternalPrivate ? "Private" : controller.profile?.name ?? "Personal").font(OrivType.title)
-                            Text(SidebarTabs.countLabel(session.tabs.count)).font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                            if !session.tabs.isEmpty { Text(SidebarTabs.countLabel(session.tabs.count)).font(OrivType.caption).foregroundStyle(theme.secondaryText) }
                         }
                         Spacer(minLength: 0)
                     }
@@ -137,13 +159,18 @@ struct BrowserSidebar: View {
                 .accessibilityLabel(session.isExternalPrivate ? "Private browsing, \(SidebarTabs.countLabel(session.tabs.count))" : "\(controller.profile?.name ?? "Personal"), \(SidebarTabs.countLabel(session.tabs.count))")
             }
         }
-        .frame(maxWidth: .infinity, minHeight: compact ? 30 : 58, alignment: compact ? .center : .leading)
-        .padding(.horizontal, compact ? 8 : 18)
+        .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+        .padding(.horizontal, 18).padding(.bottom, 1)
     }
 
     @ViewBuilder private var searchField: some View {
-        if compact {
-            Button { controller.searchTabs() } label: { Image(systemName: "magnifyingglass").frame(width: 40, height: 32) }
+        if railLayout {
+            Button { controller.searchTabs() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").frame(width: 42, height: 36)
+                    if peeking { Text("Search Tabs").modifier(SidebarLabelFade()); Spacer() }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 11)
                 .buttonStyle(ContentButtonStyle()).accessibilityLabel("Search tabs").help("Search Tabs (⇧⌘A)")
         } else {
             HStack(spacing: 7) {
@@ -151,16 +178,16 @@ struct BrowserSidebar: View {
                 TextField("Search tabs", text: $controller.tabSearch,
                           prompt: Text("Search tabs").foregroundStyle(theme.secondaryText)).textFieldStyle(.plain)
                     .focused($searchFocused).accessibilityLabel("Search tabs").accessibilityIdentifier("tabSearchField")
-                    .onExitCommand { controller.tabSearch = ""; searchFocused = false; focusedTab = session.selectedTabID }
+                    .onExitCommand { controller.tabSearch = ""; focusTabAfterSearch(session.selectedTabID) }
                     .onKeyPress(.downArrow) {
                         guard let first = filteredTabs.first else { return .ignored }
-                        searchFocused = false; focusedTab = first.id; return .handled
+                        focusTabAfterSearch(first.id); return .handled
                     }
                     .onSubmit {
-                        if let first = filteredTabs.first { searchFocused = false; focusedTab = first.id; session.selectTab(first.id) }
+                        if let first = filteredTabs.first { focusTabAfterSearch(first.id); session.selectTab(first.id) }
                     }
                 if controller.tabSearch.isEmpty {
-                    Text("⇧⌘A").font(OrivType.caption).accessibilityHidden(true)
+                    Text("⇧⌘A").font(.system(size: 10)).accessibilityHidden(true)
                 } else {
                     Button { controller.tabSearch = ""; searchFocused = true } label: {
                         Image(systemName: "xmark.circle.fill").frame(width: 24, height: 24)
@@ -169,27 +196,39 @@ struct BrowserSidebar: View {
             }
             .font(OrivType.detail).foregroundStyle(theme.secondaryText)
             .padding(.horizontal, 10).frame(height: 32)
-            .background(theme.field.opacity(0.65), in: .rect(cornerRadius: 10))
-            .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(searchFocused ? theme.accent : .clear, lineWidth: 2) }
-            .padding(.horizontal, 14)
+            .background(theme.field.opacity(0.7), in: .rect(cornerRadius: 9))
+            .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(searchFocused ? theme.accent : .clear, lineWidth: 2) }
+            .padding(.horizontal, 14).padding(.bottom, 10)
         }
+    }
+
+    private func focusTabAfterSearch(_ id: UUID?) {
+        searchFocused = false
+        // Finish the native field editor's resignation before requesting a
+        // SwiftUI row. Doing both in one transaction can discard the new focus.
+        DispatchQueue.main.async { focusedTab = id }
     }
 
     private var tabCollection: some View {
         ScrollViewReader { reader in
             ScrollView {
-                LazyVStack(spacing: 3) {
+                LazyVStack(spacing: railLayout ? 6 : 1) {
                     let pinned = filteredTabs.filter(\.isPinned)
                     let regular = filteredTabs.filter { !$0.isPrivate && !$0.isPinned }
                     let privateTabs = filteredTabs.filter(\.isPrivate)
-                    if compact {
-                        ForEach(filteredTabs) { tab in tabItem(tab, tile: true) }
+                    if railLayout {
+                        ForEach(Array(filteredTabs.enumerated()), id: \.element.id) { index, tab in
+                            if index > 0, filteredTabs[index - 1].isPinned != tab.isPinned || filteredTabs[index - 1].isPrivate != tab.isPrivate {
+                                Rectangle().fill(theme.separator.opacity(0.7)).frame(width: 24, height: 1).padding(.vertical, 6)
+                            }
+                            tabItem(tab, tile: true)
+                        }
                     } else {
                         if !session.isExternalPrivate {
-                            sectionHeading("Pinned", count: pinned.count, target: .pinned(true))
-                            if pinned.isEmpty && controller.tabSearch.isEmpty {
-                                Text("Drop tabs here to pin").font(OrivType.caption).foregroundStyle(theme.secondaryText)
-                                    .frame(maxWidth: .infinity, minHeight: 34)
+                            if !pinned.isEmpty { sectionHeading("Pinned", count: pinned.count, target: .pinned(true)) }
+                            if pinned.isEmpty && controller.tabSearch.isEmpty && draggingTab {
+                                Text("Pin tab").font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                                    .frame(maxWidth: .infinity, minHeight: 27)
                                     .modifier(SidebarDropTargetModifier(target: .pinned(true), controller: controller))
                             }
                             if !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -199,16 +238,23 @@ struct BrowserSidebar: View {
                                     // At most eight eager cells; every remaining tab is lazy.
                                     ForEach(0..<((min(pinned.count, SidebarTabs.gridLimit) + 3) / 4), id: \.self) { row in
                                         HStack(spacing: 8) {
-                                            ForEach(Array(pinned.dropFirst(row * 4).prefix(4))) { tab in tabItem(tab, tile: true) }
-                                            if min(4, pinned.count - row * 4) < 4 { Spacer(minLength: 0) }
-                                        }.padding(.horizontal, 6)
+                                            ForEach(0..<4) { column in
+                                                let index = row * 4 + column
+                                                if index < pinned.count { tabItem(pinned[index], tile: true) }
+                                                else { Color.clear.frame(width: 56, height: 48) }
+                                            }
+                                        }.padding(.horizontal, 6).padding(.vertical, 4)
                                     }
                                     if pinned.count > SidebarTabs.gridLimit {
                                         sectionHeading("More pinned tabs", count: pinned.count - SidebarTabs.gridLimit)
                                         ForEach(Array(pinned.dropFirst(SidebarTabs.gridLimit))) { tab in tabItem(tab) }
                                     }
                             }
-                            sectionHeading("Tabs", count: regular.count, target: .pinned(false))
+                            if !regular.isEmpty { sectionHeading("Tabs", count: regular.count, target: .pinned(false)) }
+                            else if draggingTab && controller.tabSearch.isEmpty {
+                                Text("Unpin tab").font(OrivType.caption).frame(maxWidth: .infinity, minHeight: 27)
+                                    .modifier(SidebarDropTargetModifier(target: .pinned(false), controller: controller))
+                            }
                             ForEach(regular) { tab in tabItem(tab) }
                         }
                         if !privateTabs.isEmpty {
@@ -219,11 +265,31 @@ struct BrowserSidebar: View {
                         }
                     }
                     if filteredTabs.isEmpty {
-                        Text("No matching tabs").font(OrivType.detail).foregroundStyle(theme.secondaryText).padding(12)
+                        Text(controller.tabSearch.isEmpty ? "No tabs" : "No matching tabs").font(OrivType.detail).foregroundStyle(theme.secondaryText).padding(12)
                     }
                 }
-                .padding(.horizontal, compact ? 8 : 10).padding(.bottom, 6)
+                .padding(.horizontal, railLayout ? 11 : 8).padding(.bottom, 10)
+                // Lazy rows share tab IDs across the two collections. Rebuild
+                // their layout on a mode change instead of reusing expanded cells.
+                .scrollTargetLayout()
+                .id(railLayout)
+                .transaction(value: railLayout) { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                }
             }
+            .scrollPosition(id: Binding(get: { railLayout ? railAnchor : expandedAnchor }, set: {
+                if railLayout { railAnchor = $0 } else { expandedAnchor = $0 }
+            }))
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    controller.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled
+                    controller.sidebar.pointer(true, moved: true)
+                case .ended: controller.sidebar.pointer(false)
+                }
+            }
+            .scrollIndicators(.hidden)
             .accessibilityIdentifier("sidebarTabs")
             .onChange(of: session.selectedTabID) { _, id in if let id { reader.scrollTo(id) } }
             .onChange(of: focusedTab) { _, id in if let id { reader.scrollTo(id) } }
@@ -231,7 +297,7 @@ struct BrowserSidebar: View {
                 pendingFocus = session.selectedTabID
                 if let id = pendingFocus { reader.scrollTo(id) }
             }
-            .onChange(of: compact) { _, _ in if let id = session.selectedTabID { reader.scrollTo(id) } }
+            .onChange(of: railLayout) { _, _ in if let id = (railLayout ? railAnchor : expandedAnchor) ?? session.selectedTabID { reader.scrollTo(id) } }
             .onChange(of: session.tabs.map(\.id)) { _, ids in
                 if let focusedTab, !ids.contains(focusedTab) { self.focusedTab = session.selectedTabID }
             }
@@ -243,8 +309,8 @@ struct BrowserSidebar: View {
     }
 
     private func tabItem(_ tab: BrowserTab, tile: Bool = false) -> some View {
-        SidebarTabItem(tab: tab, selected: tab.id == session.selectedTabID, tile: tile, rail: compact,
-                       focused: $focusedTab, select: { session.selectTab(tab.id) }, close: { controller.requestCloseTab(tab.id) })
+        SidebarTabItem(tab: tab, selected: tab.id == session.selectedTabID, tile: tile, rail: railLayout, peek: peeking,
+                       focused: $focusedTab, select: { session.selectTab(tab.id) }, close: { controller.requestCloseTab(tab.id) }, tooltip: controller.sidebarTooltip, nextFocus: { session.selectedTabID })
             .id(tab.id)
             .draggable(SidebarTabTransfer(id: tab.id, owner: controller.sidebarDragID)) {
                 Label(tab.displayTitle, systemImage: tab.isPinned ? "pin" : "globe").padding(8)
@@ -257,7 +323,7 @@ struct BrowserSidebar: View {
             .onKeyPress(.escape) { controller.tabSearch = ""; return .handled }
             .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
                 guard let next = SidebarTabs.keyboardTarget(from: tab.id, key: press.key, tabs: filteredTabs,
-                    rail: compact || !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) else { return .ignored }
+                    rail: railLayout || !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) else { return .ignored }
                 focusedTab = next.id; session.selectTab(next.id); return .handled
             }
     }
@@ -291,44 +357,54 @@ struct BrowserSidebar: View {
     }
 
     private var newTab: some View {
-        Button { controller.newTab() } label: {
+        Button { controller.newTab(isPrivate: session.selectedTab?.isPrivate ?? session.isExternalPrivate) } label: {
             HStack(spacing: 10) {
-                Image(systemName: "plus").frame(width: 20)
-                if !compact { Text("New Tab"); Spacer(); Text("⌘T").font(OrivType.caption) }
-            }.font(OrivType.body).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
-        }.buttonStyle(ContentButtonStyle()).padding(.horizontal, compact ? 8 : 18)
+                Image(systemName: "plus").frame(width: railLayout ? 42 : 24)
+                if peeking { Text("New Tab").modifier(SidebarLabelFade()); Spacer() }
+                if !railLayout { Text("New Tab"); Spacer(); Text("⌘T").font(.system(size: 10)).foregroundStyle(theme.secondaryText) }
+            }.font(OrivType.body).padding(.horizontal, railLayout ? 0 : 9).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
+        }.buttonStyle(ContentButtonStyle()).frame(width: compact ? 42 : nil).padding(.horizontal, peeking ? 11 : (compact ? 0 : 10))
             .focused($utilityFocus, equals: "new-tab")
             .accessibilityLabel("New Tab").accessibilityIdentifier("newTabButton").help("New Tab (⌘T)")
     }
 
-    private var footer: some View {
-        ViewThatFits {
-            if !compact { HStack(spacing: 2) { footerButtons }.padding(4) }
-            VStack(spacing: 2) { footerButtons }.padding(4)
+    @ViewBuilder private var footer: some View {
+        if railLayout {
+            VStack(alignment: .leading, spacing: 6) { footerButtons }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 11).foregroundStyle(theme.secondaryText)
+        } else {
+            HStack(spacing: 0) { footerButtons }.padding(.horizontal, 8).frame(height: 42)
+                .background(theme.surface, in: .rect(cornerRadius: 14))
+                .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(theme.separator.opacity(0.5), lineWidth: 0.5) }
+                .padding(.horizontal, 14)
         }
-        .frame(maxWidth: .infinity)
-        .background(theme.field.opacity(0.35), in: .rect(cornerRadius: 14))
-        .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(theme.separator.opacity(0.5), lineWidth: 0.5) }
-        .padding(.horizontal, compact ? 6 : 12)
     }
     @ViewBuilder private var footerButtons: some View {
         ForEach(LibrarySection.allCases) { section in
             Button { controller.library = section } label: {
-                Image(systemName: section.symbol).font(OrivType.body).frame(width: 32, height: 30)
+                HStack(spacing: 8) {
+                    Image(systemName: section == .bookmarks ? "book" : section.symbol).font(.system(size: 16)).frame(width: railLayout ? 42 : 32, height: railLayout ? 36 : 32)
                     .overlay(alignment: .topTrailing) {
                         if section == .downloads && controller.downloads.hasActiveDownloads {
                             Circle().fill(theme.accent).frame(width: 6, height: 6).padding(3).accessibilityHidden(true)
                         }
                     }
+                    if peeking { Text(section.rawValue).font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
+                }
             }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText)
                 .focused($utilityFocus, equals: section.rawValue)
                 .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.rawValue)
-                .help(section.rawValue)
+                .help(section.rawValue).background(BrowserGeometryMarker(name: "sidebarFooter-\(section.rawValue)"))
         }
-        if !compact { Spacer(minLength: 0) }
-        SettingsLink { Image(systemName: "gearshape").font(OrivType.body).frame(width: 32, height: 30) }
+        if !railLayout { Spacer(minLength: 0) }
+        SettingsLink {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape").font(.system(size: 16)).frame(width: railLayout ? 42 : 32, height: railLayout ? 36 : 32)
+                if peeking { Text("Settings").font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
+            }
+        }
             .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText).accessibilityLabel("Settings").help("Settings (⌘,)")
             .focused($utilityFocus, equals: "settings")
+            .background(BrowserGeometryMarker(name: "sidebarFooter-Settings"))
     }
 }
 
@@ -341,9 +417,9 @@ private struct SidebarSectionHeading: View {
     var body: some View {
         HStack(spacing: 6) {
             if title == "Private" { Image(systemName: "eyeglasses").accessibilityHidden(true) }
-            Text(title); Spacer(); Text("\(count)").monospacedDigit()
-        }.font(OrivType.caption.weight(.medium)).foregroundStyle(theme.secondaryText)
-            .padding(.horizontal, 4).frame(height: 28).padding(.top, 8)
+            Text(title).modifier(SidebarLabelFade()); Spacer(); if count > 0 { Text("\(count)").font(.system(size: 11)).monospacedDigit() }
+        }.font(OrivType.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
+            .padding(.horizontal, 2).frame(height: 27).padding(.top, title == "Private" ? 8 : (title == "Pinned" ? 0 : 4))
             .accessibilityElement(children: .ignore).accessibilityLabel("\(title), \(SidebarTabs.countLabel(count))").accessibilityAddTraits(.isHeader)
             .modifier(SidebarDropTargetModifier(target: target, controller: controller))
             .help(target.map { _ in title == "Pinned" ? "Drop a regular tab here to pin it" : "Drop a pinned tab here to unpin it" } ?? title)
@@ -367,65 +443,167 @@ private struct SidebarDropTargetModifier: ViewModifier {
 private struct SidebarTabItem: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.sidebarContrast) private var contrast
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.browserReduceMotion) private var reduceMotion
     let tab: BrowserTab
     let selected: Bool
     let tile: Bool
     let rail: Bool
+    let peek: Bool
     let focused: FocusState<UUID?>.Binding
     let select: () -> Void
     let close: () -> Void
-    @State private var hovered = false
+    let tooltip: SidebarTooltip
+    let nextFocus: () -> UUID?
+    @Environment(\.dynamicTypeSize) private var textSize
+    @State private var pointerHovered = false
+    #if DEBUG
+    @Environment(\.sidebarCaptureState) private var captureState
+    #endif
+    private var hovered: Bool {
+        #if DEBUG
+        pointerHovered || captureState.hover == tab.id
+        #else
+        pointerHovered
+        #endif
+    }
+    private var keyboardFocused: Bool {
+        #if DEBUG
+        focused.wrappedValue == tab.id || captureState.focus == tab.id
+        #else
+        focused.wrappedValue == tab.id
+        #endif
+    }
+    private var loading: Bool {
+        #if DEBUG
+        tab.isLoading || captureState.loading == tab.id
+        #else
+        tab.isLoading
+        #endif
+    }
+    private var audio: Bool {
+        #if DEBUG
+        tab.isPlayingAudio || captureState.audio == tab.id
+        #else
+        tab.isPlayingAudio
+        #endif
+    }
     @FocusState private var closeFocused: Bool
     var body: some View {
         HStack(spacing: 0) {
             Button(action: select) {
-                HStack(spacing: 8) {
-                    ZStack {
-                        SiteIdentity(url: tab.url, size: tile ? 24 : 19, isPrivate: tab.isPrivate, isSelected: selected)
-                        if tab.isLoading {
-                            ProgressView().controlSize(.mini).tint(theme.accent)
-                                .frame(width: tile ? 30 : 24, height: tile ? 30 : 24).accessibilityHidden(true)
-                        }
-                    }
-                    if !tile { Text(tab.displayTitle).font(OrivType.body.weight(selected ? .medium : .regular)).rowTitleLines().frame(maxWidth: .infinity, alignment: .leading) }
-                    if tab.mediaSuspended || tab.isPlayingAudio {
-                        Image(systemName: tab.mediaSuspended ? "pause.circle" : "speaker.wave.2.fill")
-                            .font(OrivType.caption).foregroundStyle(theme.accentText).accessibilityHidden(true)
-                    }
-                }.padding(.horizontal, tile ? 0 : 10).frame(maxWidth: .infinity, minHeight: tile && !rail ? 44 : 36).contentShape(Rectangle())
+                if rail {
+                    HStack(spacing: 8) {
+                        railIcon
+                        if peek { Text(tab.displayTitle).font(OrivType.body).lineLimit(1).modifier(SidebarLabelFade()).frame(maxWidth: .infinity, alignment: .leading) }
+                    }.contentShape(Rectangle())
+                } else {
+                    HStack(spacing: 8) {
+                        favicon
+                        if !tile { Text(tab.displayTitle).font(.system(size: textSize.isAccessibilitySize ? 26 : 13, weight: selected ? .medium : .regular)).rowTitleLines().modifier(SidebarLabelFade()).frame(maxWidth: .infinity, alignment: .leading) }
+                    }.padding(.leading, tile ? 0 : 7).frame(maxWidth: .infinity, minHeight: tile ? 48 : (textSize.isAccessibilitySize ? 60 : 36)).contentShape(Rectangle())
+                }
             }
             .buttonStyle(.plain).focusable().focused(focused, equals: tab.id)
             .accessibilityLabel(SidebarTabs.label(tab, selected: selected))
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityCustomContent("Address", tab.url?.absoluteString ?? tab.hostname)
-            .accessibilityAction(named: "Close Tab", close)
-            if !tile {
-                Button(action: close) { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 24, height: 24).contentShape(Rectangle()) }
+            .accessibilityAction(named: "Close Tab", closeTab)
+            if !rail && !tile {
+                if tab.mediaSuspended || audio {
+                    Button { tab.toggleMediaSuspension() } label: {
+                        Image(systemName: tab.mediaSuspended ? "pause.circle" : "speaker.wave.2.fill")
+                            .font(.system(size: 11)).frame(width: 24, height: 24)
+                    }.buttonStyle(.plain).foregroundStyle(theme.accentText)
+                        .accessibilityLabel(tab.mediaSuspended ? "Resume media for \(tab.displayTitle)" : "Pause media for \(tab.displayTitle)")
+                }
+                Button(action: closeTab) { Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24).contentShape(Rectangle()) }
                     .buttonStyle(.plain).foregroundStyle(theme.secondaryText).focused($closeFocused)
-                    .opacity(hovered || selected || closeFocused || focused.wrappedValue == tab.id ? 1 : 0)
+                    .opacity(hovered || selected || closeFocused || keyboardFocused ? 1 : 0)
                     .accessibilityHidden(false)
-                    .accessibilityLabel("Close \(tab.displayTitle)").help("Close tab").padding(.trailing, 4)
+                    .accessibilityLabel("Close \(tab.displayTitle)").help("Close tab")
+                    .background(BrowserGeometryMarker(name: "sidebarClose-\(tab.id)"))
+                    .padding(.trailing, 4)
             }
         }
-        .frame(width: tile && !rail ? 52 : nil)
-        // A native foreground highlight lifts dark glass and shades light glass.
-        // It must never become the opaque theme selection plate in the rail.
-        .background(.primary.opacity(selected ? MacSidebarGlass.selectionOpacity : (hovered ? MacSidebarGlass.hoverOpacity : 0)),
-                    in: .rect(cornerRadius: tile ? 12 : 9))
-        .overlay(alignment: .leading) { if selected { SelectionMarker(height: tile ? 20 : 16).padding(.leading, 2) } }
-        .overlay { RoundedRectangle(cornerRadius: tile ? 12 : 9).strokeBorder(focused.wrappedValue == tab.id || closeFocused ? theme.accent : (selected && contrast == .increased ? theme.text : .clear), lineWidth: 2) }
-        .scaleEffect(tile && hovered && !reduceMotion ? 1.025 : 1)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovered)
-        .onHover { hovered = $0 }.help("\(tab.displayTitle)\n\(tab.hostname)")
+        .frame(width: rail && !peek ? 42 : (tile && !rail ? 56 : nil))
+        .background(BrowserGeometryMarker(name: "sidebarItem-\(tab.id)"))
+        // The mock's lifted selection stays centred within the rail inset.
+        .background(selected ? theme.selection : (hovered ? theme.thread : (tile && !rail ? theme.field.opacity(0.6) : .clear)),
+                    in: .rect(cornerRadius: rail ? 10 : (tile ? 12 : 9)))
+        .background { if selected { BrowserGeometryMarker(name: "sidebarSelection-\(tab.id)") } }
+        .overlay(alignment: .leading) {
+            if selected {
+                SelectionMarker(height: 16).background(BrowserGeometryMarker(name: "sidebarAccent-\(tab.id)")).padding(.leading, 1)
+            }
+        }
+        .overlay { RoundedRectangle(cornerRadius: rail ? 10 : (tile ? 12 : 9)).strokeBorder(keyboardFocused || closeFocused ? theme.accent : (selected && contrast == .increased ? theme.text : .clear), lineWidth: 2) }
+        .anchorPreference(key: SidebarTooltipBounds.self, value: .bounds) { [tab.id: $0] }
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
+                pointerHovered = true
+                tooltip.hover(id: tab.id, text: SidebarTabs.label(tab, selected: selected))
+            case .ended: pointerHovered = false; tooltip.exit()
+            }
+        }
+        .onDisappear { if tooltip.tabID == tab.id || tooltip.pendingID == tab.id { tooltip.dismiss() } }
         .preference(key: SidebarKeyboardFocusKey.self, value: focused.wrappedValue == tab.id || closeFocused)
+    }
+
+    private func closeTab() {
+        let restore = focused.wrappedValue == tab.id || closeFocused
+        close()
+        if restore {
+            DispatchQueue.main.async { focused.wrappedValue = nextFocus() }
+        }
+    }
+
+    private var railIcon: some View {
+        favicon.frame(width: 42, height: 36)
+            .overlay(alignment: .bottomTrailing) {
+                if tab.mediaSuspended || audio { statusBadge(tab.mediaSuspended ? "pause.fill" : "speaker.wave.2.fill") }
+            }
+            .overlay(alignment: .topTrailing) { if tab.isPrivate { statusBadge("eyeglasses") } }
+    }
+
+    private func statusBadge(_ symbol: String) -> some View {
+        Image(systemName: symbol).font(.system(size: 10, weight: .bold)).frame(width: 12, height: 12)
+            .background(theme.surface, in: Circle()).accessibilityHidden(true).allowsHitTesting(false)
+    }
+
+    private var favicon: some View {
+        ZStack {
+            SiteIdentity(url: tab.url, size: rail ? 22 : (tile ? 24 : 19), isPrivate: tab.isPrivate, isSelected: selected, sidebarIcon: true)
+                .background(BrowserGeometryMarker(name: "sidebarFavicon-\(tab.id)"))
+            if loading {
+                Circle().trim(from: 0, to: 0.75).stroke(theme.accent, lineWidth: 2)
+                    .frame(width: rail ? 26 : 24, height: rail ? 26 : 24).accessibilityHidden(true)
+            }
+        }.frame(width: rail ? 22 : (tile ? 24 : 19), height: rail ? 22 : (tile ? 24 : 19))
     }
 }
 
 #if DEBUG
+struct SidebarCaptureState {
+    var hover: UUID? = nil
+    var focus: UUID? = nil
+    var loading: UUID? = nil
+    var audio: UUID? = nil
+}
+private struct SidebarCaptureStateKey: EnvironmentKey { static let defaultValue = SidebarCaptureState() }
 private struct SidebarCaptureBackdropKey: EnvironmentKey { static let defaultValue: Color? = nil }
 private struct SidebarCaptureContrastKey: EnvironmentKey { static let defaultValue: ColorSchemeContrast? = nil }
+private struct SidebarCaptureReduceMotionKey: EnvironmentKey { static let defaultValue: Bool? = nil }
 extension EnvironmentValues {
+    var sidebarCaptureState: SidebarCaptureState {
+        get { self[SidebarCaptureStateKey.self] }
+        set { self[SidebarCaptureStateKey.self] = newValue }
+    }
+    /// macOS exposes the system Reduce Motion environment as read-only.
+    var sidebarCaptureReduceMotion: Bool? {
+        get { self[SidebarCaptureReduceMotionKey.self] }
+        set { self[SidebarCaptureReduceMotionKey.self] = newValue }
+    }
     /// Synthetic glass input for off-screen contrast evidence, never a live compositor capture.
     var sidebarCaptureBackdrop: Color? {
         get { self[SidebarCaptureBackdropKey.self] }
@@ -439,6 +617,13 @@ extension EnvironmentValues {
 #endif
 
 extension EnvironmentValues {
+    var browserReduceMotion: Bool {
+        #if DEBUG
+        sidebarCaptureReduceMotion ?? accessibilityReduceMotion
+        #else
+        accessibilityReduceMotion
+        #endif
+    }
     var sidebarContrast: ColorSchemeContrast {
         #if DEBUG
         sidebarCaptureContrast ?? colorSchemeContrast
@@ -454,9 +639,7 @@ extension EnvironmentValues {
 /// check-contrast.py reads these constants to test the composited backgrounds.
 struct MacSidebarGlass: ViewModifier {
     static let backingOpacity = 0.96
-    static let selectionOpacity = 0.04
-    static let hoverOpacity = 0.02
-    @Environment(\.browserTheme) private var theme
+    private let theme = Theme.sidebar
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
     @Environment(\.sidebarContrast) private var contrast
@@ -466,13 +649,14 @@ struct MacSidebarGlass: ViewModifier {
     func body(content: Content) -> some View {
         if reduceTransparency || captureReduceTransparency || contrast == .increased {
             content.background(theme.surface, in: .rect(cornerRadius: 20))
-                .overlay { RoundedRectangle(cornerRadius: 20).strokeBorder(contrast == .increased ? theme.text : theme.separator, lineWidth: contrast == .increased ? 1.5 : 0.5) }
+                .overlay { RoundedRectangle(cornerRadius: 20).strokeBorder(contrast == .increased ? theme.text : theme.separator.opacity(0.5), lineWidth: contrast == .increased ? 1.5 : 0.5) }
         } else {
-            glass(content)
-                .overlay { RoundedRectangle(cornerRadius: 20).fill(theme.surface.opacity(Self.backingOpacity)) }
+            glass(content.background(theme.surface.opacity(Self.backingOpacity), in: .rect(cornerRadius: 20)))
+                .overlay { RoundedRectangle(cornerRadius: 20).strokeBorder(theme.separator.opacity(0.5), lineWidth: 0.5) }
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
         }
     }
-    @ViewBuilder private func glass(_ content: Content) -> some View {
+    @ViewBuilder private func glass<Surface: View>(_ content: Surface) -> some View {
         #if DEBUG
         if let captureBackdrop {
             content.background(captureBackdrop, in: .rect(cornerRadius: 20))

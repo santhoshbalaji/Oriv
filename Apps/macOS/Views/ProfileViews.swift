@@ -53,18 +53,23 @@ struct ProfileMenu: View {
             Divider()
             Button("Manage Profiles…", systemImage: "person.crop.rectangle.stack") { profiles.showManager = true }
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: profiles.active.symbol.rawValue)
-                    .foregroundStyle(tabCount == nil ? profiles.active.color.tint(in: theme) : theme.accentText)
-                if !iconOnly {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(profiles.active.name).font(tabCount == nil ? OrivType.detail : OrivType.title).foregroundStyle(theme.text).lineLimit(1)
-                        if let tabCount { Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.secondaryText) }
-                    }
+            if let tabCount {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Label(profiles.active.name, systemImage: "rectangle.stack")
+                            .font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                    }.foregroundStyle(theme.text)
+                    if tabCount > 0 { Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.secondaryText) }
                 }
-                if !compact && !iconOnly { Spacer(minLength: 0) }
-                if tabCount != nil && !iconOnly { Spacer(minLength: 0); Image(systemName: "chevron.down").font(OrivType.detail).foregroundStyle(theme.secondaryText) }
-            }.font(.system(size: 12, weight: .medium))
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: profiles.active.symbol.rawValue).foregroundStyle(profiles.active.color.tint(in: theme))
+                    if !iconOnly { Text(profiles.active.name).font(OrivType.detail).foregroundStyle(theme.text).lineLimit(1) }
+                    if !compact && !iconOnly { Spacer(minLength: 0) }
+                }.font(.system(size: 12, weight: .medium))
+            }
         }
     }
 }

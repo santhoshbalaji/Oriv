@@ -7,11 +7,13 @@ struct WebPageView: NSViewRepresentable {
     var chrome: PageChrome? = nil
     var contentUnderChrome = false
     var headerInset: CGFloat = 0
+    var fullscreenChanged: ((Bool) -> Void)? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> WebViewHost { WebViewHost(webView: tab.webView,tab:tab) }
     static func dismantleNSView(_ host: WebViewHost, coordinator: ()) { host.switchCover.cancel() }
     func updateNSView(_ host: WebViewHost, context: Context) {
+        host.fullscreenChanged = fullscreenChanged
         host.setTab(tab); host.headerInset = headerInset; host.onGeometryChange = { chrome?.requestSample() }
         host.switchCover.reduceMotion = reduceMotion
         host.clipsToBounds = !contentUnderChrome; host.attachIfWindowed(); host.needsLayout = true
@@ -25,6 +27,7 @@ final class WebViewHost: NSView {
     private(set) var webView: WKWebView
     var headerInset: CGFloat = 0
     var onGeometryChange: (() -> Void)?
+    var fullscreenChanged: ((Bool) -> Void)?
     private var fullscreenObservation: NSKeyValueObservation?
     private weak var pendingTab: BrowserTab?
     private var closingPresentation = false
@@ -80,6 +83,7 @@ final class WebViewHost: NSView {
         fullscreenObservation = webView.observe(\.fullscreenState, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 // Wait until WebKit has finished restoring its placeholder.
+                if let self { self.fullscreenChanged?(self.webView.fullscreenState != .notInFullscreen) }
                 self?.finishPendingSelection()
                 self?.attachIfWindowed()
                 self?.needsLayout = true

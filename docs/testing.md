@@ -94,6 +94,24 @@ BrowserKit additionally round-trips pin/order persistence and the existing
 continuity pin metadata allowlist. Existing Ctrl+Tab tests exercise pinned-first
 order with actual native events.
 
+`SidebarBehaviorTests` also loads the cookie-protected `rel=icon` fixture in a
+live off-screen window, checks the row and rail's rendered green artwork within
+ten seconds, and verifies sleeping rows read only their regular profile's disk
+cache. Its 780 pt window test invokes the native key equivalent, checks that an
+explicit overlay stays open after 1.5 seconds without changing the WKWebView or
+JavaScript viewport width, and exercises repeat toggle, menu request, native
+button click, Escape and outside-click dismissal. The direct history-scroll
+fixture disables the optional completion callback to retain its icon-free
+control; the compatibility test separately verifies discovery remains blocked
+through restoration and resumes automatically after the destination cover clears.
+
+For opt-in real-site favicon comparisons, set `ORIV_BACKGROUND_UI=1`,
+`ORIV_GLASS_SCENE=sidebar-live` and an explicit comma-separated `ORIV_LIVE_SITES`
+list of HTTPS URLs, then run `./scripts/capture-mac-visuals.sh --glass --key`
+with a fresh output directory. This captures expanded, 780 pt rail and explicit
+overlay states without seeding icons or manually requesting discovery. Geometry
+receipts include both native and JavaScript page widths and per-tab cache status.
+
 Run `ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=sidebar-b ./scripts/capture-mac-visuals.sh --glass build/sidebar-b/after`
 for 18 real-window scenes: light/dark × 820/1280 pt × expanded/rail × 12/60 tabs,
 plus expanded/rail external-private windows. The pages are locally generated and
@@ -132,9 +150,12 @@ local capture overrides, without changing system accessibility settings.
 sidebar source, composites them over both page extremes, purple and grey, and
 checks text at 4.5:1 and icons/indicators at 3:1, including nested fields,
 selection, hover, pressed utility buttons and opaque accessibility variants.
-It also covers the T3 appearance. `--negative-sidebar-test` removes the backing
+The dedicated sidebar palette also applies inside T3 profiles. `--negative-sidebar-test` removes the backing
 in the model and must catch the original fixed-foreground/glass mismatch.
-The 96% semantic surface backing is deliberately conservative: it bounds glass
-luminance while retaining the system glass edge. It avoids colour-scheme flips
+The 96% direction B slate/lilac backing bounds glass luminance while retaining
+the system glass edge. Selection and hover use the mock's opaque palette fills.
+The filled Mac address capsule follows the page colour with a guarded 10% dark
+lift / 6% light shade;
+plain header glyphs use the page's explicit contrasting foreground. It avoids colour-scheme flips
 during navigation or scrolling. Foreground compositor fidelity remains a
 separate, explicitly authorized acceptance check.

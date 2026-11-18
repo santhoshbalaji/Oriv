@@ -690,7 +690,7 @@ private struct ScrollAddressTestView: View {
     var body: some View {
         VStack {
             AddressTestView(state: state)
-                .modifier(MacAddressGlass(color: chrome.color, isDark: chrome.isDark, adaptive: chrome.showsContentUnderChrome))
+                .modifier(MacAddressGlass(color: chrome.color, isDark: chrome.isDark))
             WebPageView(tab: tab, chrome: chrome, contentUnderChrome: chrome.showsContentUnderChrome)
         }.onAppear { chrome.observe(tab.webView) }.onDisappear { chrome.observe(nil) }
     }

@@ -44,7 +44,7 @@ t3["warning"] = re.search(r"var warning: Color \{ isT3Code \? Self\.hex\(0x([0-9
 private_light, private_dark = re.search(r'privateAccent = adaptive\("Private", light: 0x([0-9A-Fa-f]{6}), dark: 0x([0-9A-Fa-f]{6})\)', text).groups()
 t3["privateAccent"] = private_dark.upper()
 increased = {**t3, **hex_tokens(block("func respecting(", "#if os(macOS)"))}
-classic_adaptive = adaptive_tokens(block("static let classic = Theme(", "func respecting("))
+classic_adaptive = adaptive_tokens(block("static let classic = Theme(", "/// Direction B"))
 warning_light, warning_dark = re.search(r"classicWarning = adaptive\(\"Warning\", light: 0x([0-9A-Fa-f]{6}), dark: 0x([0-9A-Fa-f]{6})\)", text).groups()
 NATIVE_LIGHT = {"field (white)": "FFFFFF", "chrome (macOS light)": "ECECEC"}
 NATIVE_DARK = {"field (macOS dark)": "1E1E1E", "field (iOS dark)": "1C1C1E", "chrome (macOS dark)": "282828", "chrome (iOS dark)": "000000"}
@@ -87,56 +87,41 @@ for mode in ("light", "dark"):
 sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
 assert "content.background(theme.surface" in sidebar_source
 assert "contrast == .increased" in sidebar_source
-assert "fill(theme.surface.opacity(Self.backingOpacity))" in sidebar_source
-assert "selected ? MacSidebarGlass.selectionOpacity" in sidebar_source
-assert "selected ? theme.selection" not in sidebar_source
-for mode in ("light", "dark"):
-    tokens, surfaces = classic(mode)
-    index = 0 if mode == "light" else 1
-    for surface in ("surface", "selection"):
-        for token in ("text", "secondaryText", "accentText", "privateAccent"):
-            checks.append((f"Mac sidebar {mode}", token, tokens[token], surface, surfaces[surface], 4.5))
-        checks.append((f"Mac sidebar {mode}", "selection indicator", classic_adaptive["accent"][index], surface, surfaces[surface], 3.0))
-    field_name = "field (white)" if mode == "light" else "field (macOS dark)"
-    checks.append((f"Mac sidebar {mode}", "focus ring", classic_adaptive["accent"][index], "field", surfaces[field_name], 3.0))
+assert "content.background(theme.surface.opacity(Self.backingOpacity)" in sidebar_source
+assert "selected ? theme.selection" in sidebar_source
+sidebar_palette = adaptive_tokens(block("static let sidebar = Theme(", "func respecting("))
 
 def composite(front, back, opacity):
     return "".join(f"{round(int(front[i:i+2], 16) * opacity + int(back[i:i+2], 16) * (1-opacity)):02X}" for i in (0, 2, 4))
 
 sidebar_opacity = float(re.search(r"static let backingOpacity = ([0-9.]+)", sidebar_source).group(1))
-selection_opacity = float(re.search(r"static let selectionOpacity = ([0-9.]+)", sidebar_source).group(1))
-hover_opacity = float(re.search(r"static let hoverOpacity = ([0-9.]+)", sidebar_source).group(1))
 field_opacity = float(re.search(r"background\(theme.field.opacity\(([0-9.]+)\)", sidebar_source).group(1))
-footer_opacity = float(re.search(r"background\(theme.field.opacity\(([0-9.]+)\)", sidebar_source[sidebar_source.index("private var footer:"):]).group(1))
 button_source = block("struct ContentButtonStyle", "struct SwitchToTabBadge")
 press_opacity = float(re.search(r"isPressed \? ([0-9.]+)", button_source).group(1))
 sidebar_negative = "--negative-sidebar-test" in sys.argv
 if sidebar_negative:
     sidebar_opacity = 0  # Original bug: uncontrolled glass behind fixed theme text.
 sidebar_checks_start = len(checks)
-for mode in ("light", "dark", "t3"):
-    if mode == "t3":
-        tokens, surface, field, accent = t3, t3["surface"], t3["field"], t3["accent"]
-    else:
-        tokens, surfaces = classic(mode)
-        surface = surfaces["surface"]
-        field = surfaces["field (white)" if mode == "light" else "field (macOS dark)"]
-        accent = classic_adaptive["accent"][0 if mode == "light" else 1]
+for mode in ("light", "dark"):
+    tokens = {name: values[0 if mode == "light" else 1] for name, values in sidebar_palette.items()}
+    surface, field, accent = tokens["surface"], tokens["field"], tokens["accent"]
     primary = "000000" if mode == "light" else "FFFFFF"
     # Black/white bound every channel of any sampled/tinted glass pixel. Include
     # the requested purple explicitly and mid-grey from the reported failure.
     for page in ("FFFFFF", "000000", "6000D9", "888888"):
         for accessibility in ("glass", "reduce transparency", "increase contrast"):
             panel = composite(surface, page, sidebar_opacity if accessibility == "glass" else 1)
-            backgrounds = {"panel": panel, "selection / rail": composite(primary, panel, selection_opacity),
-                           "hover": composite(primary, panel, hover_opacity),
+            backgrounds = {"panel": panel, "selection / rail": tokens["selection"],
+                           "hover": tokens["thread"],
+                           "pinned tile": composite(field, panel, 0.6),
                            "search": composite(field, panel, field_opacity),
-                           "footer": composite(field, panel, footer_opacity)}
+                           "footer": surface}
             label = f"Mac sidebar {mode}, page #{page}, {accessibility}"
             for state, background in backgrounds.items():
-                for token in ("text", "secondaryText", "accentText", "privateAccent"):
+                for token in ("text", "secondaryText", "accentText"):
                     checks.append((label, token, tokens[token], state, background, 4.5))
                 checks.append((label, "selection / focus indicator", accent, state, background, 3.0))
+                checks.append((label, "private favicon fallback", private_light if mode == "light" else private_dark, state, background, 3.0))
             # Sidebar utility buttons use ContentButtonStyle. The New Tab hint
             # inherits primary text; footer buttons contain only secondary icons.
             pressed = composite(primary, panel, press_opacity)
@@ -159,12 +144,14 @@ for page in ("FFFFFF", "000000"):
 checks.append(("Brand fill", "white label", "FFFFFF", "accent fill", t3["accent"], 4.5))
 
 # Mac page chrome chooses black/white from the band's WCAG luminance. Read the
-# actual contrast backing constants and check RGB cube samples, every neutral,
-# and the owner's distinct theme colour against both possible content extremes.
+# actual lift constant and check RGB cube samples, every neutral and the theme
+# colour. The capsule is opaque, so underlying page extremes cannot affect it.
 mac = (ROOT / "Apps/macOS/Views/BrowserWindow.swift").read_text()
 assert "foregroundThreshold = sqrt(1.05 * 0.05) - 0.05" in chrome
-bias = float(re.search(r"static let contrastBias = ([0-9.]+)", mac).group(1))
-backing_opacity = float(re.search(r"static let backingOpacity = ([0-9.]+)", mac).group(1))
+assert "private var chromeForeground: Color { pageChrome.foreground }" in mac
+assert ".background(pageChrome.color)" in mac
+lift = float(re.search(r"static let lift = ([0-9.]+)", mac).group(1))
+shade = float(re.search(r"static let lightShade = ([0-9.]+)", mac).group(1))
 page_colours = {f"{r:02X}{g:02X}{b:02X}" for r in range(0, 256, 17) for g in range(0, 256, 17) for b in range(0, 256, 17)}
 page_colours.update(f"{c:02X}{c:02X}{c:02X}" for c in range(256))
 page_colours.update(("1F6F5C", "FBFBF9", "111111"))
@@ -172,9 +159,14 @@ for page in sorted(page_colours):
     dark = luminance(page) < (1.05 * 0.05) ** 0.5 - 0.05
     foreground = "FFFFFF" if dark else "000000"
     checks.append(("Mac page band / reduced chrome", "foreground", foreground, "page", page, 4.5))
-    for content in (0, 255):
-        backing = "".join(f"{round((int(page[i:i+2], 16) * (1-bias) + (0 if dark else 255) * bias) * backing_opacity + content * (1-backing_opacity)):02X}" for i in (0, 2, 4))
-        checks.append(("Mac glass backing", "foreground", foreground, "page #" + page, backing, 4.5))
+    source = [int(page[i:i+2], 16) / 255 for i in (0, 2, 4)]
+    lifted = [c * (1 - lift) + lift if dark else c * (1 - shade) for c in source]
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in lifted]
+    lum = sum(a*b for a, b in zip(linear, (0.2126, 0.7152, 0.0722)))
+    safe = 1.05 / (lum + 0.05) >= 4.55 if dark else (lum + 0.05) / 0.05 >= 4.55
+    values = lifted if safe else [c * 0.88 if dark else c * 0.88 + 0.12 for c in source]
+    backing = "".join(f"{round(c * 255):02X}" for c in values)
+    checks.append(("Mac filled address capsule", "foreground", foreground, "page #" + page, backing, 4.5))
 
 failures = 0
 for theme, token, colour, surface, background, minimum in checks:

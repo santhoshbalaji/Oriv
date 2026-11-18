@@ -86,6 +86,21 @@ struct Theme {
         thread: adaptive("Thread", light: 0xC8B8CD, dark: 0x6C5B73),
         accentText: adaptive("Mulberry", light: 0x713C52, dark: 0xE3ADC4))
 
+    #if os(macOS)
+    /// Direction B's window material, independent of a profile's page palette.
+    static let sidebar = Theme(isT3Code: false, accent: adaptive("SidebarAccent", light: 0x713C52, dark: 0xE3ADC4),
+        canvas: adaptive("SidebarCanvas", light: 0xE6E4EA, dark: 0x302D35),
+        surface: adaptive("SidebarPanel", light: 0xEDEBF0, dark: 0x29262F),
+        field: adaptive("SidebarField", light: 0xE1DEE6, dark: 0x36323D),
+        chrome: adaptive("SidebarChrome", light: 0xE6E4EA, dark: 0x302D35),
+        separator: adaptive("SidebarOutline", light: 0xC7C1CE, dark: 0x514B59),
+        text: adaptive("SidebarInk", light: 0x252329, dark: 0xF5F3F7),
+        secondaryText: adaptive("SidebarSecondary", light: 0x5B5660, dark: 0xB5B0BC),
+        selection: adaptive("SidebarSelection", light: 0xD8D0E0, dark: 0x47414E),
+        thread: adaptive("SidebarHover", light: 0xE1DDE6, dark: 0x35313C),
+        accentText: adaptive("SidebarAccentText", light: 0x713C52, dark: 0xE3ADC4))
+    #endif
+
     func respecting(_ contrast: ColorSchemeContrast) -> Theme {
         guard isT3Code && contrast == .increased else { return self }
         return Theme(isT3Code: true, accent: accent, canvas: canvas, surface: surface,
@@ -334,6 +349,8 @@ struct SiteIdentity: View {
     var size: CGFloat = 32
     var isPrivate = false
     var isSelected = false
+    var sidebarIcon = false
+    @Environment(\.colorScheme) private var colorScheme
 
     /// The site's own name (apple in developer.apple.com), not a subdomain such as en. or www.
     private var host: String {
@@ -341,21 +358,31 @@ struct SiteIdentity: View {
     }
     private var symbol: String? {
         if isPrivate { return "eyeglasses" }
-        if url == nil || host.isEmpty { return "globe" }
+        if url == nil || host.isEmpty || sidebarIcon { return "globe" }
         if host.first?.isLetter != true { return "globe" }
         return nil
     }
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
-            if let image = icons?.icon(for: url, isPrivate: isPrivate)?.image {
+            if let icon = icons?.icon(for: url, isPrivate: isPrivate), sidebarIcon {
+                // Opaque artwork is full bleed. Transparent glyphs get a plate
+                // only when their dominant luminance would disappear on the panel.
+                if let lightPlate = icon.lightPlate(onDark: colorScheme == .dark, selected: isSelected) {
+                    RoundedRectangle(cornerRadius: size * 0.2).fill(lightPlate ? Color.white : Color(white: 0.10))
+                }
+                Image(decorative: icon.image, scale: 2).resizable().scaledToFit()
+                    .clipShape(.rect(cornerRadius: size * 0.2))
+            } else if let image = icons?.icon(for: url, isPrivate: isPrivate)?.image {
+                RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
                 // A pale plate keeps black/transparent monochrome marks readable
                 // on dark sidebar material as well as light surfaces.
                 RoundedRectangle(cornerRadius: size * 0.2).fill(Color.white.opacity(0.88)).padding(1)
                 Image(decorative: image, scale: 2).resizable().scaledToFit().padding(size * 0.12)
             } else if let symbol {
+                RoundedRectangle(cornerRadius: size * (sidebarIcon ? 0.2 : 0.27)).fill(theme.field)
                 Image(systemName: symbol).font(.system(size: size * 0.42, weight: .medium))
             } else {
+                RoundedRectangle(cornerRadius: size * (sidebarIcon ? 0.2 : 0.27)).fill(theme.field)
                 Text(String(host.prefix(1)).uppercased())
                     #if os(macOS)
                     .font(.system(size: size * 0.46, weight: .semibold, design: .rounded))
@@ -368,8 +395,15 @@ struct SiteIdentity: View {
         }
         .foregroundStyle(isPrivate ? theme.privateAccent : (isSelected ? theme.text : theme.secondaryText))
         .frame(width: size, height: size)
-        .task(id: "\(url?.absoluteString ?? "")-\(isPrivate)-\(url.flatMap { icons?.document?($0, isPrivate) } != nil)") {
-            if let url { await icons?.load(url, isPrivate: isPrivate) }
+        .task(id: "\(url?.absoluteString ?? "")-\(isPrivate)-\((!sidebarIcon && url.flatMap { icons?.document?($0, isPrivate) } != nil))") {
+            // Sidebar mode changes and transient peeks are cache-only. The
+            // session's completed-document path discovers icons. Sleeping
+            // regular rows may hydrate their own profile's disk cache only.
+            if let url {
+                if sidebarIcon {
+                    if !isPrivate { await icons?.loadCached(url) }
+                } else { await icons?.load(url, isPrivate: isPrivate) }
+            }
         }
         .accessibilityHidden(true)
     }

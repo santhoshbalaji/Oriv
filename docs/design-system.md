@@ -55,9 +55,11 @@ Release acceptance still includes real-device reachability, VoiceOver and Full K
 ## Site identities and address results
 
 `SiteIdentity` uses the profile/session icon environment. Keep the monogram as a
-fallback and the separate glasses/text cue for private browsing. Transparent
-icons sit on a subtle pale plate so monochrome marks survive the dark sidebar.
-The same component serves sidebar, overview, tab lists and Library rows.
+fallback and the separate glasses/text cue for private browsing. The Mac sidebar draws site artwork full bleed at 19 pt in rows, 24 pt in pins
+and 22 pt in the rail. Decode-time alpha and dominant glyph luminance analysis
+adds a contrasting light or dark plate only when a transparent mark would vanish
+against its panel or selection. Other lists and iPhone retain their existing
+icon presentation and shared cache.
 
 Address results use shared `AddressSuggestionRow` content and native field
 editors. Group up to seven local matches under Switch to Tab, Bookmarks and
@@ -84,12 +86,15 @@ strong boundary and selected/focused row outlines. The observed page colour
 continues behind the panel and transparent titlebar. Do not mirror page text
 into the titlebar or force a dark sidebar in a light window.
 
-The profile picker shows its name, tab count and chevron, followed by persistent
-Search tabs. Pinned favicons occupy at most two rows of four; additional pins
+The profile picker uses a primary-colour stacked-tabs glyph, bold name, tab count
+and chevron, followed by persistent Search tabs. Empty Pinned is hidden; a compact
+pin target appears during a local tab drag. Section counts omit zero. Pinned favicons occupy at most two rows of four; additional pins
 appear as a labelled lazy list. Tabs and Private have independent headings and
 counts. New Tab and the Library/Settings footer stay fixed while the tab
-collection scrolls. The rail retains full accessibility labels, selection marks,
-context menus and a search button that expands the title-bearing results.
+collection scrolls. The rail uses centred 42 × 36 pt icon targets, a 15 pt selection marker and no
+close button. Search and New Tab form its top group; Library and Settings form
+its bottom group. It retains full accessibility labels, context-menu closing and
+a search button that expands the title-bearing results.
 
 Search filters only active-profile tab metadata by title or hostname, including
 pins and private tabs in a separate section. It never instantiates a webview.
@@ -129,3 +134,11 @@ separate future public-API strategy; pause/block still applies through WebKit.
 At narrow expanded widths, Share, New Tab and Overview remain in Browser Actions
 and the fixed sidebar controls, leaving the 230 pt address minimum and privacy
 button reachable. Active downloads also have a sidebar badge.
+
+The Mac sidebar uses direction B's slate/lilac semantic palette, including the
+lifted selection, mulberry marker, 32 pt search field and 42 pt footer pill.
+Its light secondary foreground is darker than the mock to preserve 4.5:1 on the
+selection. The 60 pt page header has plain navigation/action glyphs and a filled,
+borderless address capsule; Browser Actions retains its 36 × 32 pt target.
+Restored pages receive initial native web-content focus, while empty tabs focus
+the address editor. Keyboard navigation retains the system focus ring.

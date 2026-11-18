@@ -56,6 +56,9 @@ import SwiftUI
         let controller = BrowserController(testing: true)
         defer { controller.shutdown() }
         let session = controller.session, tab = try XCTUnwrap(session.selectedTab)
+        // Keep this direct WebKit scroll fixture an icon-free control. The
+        // live sidebar regression separately exercises completion discovery.
+        tab.onDocumentReady = nil
         var iconDocumentLookups = 0
         let iconDocument = session.siteIcons.document
         session.siteIcons.document = { url, isPrivate in
