@@ -47,7 +47,7 @@ def speedometer_directory():
     return source
 
 
-def run_variant(executable, out, url, variant, index, timeout, smoke):
+def run_variant(executable, out, url, variant, index, timeout, smoke, proxy=False):
     disabled = VARIANTS[variant]
     env = {
         "ORIV_BACKGROUND_UI": "1" if smoke else "0",
@@ -106,7 +106,10 @@ def run_variant(executable, out, url, variant, index, timeout, smoke):
             audit[key] for key in ("frontmostViolations", "activationViolations", "onscreenWindowViolations")
         ):
             raise RuntimeError(f"Offscreen UI audit failed. See {log}")
-        if row["score"] != 42.25 or row["suites"] != {"Fixture": 12}:
+        if proxy:
+            if set(row["suites"]) != {"Blank frames", "HTTP frames", "DOM mutations"}:
+                raise RuntimeError(f"Missing proxy measurements. See {log}")
+        elif row["score"] != 42.25 or row["suites"] != {"Fixture": 12}:
             raise RuntimeError(f"Fake benchmark result differs from fixture. See {log}")
     return {**row, "variant": variant, "run_index": index, "smoke": smoke}
 
@@ -116,17 +119,21 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--foreground", action="store_true", help="Run Speedometer in a visible Oriv-Bench window")
     mode.add_argument("--smoke", action="store_true", help="Test the harness offscreen with a tiny local fixture")
+    mode.add_argument("--cosmetic-proxy", action="store_true", help="Measure frame creation and DOM work offscreen")
     parser.add_argument("--runs", type=int, help="Runs per variant (default 3, smoke 1)")
-    parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS))
+    parser.add_argument("--variants", nargs="+", choices=VARIANTS)
     parser.add_argument("--timeout", type=int, default=600, help="Maximum seconds per process")
     parser.add_argument("--output", type=Path, help="New output directory (default build/bench/run-*)")
     parser.add_argument("--skip-build", action="store_true", help="Use the previously built Oriv-Bench.app")
     args = parser.parse_args()
+    smoke = args.smoke or args.cosmetic_proxy
+    if args.variants is None:
+        args.variants = ["baseline", "cosmetics"] if args.cosmetic_proxy else list(VARIANTS)
     runs = args.runs if args.runs is not None else (1 if args.smoke else 3)
     if runs < 1 or args.timeout < 1 or len(set(args.variants)) != len(args.variants):
         parser.error("Use positive runs/timeout and unique variants")
-    if not args.smoke and os.environ.get("ORIV_BACKGROUND_UI") == "1":
-        parser.error("This environment requires background UI. Use --smoke.")
+    if not smoke and os.environ.get("ORIV_BACKGROUND_UI") == "1":
+        parser.error("This environment requires background UI. Use --smoke or --cosmetic-proxy.")
     BUILD.mkdir(parents=True, exist_ok=True)
     if not args.skip_build:
         subprocess.run([str(ROOT / "scripts/bench/build-bench.sh")], check=True)
@@ -142,8 +149,8 @@ def main():
         out = args.output.resolve()
         out.mkdir(parents=True, exist_ok=False)
 
-    directory = Path(__file__).parent if args.smoke else speedometer_directory()
-    path = "/fake-speedometer.html" if args.smoke else "/index.html"
+    directory = Path(__file__).parent if smoke else speedometer_directory()
+    path = "/cosmetic-proxy.html" if args.cosmetic_proxy else "/fake-speedometer.html" if smoke else "/index.html"
     handler = partial(FixtureHandler, directory=directory)
     with ThreadingHTTPServer(("127.0.0.1", 0), handler) as server, (out / "results.jsonl").open("w") as results:
         worker = threading.Thread(target=server.serve_forever, daemon=True)
@@ -154,8 +161,8 @@ def main():
             for index in range(1, runs + 1):
                 for variant in args.variants:
                     print(f"{index}/{runs} {variant}", flush=True)
-                    row = run_variant(executable, out, url, variant, index, args.timeout, args.smoke)
-                    if not args.smoke:
+                    row = run_variant(executable, out, url, variant, index, args.timeout, smoke, args.cosmetic_proxy)
+                    if not smoke:
                         row["speedometer_revision"] = PIN
                     print(json.dumps(row, allow_nan=False), file=results, flush=True)
         finally:

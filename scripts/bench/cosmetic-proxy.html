@@ -1,0 +1,66 @@
+<!doctype html>
+<title>Oriv cosmetic rule proxy</title>
+<button class="start-tests-button">Measure</button>
+<div id="result-number"></div>
+<script>
+globalThis.benchmarkClient = {};
+
+async function measureFrames(url, count) {
+    let elapsed = 0;
+    for (let i = 0; i < count; ++i) {
+        const start = performance.now();
+        const frame = document.createElement('iframe');
+        if (url) frame.src = url;
+        const loaded = new Promise(resolve => frame.onload = resolve);
+        document.body.append(frame);
+        await loaded;
+        void frame.contentDocument.body.offsetHeight;
+        frame.remove();
+        elapsed += performance.now() - start;
+    }
+    return elapsed / count;
+}
+
+async function measureMutations() {
+    const frame = document.createElement('iframe');
+    frame.src = '/cosmetic-proxy-frame.html';
+    const loaded = new Promise(resolve => frame.onload = resolve);
+    document.body.append(frame);
+    await loaded;
+    const doc = frame.contentDocument;
+    const elements = Array.from({length: 500}, () => doc.createElement('div'));
+    doc.body.append(...elements);
+    for (const [index, element] of elements.entries()) {
+        if (index % 8 === 0) element.id = 'header-item-' + index;
+    }
+    void doc.body.offsetHeight;
+    const names = ['view', 'header', 'sidebar', 'loader', 'address-field', 'app-content'];
+    const start = performance.now();
+    for (let round = 0; round < 60; ++round) {
+        for (const [index, element] of elements.entries()) {
+            const name = names[index % names.length];
+            element.className = round % 2 ? name + ' selected' : name;
+            element.setAttribute('data-state', String(round));
+        }
+        void doc.body.offsetHeight;
+    }
+    const elapsed = performance.now() - start;
+    frame.remove();
+    return elapsed;
+}
+
+document.querySelector('button').onclick = async () => {
+    await measureFrames('/cosmetic-proxy-frame.html', 5);
+    await measureMutations();
+    const times = {
+        'Blank frames': await measureFrames(null, 100),
+        'HTTP frames': await measureFrames('/cosmetic-proxy-frame.html', 60),
+        'DOM mutations': await measureMutations()
+    };
+    benchmarkClient.metrics = {
+        Score: {mean: 1, values: [1]},
+        ...Object.fromEntries(Object.entries(times).map(([name, mean]) => [name, {name, mean, children: [name + '/ms']}]))
+    };
+    document.getElementById('result-number').textContent = '1';
+};
+</script>

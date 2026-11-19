@@ -232,6 +232,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/adblock':
             self.send_bytes((FIXTURES / 'adblock.html').read_bytes(), 'text/html; charset=utf-8')
             return
+        if path in {'/adblock-frames', '/adblock-frame', '/adblock-frame-ad', '/adblock-frame-allowed', '/side-ads-fixture'}:
+            filename = 'adblock-frames.html' if path == '/adblock-frames' else 'adblock-frame.html'
+            self.send_bytes((FIXTURES / filename).read_bytes(), 'text/html; charset=utf-8', no_store=True)
+            return
         if path in {'/ad-banner.js', '/analytics.js', '/content.js'}:
             self.send_bytes(b'/* Successful fixture resource request. */', 'text/javascript')
             return

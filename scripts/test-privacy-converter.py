@@ -3,6 +3,7 @@ import base64
 import importlib.util
 import json
 from pathlib import Path
+import re
 import unittest
 import zlib
 spec = importlib.util.spec_from_file_location('converter', Path(__file__).with_name('convert-privacy-lists.py'))
@@ -29,6 +30,28 @@ class ConversionTests(unittest.TestCase):
         entries=[({},'.ad'), ({'if-domain':['*example.com']}, '#banner'), ({}, 'div > .ad')]
         rules=c.cosmetic_rules(entries, [], True)
         self.assertEqual(len(rules),1); self.assertEqual(rules[0]['action']['selector'],'.ad')
+    def test_generic_id_groups_preserve_exact_selectors_and_scope(self):
+        ids = {f'#Ad-slot{i}' for i in range(300)}
+        entries = [({}, selector) for selector in sorted(ids | {'.ad-slot', '#add-on > div'})]
+        entries.append(({'if-domain': ['*example.com']}, '#Ad-slot0'))
+        exceptions = [({'if-domain': ['*allowed.example']}, '#Ad-slot0')]
+        rules = c.cosmetic_rules(entries, exceptions, pack_ids=True)
+        pattern = re.compile(r':is\(([^)]+)\):where\(\[id\*="ad-" i\]\)')
+        actual = set()
+        packed_count = 0
+        for rule in rules:
+            if rule['trigger'] != {'url-filter': '.*'}:
+                continue
+            def unpack(match):
+                nonlocal packed_count
+                packed_count += 1
+                self.assertLessEqual(len(match[1].split(',')), 256)
+                return match[1]
+            actual.update(pattern.sub(unpack, rule['action']['selector']).split(','))
+        self.assertEqual(packed_count, 2)
+        self.assertEqual(actual, ids | {'.ad-slot', '#add-on > div'})
+        self.assertEqual([r for r in rules if r['trigger'] != {'url-filter': '.*'}],
+                         c.cosmetic_rules(entries[-1:], exceptions))
     def test_bundle_headers_digests_and_counts(self):
         import hashlib
         manifest=json.loads((c.OUT/'manifest.json').read_text())

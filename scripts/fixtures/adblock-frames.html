@@ -1,0 +1,34 @@
+<!doctype html>
+<title>Ad blocking frames</title>
+<div class="ad-slot">Generic main-frame ad</div>
+<div id="ad-slot">Generic main-frame ID ad</div>
+<div class="scoped-ad">Scoped ad</div>
+<div class="excepted-ad">Excepted ad</div>
+<div id="onetrust-banner-sdk">Cookie notice</div>
+<div class="ordinary">Ordinary content</div>
+<script>
+const cross = new URL(location.href);
+cross.hostname = location.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+window.frameResults = {};
+const frames = new Map();
+addEventListener('message', event => {
+    for (const [id, frame] of frames) {
+        if (frame.contentWindow === event.source) window.frameResults[id] = event.data;
+    }
+});
+for (const [id, path] of Object.entries({
+    same: '/adblock-frame',
+    cross: new URL('/adblock-frame', cross),
+    blocked: new URL('/adblock-frame-ad', cross),
+    allowed: new URL('/adblock-frame-allowed', cross),
+    shipped: new URL('/side-ads-fixture', cross),
+})) {
+    const frame = document.createElement('iframe');
+    frames.set(id, frame);
+    frame.src = path;
+    document.body.append(frame);
+}
+const blank = document.body.appendChild(document.createElement('iframe'));
+blank.contentDocument.body.innerHTML = '<div id="ad-slot">Script-written blank iframe ad</div>';
+window.blankDisplay = () => blank.contentWindow.getComputedStyle(blank.contentDocument.querySelector('#ad-slot')).display;
+</script>

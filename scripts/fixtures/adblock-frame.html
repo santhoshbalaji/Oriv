@@ -1,0 +1,23 @@
+<!doctype html>
+<title>Ad blocking frame</title>
+<div class="ad-slot">Generic ad</div>
+<div id="ad-slot">Generic ID ad</div>
+<div id="ad-slot-oriv-control">Similar ID without an exact match</div>
+<div class="scoped-ad">Scoped ad</div>
+<div class="excepted-ad">Excepted ad</div>
+<div id="onetrust-banner-sdk">Cookie notice</div>
+<div class="ordinary">Ordinary content</div>
+<script>
+addEventListener('load', () => {
+    const display = selector => getComputedStyle(document.querySelector(selector)).display;
+    parent.postMessage({
+        generic: display('.ad-slot'),
+        genericID: display('#ad-slot'),
+        similarID: display('#ad-slot-oriv-control'),
+        scoped: display('.scoped-ad'),
+        excepted: display('.excepted-ad'),
+        cookie: display('#onetrust-banner-sdk'),
+        ordinary: display('.ordinary'),
+    }, '*');
+});
+</script>

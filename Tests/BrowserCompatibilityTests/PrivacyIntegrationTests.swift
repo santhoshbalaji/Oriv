@@ -128,6 +128,79 @@ import UIKit
         let restored = try await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#onetrust-banner-sdk')).display !== 'none'") as? Bool
         XCTAssertEqual(restored, true)
     }
+    func testBundledCosmeticsInMainAndEmbeddedDocuments() async throws {
+        let settings = BrowserSettings(defaults: nil)
+        let blocker = AdBlocker()
+        let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: blocker, settings: settings)
+        defer { session.shutdown() }
+        let tab = try XCTUnwrap(session.selectedTab)
+        settings.privacy.setEnabled(true, .cookieBanners)
+        for mode in [AdBlockingMode.balanced, .strict, .off] {
+            blocker.setMode(mode)
+            let frames = try await loadAdBlockFrames(tab)
+            let expectedAd = mode == .off ? "block" : "none"
+            let main = try await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('.ad-slot')).display") as? String
+            XCTAssertEqual(main, expectedAd, "\(mode)")
+            let mainID = try await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#ad-slot')).display") as? String
+            XCTAssertEqual(mainID, expectedAd, "\(mode) generic ID")
+            let blank = try await tab.webView.evaluateJavaScript("blankDisplay()") as? String
+            XCTAssertEqual(blank, expectedAd, "\(mode) script-written about:blank")
+            // The bundled /side-ads- rule covers child-document requests.
+            XCTAssertEqual(frames["shipped"] != nil, mode == .off, "\(mode) cross-origin ad document")
+            for id in ["same", "cross"] {
+                let frame = try XCTUnwrap(frames[id])
+                XCTAssertEqual(frame["generic"], expectedAd, "\(mode) \(id)")
+                XCTAssertEqual(frame["genericID"], expectedAd, "\(mode) \(id) generic ID")
+                XCTAssertEqual(frame["similarID"], "block", "\(mode) \(id) similar ID")
+                XCTAssertEqual(frame["ordinary"], "block", "\(mode) \(id)")
+                XCTAssertEqual(frame["cookie"], "none", "\(mode) \(id)")
+            }
+        }
+    }
+
+    func testScopedCosmeticsAndThirdPartyFrameNetworkExceptions() async throws {
+        // Mirrors converter output: if-domain and unless-domain refer to the
+        // top URL. A network @@ is an ordered ignore-previous-rules action.
+        let rules = #"""
+        [
+          {"trigger":{"url-filter":".*","if-domain":["127.0.0.1"]},"action":{"type":"css-display-none","selector":".scoped-ad"}},
+          {"trigger":{"url-filter":".*","unless-domain":["127.0.0.1"]},"action":{"type":"css-display-none","selector":".excepted-ad"}},
+          {"trigger":{"url-filter":"/adblock-frame-a","resource-type":["child-document"],"load-type":["third-party"]},"action":{"type":"block"}},
+          {"trigger":{"url-filter":"/adblock-frame-allowed","resource-type":["child-document"]},"action":{"type":"ignore-previous-rules"}}
+        ]
+        """#
+        let blocker = AdBlocker(rules: [.balanced: rules])
+        let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: blocker)
+        defer { session.shutdown() }
+        let tab = try XCTUnwrap(session.selectedTab)
+        let filtered = try await loadAdBlockFrames(tab)
+        XCTAssertNil(filtered["blocked"])
+        XCTAssertNotNil(filtered["allowed"])
+        for id in ["same", "cross"] {
+            XCTAssertEqual(filtered[id]?["scoped"], "none", id)
+            XCTAssertEqual(filtered[id]?["excepted"], "block", id)
+        }
+        let otherHost = try await loadAdBlockFrames(tab, from: URL(string: "http://localhost:18768")!)
+        for id in ["same", "cross"] {
+            XCTAssertEqual(otherHost[id]?["scoped"], "block", id)
+            XCTAssertEqual(otherHost[id]?["excepted"], "none", id)
+        }
+        blocker.setMode(.off)
+        let unfiltered = try await loadAdBlockFrames(tab)
+        XCTAssertNotNil(unfiltered["blocked"])
+        XCTAssertEqual(unfiltered["cross"]?["scoped"], "block")
+    }
+
+    private func loadAdBlockFrames(_ tab: BrowserTab, from origin: URL? = nil) async throws -> [String: [String: String]] {
+        hostInBackground(tab)
+        let url = (origin ?? base).appendingPathComponent("adblock-frames")
+        tab.navigate(to: url)
+        try await wait { tab.title == "Ad blocking frames" && !tab.isLoading || tab.errorMessage != nil }
+        XCTAssertNil(tab.errorMessage)
+        XCTAssertEqual(tab.webView.url, url)
+        let results = try await tab.webView.evaluateJavaScript("window.frameResults") as? [String: [String: String]]
+        return try XCTUnwrap(results)
+    }
     func testFixtureTrackerBlockingAndPrivateHistory() async throws {
         let rules = #"[{"trigger":{"url-filter":"/ad-banner\\.js"},"action":{"type":"block"}}]"#
         let blocker = AdBlocker(rules: [.balanced: rules, .strict: rules])
