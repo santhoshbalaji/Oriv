@@ -304,18 +304,18 @@ public struct ContinuityReplica: Codable, Sendable {
             for key in keys { try put(key, nil) }
         } else { try put(key, nil) }
     }
-    public func historyChanges(for profile: UUID) -> (pruned: Set<UUID>, removed: Set<UUID>, cleared: [ClosedRange<Date>]) {
-        var pruned = Set<UUID>(), removed = Set<UUID>(), cleared: [ClosedRange<Date>] = []
+    public func historyChanges(for profile: UUID) -> (removed: Set<UUID>, cleared: [ClosedRange<Date>]) {
+        var removed = Set<UUID>(), cleared: [ClosedRange<Date>] = []
         let prefix = "history.\(profile)."
         for record in records.values {
             if case .historyClear(let owner, let since, let through) = record.payload, owner == profile {
                 cleared.append(since...through)
-            } else if record.payload == nil, record.id.hasPrefix(prefix),
+            } else if record.payload == nil, record.historyPruned != true, record.id.hasPrefix(prefix),
                       let id = UUID(uuidString: String(record.id.dropFirst(prefix.count))) {
-                if record.historyPruned == true { pruned.insert(id) } else { removed.insert(id) }
+                removed.insert(id)
             }
         }
-        return (pruned, removed, cleared)
+        return (removed, cleared)
     }
     public func historyWasCleared(_ profile: UUID, _ date: Date) -> Bool {
         records.values.contains { record in

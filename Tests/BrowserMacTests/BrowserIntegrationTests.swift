@@ -282,11 +282,15 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = SessionFileStore(fileURL: directory.appendingPathComponent("session.json"))
-        try store.save(BrowserSnapshot(history: [HistoryEntry(title: "Private to me", url: base)]))
+        let original = BrowserSnapshot(history: [HistoryEntry(title: "Saved page", url: URL(string: "https://history.test")!)])
+        try store.save(original)
+        try SessionFileStore(fileURL: store.backupURL).save(original)
         let session = BrowserSession(store: store, dataStore: .nonPersistent())
-        session.saveNow(); session.flushPersistence()
-        XCTAssertTrue(FileManager.default.fileExists(atPath: store.backupURL.path))
+        defer { session.shutdown() }
+        XCTAssertEqual(session.history, original.history)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.backupURL.path))
         session.clearHistory()
+        XCTAssertTrue(session.history.isEmpty)
         XCTAssertTrue(try XCTUnwrap(store.load().snapshot).history.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.backupURL.path))
     }

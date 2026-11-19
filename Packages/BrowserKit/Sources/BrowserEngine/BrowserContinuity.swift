@@ -430,7 +430,7 @@ import Observation
             guard source.session.canPersist else { throw ContinuityError.invalidData }
             let changes = state.historyChanges(for: profile.id)
             try source.session.applyContinuity(bookmarks: state.bookmarks(for: profile.id), history: state.history(for: profile.id),
-                                               prunedIDs: changes.pruned, removedIDs: changes.removed, clearRanges: changes.cleared)
+                                               removedIDs: changes.removed, clearRanges: changes.cleared)
             source.applyPreferences(state.preferences(for: profile.id))
             state.observedBookmarks[profile.id] = source.session.bookmarks
         }

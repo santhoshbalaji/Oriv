@@ -38,7 +38,7 @@ import SwiftUI
         XCTAssertTrue(controller.session.tabs.allSatisfy { !$0.isInstantiated })
         controller.session.flushPersistence()
         let names = try FileManager.default.contentsOfDirectory(atPath: root.path)
-        XCTAssertTrue(Set(names).isSubset(of: ["session.json", "session.json.backup"]))
+        XCTAssertTrue(Set(names).isSubset(of: ["session.json", "session.json.backup", "history.sqlite"]))
         XCTAssertTrue(controller.savedBookmarks.isEmpty)
     }
 }

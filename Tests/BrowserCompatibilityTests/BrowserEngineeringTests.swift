@@ -164,16 +164,19 @@ private final class CountingSessionStore: BrowserSessionStore {
         let session = session(); defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab), view = view(for: tab)
         view.pageURL = URL(string: "http://127.0.0.1:8768/late-title"); view.pageTitle = "127.0.0.1"
-        commit(tab, view: view); tab.webView(view, didFinish: nil)
+        commit(tab, view: view)
         let visit = try XCTUnwrap(session.history.first)
+        tab.webView(view, didFinish: nil)
         view.pageTitle = "The actual page title"; tab.refresh(from: view)
         XCTAssertEqual(session.history.count, 1); XCTAssertEqual(session.history[0].title, "The actual page title")
         XCTAssertEqual(session.history[0].id, visit.id); XCTAssertEqual(session.history[0].visitedAt, visit.visitedAt)
     }
     func testLateTitleUpdatesItsOwnVisitWithMoreThanFiveHundredEntries() throws {
-        let session = session(); defer { session.shutdown() }
         let entries = (0..<500).map { HistoryEntry(title: "Page \($0)", url: URL(string: "https://history.test/\($0)")!) }
-        try session.applyContinuity(bookmarks: [], history: entries)
+        let file = SessionFileStore(fileURL: root.appendingPathComponent("session.json"))
+        try file.save(BrowserSnapshot(history: entries))
+        let session = session(file)
+        defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab), view = view(for: tab)
         view.pageURL = URL(string: "https://history.test/new"); view.pageTitle = "Host"
         commit(tab, view: view); tab.webView(view, didFinish: nil)

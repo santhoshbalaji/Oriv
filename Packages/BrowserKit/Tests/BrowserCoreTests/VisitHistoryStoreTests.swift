@@ -40,10 +40,10 @@ import Testing
         let local = HistoryEntry(title: "Local", url: URL(string: "https://local.example.test")!)
         let remote = HistoryEntry(title: "Remote", url: URL(string: "https://remote.example.test")!)
         try store.record(local, shared: true)
-        try store.applyShared([remote], prunedIDs: [local.id], removedIDs: [], clearRanges: [], saveSession: {})
+        try store.applyShared([remote], removedIDs: [], clearRanges: [], saveSession: {})
         #expect(Set(try store.page().map(\.id)) == [remote.id, local.id])
         #expect(try store.sharedHistory() == [remote])
-        try store.applyShared([], prunedIDs: [], removedIDs: [remote.id],
+        try store.applyShared([], removedIDs: [remote.id],
                               clearRanges: [.distantPast...Date()], saveSession: {})
         #expect(try store.page().isEmpty)
     }

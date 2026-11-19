@@ -123,7 +123,7 @@ public final class VisitHistoryStore: @unchecked Sendable {
     }
 
     /// The continuity journal retries this operation if either store fails.
-    public func applyShared(_ entries: [HistoryEntry], prunedIDs: Set<UUID>, removedIDs: Set<UUID>,
+    public func applyShared(_ entries: [HistoryEntry], removedIDs: Set<UUID>,
                             clearRanges: [ClosedRange<Date>], saveSession: () throws -> Void) throws {
         try write(prune: true) {
             var changed = Set<URL>()
@@ -131,12 +131,8 @@ public final class VisitHistoryStore: @unchecked Sendable {
             let previous = try query("SELECT \(columns) FROM visits WHERE shared = 1", row: readEntry)
             for entry in previous where !incoming.contains(entry.id) {
                 let id = Binding.text(entry.id.uuidString)
-                if prunedIDs.contains(entry.id) {
-                    _ = try demoteShared(where: "id = ?", [id])
-                    changed.insert(entry.url)
-                } else {
-                    changed.formUnion(try delete(where: "id = ?", [id]))
-                }
+                _ = try demoteShared(where: "id = ?", [id])
+                changed.insert(entry.url)
             }
             for id in removedIDs { changed.formUnion(try delete(where: "id = ?", [.text(id.uuidString)])) }
             let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
@@ -159,7 +155,7 @@ public final class VisitHistoryStore: @unchecked Sendable {
     public func suggestionDelta() throws -> (entries: [HistoryEntry], changed: Set<URL>) {
         try lock.withLock {
             let entries: [HistoryEntry]
-            if suggestionsSeeded {
+            if suggestionsSeeded && suggestionChanges.count <= 256 {
                 entries = try suggestionChanges.flatMap { url in
                     try query("""
                         SELECT latest.id, latest.url, latest.title, latest.date, counts.visits, counts.typed

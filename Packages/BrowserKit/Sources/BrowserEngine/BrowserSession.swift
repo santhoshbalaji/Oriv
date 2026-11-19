@@ -163,7 +163,16 @@ public final class BrowserSession {
 
     private func updateTabSelection() { tabs.forEach { $0.setSelected($0.id == selectedTabID) } }
 
-    public func activateSelectedTab() { if let selectedTab { didSelectTab?(selectedTab); selectedTab.activate() } }
+    public func activateSelectedTab() {
+        if let selectedTab {
+            if !selectedTab.isPrivate, let historyStore {
+                let index = suggestionIndex
+                Task(priority: .utility) { await index.refreshHistory(from: historyStore) }
+            }
+            didSelectTab?(selectedTab)
+            selectedTab.activate()
+        }
+    }
 
     public func setProfileActive(_ active: Bool) {
         if !active { saveNow(); flushPersistence() }
@@ -554,7 +563,7 @@ public final class BrowserSession {
 
     /// Never replaces local tabs, website state or edited forms when receiving cloud changes.
     public func applyContinuity(bookmarks: [Bookmark], history: [HistoryEntry],
-                                prunedIDs: Set<UUID> = [], removedIDs: Set<UUID> = [],
+                                removedIDs: Set<UUID> = [],
                                 clearRanges: [ClosedRange<Date>] = []) throws {
         guard canPersist, let historyStore else { throw ContinuityError.invalidData }
         let history = history.filter { historyAllows($0.url) }
@@ -565,12 +574,15 @@ public final class BrowserSession {
         self.bookmarks = bookmarks
         let current = snapshot()
         do {
-            try historyStore.applyShared(history, prunedIDs: prunedIDs, removedIDs: removedIDs, clearRanges: Array(clearRanges)) {
+            try historyStore.applyShared(history, removedIDs: removedIDs, clearRanges: Array(clearRanges)) {
                 try writer?.saveAndWait(current, discardPrevious: true)
             }
             appliedHistoryRemovals.formUnion(removedIDs)
             appliedHistoryClears.formUnion(clearRanges)
-            if !clearRanges.isEmpty { tabs.forEach { $0.cancelPendingHistory() } }
+            if !clearRanges.isEmpty {
+                tabs.forEach { $0.cancelPendingHistory() }
+                Task { await siteIcons.clearRegular() }
+            }
             refreshSharedHistory()
             historyRevision += 1
             if store != nil { completeWrites(); lastSavedSnapshot = current; lastQueuedSnapshot = current }
@@ -602,7 +614,7 @@ public final class BrowserSession {
         }
         if !isPrivate {
             tab.recordHistoryVisit = { [weak self] entry, shared in
-                guard let self, !self.isShutDown, self.isProfileActive, self.historyAllows(entry.url),
+                guard let self, !self.isShutDown, self.historyAllows(entry.url),
                       let historyStore = self.historyStore else { return }
                 do {
                     try historyStore.record(entry, shared: shared)

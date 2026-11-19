@@ -707,7 +707,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         historyCandidate?.cancel()
         historyCandidate = Task { @MainActor [weak self, weak view] in
             do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
-            guard let self, let view, !self.isClosed, self.isProfileActive, self.backingWebView === view,
+            guard let self, let view, !self.isClosed, self.backingWebView === view,
                   view.url == current, self.historyDocumentURL == previous else { return }
             self.saveHistoryVisit(current, title: view.title, typed: self.typedURL == current, shared: false)
             self.typedURL = nil
@@ -800,10 +800,14 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         hasEditedFields = false
         hasRequestedDisplayCapture = false
         refresh(from: webView)
-        if historyResponseAllowed, let committed = webView.url, !isRestoringWebView {
-            historyNavigation = navigation
-            let typed = typedNavigation.map { $0 === navigation } ?? (typedURL == committed)
-            saveHistoryVisit(committed, title: webView.title, typed: typed, shared: true)
+        if historyResponseAllowed, let committed = webView.url, AddressResolver.isWebURL(committed) {
+            if isRestoringWebView {
+                historyDocumentURL = committed
+            } else {
+                historyNavigation = navigation
+                let typed = typedNavigation.map { $0 === navigation } ?? (typedURL == committed)
+                saveHistoryVisit(committed, title: webView.title, typed: typed, shared: true)
+            }
         }
         typedNavigation = nil
         typedURL = nil
