@@ -29,6 +29,7 @@ settings:
     ORIV_PUSH_ENVIRONMENT: production
   configs:
     Debug:
+      OTHER_SWIFT_FLAGS: "$(inherited) -Xfrontend -warn-long-expression-type-checking=200 -Xfrontend -warn-long-function-bodies=300"
       ORIV_PUSH_ENVIRONMENT: development
       ORIV_APP_NAME: Oriv-Dev
       ORIV_BUILD_CHANNEL: Development
@@ -67,12 +68,12 @@ targets:
     platform: macOS
     sources:
     - path: Apps/Shared
-    - path: Apps/macOS
       excludes:
       - Resources/AppIcon.icon
-    - path: Apps/macOS/Resources/AppIcon.icon
+    - path: Apps/Shared/Resources/AppIcon.icon
       type: file
       buildPhase: resources
+    - path: Apps/macOS
     - path: THIRD_PARTY_NOTICES.md
       buildPhase: resources
     dependencies:
@@ -98,8 +99,8 @@ targets:
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent: true
         CODE_SIGN_ENTITLEMENTS: Apps/macOS/PersonalBrowser.entitlements
         ENABLE_HARDENED_RUNTIME: true
-        MARKETING_VERSION: 0.15.4
-        CURRENT_PROJECT_VERSION: '28'
+        MARKETING_VERSION: 0.15.5
+        CURRENT_PROJECT_VERSION: '29'
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: local.personalbrowser.qa
@@ -142,14 +143,13 @@ targets:
     platform: iOS
     sources:
     - path: Apps/Shared
-    - path: Apps/iOS
-    - path: Apps/macOS/AppIdentity.swift
-    - path: Apps/macOS/Views/Theme.swift
-    - path: Apps/macOS/Resources/Assets.xcassets
-    - path: THIRD_PARTY_NOTICES.md
-      buildPhase: resources
-    - path: Apps/macOS/Resources/AppIcon.icon
+      excludes:
+      - Resources/AppIcon.icon
+    - path: Apps/Shared/Resources/AppIcon.icon
       type: file
+      buildPhase: resources
+    - path: Apps/iOS
+    - path: THIRD_PARTY_NOTICES.md
       buildPhase: resources
     dependencies:
     - package: BrowserKit
@@ -167,8 +167,8 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Apps/iOS/Mobile.entitlements
         GENERATE_INFOPLIST_FILE: true
         TARGETED_DEVICE_FAMILY: '1,2'
-        MARKETING_VERSION: 0.15.4
-        CURRENT_PROJECT_VERSION: '28'
+        MARKETING_VERSION: 0.15.5
+        CURRENT_PROJECT_VERSION: '29'
         INFOPLIST_KEY_CFBundleDisplayName: Oriv-Dev
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:

@@ -10,7 +10,7 @@ or a literal ornamental pattern. The name remains Oriv.
 - Keep the icon as the single expressive element; navigation uses native controls.
 
 `Oriv-Mark.svg` is editable vector artwork on an unmasked 1024-point canvas.
-The shipping `Apps/macOS/Resources/AppIcon.icon` contains the same vector layer,
+The shipping `Apps/Shared/Resources/AppIcon.icon` contains the same vector layer,
 an independent system gradient, and default, dark and tinted appearance settings.
 The system supplies corner masking and material rendering. The foreground
 contains no raster texture, baked shadows, lighting, text or fine dot details.

@@ -25,6 +25,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Compile the iPhone app without booting a simulator or requiring signing.
+xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivMobile \
+  -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath build/mobile CODE_SIGNING_ALLOWED=NO build \
+  2>&1 | tee "$quality_output/mobile.log"
 swift test --package-path Packages/BrowserKit 2>&1 | tee "$quality_output/shared.log"
 swift scripts/generate-media-fixtures.swift build/media-fixtures > "$quality_output/media.log" 2>&1
 python3 scripts/qa-server.py > "$quality_output/fixture.log" 2>&1 &

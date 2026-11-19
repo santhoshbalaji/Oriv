@@ -17,13 +17,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Shared and native browser checks
+      - name: Shared, Mac and iPhone browser checks
         run: ./scripts/check-browser.sh
-      - name: Build iPhone browser
-        run: >-
-          xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivMobile
-          -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath build/mobile CODE_SIGNING_ALLOWED=NO build
       - name: Keep test evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

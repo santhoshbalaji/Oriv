@@ -2,7 +2,7 @@
 """Fails when a text or indicator colour in Theme.swift falls below WCAG contrast on a surface it appears on.
 
 Text needs 4.5:1. Non-text indicators (selection marker, focus ring) need 3:1.
-Colours are read from Apps/macOS/Views/Theme.swift so the check cannot drift from the app.
+Colours are read from Apps/Shared/Theme.swift so the check cannot drift from the app.
 Classic text colours are explicit adaptive tokens. The recording indicator stays system red; every Theme text token is explicit.
 --negative-test simulates using the brand accent as the global text tint and must detect it.
 """
@@ -11,8 +11,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "Apps/macOS/Views/Theme.swift"
+SOURCE = ROOT / "Apps/Shared/Theme.swift"
 text = SOURCE.read_text()
+mac_theme = (ROOT / "Apps/macOS/Views/Theme+macOS.swift").read_text()
 negative_test = "--negative-test" in sys.argv
 if negative_test:
     text = text.replace(".tint(theme.accentText).accentColor(theme.accentText)", ".tint(theme.accent).accentColor(theme.accent)")
@@ -28,9 +29,10 @@ def ratio(a, b):
     la, lb = luminance(a), luminance(b)
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
 
-def block(start, end):
-    i = text.index(start)
-    return text[i:text.index(end, i)]
+def block(start, end, source=None):
+    source = text if source is None else source
+    i = source.index(start)
+    return source[i:source.index(end, i)]
 
 def hex_tokens(source):
     return {name: value.upper() for name, value in re.findall(r"(\w+): (?:Self\.)?hex\(0x([0-9A-Fa-f]{6})\)", source)}
@@ -44,7 +46,7 @@ t3["warning"] = re.search(r"var warning: Color \{ isT3Code \? Self\.hex\(0x([0-9
 private_light, private_dark = re.search(r'privateAccent = adaptive\("Private", light: 0x([0-9A-Fa-f]{6}), dark: 0x([0-9A-Fa-f]{6})\)', text).groups()
 t3["privateAccent"] = private_dark.upper()
 increased = {**t3, **hex_tokens(block("func respecting(", "#if os(macOS)"))}
-classic_adaptive = adaptive_tokens(block("static let classic = Theme(", "/// Direction B"))
+classic_adaptive = adaptive_tokens(block("static let classic = Theme(", "func respecting("))
 warning_light, warning_dark = re.search(r"classicWarning = adaptive\(\"Warning\", light: 0x([0-9A-Fa-f]{6}), dark: 0x([0-9A-Fa-f]{6})\)", text).groups()
 NATIVE_LIGHT = {"field (white)": "FFFFFF", "chrome (macOS light)": "ECECEC"}
 NATIVE_DARK = {"field (macOS dark)": "1E1E1E", "field (iOS dark)": "1C1C1E", "chrome (macOS dark)": "282828", "chrome (iOS dark)": "000000"}
@@ -89,7 +91,7 @@ assert "content.background(theme.surface" in sidebar_source
 assert "contrast == .increased" in sidebar_source
 assert "content.background(theme.surface.opacity(Self.backingOpacity)" in sidebar_source
 assert "selected ? theme.selection" in sidebar_source
-sidebar_palette = adaptive_tokens(block("static let sidebar = Theme(", "func respecting("))
+sidebar_palette = adaptive_tokens(block("static let sidebar = Theme(", "static func editorial", mac_theme))
 
 def composite(front, back, opacity):
     return "".join(f"{round(int(front[i:i+2], 16) * opacity + int(back[i:i+2], 16) * (1-opacity)):02X}" for i in (0, 2, 4))
@@ -97,7 +99,7 @@ def composite(front, back, opacity):
 sidebar_opacity = float(re.search(r"static let backingOpacity = ([0-9.]+)", sidebar_source).group(1))
 focused_field_opacity, field_opacity = map(float, re.search(
     r"background\(theme.field.opacity\(searchFocused \? ([0-9.]+) : ([0-9.]+)\)", sidebar_source).groups())
-button_source = block("struct ContentButtonStyle", "struct SwitchToTabBadge")
+button_source = mac_theme[mac_theme.index("struct ContentButtonStyle"):]
 press_opacity = float(re.search(r"isPressed \? ([0-9.]+)", button_source).group(1))
 sidebar_negative = "--negative-sidebar-test" in sys.argv
 if sidebar_negative:
