@@ -622,7 +622,12 @@ public final class BrowserSession {
             guard tab?.isPrivate == false else { return }
             self?.scheduleSave()
         }
-        if !isPrivate {
+        #if os(macOS) && ORIV_BENCH
+        let recordVisits = !isPrivate && !BenchmarkOptions.disabled.contains("history")
+        #else
+        let recordVisits = !isPrivate
+        #endif
+        if recordVisits {
             tab.recordHistoryVisit = { [weak self] entry, shared in
                 guard let self, !self.isShutDown, self.historyAllows(entry.url),
                       let historyStore = self.historyStore else { return }

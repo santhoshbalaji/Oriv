@@ -125,7 +125,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         self.settings = settings
         pageZoom = settings?.defaultZoom ?? 1
         self.configuration = configuration ?? WKWebViewConfiguration()
+        #if os(macOS) && ORIV_BENCH
+        self.adBlocker = BenchmarkOptions.disabled.contains("content-blocker") ? nil : adBlocker
+        #else
         self.adBlocker = adBlocker
+        #endif
         if configuration == nil { self.configuration.websiteDataStore = dataStore }
         // WebKit popups can share their opener's controller. Give each tab its
         // own filtering state so a site's exception cannot disable another tab.
@@ -136,11 +140,20 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         BrowserWebConfiguration.apply(to: self.configuration)
         super.init()
         let world = WKContentWorld.world(name: "OrivTabState")
-        contentController.add(EditedFieldHandler(tab: self), contentWorld: world, name: "editedField")
-        contentController.add(TabPaintHandler(tab: self), contentWorld: world, name: "tabPaint")
-        if !contentController.userScripts.contains(where: { $0.source == Self.paintScript }) {
-            contentController.addUserScript(WKUserScript(source: Self.paintScript, injectionTime: .atDocumentStart,
-                forMainFrameOnly: true, in: world))
+        #if os(macOS) && ORIV_BENCH
+        let installPaint = !BenchmarkOptions.disabled.contains("tab-paint")
+        let installEditTracker = !BenchmarkOptions.disabled.contains("edit-tracker")
+        BenchmarkOptions.noteScript("tab-paint", source: Self.paintScript)
+        #else
+        let installPaint = true
+        let installEditTracker = true
+        #endif
+        if installPaint {
+            contentController.add(TabPaintHandler(tab: self), contentWorld: world, name: "tabPaint")
+            if !contentController.userScripts.contains(where: { $0.source == Self.paintScript }) {
+                contentController.addUserScript(WKUserScript(source: Self.paintScript, injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true, in: world))
+            }
         }
         let editedFieldScript = WKUserScript(source: """
             (() => {
@@ -156,11 +169,21 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             document.addEventListener('change', reportEdit, true);
             })();
             """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world)
-        if !contentController.userScripts.contains(where: { $0.source == editedFieldScript.source }) {
-            contentController.addUserScript(editedFieldScript)
+        if installEditTracker {
+            contentController.add(EditedFieldHandler(tab: self), contentWorld: world, name: "editedField")
+            if !contentController.userScripts.contains(where: { $0.source == editedFieldScript.source }) {
+                contentController.addUserScript(editedFieldScript)
+            }
         }
         #if os(macOS)
-        contentController.add(TabAudioHandler(tab: self), contentWorld: world, name: "tabAudio")
+        #if ORIV_BENCH
+        let installAudio = !BenchmarkOptions.disabled.contains("tab-audio")
+        let installDisplayCapture = !BenchmarkOptions.disabled.contains("display-capture")
+        BenchmarkOptions.noteScript("edit-tracker", source: editedFieldScript.source)
+        #else
+        let installAudio = true
+        let installDisplayCapture = true
+        #endif
         let audioScript = WKUserScript(source: """
             (() => {
                 const frame = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
@@ -176,11 +199,18 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                 window.addEventListener('pageshow', report);
             })();
             """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world)
-        if !contentController.userScripts.contains(where: { $0.source == audioScript.source }) { contentController.addUserScript(audioScript) }
+        #if ORIV_BENCH
+        BenchmarkOptions.noteScript("tab-audio", source: audioScript.source)
+        #endif
+        if installAudio {
+            contentController.add(TabAudioHandler(tab: self), contentWorld: world, name: "tabAudio")
+            if !contentController.userScripts.contains(where: { $0.source == audioScript.source }) {
+                contentController.addUserScript(audioScript)
+            }
+        }
         // Public WebKit has no display-capture state property. Conservatively
         // protect a document for its entire lifetime after any display request,
         // including a pending/denied request. Read no stream or page contents.
-        contentController.add(DisplayCaptureHandler(tab: self), contentWorld: .page, name: "displayCaptureRequested")
         let displayCaptureScript = WKUserScript(source: """
             (() => {
                 const protect = () => {
@@ -198,8 +228,14 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                 } catch { protect(); }
             })();
             """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-        if !contentController.userScripts.contains(where: { $0.source == displayCaptureScript.source }) {
-            contentController.addUserScript(displayCaptureScript)
+        #if ORIV_BENCH
+        BenchmarkOptions.noteScript("display-capture", source: displayCaptureScript.source)
+        #endif
+        if installDisplayCapture {
+            contentController.add(DisplayCaptureHandler(tab: self), contentWorld: .page, name: "displayCaptureRequested")
+            if !contentController.userScripts.contains(where: { $0.source == displayCaptureScript.source }) {
+                contentController.addUserScript(displayCaptureScript)
+            }
         }
         #endif
     }
@@ -242,6 +278,25 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         view.isInspectable = true
         #endif
         backingWebView = view
+        installObservations(on: view)
+        onWebViewCreated?(view)
+        applySiteSettings()
+        view.setAllMediaPlaybackSuspended(mediaSuspended || !isProfileActive, completionHandler: nil)
+        if let state = savedInteractionState {
+            savedInteractionState = nil; hasLoaded = true; isRestoringWebView = true
+            // Only a committed GET can enter the saved-state path. WebKit may
+            // restore it without sending a fresh navigation-action callback.
+            pendingNavigationMethod = "GET"
+            pendingNavigationHasBody = false
+            view.interactionState = state
+        }
+        return view
+    }
+
+    private func installObservations(on view: WKWebView) {
+        #if os(macOS) && ORIV_BENCH
+        guard !BenchmarkOptions.disabled.contains("tab-kvo") else { return }
+        #endif
         observations = [
             view.observe(\.title, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refreshHistoryView() } },
             view.observe(\.url, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refreshHistoryView() } },
@@ -258,18 +313,6 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             Task { @MainActor [weak self] in self?.restoreScrollPosition() }
         })
         #endif
-        onWebViewCreated?(view)
-        applySiteSettings()
-        view.setAllMediaPlaybackSuspended(mediaSuspended || !isProfileActive, completionHandler: nil)
-        if let state = savedInteractionState {
-            savedInteractionState = nil; hasLoaded = true; isRestoringWebView = true
-            // Only a committed GET can enter the saved-state path. WebKit may
-            // restore it without sending a fresh navigation-action callback.
-            pendingNavigationMethod = "GET"
-            pendingNavigationHasBody = false
-            view.interactionState = state
-        }
-        return view
     }
 
     /// Restored background tabs stay dormant until selected.
@@ -576,6 +619,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         """
 
     private func identifyPaintedDocument(_ view: WKWebView) {
+        #if os(macOS) && ORIV_BENCH
+        guard !BenchmarkOptions.disabled.contains("tab-paint") else { return }
+        #endif
         let revision = documentRevision
         view.callAsyncJavaScript("return {id:performance.timeOrigin,painted:performance.getEntriesByType('paint').some(e=>e.name==='first-contentful-paint')};",
             arguments:[:],in:nil,in:.world(name:"OrivTabState")) { [weak self,weak view] result in
@@ -597,6 +643,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         snapshotGeneration += 1; snapshotCache?.remove(id)
     }
     private func captureSwitchSnapshot() {
+        #if os(macOS) && ORIV_BENCH
+        guard !BenchmarkOptions.disabled.contains("snapshot") else { return }
+        #endif
         guard !isClosed, hasRenderedContent, !isRestoringWebView, let view = backingWebView,
               view.bounds.width > 0, view.bounds.height > 0, let cache = snapshotCache,
               let token = cache.beginCapture() else { return }

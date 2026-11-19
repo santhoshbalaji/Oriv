@@ -54,6 +54,12 @@ public final class AdBlocker {
         self.defaults = defaults
         mode = defaults?.string(forKey: "adBlockingMode").flatMap(AdBlockingMode.init(rawValue:)) ?? .balanced
         regularExceptions = Set(defaults?.stringArray(forKey: "adBlockingExceptions") ?? [])
+        #if os(macOS) && ORIV_BENCH
+        if BenchmarkOptions.disabled.contains("content-blocker") {
+            preparedSource = Task { [] }
+            return
+        }
+        #endif
         // Decompression, digest verification and hashing are CPU/file work.
         // Start them away from the UI actor, including on the first launch.
         preparedSource = Task.detached(priority:.userInitiated) {
@@ -64,13 +70,40 @@ public final class AdBlocker {
                 source = values
             } else { source = try BundledPrivacyRules.sources() }
             guard !source.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
-            return source.keys.sorted().map { key in
-                let json = source[key]!
+            #if os(macOS) && ORIV_BENCH
+            let components = BenchmarkOptions.disabled.contains("cosmetics") ? try Self.removingCosmetics(from: source) : source
+            #else
+            let components = source
+            #endif
+            return components.keys.sorted().map { key in
+                let json = components[key]!
                 let hash = SHA256.hash(data:Data(json.utf8)).map { String(format:"%02x",$0) }.joined()
                 return PreparedRule(key:key,json:json,identifier:"\(cacheNamespace).\(hash)")
             }
         }
     }
+
+    #if os(macOS) && ORIV_BENCH
+    nonisolated private static func removingCosmetics(from source: [String: String]) throws -> [String: String] {
+        var components = source
+        for (key, json) in source where !key.hasPrefix("cookies") {
+            if key.hasPrefix("cosmetics") {
+                components.removeValue(forKey: key)
+                continue
+            }
+            guard let rules = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]] else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let kept = rules.filter { ($0["action"] as? [String: Any])?["type"] as? String != "css-display-none" }
+            if kept.isEmpty { components.removeValue(forKey: key) }
+            else if kept.count < rules.count {
+                let data = try JSONSerialization.data(withJSONObject: kept, options: .sortedKeys)
+                components[key] = String(decoding: data, as: UTF8.self)
+            }
+        }
+        return components
+    }
+    #endif
 
     public static func host(for url: URL?) -> String? {
         guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
@@ -122,6 +155,9 @@ public final class AdBlocker {
     public func endPrivateSession() { privateExceptions.removeAll() }
 
     public func prepare() async throws {
+        #if os(macOS) && ORIV_BENCH
+        guard !BenchmarkOptions.disabled.contains("content-blocker") else { return }
+        #endif
         if !lists.isEmpty { return }
         if compilation == nil {
             isPreparing = true
@@ -180,6 +216,15 @@ public final class AdBlocker {
         applyPrepared(to:controller,url:url,isPrivate:isPrivate)
         return true
     }
+
+    #if os(macOS) && ORIV_BENCH
+    public func installedRuleComponents(in controller: WKUserContentController) -> [String] {
+        let installed = installations.object(forKey: controller)?.lists ?? [:]
+        return lists.keys.filter { key in
+            lists[key].map { installed[$0.identifier] != nil } ?? false
+        }.sorted()
+    }
+    #endif
 
     /// Compiled components contain no profile or private site data.
     func applyPrepared(to controller: WKUserContentController, url: URL?, isPrivate: Bool) {

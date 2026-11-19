@@ -65,6 +65,7 @@
 		65AD36DEF9669FF6AB650D55 /* BrowserCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5B8411B41460F9EB78D76787 /* BrowserCore */; };
 		662802A96743F0505DA3F4BF /* DataNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFE12970D67C8B0E9C23608 /* DataNavigationTests.swift */; };
 		69C564E3660C6E14953AFA24 /* MacWebUIDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 042D301C9B932584788A342C /* MacWebUIDelegate.swift */; };
+		6D3FBAB2ABBE37FC3BBC229D /* SpeedometerBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9AFB6EF14814F1D2688BFB9 /* SpeedometerBenchmark.swift */; };
 		6F239F5910A4668BA6DB6D25 /* ContinuityIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23D22D3C8E0E2E8C0A91E90B /* ContinuityIntegrationTests.swift */; };
 		6F23A64A834231190CE91EB7 /* ExternalPrivateBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B520968FAF229010D4EDB89E /* ExternalPrivateBar.swift */; };
 		7372FE36019590AD1B336C62 /* PersonalBrowserApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7386740AFC4831A24704F36 /* PersonalBrowserApp.swift */; };
@@ -261,6 +262,7 @@
 		F1E6C074563F501BA5AF99E0 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		F23399B326AF6FF974F7EC1D /* AddressCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressCompletionTests.swift; sourceTree = "<group>"; };
 		F7386740AFC4831A24704F36 /* PersonalBrowserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalBrowserApp.swift; sourceTree = "<group>"; };
+		F9AFB6EF14814F1D2688BFB9 /* SpeedometerBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedometerBenchmark.swift; sourceTree = "<group>"; };
 		FAFA8D2D76B5827E97C95E69 /* SidebarPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPresentation.swift; sourceTree = "<group>"; };
 		FB0218A1721FCFBC9650332B /* BrowserWindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowChrome.swift; sourceTree = "<group>"; };
 		FC3144A9E8E4182209400E53 /* THIRD_PARTY_NOTICES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_NOTICES.md; sourceTree = "<group>"; };
@@ -422,6 +424,7 @@
 				042D301C9B932584788A342C /* MacWebUIDelegate.swift */,
 				EF258C0980E21F36427D8E49 /* PersonalBrowser.entitlements */,
 				F7386740AFC4831A24704F36 /* PersonalBrowserApp.swift */,
+				F9AFB6EF14814F1D2688BFB9 /* SpeedometerBenchmark.swift */,
 				EF7ED141C3ADBFB83171F90D /* VisualSnapshots.swift */,
 				720CAF7F9D74C6854F0A3925 /* Resources */,
 				E55A46009DA4F5DFA6B92F12 /* Views */,
@@ -783,6 +786,7 @@
 				D48EBFE0C3B5EA6C9D42C6EE /* SidebarPresentation.swift in Sources */,
 				9C6461D701BCEA947B69CB40 /* SidebarSearchPanel.swift in Sources */,
 				617FCE6871E058CAF5532834 /* SiteIconEnvironment.swift in Sources */,
+				6D3FBAB2ABBE37FC3BBC229D /* SpeedometerBenchmark.swift in Sources */,
 				2E0551D76372C14A7FCE698B /* StartPage.swift in Sources */,
 				1A2937BE93A886FAA4343F72 /* TabSwitchCover.swift in Sources */,
 				87AC1D88FED6F264F6717960 /* Theme+macOS.swift in Sources */,

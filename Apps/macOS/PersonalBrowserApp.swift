@@ -11,8 +11,15 @@ struct PersonalBrowserApp: App {
     private var appearance: BrowserAppearance { controller.appearance }
 
     init() {
+        #if ORIV_BENCH
+        precondition(Bundle.main.bundleIdentifier == "local.personalbrowser.bench", "Benchmark build requires its isolated bundle identity")
+        #endif
         BackgroundUIMode.installAtLaunch()
+        #if ORIV_BENCH
+        let initial = BrowserProfiles(rootDirectory: SpeedometerBenchmark.profileDirectory, testing: false)
+        #else
         let initial = BrowserProfiles()
+        #endif
         _profiles = State(initialValue: initial)
         appDelegate.profiles = initial; appDelegate.controller = initial.controller
     }
@@ -71,6 +78,12 @@ struct PersonalBrowserApp: App {
     weak var profiles: BrowserProfiles?
     func applicationWillFinishLaunching(_ notification: Notification) { BackgroundUIMode.installAtLaunch() }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if ORIV_BENCH
+        if let profiles, SpeedometerBenchmark.configured {
+            Task { await SpeedometerBenchmark.run(profiles: profiles) }
+            return
+        }
+        #endif
         profiles?.continuity.configurePushRegistration { [weak self] in
             guard !BackgroundUIMode.isEnabled else { self?.profiles?.continuity.remoteNotificationRegistration(succeeded: false); return }
             NSApplication.shared.registerForRemoteNotifications()
@@ -102,6 +115,9 @@ struct PersonalBrowserApp: App {
     func applicationWillTerminate(_ notification: Notification) {
         if let profiles { profiles.saveAll(); profiles.shutdown() }
         else { controller?.session.saveNow(); controller?.session.flushPersistence(); controller?.downloads.shutdown() }
+        #if ORIV_BENCH
+        try? FileManager.default.removeItem(at: SpeedometerBenchmark.profileDirectory)
+        #endif
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

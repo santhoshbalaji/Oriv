@@ -1,0 +1,18 @@
+<!doctype html>
+<title>Oriv benchmark smoke fixture</title>
+<button class="start-tests-button">Start Test</button>
+<div id="result-number"></div>
+<script>
+globalThis.benchmarkClient = {};
+document.querySelector('button').onclick = () => {
+    const frame = Object.assign(document.createElement('iframe'), {srcdoc: '<title>Smoke workload</title>'});
+    frame.onload = () => {
+        benchmarkClient.metrics = {
+            Score: {mean: 42.25, values: [42.25]},
+            Fixture: {name: 'Fixture', mean: 12, children: ['Fixture/step']}
+        };
+        document.getElementById('result-number').textContent = '42.3';
+    };
+    document.body.append(frame);
+};
+</script>

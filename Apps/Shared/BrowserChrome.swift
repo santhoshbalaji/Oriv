@@ -69,6 +69,10 @@ private typealias PlatformColor = UIColor
     /// Install before load, including window.open and background tabs. The script
     /// is idempotent and uses an isolated world; it never reads page text/images.
     static func install(on web: WKWebView, isPrivate: Bool = false) {
+        #if os(macOS) && ORIV_BENCH
+        guard !BenchmarkOptions.disabled.contains("page-colour") else { return }
+        BenchmarkOptions.noteScript("page-colour", source: observerScript)
+        #endif
         let controller = web.configuration.userContentController
         let source = observerSource(isPrivate: isPrivate)
         let scripts = controller.userScripts
@@ -171,6 +175,9 @@ private typealias PlatformColor = UIColor
     var foreground: Color { isDark ? .white : .black }
 
     func observe(_ view: WKWebView?, isPrivate: Bool = false) {
+        #if os(macOS) && ORIV_BENCH
+        guard !BenchmarkOptions.disabled.contains("page-colour") else { return }
+        #endif
         if webView === view, privatePage == isPrivate { return }
         #if os(macOS)
         // Mac uses one observer for multiple selected tabs and its home page.

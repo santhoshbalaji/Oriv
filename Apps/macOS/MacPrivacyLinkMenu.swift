@@ -22,6 +22,10 @@ import WebKit
     init(tab: BrowserTab, session: BrowserSession, view: WKWebView) {
         self.tab = tab; self.session = session
         super.init()
+        #if ORIV_BENCH
+        guard !BenchmarkOptions.disabled.contains("link-menu") else { return }
+        BenchmarkOptions.noteScript("link-menu", source: Self.script)
+        #endif
         contentController = view.configuration.userContentController
         let world = WKContentWorld.world(name: "OrivLinkMenu")
         view.configuration.userContentController.add(self, contentWorld: world, name: "privacyLink")
