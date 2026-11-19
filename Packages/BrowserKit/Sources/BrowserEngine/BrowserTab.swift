@@ -94,6 +94,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored private var historyDocumentURL: URL?
     @ObservationIgnored private var activeHistoryVisit: HistoryEntry?
     @ObservationIgnored private var historyCandidate: Task<Void, Never>?
+    @ObservationIgnored private var historyCandidateURL: URL?
     @ObservationIgnored private var historyResponseAllowed = true
     @ObservationIgnored private var historyNavigation: WKNavigation?
     @ObservationIgnored private var typedNavigation: WKNavigation?
@@ -695,6 +696,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         guard recordHistoryVisit != nil, backingWebView === view,
               let previous = historyDocumentURL, let current = view.url else { return }
         if current == previous {
+            historyCandidate?.cancel()
+            historyCandidate = nil
+            historyCandidateURL = nil
             if var visit = activeHistoryVisit, visit.url == current, let title = view.title,
                !title.isEmpty, visit.title != title {
                 visit.title = String(title.prefix(4_000))
@@ -703,11 +707,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             }
             return
         }
-        guard AddressResolver.isWebURL(current) else { return }
+        guard AddressResolver.isWebURL(current), historyCandidateURL != current else { return }
         historyCandidate?.cancel()
+        historyCandidateURL = current
         historyCandidate = Task { @MainActor [weak self, weak view] in
             do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
-            guard let self, let view, !self.isClosed, self.backingWebView === view,
+            guard let self else { return }
+            self.historyCandidate = nil
+            self.historyCandidateURL = nil
+            guard let view, !self.isClosed, self.backingWebView === view,
                   view.url == current, self.historyDocumentURL == previous else { return }
             self.saveHistoryVisit(current, title: view.title, typed: self.typedURL == current, shared: false)
             self.typedURL = nil
@@ -727,6 +735,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     func cancelPendingHistory() {
         historyCandidate?.cancel()
         historyCandidate = nil
+        historyCandidateURL = nil
         activeHistoryVisit = nil
         if historyDocumentURL != nil { historyDocumentURL = backingWebView?.url }
     }

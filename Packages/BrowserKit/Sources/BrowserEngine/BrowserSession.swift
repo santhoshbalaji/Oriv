@@ -357,9 +357,11 @@ public final class BrowserSession {
     }
 
     public func navigate(_ input: String) throws {
-        let url = try AddressResolver.resolve(input, searchEngine: settings.searchEngine)
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let engine = settings.searchEngine
+        let url = try AddressResolver.resolve(text, searchEngine: engine)
         if selectedTab == nil { addTab() }
-        selectedTab?.navigate(to: url, typed: true)
+        selectedTab?.navigate(to: url, typed: url != engine.searchURL(text))
     }
 
     /// Saved links reuse an empty regular tab; they never replace a private page or edited document.

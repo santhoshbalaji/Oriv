@@ -58,7 +58,12 @@ import WebKit
         session.closeTab(privateTab.id)
         XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: true))
         XCTAssertNotNil(session.siteIcons.icon(for: url, isPrivate: false))
-        await session.siteIcons.clear()
+        session.clearHistory()
+        let deadline = ContinuousClock.now + .seconds(5)
+        while FileManager.default.fileExists(atPath: root.path), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: false))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
     }
     func testRegularDiskAndMemoryCachesRemainBounded() async throws {
