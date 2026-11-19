@@ -167,6 +167,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/gesture-image.png':
             self.send_bytes((ROOT / 'Apps/Shared/Resources/Assets.xcassets/OrivMark.imageset/OrivMark.png').read_bytes(), 'image/png')
             return
+        if path == '/history-redirect':
+            self.send_response(302)
+            self.send_header('Location', '/quality')
+            self.end_headers()
+            return
+        if path == '/history-error':
+            self.send_response(404)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(b'<title>Missing history fixture</title>')
+            return
         if path == '/quality':
             self.page('Browser quality fixture', '<article><h2>Quiet browser testing</h2><p>Alpha beta Alpha. Search, read and save this synthetic page.</p><p>No personal information is used.</p><input id="draft" aria-label="Test draft"><a href="/two" target="_blank" id="new-tab">Open second tab</a><a href="/large-download">Download test data</a></article>')
             return

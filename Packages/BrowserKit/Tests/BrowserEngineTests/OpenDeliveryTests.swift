@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 import BrowserCore
-import BrowserEngine
+@testable import BrowserEngine
 import WebKit
 
 @MainActor private final class MemoryContinuityTransport: ContinuityTransport {
@@ -157,7 +157,7 @@ import WebKit
         XCTAssertFalse(first.webView.configuration.websiteDataStore.isPersistent)
         XCTAssertTrue(first.webView.configuration.websiteDataStore === second.webView.configuration.websiteDataStore)
         XCTAssertFalse(first.webView.configuration.websiteDataStore === regularPrivate.webView.configuration.websiteDataStore)
-        first.onVisit?(first.url!, "External")
+        XCTAssertNil(first.recordHistoryVisit)
         XCTAssertTrue(external.history.isEmpty); XCTAssertTrue(external.snapshot().tabs.isEmpty)
         let store = first.webView.configuration.websiteDataStore
         for tab in external.tabs { external.closeTab(tab.id) }

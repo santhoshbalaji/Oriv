@@ -1,11 +1,11 @@
 import XCTest
 import BrowserCore
-import BrowserEngine
+@testable import BrowserEngine
 import WebKit
 
 @MainActor final class BrowserExperienceTests: XCTestCase {
-    private func session(store: SessionFileStore? = nil) -> BrowserSession {
-        BrowserSession(store: store, dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil))
+    private func session(store: SessionFileStore? = nil, recordFixture: Bool = false) -> BrowserSession {
+        BrowserSession(store: store, dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil), recordsQAFixtureHistory: recordFixture)
     }
     func testSuggestionsDeduplicateAndNeverCrossPrivacyOrProfileBoundaries() throws {
         let session = session(), otherProfile = self.session()
@@ -75,7 +75,7 @@ import WebKit
         XCTAssertFalse(session.requiresCloseConfirmation(UUID()))
     }
     func testLateDocumentTitleKVOUpdatesExistingHistoryVisit() async throws {
-        let session = session(); defer { session.shutdown() }
+        let session = session(recordFixture: true); defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
         tab.navigate(to: URL(string: "http://127.0.0.1:8768/quality")!)
         try await wait { !tab.isLoading && session.history.first?.title == "Browser quality fixture" }
@@ -84,6 +84,93 @@ import WebKit
         try await wait { session.history.first?.title == "Title delivered after finish" }
         XCTAssertEqual(session.history.count, 1); XCTAssertEqual(session.history[0].id, visit.id)
         XCTAssertEqual(session.history[0].visitedAt, visit.visitedAt)
+    }
+    func testSPAHistoryRecordsDebouncedRoutesAndExcludesPrivateAndFixtureByDefault() async throws {
+        let base = URL(string: "http://127.0.0.1:8768")!
+        let enabled = session(recordFixture: true), disabled = session()
+        defer { enabled.shutdown(); disabled.shutdown() }
+        let tab = try XCTUnwrap(enabled.selectedTab)
+        tab.navigate(to: base.appendingPathComponent("quality"))
+        try await wait { !tab.isLoading && enabled.historyCount == 1 }
+        _ = try await tab.webView.evaluateJavaScript("history.pushState({}, '', '/spa-route'); true")
+        try await wait { enabled.history.first?.url.path == "/spa-route" }
+        _ = try await tab.webView.evaluateJavaScript("""
+            history.replaceState({}, '', '/replace-intermediate');
+            history.replaceState({}, '', '/replace-final');
+            document.title = 'Replacement route';
+            true
+            """)
+        try await wait { enabled.history.first?.url.path == "/replace-final" }
+        XCTAssertEqual(enabled.history.first?.title, "Replacement route")
+        _ = try await tab.webView.evaluateJavaScript("location.hash = 'section'; true")
+        try await wait { enabled.history.first?.url.fragment == "section" }
+        let hash = try XCTUnwrap(enabled.history.first)
+        _ = try await tab.webView.evaluateJavaScript("document.title = 'Section title'; true")
+        try await wait { enabled.history.first?.title == "Section title" }
+        let entries = enabled.history
+        XCTAssertEqual(entries.first?.id, hash.id)
+        XCTAssertEqual(entries.map(\.url.path), ["/replace-final", "/replace-final", "/spa-route", "/quality"])
+        XCTAssertEqual(enabled.continuitySnapshot().history.map(\.url.path), ["/quality"])
+
+        let privateTab = enabled.addTab(url: base.appendingPathComponent("one"), isPrivate: true)
+        let fixture = try XCTUnwrap(disabled.selectedTab)
+        fixture.navigate(to: base.appendingPathComponent("one"))
+        try await wait { privateTab.title == "Browser foundation" && fixture.title == "Browser foundation" }
+        _ = try await privateTab.webView.evaluateJavaScript("history.pushState({}, '', '/private-route'); true")
+        _ = try await fixture.webView.evaluateJavaScript("history.pushState({}, '', '/fixture-route'); true")
+        try await wait { privateTab.url?.path == "/private-route" && fixture.url?.path == "/fixture-route" }
+        XCTAssertEqual(enabled.history, entries)
+        XCTAssertTrue(disabled.history.isEmpty)
+    }
+
+    func testHistoryIncludesOnlyFinalRedirectAndExcludesHTTPErrorAndDownload() async throws {
+        let session = session(recordFixture: true)
+        defer { session.shutdown() }
+        let base = URL(string: "http://127.0.0.1:8768")!
+        let tab = try XCTUnwrap(session.selectedTab)
+        try session.navigate(base.appendingPathComponent("history-redirect").absoluteString)
+        try await wait { !tab.isLoading && session.history.first?.url.path == "/quality" }
+        XCTAssertEqual(session.historyCount, 1)
+        XCTAssertEqual(session.history.first?.typedCount, 1)
+        tab.navigate(to: base.appendingPathComponent("history-error"))
+        try await wait { tab.title == "Missing history fixture" && !tab.isLoading }
+        XCTAssertEqual(session.historyCount, 1)
+        var downloaded = false
+        session.handleDownload = { download in downloaded = true; download.cancel { _ in } }
+        tab.navigate(to: base.appendingPathComponent("download"))
+        try await wait { downloaded }
+        XCTAssertEqual(session.historyCount, 1)
+    }
+
+    func testLegacyHistorySurvivesMigrationAndCannotResurrectAfterClear() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacy = SessionFileStore(fileURL: root.appendingPathComponent("session.json"))
+        let url = try XCTUnwrap(URL(string: "https://migrated.example.test/page"))
+        let entry = HistoryEntry(title: "Migrated Café", url: url, visitedAt: Date(timeIntervalSince1970: 1_000), visitCount: 9)
+        let original = BrowserSnapshot(history: [entry])
+        try legacy.save(original)
+        try SessionFileStore(fileURL: legacy.backupURL).save(original)
+        let upgraded = session(store: legacy)
+        XCTAssertEqual(upgraded.historyPage(search: "CAFE"), [entry])
+        XCTAssertEqual(try legacy.load().snapshot?.history, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.backupURL.path))
+        upgraded.shutdown()
+
+        // A stale legacy snapshot left after import must not duplicate rows.
+        try legacy.save(original)
+        let reopened = session(store: legacy)
+        XCTAssertEqual(reopened.history, [entry])
+        let suggestions = await reopened.indexedSuggestions(for: "migrated", isPrivate: false)
+        XCTAssertEqual(suggestions.map(\.url), [url])
+        reopened.clearHistory()
+        let erased = await reopened.indexedSuggestions(for: "migrated", isPrivate: false)
+        XCTAssertTrue(erased.isEmpty)
+        reopened.shutdown()
+
+        let final = session(store: legacy)
+        XCTAssertTrue(final.history.isEmpty)
+        final.shutdown()
     }
     private func wait(_ predicate: () -> Bool) async throws {
         let end = Date.now.addingTimeInterval(20)

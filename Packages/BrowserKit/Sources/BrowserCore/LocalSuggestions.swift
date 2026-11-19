@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct BrowserSuggestion: Identifiable, Equatable, Sendable {
@@ -22,8 +23,11 @@ public struct LocalSuggestionIndex: Sendable {
         var address: String
         var host: String
         var visits: Int
+        var typed: Int
         var date: Date
         var bookmarked: Bool
+        var rank: Double
+        var key: String
     }
     private var entries: [URL: Entry] = [:]
     private var ordered: [Entry] = []
@@ -32,6 +36,8 @@ public struct LocalSuggestionIndex: Sendable {
     private var hostKeys: [String] = []
     private var titleKeys: [String] = []
     private var grams: [UInt32: Set<URL>] = [:]
+    private var shortGramCounts: [UInt32: Int] = [:]
+    private let rankingDate = Date()
     private static func trigrams(_ text: String) -> Set<UInt32> {
         let bytes = Array(text.utf8)
         guard bytes.count >= 3 else { return [] }
@@ -44,15 +50,37 @@ public struct LocalSuggestionIndex: Sendable {
         }
         return result
     }
+    private static func shortGrams(_ bytes: [UInt8]) -> Set<UInt32> {
+        var result = Set<UInt32>()
+        for (index, byte) in bytes.enumerated() {
+            result.insert(UInt32(byte))
+            if index > 0 { result.insert(0x10000 | UInt32(bytes[index - 1]) << 8 | UInt32(byte)) }
+        }
+        return result
+    }
+
+    private static func contains(_ text: String, bytes: [UInt8]) -> Bool {
+        var text = text
+        return text.withUTF8 { text in
+            bytes.withUnsafeBufferPointer { query in
+                memmem(text.baseAddress, text.count, query.baseAddress, query.count) != nil
+            }
+        }
+    }
+
     private mutating func index(_ entry: Entry, adding: Bool) {
         let url = entry.suggestion.url
-        for word in Set(entry.host.split(separator: ".").map(String.init) + [entry.host]) {
+        for word in Set(hostTokens(entry)) {
             if adding { hostWords[word, default: []].insert(url) }
             else { hostWords[word]?.remove(url); if hostWords[word]?.isEmpty == true { hostWords[word] = nil } }
         }
         for word in Set(entry.words.map(String.init)) {
             if adding { titleWords[word, default: []].insert(url) }
             else { titleWords[word]?.remove(url); if titleWords[word]?.isEmpty == true { titleWords[word] = nil } }
+        }
+        for gram in Self.shortGrams(Array(entry.text.utf8)) {
+            let count = shortGramCounts[gram, default: 0] + (adding ? 1 : -1)
+            shortGramCounts[gram] = count == 0 ? nil : count
         }
         for gram in Self.trigrams(entry.text) {
             if adding { grams[gram, default: []].insert(url) }
@@ -64,29 +92,94 @@ public struct LocalSuggestionIndex: Sendable {
     public init() {}
     private static func fold(_ text: String) -> String { text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX")) }
     public mutating func update(history: [HistoryEntry], bookmarks: [Bookmark]) {
-        let history = Dictionary(history.map { ($0.url, $0) }, uniquingKeysWith: { a, b in a.visitedAt > b.visitedAt ? a : b })
-        let bookmarks = Dictionary(bookmarks.map { ($0.url, $0) }, uniquingKeysWith: { a, _ in a })
-        let urls = Set(savedHistory.keys).union(history.keys).union(savedBookmarks.keys).union(bookmarks.keys)
-        for url in urls where savedHistory[url] != history[url] || savedBookmarks[url] != bookmarks[url] {
-            if let old = entries[url] { index(old, adding: false) }
-            guard let title = bookmarks[url]?.title ?? history[url]?.title else { entries[url] = nil; continue }
-            entries[url] = makeEntry(BrowserSuggestion(title: title, url: url, source: bookmarks[url] == nil ? .history : .bookmark),
-                titles: [title, history[url]?.title ?? ""], visits: history[url]?.visitCount ?? 0,
-                date: history[url]?.visitedAt ?? .distantPast, bookmarked: bookmarks[url] != nil)
-            if let entry = entries[url] { index(entry, adding: true) }
-        }
-        savedHistory = history; savedBookmarks = bookmarks
-        hostKeys = hostWords.keys.sorted(); titleKeys = titleWords.keys.sorted()
-        let now = Date()
-        ordered = entries.values.sorted { better($0, $1, now: now) }
+        updateVisits(history, changed: Set(savedHistory.keys))
+        updateBookmarks(bookmarks)
     }
-    private func makeEntry(_ suggestion: BrowserSuggestion, titles: [String], visits: Int = 0, date: Date = .distantPast, bookmarked: Bool = false) -> Entry {
+
+    public mutating func updateVisits(_ history: [HistoryEntry], changed: Set<URL>) {
+        let latest = Dictionary(history.map { ($0.url, $0) }, uniquingKeysWith: { a, b in a.visitedAt > b.visitedAt ? a : b })
+        let changes = changed.union(latest.keys).filter { savedHistory[$0] != latest[$0] }
+        for url in changes { savedHistory[url] = latest[url] }
+        refresh(changes)
+    }
+
+    public mutating func updateBookmarks(_ bookmarks: [Bookmark]) {
+        let latest = Dictionary(bookmarks.map { ($0.url, $0) }, uniquingKeysWith: { a, _ in a })
+        let changes = Set(savedBookmarks.keys).union(latest.keys).filter { savedBookmarks[$0] != latest[$0] }
+        savedBookmarks = latest
+        refresh(changes)
+    }
+
+    private mutating func refresh(_ changes: Set<URL>) {
+        guard !changes.isEmpty else { return }
+        let batch = changes.count > 64
+        var changedHosts = Set<String>(), changedTitles = Set<String>()
+        for url in changes {
+            let old = entries[url]
+            let history = savedHistory[url], bookmark = savedBookmarks[url]
+            let new = (bookmark?.title ?? history?.title).map { title in
+                makeEntry(BrowserSuggestion(title: title, url: url, source: bookmark == nil ? .history : .bookmark),
+                          titles: [title, history?.title ?? ""], visits: history?.visitCount ?? 0,
+                          typed: history?.typedCount ?? 0, date: history?.visitedAt ?? .distantPast,
+                          bookmarked: bookmark != nil)
+            }
+            if let old {
+                if !batch { ordered.remove(at: Self.lowerBound(ordered) { Self.rankedBefore($0, old) }) }
+                if new?.text != old.text { index(old, adding: false) }
+                changedHosts.formUnion(hostTokens(old))
+                changedTitles.formUnion(old.words.map(String.init))
+            }
+            entries[url] = new
+            if let new {
+                if !batch { ordered.insert(new, at: Self.lowerBound(ordered) { Self.rankedBefore($0, new) }) }
+                if old?.text != new.text { index(new, adding: true) }
+                changedHosts.formUnion(hostTokens(new))
+                changedTitles.formUnion(new.words.map(String.init))
+            }
+        }
+        if batch {
+            ordered = entries.values.sorted(by: Self.rankedBefore)
+            hostKeys = hostWords.keys.sorted()
+            titleKeys = titleWords.keys.sorted()
+        } else {
+            Self.updateKeys(&hostKeys, changed: changedHosts) { hostWords[$0] != nil }
+            Self.updateKeys(&titleKeys, changed: changedTitles) { titleWords[$0] != nil }
+        }
+    }
+
+    private func hostTokens(_ entry: Entry) -> [String] {
+        entry.host.split(separator: ".").map(String.init) + [entry.host]
+    }
+
+    private static func updateKeys(_ keys: inout [String], changed: Set<String>, exists: (String) -> Bool) {
+        for key in changed {
+            let position = lowerBound(keys) { $0 < key }
+            let present = position < keys.count && keys[position] == key
+            if present && !exists(key) { keys.remove(at: position) }
+            if !present && exists(key) { keys.insert(key, at: position) }
+        }
+    }
+
+    private static func lowerBound<T>(_ values: [T], before: (T) -> Bool) -> Int {
+        var low = 0, high = values.count
+        while low < high {
+            let mid = (low + high) / 2
+            if before(values[mid]) { low = mid + 1 } else { high = mid }
+        }
+        return low
+    }
+
+    private func makeEntry(_ suggestion: BrowserSuggestion, titles: [String], visits: Int = 0, typed: Int = 0,
+                           date: Date = .distantPast, bookmarked: Bool = false) -> Entry {
         let text = Self.fold(titles.joined(separator: "\n"))
+        let address = Self.fold(suggestion.url.absoluteString)
         var host = Self.fold(suggestion.url.host ?? "")
         if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
-        return Entry(suggestion: suggestion, text: Self.fold(suggestion.url.absoluteString) + " " + text,
-                     words: text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }), address: Self.fold(suggestion.url.absoluteString), host: host,
-                     visits: visits, date: date, bookmarked: bookmarked)
+        return Entry(suggestion: suggestion, text: address + " " + text,
+                     words: text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }), address: address, host: host,
+                     visits: visits, typed: typed, date: date, bookmarked: bookmarked,
+                     rank: Self.score(visits: visits, typed: typed, date: date, bookmarked: bookmarked, now: rankingDate),
+                     key: suggestion.url.absoluteString)
     }
     public func matches(_ query: String, tabs: [BrowserSuggestion] = [], limit: Int = 7, now: Date = Date()) -> [BrowserSuggestion] {
         let query = Self.fold(query.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -116,8 +209,7 @@ public struct LocalSuggestionIndex: Sendable {
         }
         func prefixURLs(_ prefix: String, keys: [String], words: [String: Set<URL>]) -> Set<URL>? {
             guard !prefix.isEmpty else { return [] }
-            var low = 0, high = keys.count
-            while low < high { let mid = (low + high) / 2; if keys[mid] < prefix { low = mid + 1 } else { high = mid } }
+            var low = Self.lowerBound(keys) { $0 < prefix }
             var result: Set<URL> = []
             while low < keys.count && keys[low].hasPrefix(prefix) {
                 let urls = words[keys[low]] ?? []
@@ -140,7 +232,7 @@ public struct LocalSuggestionIndex: Sendable {
                 for entry in candidates.compactMap({ entries[$0] }).sorted(by: { better($0, $1, now: now) }) { append(entry) }
             } else {
                 for entry in merged {
-                    if candidates?.contains(entry.suggestion.url) == true || ((candidates == nil || entry.suggestion.tabID != nil) && predicate(entry)) { append(entry) }
+                    if predicate(entry) { append(entry) }
                     if result.count == limit { break }
                 }
             }
@@ -148,8 +240,11 @@ public struct LocalSuggestionIndex: Sendable {
         addTier(hostMatches) { $0.host.hasPrefix(hostQuery) || $0.host.split(separator: ".").contains { $0.hasPrefix(hostQuery) } }
         addTier(titleMatches) { $0.words.contains { $0.hasPrefix(query) } }
         if result.count < limit {
+            let bytes = Array(query.utf8)
             let queryGrams = Self.trigrams(query)
-            let absent = queryGrams.contains { grams[$0] == nil }
+            let absent = bytes.count < 3
+                ? Self.shortGrams(bytes).contains { shortGramCounts[$0] == nil }
+                : queryGrams.contains { grams[$0] == nil }
             let rarest = queryGrams.compactMap { grams[$0] }.min { $0.count < $1.count }
             if !absent {
                 let candidates: [Entry]
@@ -157,26 +252,34 @@ public struct LocalSuggestionIndex: Sendable {
                     candidates = rarest.compactMap { open[$0] ?? entries[$0] }.sorted { better($0, $1, now: now) }
                 } else { candidates = merged }
                 for entry in candidates {
-                    if entry.text.contains(query) { append(entry) }
+                    if Self.contains(entry.text, bytes: bytes) { append(entry) }
                     if result.count == limit { break }
                 }
             }
             // Private / unsaved open-tab text is absent from the regular index.
             for entry in open.values.sorted(by: { better($0, $1, now: now) }) {
-                if entry.text.contains(query) { append(entry) }
+                if Self.contains(entry.text, bytes: bytes) { append(entry) }
             }
         }
         return result
     }
+    private static func score(visits: Int, typed: Int, date: Date, bookmarked: Bool, now: Date) -> Double {
+        let days = max(0, now.timeIntervalSince(date) / 86_400)
+        return (bookmarked ? 20 : 0) + log2(Double(visits) + 1) * 3 + log2(Double(typed) + 1) * 6 + 10 / (1 + days / 7)
+    }
+
+    private static func rankedBefore(_ a: Entry, _ b: Entry) -> Bool {
+        if a.rank != b.rank { return a.rank > b.rank }
+        if a.date != b.date { return a.date > b.date }
+        return a.key < b.key
+    }
+
     private func better(_ a: Entry, _ b: Entry, now: Date) -> Bool {
-        func score(_ e: Entry) -> Double {
-            let days = max(0, now.timeIntervalSince(e.date) / 86_400)
-            return (e.bookmarked ? 20 : 0) + log2(Double(max(0, e.visits)) + 1) * 3 + 10 / (1 + days / 7)
-        }
-        let aScore = score(a), bScore = score(b)
+        let aScore = Self.score(visits: a.visits, typed: a.typed, date: a.date, bookmarked: a.bookmarked, now: now)
+        let bScore = Self.score(visits: b.visits, typed: b.typed, date: b.date, bookmarked: b.bookmarked, now: now)
         if aScore != bScore { return aScore > bScore }
         if a.date != b.date { return a.date > b.date }
-        return a.suggestion.url.absoluteString < b.suggestion.url.absoluteString
+        return a.key < b.key
     }
     /// Host-only completion keeps ports, never silently accepts a path or query.
     public static func completion(for query: String, matches: [BrowserSuggestion]) -> String? {

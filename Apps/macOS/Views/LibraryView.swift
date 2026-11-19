@@ -8,15 +8,16 @@ struct LibraryView: View {
     var profiles: BrowserProfiles? = nil
     @State var section: LibrarySection
     @State private var search = ""
+    @State private var historyOffset = 0
     @State private var confirmClear = false
     @Environment(\.dismiss) private var dismiss
 
     private var bookmarks: [Bookmark] { controller.savedBookmarks.filter { matches($0.title, $0.url) } }
-    private var history: [HistoryEntry] { controller.session.history.filter { matches($0.title, $0.url) } }
+    private let historyPageSize = 100
     private var count: Int {
         switch section {
         case .bookmarks: controller.savedBookmarks.count
-        case .history: controller.session.history.count
+        case .history: controller.session.historyCount
         case .downloads: controller.downloads.items.count
         case .devices: 0
         }
@@ -85,7 +86,11 @@ struct LibraryView: View {
             }.background(theme.surface)
         }
         .frame(width: 760, height: 540)
-        .onChange(of: section) { _, _ in search = "" }
+        .onChange(of: section) { _, _ in search = ""; historyOffset = 0 }
+        .onChange(of: search) { _, _ in historyOffset = 0 }
+        .onChange(of: controller.session.historyRevision) { _, _ in
+            if controller.session.historyPage(search: search, offset: historyOffset, limit: 1).isEmpty { historyOffset = 0 }
+        }
         .confirmationDialog("Clear browsing history?", isPresented: $confirmClear) {
             Button("Clear History", role: .destructive) { controller.session.clearHistory() }
         } message: { Text("This removes your history list. Bookmarks and website login data will remain.") }
@@ -113,19 +118,30 @@ struct LibraryView: View {
                 }.listStyle(.inset).scrollContentBackground(.hidden)
             }
         case .history:
+            let page = controller.session.historyPage(search: search, offset: historyOffset, limit: historyPageSize + 1)
+            let history = Array(page.prefix(historyPageSize))
             if count == 0 {
                 BrowserEmptyState("No history yet. Regular pages you visit appear here.")
             } else if history.isEmpty {
                 BrowserEmptyState("No results for “\(search)”.")
             } else {
                 let context = URLDisplay.Context(history.map { ($0.title, $0.url) })
-                List(history) { entry in
+                List {
+                    ForEach(history) { entry in
                     HStack(spacing: OrivSpacing.medium) {
                         pageRow(entry.title, url: entry.url, context: context)
                         Text(entry.visitedAt, format: .dateTime.month(.abbreviated).day())
                             .font(.caption).foregroundStyle(theme.secondaryText).fixedSize()
                         Button { controller.session.removeHistory(entry.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 24, height: 24) }
                             .buttonStyle(.borderless).foregroundStyle(theme.secondaryText).accessibilityLabel("Remove \(entry.title) from history")
+                    }
+                    }
+                    if historyOffset > 0 || page.count > historyPageSize {
+                        HStack {
+                            Button("Previous Page") { historyOffset -= historyPageSize }.disabled(historyOffset == 0)
+                            Spacer()
+                            Button("Next Page") { historyOffset += historyPageSize }.disabled(page.count <= historyPageSize)
+                        }
                     }
                 }.listStyle(.inset).scrollContentBackground(.hidden)
             }

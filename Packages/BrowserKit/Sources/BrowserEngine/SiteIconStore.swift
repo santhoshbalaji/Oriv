@@ -194,6 +194,18 @@ public actor SiteIconDiskCache {
         icons = [:]; order = []; misses = [:]; revision += 1
         await disk.clear()
     }
+    func clearRegular() async {
+        cacheGeneration += 1
+        for key in Array(requests.keys) {
+            requests.removeValue(forKey: key)?.cancel()
+            requestTokens[key] = nil
+        }
+        icons = icons.filter { $0.key.hasPrefix("private:") }
+        misses = misses.filter { $0.key.hasPrefix("private:") }
+        order.removeAll { !$0.hasPrefix("private:") }
+        revision += 1
+        await disk.clear()
+    }
     private func canDiscover(in view: WKWebView, pageURL: URL, isPrivate: Bool) -> Bool {
         !Task.isCancelled && !view.isLoading && view.url == pageURL && document?(pageURL, isPrivate) === view
     }

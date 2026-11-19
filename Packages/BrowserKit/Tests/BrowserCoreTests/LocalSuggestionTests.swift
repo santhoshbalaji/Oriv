@@ -36,6 +36,47 @@ import Testing
         #expect(decoded.visitCount == 1)
         #expect(HistoryEntry(title: "Bad", url: entry.url, visitCount: .max).visitCount == 1_000_000)
     }
+    @Test func typedHistoryOutranksAnOtherwiseMoreVisitedAddress() {
+        let now = Date()
+        let typed = HistoryEntry(title: "Typed", url: URL(string: "https://docs.test/typed")!, visitedAt: now, visitCount: 2, typedCount: 2)
+        let visited = HistoryEntry(title: "Visited", url: URL(string: "https://docs.test/visited")!, visitedAt: now, visitCount: 5)
+        var index = LocalSuggestionIndex()
+        index.updateVisits([typed, visited], changed: [])
+        #expect(index.matches("docs", now: now).map(\.url) == [typed.url, visited.url])
+        index.updateVisits([], changed: [typed.url])
+        #expect(index.matches("docs", now: now).map(\.url) == [visited.url])
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["ORIV_HISTORY_BENCHMARK"] == "1"))
+    func fiftyThousandHistoryKeystrokes() {
+        let now = Date()
+        let history = (0..<50_000).map { number in
+            HistoryEntry(title: "Documentation guide \(number)",
+                         url: URL(string: "https://host\(number % 1200).example.test/path/\(number)")!,
+                         visitedAt: now.addingTimeInterval(Double(-number * 60)), visitCount: 1 + number % 30, typedCount: number % 5)
+        }
+        var index = LocalSuggestionIndex()
+        index.updateVisits(history, changed: [])
+        let tabs = [BrowserSuggestion(title: "Open Documentation", url: history[49_999].url, tabID: UUID())]
+        let cases = ["h", "host", "docs", "documentation", "example", "/path/", "guide 49999",
+                     "host1199", "guide doc", "zz", "not-found"]
+        var worst: Double = 0
+        for query in cases {
+            var samples: [Double] = []
+            for _ in 0..<30 {
+                let start = ContinuousClock.now
+                let matches = index.matches(query, tabs: tabs, now: now)
+                let elapsed = start.duration(to: .now)
+                samples.append(Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15)
+                #expect(matches.count <= 7)
+            }
+            samples.sort()
+            worst = max(worst, samples[28])
+            print("HISTORY_BENCHMARK query=\(query) median_ms=\(samples[15]) p95_ms=\(samples[28]) max_ms=\(samples[29])")
+        }
+        #expect(worst < 8, "50k indexed matching p95 must stay within half a frame")
+    }
+
     @Test func tenThousandHistoryQueriesStayWithinFrameBudget() throws {
         let now = Date()
         let history = (0..<10_000).map { HistoryEntry(title: "Documentation guide \($0)", url: URL(string: "https://host\($0).example.test/path")!, visitedAt: now.addingTimeInterval(Double(-$0)), visitCount: 1 + $0 % 20) }

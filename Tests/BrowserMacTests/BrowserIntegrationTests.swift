@@ -199,7 +199,7 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
     }
 
     func testNavigationHistoryAndDOMPreservation() async throws {
-        let session = BrowserSession(dataStore: .nonPersistent())
+        let session = BrowserSession(dataStore: .nonPersistent(), recordsQAFixtureHistory: true)
         let tab = try XCTUnwrap(session.selectedTab)
         tab.navigate(to: base.appendingPathComponent("one"))
         try await waitUntil("Fixture loads through WebKit") { tab.title == "Browser foundation" && !tab.isLoading }

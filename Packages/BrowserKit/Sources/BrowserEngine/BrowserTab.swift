@@ -64,10 +64,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public var cleanedURL: URL? { url.map(URLCleaner.clean) }
 
     @ObservationIgnored public var onChange: (() -> Void)?
-    @ObservationIgnored public var onVisit: ((URL, String) -> Void)?
+    @ObservationIgnored var recordHistoryVisit: ((HistoryEntry, Bool) -> Void)?
+    @ObservationIgnored var correctHistoryTitle: ((UUID, URL, String) -> Void)?
+    @ObservationIgnored var discardHistoryVisit: ((UUID) -> Void)?
     @ObservationIgnored var onDocumentReady: ((URL) -> Void)?
     @ObservationIgnored private var finishedDocumentRevision: Int?
-    @ObservationIgnored public var onTitleChange: ((URL, String) -> Void)?
     @ObservationIgnored public var onWebViewDiscarded: (() -> Void)?
     @ObservationIgnored public var onWebViewCreated: ((WKWebView) -> Void)?
     @ObservationIgnored public var onDownload: ((WKDownload) -> Void)?
@@ -90,7 +91,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored private let settings: BrowserSettings?
     @ObservationIgnored private var policyGeneration = 0
     @ObservationIgnored private var isClosed = false
-    @ObservationIgnored private var lastVisitedURL: URL?
+    @ObservationIgnored private var historyDocumentURL: URL?
+    @ObservationIgnored private var activeHistoryVisit: HistoryEntry?
+    @ObservationIgnored private var historyCandidate: Task<Void, Never>?
+    @ObservationIgnored private var historyResponseAllowed = true
+    @ObservationIgnored private var historyNavigation: WKNavigation?
+    @ObservationIgnored private var typedNavigation: WKNavigation?
+    @ObservationIgnored private var typedURL: URL?
     @ObservationIgnored private var isSelected = false
     @ObservationIgnored private var contentProcessTerminated = false
     @ObservationIgnored private var pendingNavigationMethod: String?
@@ -235,8 +242,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #endif
         backingWebView = view
         observations = [
-            view.observe(\.title, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
-            view.observe(\.url, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
+            view.observe(\.title, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refreshHistoryView() } },
+            view.observe(\.url, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refreshHistoryView() } },
             view.observe(\.isLoading, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
             view.observe(\.estimatedProgress, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
             view.observe(\.canGoBack, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
@@ -406,7 +413,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             backingWebView === view && url.map(AddressResolver.isWebURL) == true
     }
 
-    public func navigate(to destination: URL) {
+    public func navigate(to destination: URL, typed: Bool = false) {
         guard AddressResolver.isWebURL(destination) else { return }
         let destination = settings?.privacy.cleanedNavigationURL(destination, isPrivate: isPrivate) ?? URLCleaner.clean(destination)
         invalidateSwitchSnapshot()
@@ -415,7 +422,6 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         httpWarningURL = nil
         pendingCleanedURL = nil
         let previous = record
-        lastVisitedURL = nil
         contentProcessTerminated = false
         errorMessage = nil
         content = .web
@@ -423,7 +429,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         title = destination.host ?? "Website"
         hasLoaded = true
         isLoading = true
-        webView.load(URLRequest(url: destination))
+        typedURL = typed && !isPrivate ? destination : nil
+        let navigation = webView.load(URLRequest(url: destination))
+        typedNavigation = typedURL == nil ? nil : navigation
         if record != previous { onChange?() }
     }
 
@@ -627,6 +635,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #endif
         savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil
         isClosed = true
+        cancelPendingHistory()
         policyGeneration += 1
         backingWebView?.stopLoading()
         backingWebView?.navigationDelegate = nil
@@ -658,10 +667,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         refresh(from: view)
     }
 
+    private func refreshHistoryView() {
+        guard let view = backingWebView else { return }
+        refresh(from: view)
+        observeHistory(from: view)
+    }
+
     func refresh(from view: WKWebView) {
         guard !isClosed else { return }
         let previous = record
-        let previousTitle = title
         // Display the actual document URL even for about/blob pages. Never leave an
         // earlier HTTPS origin in the address bar after the document has changed.
         if let current = view.url { url = current }
@@ -674,9 +688,47 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         isCapturingCamera = view.cameraCaptureState != .none
         isCapturingMicrophone = view.microphoneCaptureState != .none
         if record != previous { onChange?() }
-        if title != previousTitle, let url, url == lastVisitedURL, !isPrivate {
-            onTitleChange?(url, displayTitle)
+        if previous.title != title || previous.url != url { observeHistory(from: view) }
+    }
+
+    private func observeHistory(from view: WKWebView) {
+        guard recordHistoryVisit != nil, backingWebView === view,
+              let previous = historyDocumentURL, let current = view.url else { return }
+        if current == previous {
+            if var visit = activeHistoryVisit, visit.url == current, let title = view.title,
+               !title.isEmpty, visit.title != title {
+                visit.title = String(title.prefix(4_000))
+                activeHistoryVisit = visit
+                correctHistoryTitle?(visit.id, current, visit.title)
+            }
+            return
         }
+        guard AddressResolver.isWebURL(current) else { return }
+        historyCandidate?.cancel()
+        historyCandidate = Task { @MainActor [weak self, weak view] in
+            do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
+            guard let self, let view, !self.isClosed, self.isProfileActive, self.backingWebView === view,
+                  view.url == current, self.historyDocumentURL == previous else { return }
+            self.saveHistoryVisit(current, title: view.title, typed: self.typedURL == current, shared: false)
+            self.typedURL = nil
+            self.typedNavigation = nil
+        }
+    }
+
+    private func saveHistoryVisit(_ url: URL, title: String?, typed: Bool, shared: Bool) {
+        guard AddressResolver.isWebURL(url), let recordHistoryVisit else { return }
+        let title = title.flatMap { $0.isEmpty ? nil : $0 } ?? url.host ?? "Website"
+        let visit = HistoryEntry(title: String(title.prefix(4_000)), url: url, typedCount: typed ? 1 : 0)
+        historyDocumentURL = url
+        activeHistoryVisit = visit
+        recordHistoryVisit(visit, shared)
+    }
+
+    func cancelPendingHistory() {
+        historyCandidate?.cancel()
+        historyCandidate = nil
+        activeHistoryVisit = nil
+        if historyDocumentURL != nil { historyDocumentURL = backingWebView?.url }
     }
 
     /// Optional document work starts only after navigation and restoration
@@ -694,6 +746,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard !isClosed, backingWebView === webView else { return }
+        cancelPendingHistory()
+        historyDocumentURL = nil
+        historyNavigation = nil
+        historyResponseAllowed = true
         finishedDocumentRevision = nil
         if applyingRestoration { finishScrollRestoration() }
         expectedPaintDocument = nil; paintedDocuments.removeAll(); hasRenderedContent = false
@@ -741,10 +797,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         pendingNavigationHasBody = false
         pendingNavigationMethod = nil
         contentProcessTerminated = false
-        lastVisitedURL = nil
         hasEditedFields = false
         hasRequestedDisplayCapture = false
         refresh(from: webView)
+        if historyResponseAllowed, let committed = webView.url, !isRestoringWebView {
+            historyNavigation = navigation
+            let typed = typedNavigation.map { $0 === navigation } ?? (typedURL == committed)
+            saveHistoryVisit(committed, title: webView.title, typed: typed, shared: true)
+        }
+        typedNavigation = nil
+        typedURL = nil
         applySiteSettings()
     }
     func recordFieldEdit() { if !isClosed { hasEditedFields = true } }
@@ -759,10 +821,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         refresh(from: webView)
         finishedDocumentRevision = documentRevision
         notifyDocumentReady()
-        if let url, AddressResolver.isWebURL(url), !isPrivate {
-            lastVisitedURL = url
-            onVisit?(url, displayTitle)
-        }
+        observeHistory(from: webView)
     }
     public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
         adBlocker?.applyPrepared(to: webView.configuration.userContentController,
@@ -771,7 +830,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         handle(error,navigation:navigation)
     }
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { handle(error,navigation:navigation) }
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let code = (error as NSError).code
+        if let visit = activeHistoryVisit, historyNavigation === navigation, code != NSURLErrorCancelled, code != 102 {
+            discardHistoryVisit?(visit.id)
+            cancelPendingHistory()
+            historyDocumentURL = nil
+        }
+        handle(error, navigation: navigation)
+    }
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard !isClosed, backingWebView === webView else { return }
         hasRenderedContent = false
@@ -928,6 +995,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     public func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                         decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
+        if navigationResponse.isForMainFrame {
+            let status = (navigationResponse.response as? HTTPURLResponse)?.statusCode ?? 200
+            historyResponseAllowed = status < 400 && navigationResponse.canShowMIMEType
+        }
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
     }
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

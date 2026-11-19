@@ -773,7 +773,7 @@ struct MobileBrowserView: View {
     private var homeBookmarks: [Bookmark] { Array(controller.session.bookmarks.prefix(6)) }
     private var homeRecent: [HistoryEntry] {
         let shown = Set(homeBookmarks.map(\.url))
-        return Array(controller.session.history.filter { !shown.contains($0.url) }.prefix(5))
+        return controller.session.recentHistory(excluding: shown)
     }
     private var home: some View {
         ScrollView {

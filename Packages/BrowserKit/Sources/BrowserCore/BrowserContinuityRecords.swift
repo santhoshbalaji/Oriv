@@ -60,6 +60,7 @@ public struct ContinuityRecord: Codable, Equatable, Sendable, Identifiable {
     public var counter: Int64
     public var writer: UUID
     public var payload: ContinuityPayload?
+    public var historyPruned: Bool?
     public init(id: String, counter: Int64, writer: UUID, payload: ContinuityPayload?) {
         self.id = id; self.counter = counter; self.writer = writer; self.payload = payload
     }
@@ -182,11 +183,13 @@ public struct ContinuityReplica: Codable, Sendable {
         guard accountID == nil || accountID == id else { throw ContinuityError.accountChanged }
         accountID = id
     }
-    public mutating func put(_ id: String, _ payload: ContinuityPayload?, seed: Bool = false) throws {
-        if let current = records[id], current.payload == payload { return }
+    public mutating func put(_ id: String, _ payload: ContinuityPayload?, seed: Bool = false, historyPruned: Bool? = nil) throws {
+        if let current = records[id], current.payload == payload, current.historyPruned == historyPruned { return }
         guard records.count < 100_000 || records[id] != nil else { throw ContinuityError.storageFull }
         guard counter < Int64.max - 100_001 else { throw ContinuityError.storageFull }
-        let record = try ContinuityRecord(id: id, counter: counter + 1, writer: deviceID, payload: payload).validated()
+        var record = ContinuityRecord(id: id, counter: counter + 1, writer: deviceID, payload: payload)
+        record.historyPruned = historyPruned
+        _ = try record.validated()
         if seed && records[id] == nil { seedKeys.insert(id) } else { seedKeys.remove(id) }
         if dirtyRecordKeys == nil { dirtyRecordKeys = Set(records.keys) }
         dirtyRecordKeys?.insert(id)
@@ -288,7 +291,7 @@ public struct ContinuityReplica: Codable, Sendable {
             var urls = Set<URL>(), kept = 0
             for entry in entries.sorted(by: { $0.visitedAt == $1.visitedAt ? $0.id.uuidString < $1.id.uuidString : $0.visitedAt > $1.visitedAt }) {
                 if kept < 500 && urls.insert(entry.url).inserted { kept += 1 }
-                else { try put(ContinuityRecord.historyKey(profile, entry.id), nil) }
+                else { try put(ContinuityRecord.historyKey(profile, entry.id), nil, historyPruned: true) }
             }
         }
     }
@@ -300,6 +303,19 @@ public struct ContinuityReplica: Codable, Sendable {
             }
             for key in keys { try put(key, nil) }
         } else { try put(key, nil) }
+    }
+    public func historyChanges(for profile: UUID) -> (pruned: Set<UUID>, removed: Set<UUID>, cleared: [ClosedRange<Date>]) {
+        var pruned = Set<UUID>(), removed = Set<UUID>(), cleared: [ClosedRange<Date>] = []
+        let prefix = "history.\(profile)."
+        for record in records.values {
+            if case .historyClear(let owner, let since, let through) = record.payload, owner == profile {
+                cleared.append(since...through)
+            } else if record.payload == nil, record.id.hasPrefix(prefix),
+                      let id = UUID(uuidString: String(record.id.dropFirst(prefix.count))) {
+                if record.historyPruned == true { pruned.insert(id) } else { removed.insert(id) }
+            }
+        }
+        return (pruned, removed, cleared)
     }
     public func historyWasCleared(_ profile: UUID, _ date: Date) -> Bool {
         records.values.contains { record in

@@ -11,11 +11,11 @@ struct StartPage: View {
     /// Recent pages that are not already shown as bookmarks.
     private var recent: [HistoryEntry] {
         let shown = Set(bookmarks.map(\.url))
-        return Array(controller.session.history.filter { !shown.contains($0.url) }.prefix(5))
+        return controller.session.recentHistory(excluding: shown)
     }
 
     var body: some View {
-        let context = URLDisplay.Context(bookmarks.map { ($0.title, $0.url) } + recent.map { ($0.title, $0.url) })
+        let context = URLDisplay.Context(isPrivate ? [] : bookmarks.map { ($0.title, $0.url) } + recent.map { ($0.title, $0.url) })
         ScrollView {
             VStack(alignment: .leading, spacing: 36) {
                 if isPrivate {

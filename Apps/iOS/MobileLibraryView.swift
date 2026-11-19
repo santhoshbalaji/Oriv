@@ -37,17 +37,28 @@ struct MobileSavedPages: View {
     let controller: MobileController
     let history: Bool
     @State private var query = ""
+    @State private var historyOffset = 0
+    @State private var confirmClear = false
+    private let historyPageSize = 100
     private var title: String { history ? "History" : "Bookmarks" }
     private func matches(_ title: String, _ url: URL) -> Bool { query.isEmpty || title.localizedCaseInsensitiveContains(query) || url.absoluteString.localizedCaseInsensitiveContains(query) }
     var body: some View {
         List {
             if history {
-                let entries = controller.session.history.filter { matches($0.title, $0.url) }
-                if entries.isEmpty { empty(isEmpty: controller.session.history.isEmpty) }
+                let page = controller.session.historyPage(search: query, offset: historyOffset, limit: historyPageSize + 1)
+                let entries = Array(page.prefix(historyPageSize))
+                if entries.isEmpty { empty(isEmpty: controller.session.historyCount == 0) }
                 let context = URLDisplay.Context(entries.map { ($0.title, $0.url) })
                 ForEach(entries) { entry in
                     link(entry.title, url: entry.url, context: context).listRowBackground(theme.row)
                         .swipeActions { Button("Remove", role: .destructive) { controller.session.removeHistory(entry.id) } }
+                }
+                if historyOffset > 0 || page.count > historyPageSize {
+                    HStack {
+                        Button("Previous Page") { historyOffset -= historyPageSize }.disabled(historyOffset == 0)
+                        Spacer()
+                        Button("Next Page") { historyOffset += historyPageSize }.disabled(page.count <= historyPageSize)
+                    }.buttonStyle(.borderless).listRowBackground(theme.row)
                 }
             } else {
                 let entries = controller.session.bookmarks.filter { matches($0.title, $0.url) }
@@ -62,6 +73,18 @@ struct MobileSavedPages: View {
                 }
             }
         }.orivListStyle(theme).navigationTitle(title).searchable(text: $query, prompt: "Search \(title.lowercased())")
+            .onChange(of: query) { _, _ in historyOffset = 0 }
+            .onChange(of: controller.session.historyRevision) { _, _ in
+                if history && controller.session.historyPage(search: query, offset: historyOffset, limit: 1).isEmpty { historyOffset = 0 }
+            }
+            .toolbar {
+                if history && controller.session.historyCount > 0 {
+                    Button("Clear History", role: .destructive) { confirmClear = true }
+                }
+            }
+            .confirmationDialog("Clear browsing history?", isPresented: $confirmClear) {
+                Button("Clear History", role: .destructive) { controller.session.clearHistory() }
+            }
     }
     @ViewBuilder private func empty(isEmpty: Bool) -> some View {
         BrowserEmptyState(isEmpty ? (history ? "No history yet. Private tabs aren’t included." : "No bookmarks yet. Bookmark a page from its options menu.") : "No results for “\(query)”.")

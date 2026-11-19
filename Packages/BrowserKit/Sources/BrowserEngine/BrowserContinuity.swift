@@ -277,7 +277,7 @@ import Observation
     private func capture(_ profile: BrowserProfile, readPreferences: Bool = true) throws {
         guard let source = sources[profile.id] else { return }
         guard source.session.canPersist else { throw ContinuityError.invalidData }
-        let snapshot = source.session.snapshot()
+        let snapshot = source.session.continuitySnapshot()
         let preferences = readPreferences ? source.preferences() : (capturedPreferences[profile.id] ?? source.preferences())
         // Selection and receipt changes are local-only and do not dirty continuity records.
         let previous = captured[profile.id]
@@ -428,7 +428,9 @@ import Observation
             if sources[profile.id] == nil, let source = try obtainSource(profile) { sources[profile.id] = source }
             guard let source = sources[profile.id] else { continue }
             guard source.session.canPersist else { throw ContinuityError.invalidData }
-            try source.session.applyContinuity(bookmarks: state.bookmarks(for: profile.id), history: state.history(for: profile.id))
+            let changes = state.historyChanges(for: profile.id)
+            try source.session.applyContinuity(bookmarks: state.bookmarks(for: profile.id), history: state.history(for: profile.id),
+                                               prunedIDs: changes.pruned, removedIDs: changes.removed, clearRanges: changes.cleared)
             source.applyPreferences(state.preferences(for: profile.id))
             state.observedBookmarks[profile.id] = source.session.bookmarks
         }
@@ -450,7 +452,7 @@ import Observation
         // Newly received profiles get normal observers and a baseline for incremental capture.
         for profile in getProfiles() {
             guard let source = sources[profile.id] else { continue }
-            let snapshot = source.session.snapshot()
+            let snapshot = source.session.continuitySnapshot()
             let previous = captured[profile.id]
             captured[profile.id] = snapshot
             if allowOpenRequests, previous?.tabs != snapshot.tabs {

@@ -15,7 +15,18 @@ public final class BrowserSession {
     public private(set) var tabs: [BrowserTab] = []
     public private(set) var selectedTabID: UUID? { didSet { updateTabSelection() } }
     public private(set) var bookmarks: [Bookmark] = [] { didSet { suggestionRevision += 1 } }
-    public private(set) var history: [HistoryEntry] = [] { didSet { suggestionRevision += 1 } }
+    public private(set) var historyRevision = 0
+    public var historyCount: Int { _ = historyRevision; return (try? historyStore?.count) ?? 0 }
+    public var history: [HistoryEntry] { historyPage(limit: VisitHistoryStore.maximumVisits) }
+    public func historyPage(search: String = "", offset: Int = 0, limit: Int = 100) -> [HistoryEntry] {
+        _ = historyRevision
+        return (try? historyStore?.page(search: search, offset: offset, limit: limit)) ?? []
+    }
+    public func recentHistory(excluding urls: Set<URL>, limit: Int = 5) -> [HistoryEntry] {
+        _ = historyRevision
+        let recent = (try? historyStore?.recentDistinct(limit: limit + urls.count)) ?? []
+        return Array(recent.lazy.filter { !urls.contains($0.url) }.prefix(limit))
+    }
     public private(set) var persistenceNotice: String?
     public private(set) var canPersist = true
     public private(set) var isProfileActive = true
@@ -49,6 +60,11 @@ public final class BrowserSession {
     @ObservationIgnored private let writer: OrderedSessionWriter?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private let suggestionIndex = AddressSuggestionIndex()
+    @ObservationIgnored private var historyStore: VisitHistoryStore?
+    @ObservationIgnored private let recordsQAFixtureHistory: Bool
+    @ObservationIgnored private var sharedHistory: [HistoryEntry] = []
+    @ObservationIgnored private var appliedHistoryRemovals = Set<UUID>()
+    @ObservationIgnored private var appliedHistoryClears = Set<ClosedRange<Date>>()
     private var suggestionRevision = 0
     private var legacyBookmarksImported = false
     private var importingLegacyBookmarks = false
@@ -64,29 +80,46 @@ public final class BrowserSession {
     #endif
 
     public init(store: (any BrowserSessionStore)? = nil, dataStore: WKWebsiteDataStore = .default(),
-                adBlocker: AdBlocker = AdBlocker(), settings: BrowserSettings = BrowserSettings(), externalPrivate: Bool = false, faviconDirectory: URL? = nil) {
+                adBlocker: AdBlocker = AdBlocker(), settings: BrowserSettings = BrowserSettings(), externalPrivate: Bool = false, faviconDirectory: URL? = nil,
+                recordsQAFixtureHistory: Bool = false) {
         siteIcons = SiteIconStore(directory: externalPrivate ? nil : faviconDirectory)
         isExternalPrivate = externalPrivate
+        self.recordsQAFixtureHistory = recordsQAFixtureHistory
         self.store = externalPrivate ? nil : store
         writer = externalPrivate ? nil : store.map { OrderedSessionWriter(store: $0) }
         self.adBlocker = adBlocker
         self.settings = settings
         websiteData = WebsiteDataManager(store: dataStore)
         regularDataStore = dataStore
-        if let store, !externalPrivate {
+        if !externalPrivate {
             do {
-                let result = try store.load()
-                if let snapshot = result.snapshot {
+                let result = try store?.load()
+                let fileURL = (store as? SessionFileStore)?.fileURL.deletingLastPathComponent().appendingPathComponent("history.sqlite")
+                let historyStore = try VisitHistoryStore(fileURL: fileURL)
+                self.historyStore = historyStore
+                if let snapshot = result?.snapshot {
                     lastSavedSnapshot = snapshot; lastQueuedSnapshot = snapshot
                     legacyBookmarksImported = snapshot.legacyBookmarksImported == true
                     appliedOpenRequests = snapshot.appliedOpenRequests ?? []
                     bookmarks = snapshot.bookmarks
-                    history = snapshot.history
                     tabs = (settings.restoreTabs ? snapshot.tabs : snapshot.tabs.filter(\.isPinned)).map { makeTab(record: $0) }
                     selectedTabID = snapshot.selectedTabID
                     if !tabs.contains(where: { $0.id == selectedTabID }) { selectedTabID = tabs.first?.id }
                 }
-                if result.recoveredFromBackup { persistenceNotice = "Your last valid session was recovered from a backup." }
+                try historyStore.migrate((result?.snapshot?.history ?? []).filter { historyAllows($0.url) })
+                refreshSharedHistory()
+                if result?.recoveredFromBackup == true { persistenceNotice = "Your last valid session was recovered from a backup." }
+                // Also scrub a legacy backup left after an interrupted migration.
+                let legacyBackup = (store as? SessionFileStore).map {
+                    FileManager.default.fileExists(atPath: $0.backupURL.path)
+                        && ((try? SessionFileStore(fileURL: $0.backupURL).load().snapshot?.history.isEmpty) == false)
+                } ?? false
+                if let snapshot = result?.snapshot, !snapshot.history.isEmpty || legacyBackup {
+                    var clean = snapshot
+                    clean.history = []
+                    try writer?.saveAndWait(clean, discardPrevious: true)
+                    lastSavedSnapshot = clean; lastQueuedSnapshot = clean
+                }
             } catch {
                 canPersist = false
                 persistenceNotice = error.localizedDescription + " Saving is paused to protect it."
@@ -317,7 +350,7 @@ public final class BrowserSession {
     public func navigate(_ input: String) throws {
         let url = try AddressResolver.resolve(input, searchEngine: settings.searchEngine)
         if selectedTab == nil { addTab() }
-        selectedTab?.navigate(to: url)
+        selectedTab?.navigate(to: url, typed: true)
     }
 
     /// Saved links reuse an empty regular tab; they never replace a private page or edited document.
@@ -346,7 +379,7 @@ public final class BrowserSession {
         }
     }
     public func indexedSuggestions(for query: String, isPrivate: Bool) async -> [BrowserSuggestion] {
-        await suggestionIndex.matches(query, history: isPrivate ? [] : history, bookmarks: isPrivate ? [] : bookmarks,
+        await suggestionIndex.matches(query, store: isPrivate ? nil : historyStore, bookmarks: isPrivate ? [] : bookmarks,
             revision: suggestionRevision, tabs: suggestionTabs(isPrivate: isPrivate), isPrivate: isPrivate)
     }
 
@@ -402,14 +435,56 @@ public final class BrowserSession {
         bookmarks.insert(removed.bookmark, at: min(removed.index, bookmarks.count)); saveNow()
     }
     public func dismissBookmarkUndo() { removedBookmark = nil }
-    public func clearHistory(since date: Date = .distantPast) { onContinuityHistoryCleared?(date); history.removeAll { $0.visitedAt >= date }; recentlyClosed = []; saveNow(discardPrevious: true) }
-    public func removeHistory(_ id: UUID) { onContinuityHistoryRemoved?(id); history.removeAll { $0.id == id }; saveNow(discardPrevious: true) }
+    public func clearHistory(since date: Date = .distantPast) {
+        guard let historyStore else { return }
+        do {
+            try historyStore.clear(since: date)
+            tabs.forEach { $0.cancelPendingHistory() }
+            refreshSharedHistory()
+            historyRevision += 1
+            recentlyClosed = []
+            onContinuityHistoryCleared?(date)
+            Task { await siteIcons.clearRegular() }
+            saveNow(discardPrevious: true)
+        } catch { persistenceNotice = error.localizedDescription }
+    }
+    public func removeHistory(_ id: UUID) {
+        do {
+            try historyStore?.remove(id)
+            refreshSharedHistory()
+            historyRevision += 1
+            onContinuityHistoryRemoved?(id)
+            saveNow(discardPrevious: true)
+        } catch { persistenceNotice = error.localizedDescription }
+    }
     public func dismissNotice() { if canPersist { persistenceNotice = nil } }
 
     public func snapshot() -> BrowserSnapshot {
         let records = tabs.filter { !$0.isPrivate }.map(\.record)
         let selected = records.contains { $0.id == selectedTabID } ? selectedTabID : records.first?.id
-        return BrowserSnapshot(tabs: records, selectedTabID: selected, bookmarks: bookmarks, history: history, legacyBookmarksImported: legacyBookmarksImported, appliedOpenRequests: appliedOpenRequests)
+        return BrowserSnapshot(tabs: records, selectedTabID: selected, bookmarks: bookmarks, legacyBookmarksImported: legacyBookmarksImported, appliedOpenRequests: appliedOpenRequests)
+    }
+
+    func continuitySnapshot() -> BrowserSnapshot {
+        var snapshot = snapshot()
+        snapshot.history = sharedHistory
+        return snapshot
+    }
+
+    private func refreshSharedHistory() {
+        if let entries = try? historyStore?.sharedHistory() {
+            sharedHistory = entries.map {
+                var entry = $0
+                entry.typedCount = 0
+                return entry
+            }
+        }
+    }
+
+    private func historyAllows(_ url: URL) -> Bool {
+        guard AddressResolver.isWebURL(url) else { return false }
+        let fixture = [8768, 18768].contains(url.port ?? 0) && ["127.0.0.1", "localhost", "::1", "[::1]"].contains(url.host ?? "")
+        return recordsQAFixtureHistory || !fixture
     }
 
     public func saveNow(discardPrevious: Bool = false) {
@@ -478,17 +553,28 @@ public final class BrowserSession {
     }
 
     /// Never replaces local tabs, website state or edited forms when receiving cloud changes.
-    public func applyContinuity(bookmarks: [Bookmark], history: [HistoryEntry]) throws {
-        guard canPersist else { throw ContinuityError.invalidData }
-        guard self.bookmarks != bookmarks || self.history != history else { return }
-        let oldBookmarks = self.bookmarks, oldHistory = self.history
-        self.bookmarks = bookmarks; self.history = history
+    public func applyContinuity(bookmarks: [Bookmark], history: [HistoryEntry],
+                                prunedIDs: Set<UUID> = [], removedIDs: Set<UUID> = [],
+                                clearRanges: [ClosedRange<Date>] = []) throws {
+        guard canPersist, let historyStore else { throw ContinuityError.invalidData }
+        let history = history.filter { historyAllows($0.url) }
+        let removedIDs = removedIDs.subtracting(appliedHistoryRemovals)
+        let clearRanges = Set(clearRanges).subtracting(appliedHistoryClears)
+        guard self.bookmarks != bookmarks || sharedHistory != history || !removedIDs.isEmpty || !clearRanges.isEmpty else { return }
+        let oldBookmarks = self.bookmarks
+        self.bookmarks = bookmarks
+        let current = snapshot()
         do {
-            let snapshot = snapshot()
-            try writer?.saveAndWait(snapshot, discardPrevious: true)
-            if store != nil { completeWrites(); lastSavedSnapshot = snapshot; lastQueuedSnapshot = snapshot }
-        }
-        catch { self.bookmarks = oldBookmarks; self.history = oldHistory; throw error }
+            try historyStore.applyShared(history, prunedIDs: prunedIDs, removedIDs: removedIDs, clearRanges: Array(clearRanges)) {
+                try writer?.saveAndWait(current, discardPrevious: true)
+            }
+            appliedHistoryRemovals.formUnion(removedIDs)
+            appliedHistoryClears.formUnion(clearRanges)
+            if !clearRanges.isEmpty { tabs.forEach { $0.cancelPendingHistory() } }
+            refreshSharedHistory()
+            historyRevision += 1
+            if store != nil { completeWrites(); lastSavedSnapshot = current; lastQueuedSnapshot = current }
+        } catch { self.bookmarks = oldBookmarks; throw error }
     }
 
     private func scheduleSave() {
@@ -514,20 +600,31 @@ public final class BrowserSession {
             guard tab?.isPrivate == false else { return }
             self?.scheduleSave()
         }
-        tab.onTitleChange = { [weak self, weak tab] url, title in
-            guard let self, tab?.isPrivate == false, self.history.first?.url == url,
-                  self.history[0].title != title else { return }
-            // A title correction is the same visit: retain its UUID and recency.
-            self.history[0].title = title
-            self.scheduleSave()
-        }
-        tab.onVisit = { [weak self, weak tab] url, title in
-            guard let self, let tab, !tab.isPrivate else { return }
-            let visits = min(1_000_000, (self.history.first { $0.url == url }?.visitCount ?? 0) + 1)
-            self.history.removeAll { $0.url == url }
-            self.history.insert(HistoryEntry(title: title, url: url, visitCount: visits), at: 0)
-            self.history = Array(self.history.prefix(500))
-            self.scheduleSave()
+        if !isPrivate {
+            tab.recordHistoryVisit = { [weak self] entry, shared in
+                guard let self, !self.isShutDown, self.isProfileActive, self.historyAllows(entry.url),
+                      let historyStore = self.historyStore else { return }
+                do {
+                    try historyStore.record(entry, shared: shared)
+                    self.historyRevision += 1
+                    if shared {
+                        self.refreshSharedHistory()
+                        self.onContinuitySnapshotChange?()
+                    }
+                } catch { self.persistenceNotice = error.localizedDescription }
+            }
+            tab.discardHistoryVisit = { [weak self] id in self?.removeHistory(id) }
+            tab.correctHistoryTitle = { [weak self] id, url, title in
+                guard let self, !self.isShutDown, let historyStore = self.historyStore else { return }
+                do {
+                    guard try historyStore.updateTitle(id: id, url: url, title: title) else { return }
+                    self.historyRevision += 1
+                    if self.sharedHistory.contains(where: { $0.id == id }) {
+                        self.refreshSharedHistory()
+                        self.onContinuitySnapshotChange?()
+                    }
+                } catch { self.persistenceNotice = error.localizedDescription }
+            }
         }
         tab.onDocumentReady = { [weak self, weak tab] url in
             Task { @MainActor [weak self, weak tab] in

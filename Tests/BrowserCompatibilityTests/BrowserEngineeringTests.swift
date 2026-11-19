@@ -46,7 +46,7 @@ private final class CountingSessionStore: BrowserSessionStore {
     }
     override func tearDown() async throws { try? FileManager.default.removeItem(at: root) }
     private func session(_ store: (any BrowserSessionStore)? = nil) -> BrowserSession {
-        BrowserSession(store: store, dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil))
+        BrowserSession(store: store, dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil), recordsQAFixtureHistory: true)
     }
     private func view(for tab: BrowserTab) -> EngineeringWebView {
         tab.createWebView = { EngineeringWebView(frame: .zero, configuration: $0) }
@@ -156,7 +156,8 @@ private final class CountingSessionStore: BrowserSessionStore {
         XCTAssertThrowsError(try session.applyContinuity(bookmarks: [], history: [entry]))
         XCTAssertTrue(session.history.isEmpty)
         store.fail = false; try session.applyContinuity(bookmarks: [], history: [entry])
-        XCTAssertEqual(try store.file.load().snapshot?.history, [entry])
+        XCTAssertEqual(try store.file.load().snapshot?.history, [])
+        XCTAssertEqual(session.history, [entry])
         store.reset(); session.saveNow(); session.flushPersistence(); XCTAssertEqual(store.attempts, 0)
     }
     func testLateTitleUpdatesNewestVisitWithoutChangingIdentityOrRecency() throws {
@@ -169,7 +170,7 @@ private final class CountingSessionStore: BrowserSessionStore {
         XCTAssertEqual(session.history.count, 1); XCTAssertEqual(session.history[0].title, "The actual page title")
         XCTAssertEqual(session.history[0].id, visit.id); XCTAssertEqual(session.history[0].visitedAt, visit.visitedAt)
     }
-    func testLateTitleLeavesDifferentNewestVisitAloneAndKeepsHistoryCap() throws {
+    func testLateTitleUpdatesItsOwnVisitWithMoreThanFiveHundredEntries() throws {
         let session = session(); defer { session.shutdown() }
         let entries = (0..<500).map { HistoryEntry(title: "Page \($0)", url: URL(string: "https://history.test/\($0)")!) }
         try session.applyContinuity(bookmarks: [], history: entries)
@@ -177,13 +178,15 @@ private final class CountingSessionStore: BrowserSessionStore {
         view.pageURL = URL(string: "https://history.test/new"); view.pageTitle = "Host"
         commit(tab, view: view); tab.webView(view, didFinish: nil)
         view.pageTitle = "Late title"; tab.refresh(from: view)
-        XCTAssertEqual(session.history.count, 500); XCTAssertEqual(session.history[0].title, "Late title")
+        XCTAssertEqual(session.history.count, 501); XCTAssertEqual(session.history[0].title, "Late title")
         let newestTab = session.addTab(load: false), newestView = self.view(for: newestTab)
         newestView.pageURL = URL(string: "https://other.test/new"); newestView.pageTitle = "Newest"
         commit(newestTab, view: newestView); newestTab.webView(newestView, didFinish: nil)
         let before = session.history
-        view.pageTitle = "Too late for newest visit"; tab.refresh(from: view)
-        XCTAssertEqual(session.history, before); XCTAssertEqual(session.history.count, 500)
+        view.pageTitle = "Corrected background title"; tab.refresh(from: view)
+        XCTAssertEqual(session.history.first, before.first)
+        XCTAssertEqual(session.history.first { $0.url == view.url }?.title, "Corrected background title")
+        XCTAssertEqual(session.history.count, 502)
         session.clearHistory(); view.pageTitle = "After clear"; tab.refresh(from: view)
         XCTAssertTrue(session.history.isEmpty)
     }

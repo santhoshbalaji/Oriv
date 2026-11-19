@@ -1,6 +1,6 @@
 import XCTest
 import BrowserCore
-import BrowserEngine
+@testable import BrowserEngine
 import WebKit
 
 @MainActor private final class MemoryContinuityTransport: ContinuityTransport {
@@ -142,17 +142,17 @@ import WebKit
         let first = continuity(transport, session: mac), second = continuity(transport, session: phone)
         defer { first.shutdown(); second.shutdown(); mac.shutdown(); phone.shutdown() }
         let tab = mac.addTab(url: URL(string: "https://example.test/late-title")!, load: false)
-        tab.onVisit?(tab.url!, "example.test")
+        tab.recordHistoryVisit?(HistoryEntry(title: "example.test", url: tab.url!), true)
         let visit = try XCTUnwrap(mac.history.first)
         first.setEnabled(true); await first.syncNow(); second.setEnabled(true); await second.syncNow()
         XCTAssertEqual(phone.history, [visit])
-        tab.onTitleChange?(tab.url!, "Final page title")
+        tab.correctHistoryTitle?(visit.id, tab.url!, "Final page title")
         await first.syncNow(); await second.syncNow(); await first.syncNow()
         XCTAssertEqual(phone.history.count, 1); XCTAssertEqual(phone.history[0].title, "Final page title")
         XCTAssertEqual(phone.history[0].id, visit.id); XCTAssertEqual(phone.history[0].visitedAt, visit.visitedAt)
         XCTAssertEqual(mac.history, phone.history)
         phone.removeHistory(visit.id); await second.syncNow(); await first.syncNow()
-        tab.onTitleChange?(tab.url!, "After removal")
+        tab.correctHistoryTitle?(visit.id, tab.url!, "After removal")
         await first.syncNow(); await second.syncNow()
         XCTAssertTrue(mac.history.isEmpty); XCTAssertTrue(phone.history.isEmpty)
     }
