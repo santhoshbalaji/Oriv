@@ -8,7 +8,7 @@ The local browser gate builds the unsigned iPhone app for a generic Simulator de
 
 Empty tabs resolve chrome colors against their window appearance. Favicon discovery uses the originating WebKit User-Agent and an anonymous session, including across redirects. Private icons remain in memory and are cleared when the private session ends.
 
-The 8 MiB in-memory tab snapshot cache charges JPEG bytes plus per-entry overhead and evicts in least-recently-used order. Each visible destination cover bounds its own decode and releases it on dismissal or invalidation. Mac geometry anchors compile only in Debug, where existing layout and focus tests still use them. Background capture and memory evidence is indexed in `build/release-0.15.5/REPORT.md`.
+The 8 MiB in-memory tab snapshot cache charges JPEG bytes plus per-entry overhead and evicts in least-recently-used order. Each visible destination cover bounds its own decode and releases it on dismissal or invalidation. Mac geometry anchors used only by tests compile in Debug. Tab rows and the search panel keep their functional hit regions for middle-click and outside-click handling. Background capture and memory evidence is indexed in `build/release-0.15.5/REPORT.md`.
 
 ## 0.15.4 (28)
 

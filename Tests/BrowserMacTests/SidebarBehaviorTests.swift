@@ -380,6 +380,51 @@ import XCTest
         XCTAssertTrue(w.firstResponder === responder)
     }
 
+    func testRuntimeHitTargetsWorkWithoutDebugIdentifiers() async throws {
+        let c = BrowserController(testing: true)
+        defer { c.shutdown() }
+        c.compactSidebar = true
+        let tab = c.session.addTab(select: false, load: false)
+        let w = host(c)
+        defer { w.close() }
+
+        func target(_ kind: SidebarHitTarget.Kind) -> SidebarHitTarget.TargetView? {
+            w.contentView.map(views)?.compactMap { $0 as? SidebarHitTarget.TargetView }.first { $0.kind == kind && !$0.bounds.isEmpty }
+        }
+        func center(_ view: NSView) -> NSPoint {
+            view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        }
+        func send(_ type: NSEvent.EventType, at point: NSPoint) throws {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            if type == .otherMouseUp {
+                let click = try XCTUnwrap(event.cgEvent)
+                click.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+                NSApp.sendEvent(try XCTUnwrap(NSEvent(cgEvent: click)))
+            } else {
+                NSApp.sendEvent(event)
+            }
+        }
+
+        let hasRow = try await waitUntil { target(.tab(tab.id)) != nil }
+        XCTAssertTrue(hasRow)
+        let row = try XCTUnwrap(target(.tab(tab.id)))
+        row.identifier = nil
+        try send(.otherMouseUp, at: center(row))
+        XCTAssertFalse(c.session.tabs.contains { $0.id == tab.id })
+
+        c.searchTabs()
+        let hasPanel = try await waitUntil { target(.searchPanel) != nil }
+        XCTAssertTrue(hasPanel)
+        let panel = try XCTUnwrap(target(.searchPanel))
+        panel.identifier = nil
+        try send(.leftMouseDown, at: center(panel))
+        XCTAssertTrue(c.tabSearchPanel)
+        try send(.leftMouseDown, at: NSPoint(x: 700, y: 400))
+        XCTAssertFalse(c.tabSearchPanel)
+    }
+
     func testPeekKeepsVisibleFaviconCentresInPlace() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         for _ in 0..<3 { _ = c.session.addTab(select: false, load: false) }

@@ -35,7 +35,7 @@ struct SidebarSearchPanel: View {
             .environment(\.browserTheme, Theme.sidebar).focusEffectDisabled()
             .background(Theme.sidebar.surface, in: .rect(cornerRadius: 14))
             .overlay { RoundedRectangle(cornerRadius: 14).stroke(Theme.sidebar.separator) }
-            .browserGeometryMarker("sidebarSearchPanel")
+            .background(SidebarHitTarget(kind: .searchPanel))
             .task {
                 privateScope = controller.session.selectedTab?.isPrivate ?? controller.session.isExternalPrivate
                 focused = true

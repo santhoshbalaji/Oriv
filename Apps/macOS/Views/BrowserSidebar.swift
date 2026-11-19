@@ -593,7 +593,7 @@ private struct SidebarTabItem: View {
             }
         }
         .frame(width: rail && !peek ? 42 : (tile && !rail ? 56 : nil))
-        .browserGeometryMarker("sidebarItem-\(tab.id)")
+        .background(SidebarHitTarget(kind: .tab(tab.id)))
         .browserGeometryMarker("sidebarKeyboardFocus-\(tab.id)", when: keyboardFocused)
         // The mock's lifted selection stays centred within the rail inset.
         .background(selected ? theme.selection : (hovered ? theme.thread : (tile && !rail ? theme.field.opacity(0.6) : .clear)),

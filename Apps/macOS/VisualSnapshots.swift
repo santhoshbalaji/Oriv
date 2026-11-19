@@ -564,7 +564,7 @@ import WebKit
 
     private static func writeSidebarGeometry(_ window: NSWindow, to url: URL) {
         func markers(_ view: NSView) -> [NSView] {
-            (view is BrowserGeometryMarker.Marker ? [view] : []) + view.subviews.flatMap(markers)
+            (view is BrowserGeometryMarker.Marker || view is SidebarHitTarget.TargetView ? [view] : []) + view.subviews.flatMap(markers)
         }
         let frames = (window.contentView.map { markers($0).map { ["name": $0.identifier?.rawValue ?? "", "frame": NSStringFromRect($0.convert($0.bounds, to: nil))] } }) ?? []
         let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type -> [String: Any]? in

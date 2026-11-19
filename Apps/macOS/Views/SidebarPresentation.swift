@@ -124,6 +124,33 @@ struct SidebarTooltipBounds: PreferenceKey {
     }
 }
 
+/// Supplies window-space hit regions for the event monitor without intercepting input.
+struct SidebarHitTarget: NSViewRepresentable {
+    enum Kind: Equatable { case searchPanel, tab(UUID) }
+    let kind: Kind
+
+    func makeNSView(context: Context) -> TargetView {
+        let view = TargetView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: TargetView, context: Context) {
+        view.kind = kind
+        #if DEBUG
+        switch kind {
+        case .searchPanel: view.identifier = NSUserInterfaceItemIdentifier("sidebarSearchPanel")
+        case .tab(let id): view.identifier = NSUserInterfaceItemIdentifier("sidebarItem-\(id)")
+        }
+        #endif
+    }
+
+    final class TargetView: NSView {
+        var kind: Kind?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
 /// Window-scoped events; no new panel, focus request, polling, or app activation.
 struct SidebarWindowEvents: NSViewRepresentable {
     let controller: BrowserController
@@ -157,25 +184,18 @@ struct SidebarWindowEvents: NSViewRepresentable {
                 }
                 if event.type == .leftMouseDown {
                     if controller.tabSearchPanel, let content = self.window?.contentView {
-                        func containsPanel(_ view: NSView) -> Bool {
-                            if view.identifier?.rawValue == "sidebarSearchPanel" {
-                                return view.convert(view.bounds, to: nil).contains(event.locationInWindow)
-                            }
-                            return view.subviews.contains(where: containsPanel)
-                        }
-                        if !containsPanel(content) { self.dismiss?() }
+                        let insidePanel = self.target(at: event.locationInWindow, in: content) { $0 == .searchPanel } != nil
+                        if !insidePanel { self.dismiss?() }
                     } else if event.locationInWindow.x > controller.sidebar.width, controller.sidebar.overlay { self.dismiss?() }
                 }
                 if event.type == .otherMouseUp, event.buttonNumber == 2,
                    let content = self.window?.contentView {
-                    func find(_ view: NSView) -> UUID? {
-                        if let name = view.identifier?.rawValue, name.hasPrefix("sidebarItem-"),
-                           view.convert(view.bounds, to: nil).contains(event.locationInWindow) {
-                            return UUID(uuidString: String(name.dropFirst("sidebarItem-".count)))
-                        }
-                        return view.subviews.lazy.compactMap(find).first
+                    let target = self.target(at: event.locationInWindow, in: content) {
+                        if case .tab = $0 { return true }
+                        return false
                     }
-                    if let id = find(content), let tab = controller.session.tabs.first(where: { $0.id == id }), !tab.isPinned {
+                    if case .tab(let id) = target,
+                       let tab = controller.session.tabs.first(where: { $0.id == id }), !tab.isPinned {
                         controller.requestCloseTab(id); return nil
                     }
                 }
@@ -190,6 +210,16 @@ struct SidebarWindowEvents: NSViewRepresentable {
                 MainActor.assumeIsolated { self?.controller?.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled }
             })
         }
+        private func target(at point: NSPoint, in view: NSView,
+                            matching: (SidebarHitTarget.Kind) -> Bool) -> SidebarHitTarget.Kind? {
+            if let kind = (view as? SidebarHitTarget.TargetView)?.kind, matching(kind),
+               view.convert(view.bounds, to: nil).contains(point) { return kind }
+            for child in view.subviews {
+                if let hit = target(at: point, in: child, matching: matching) { return hit }
+            }
+            return nil
+        }
+
         func detach() {
             if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil
             observers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }; observers = []
