@@ -316,27 +316,36 @@ struct BrowserSidebar: View {
         }
     }
 
+    private var scrollableTabs: some View {
+        ScrollView {
+            tabRows
+        }
+        .scrollPosition(id: Binding(get: { railLayout ? railAnchor : expandedAnchor }, set: {
+            if railLayout { railAnchor = $0 } else { expandedAnchor = $0 }
+        }))
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
+                controller.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled
+                controller.sidebar.pointer(true, moved: true)
+            case .ended: controller.sidebar.pointer(false)
+            }
+        }
+        // On Macs with legacy scrollbars, .hidden still reserves a 17 pt
+        // gutter. The 56 pt rail needs its full width for 42 pt focus rings
+        // and 7 pt insets; keyboard arrows and the scroll wheel remain usable.
+        .scrollIndicators(railLayout ? .never : .hidden)
+        .accessibilityIdentifier("sidebarTabs")
+    }
+
     private var tabCollection: some View {
         ScrollViewReader { reader in
-            ScrollView {
-                tabRows
-            }
-            .scrollPosition(id: Binding(get: { railLayout ? railAnchor : expandedAnchor }, set: {
-                if railLayout { railAnchor = $0 } else { expandedAnchor = $0 }
-            }))
-            .onContinuousHover { phase in
-                switch phase {
-                case .active:
-                    controller.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled
-                    controller.sidebar.pointer(true, moved: true)
-                case .ended: controller.sidebar.pointer(false)
-                }
-            }
-            // On Macs with legacy scrollbars, .hidden still reserves a 17 pt
-            // gutter. The 56 pt rail needs its full width for 42 pt focus rings
-            // and 7 pt insets; keyboard arrows and the scroll wheel remain usable.
-            .scrollIndicators(railLayout ? .never : .hidden)
-            .accessibilityIdentifier("sidebarTabs")
+            focusTrackedTabs(reader)
+        }
+    }
+
+    private func focusTrackedTabs(_ reader: ScrollViewProxy) -> some View {
+        scrollableTabs
             .onChange(of: session.selectedTabID) { _, id in if let id { reader.scrollTo(id) } }
             .onChange(of: pendingFocus) { _, id in
                 if let id { reader.scrollTo(id) }
@@ -365,7 +374,6 @@ struct BrowserSidebar: View {
                 if let pendingFocus, !ids.contains(pendingFocus) { self.pendingFocus = nil }
                 if let focusedTab, !ids.contains(focusedTab) { pendingFocus = session.selectedTabID }
             }
-        }
     }
 
     private func sectionHeading(_ title: String, count: Int, target: SidebarDropTarget? = nil) -> some View {
@@ -555,7 +563,7 @@ private struct SidebarTabItem: View {
         #endif
     }
     @FocusState private var closeFocused: Bool
-    var body: some View {
+    private var row: some View {
         HStack(spacing: 0) {
             Button(action: select) {
                 if rail {
@@ -592,6 +600,10 @@ private struct SidebarTabItem: View {
                     .padding(.trailing, MacBrowserLayout.sidebarRowInset)
             }
         }
+    }
+
+    var body: some View {
+        row
         .frame(width: rail && !peek ? 42 : (tile && !rail ? 56 : nil))
         .background(SidebarHitTarget(kind: .tab(tab.id)))
         .browserGeometryMarker("sidebarKeyboardFocus-\(tab.id)", when: keyboardFocused)
