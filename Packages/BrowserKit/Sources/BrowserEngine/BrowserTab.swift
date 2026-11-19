@@ -581,6 +581,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
               view.bounds.width > 0, view.bounds.height > 0, let cache = snapshotCache,
               let token = cache.beginCapture() else { return }
         let generation = snapshotGeneration, revision = documentRevision
+        let viewport = view.bounds
         #if os(macOS)
         let scale = view.window?.backingScaleFactor ?? 2
         let color = view.underPageBackgroundColor.usingColorSpace(.sRGB)
@@ -591,6 +592,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if view.underPageBackgroundColor.getRed(&r,green:&g,blue:&b,alpha:&a) { lastPageBackground = ChromeColor(r,g,b) }
         #endif
         let config = WKSnapshotConfiguration()
+        config.rect = viewport
         config.snapshotWidth = NSNumber(value: min(view.bounds.width,view.bounds.width/view.bounds.height*CGFloat(TabSnapshotCache.maximumDimension),CGFloat(TabSnapshotCache.maximumDimension))/max(1,scale))
         // Flush pending drawing: didFinish can precede presentation on iOS.
         // The callback never blocks selection, nor initiates a page load.
@@ -598,13 +600,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         view.takeSnapshot(with:config) { [weak self,weak view,weak cache] image,_ in
             guard let cache, cache.finishCapture(token), let self, let view, !self.isClosed,
                   self.snapshotGeneration == generation, self.documentRevision == revision,
-                  self.backingWebView === view, let image else { return }
+                  self.backingWebView === view, view.bounds == viewport, let image else { return }
             #if os(macOS)
             let cg = image.cgImage(forProposedRect:nil,context:nil,hints:nil)
             #else
             let cg = image.cgImage
             #endif
-            if let cg, let snapshot = TabSnapshotCache.compress(cg) { cache.insert(snapshot,for:self.id) }
+            if let cg, let snapshot = TabSnapshotCache.compress(cg, pointSize: viewport.size) { cache.insert(snapshot,for:self.id) }
         }
     }
 

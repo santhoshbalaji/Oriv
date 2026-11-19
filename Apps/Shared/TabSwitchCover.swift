@@ -15,7 +15,7 @@ typealias CoverImage = UIImageView
 
 /// A destination-only cover. Never borrow pixels from another tab or privacy
 /// mode. A first paint signal identifies the document; a public WK snapshot
-/// after attachment supplies the rendering barrier before the cover fades.
+/// after attachment supplies the rendering barrier before cover dismissal.
 final class TabSwitchCover: CoverView {
     private let imageView = CoverImage()
     private var generation = 0
@@ -27,6 +27,7 @@ final class TabSwitchCover: CoverView {
     private var paintRevision = 0
     private var ready = false
     private var allowsPageInput = false
+    private var waitingForLayout = false
     var reduceMotion = false
     var containsSnapshot: Bool { imageView.image != nil }
     #if os(macOS)
@@ -40,7 +41,9 @@ final class TabSwitchCover: CoverView {
         super.init(frame: .zero)
         #if os(macOS)
         wantsLayer = true
-        imageView.imageScaling = .scaleAxesIndependently
+        imageView.imageScaling = .scaleNone
+        imageView.imageAlignment = .alignTopLeft
+        clipsToBounds = true
         label.textColor = .secondaryLabelColor; label.alignment = .center
         #else
         isOpaque = true; label.text = "Loading page…"; label.textColor = .secondaryLabel; label.textAlignment = .center
@@ -62,10 +65,15 @@ final class TabSwitchCover: CoverView {
         imageView.image = nil; label.isHidden = false
     }
 
-    func begin(_ tab: BrowserTab, in webView: WKWebView) {
+    func begin(_ tab: BrowserTab, in webView: WKWebView, waitForLayout: Bool = false) {
+        #if os(macOS)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        #endif
         cancel()
         presentedTab = tab; tab.switchPresentation = self
         generation += 1; confirming = false; renderAttempts = 0; ready = false; self.webView = webView; tabID = tab.id
+        waitingForLayout = waitForLayout
         paintRevision = tab.documentRevision
         #if os(macOS)
         layer?.removeAllAnimations(); alphaValue = 1
@@ -75,7 +83,7 @@ final class TabSwitchCover: CoverView {
         if let snapshot = tab.switchSnapshot, let source = CGImageSourceCreateWithData(snapshot.jpeg as CFData,nil),
            let cg = CGImageSourceCreateImageAtIndex(source,0,[kCGImageSourceShouldCacheImmediately:true] as CFDictionary) {
             #if os(macOS)
-            imageView.image = NSImage(cgImage:cg,size:NSSize(width:snapshot.width,height:snapshot.height))
+            imageView.image = NSImage(cgImage:cg,size:snapshot.pointSize)
             #else
             imageView.image = UIImage(cgImage:cg)
             #endif
@@ -93,6 +101,10 @@ final class TabSwitchCover: CoverView {
         confirmIfReady(tab)
         watchReadiness(tab)
     }
+    func layoutDidSettle(_ tab: BrowserTab) {
+        waitingForLayout = false
+        confirmIfReady(tab)
+    }
     private func watchReadiness(_ tab:BrowserTab) {
         guard !ready else { return }
         let token = generation
@@ -106,7 +118,7 @@ final class TabSwitchCover: CoverView {
         }
     }
     func confirmIfReady(_ tab: BrowserTab) {
-        guard !ready, tabID == tab.id, tab.isInstantiated, let webView, tab.webView === webView else { return }
+        guard !ready, !waitingForLayout, tabID == tab.id, tab.isInstantiated, let webView, tab.webView === webView else { return }
         allowsPageInput = tab.hasRenderedContent && !tab.isRestoringWebView
         #if os(iOS)
         isUserInteractionEnabled = !allowsPageInput
@@ -119,12 +131,29 @@ final class TabSwitchCover: CoverView {
               webView.bounds.width > 0, webView.bounds.height > 0 else { return }
         confirming = true; renderAttempts += 1
         let token = generation, revision = tab.documentRevision
+        #if os(macOS)
+        let viewport = webView.bounds, frame = webView.frame
+        let insets = webView.obscuredContentInsets
+        #endif
         let config = WKSnapshotConfiguration(); config.snapshotWidth = 8; config.afterScreenUpdates = true
         webView.takeSnapshot(with:config) { [weak self,weak tab,weak webView] image,_ in
             guard let self, let tab, let webView, self.webView === webView, self.generation == token,
                   tab.isInstantiated, tab.webView === webView,
                   tab.documentRevision == revision else { return }
             self.confirming = false
+            #if os(macOS)
+            guard webView.bounds == viewport, webView.frame == frame,
+                  webView.obscuredContentInsets.top == insets.top,
+                  webView.obscuredContentInsets.left == insets.left,
+                  webView.obscuredContentInsets.bottom == insets.bottom,
+                  webView.obscuredContentInsets.right == insets.right else {
+                // A successful paint for the old size cannot reveal a newly
+                // resized view. Layout owns the geometry; confirm it again.
+                self.renderAttempts = 0
+                self.confirmIfReady(tab)
+                return
+            }
+            #endif
             guard image != nil else {
                 // A transient snapshot error must not strand an otherwise
                 // painted tab behind its cover. No idle polling or force reveal.
@@ -140,14 +169,12 @@ final class TabSwitchCover: CoverView {
             #if os(iOS)
             self.isUserInteractionEnabled = false
             #endif
-            if self.reduceMotion { self.clear(); return }
             #if os(macOS)
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.1; self.animator().alphaValue = 0
-            } completionHandler: { [weak self] in
-                MainActor.assumeIsolated { if self?.generation == token { self?.clear() } }
-            }
+            // The public rendering barrier has painted this exact viewport.
+            // An instant swap has no inherited SwiftUI or layer animation.
+            self.clear()
             #else
+            if self.reduceMotion { self.clear(); return }
             UIView.animate(withDuration:0.1,delay:0,options:[.beginFromCurrentState,.curveEaseOut]) { self.alpha = 0 } completion: { [weak self] _ in
                 if self?.generation == token { self?.clear() }
             }
@@ -159,6 +186,10 @@ final class TabSwitchCover: CoverView {
         clear(); presentedTab = nil; webView = nil
     }
     private func clear() {
+        #if os(macOS)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        #endif
         isHidden = true; imageView.image = nil
         if presentedTab?.switchPresentation === self { presentedTab?.switchPresentation = nil }
     }
@@ -169,6 +200,10 @@ final class TabSwitchCover: CoverView {
     override func layoutSubviews() { super.layoutSubviews(); layoutCover() }
     #endif
     private func layoutCover() {
+        #if os(macOS)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        #endif
         imageView.frame = bounds
         label.frame = CGRect(x:16,y:bounds.midY-16,width:max(0,bounds.width-32),height:32)
     }

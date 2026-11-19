@@ -12,6 +12,13 @@ import Observation
         public let jpeg: Data
         public let width: Int
         public let height: Int
+        /// Original WebKit viewport in points, independent of JPEG pixels and
+        /// display scale. Presentation must never fit these pixels to a new size.
+        public let pointSize: CGSize
+        init(jpeg: Data, width: Int, height: Int, pointSize: CGSize? = nil) {
+            self.jpeg = jpeg; self.width = width; self.height = height
+            self.pointSize = pointSize ?? CGSize(width: width, height: height)
+        }
         var cost: Int { jpeg.count + width * height * 4 }
     }
     public static let maximumDimension = 640
@@ -37,6 +44,8 @@ import Observation
     func insert(_ snapshot: Snapshot, for id: UUID) {
         remove(id)
         guard snapshot.width > 0, snapshot.height > 0,
+              snapshot.pointSize.width.isFinite, snapshot.pointSize.height.isFinite,
+              snapshot.pointSize.width > 0, snapshot.pointSize.height > 0,
               snapshot.width <= Self.maximumDimension, snapshot.height <= Self.maximumDimension,
               snapshot.cost <= byteLimit else { return }
         entries[id] = snapshot; order.append(id); cost += snapshot.cost
@@ -70,7 +79,7 @@ import Observation
     }
     private func cancelCapture() { captureID = nil; deadline?.cancel(); deadline = nil }
 
-    static func compress(_ source: CGImage) -> Snapshot? {
+    static func compress(_ source: CGImage, pointSize: CGSize? = nil) -> Snapshot? {
         let scale = min(1, CGFloat(maximumDimension) / CGFloat(max(source.width, source.height)))
         let width = max(1, Int(CGFloat(source.width) * scale)), height = max(1, Int(CGFloat(source.height) * scale))
         guard let context = CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,
@@ -95,6 +104,6 @@ import Observation
         guard let destination = CGImageDestinationCreateWithData(data,"public.jpeg" as CFString,1,nil) else { return nil }
         CGImageDestinationAddImage(destination,image,[kCGImageDestinationLossyCompressionQuality:0.65] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
-        return Snapshot(jpeg:data as Data,width:width,height:height)
+        return Snapshot(jpeg:data as Data,width:width,height:height,pointSize:pointSize ?? CGSize(width:source.width,height:source.height))
     }
 }

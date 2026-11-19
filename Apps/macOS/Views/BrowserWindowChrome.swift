@@ -5,7 +5,9 @@ import SwiftUI
 /// The sidebar stays on the physical left, including in right-to-left locales.
 enum MacBrowserLayout {
     static let sidebarWidth: CGFloat = 296
-    static let railWidth: CGFloat = 84
+    // Three native 14 pt window buttons on a 20 pt pitch require 54 pt.
+    // One point at either edge is the minimum that preserves their hit regions.
+    static let railWidth: CGFloat = 56
     static let headerHeight: CGFloat = 60
     static let sidebarInset: CGFloat = 8
     static let sidebarRowInset: CGFloat = 8
@@ -155,7 +157,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
                     // Only position controls in this window. During fullscreen
                     // AppKit moves them to its auto-revealing titlebar host.
                     guard button.window === window else { continue }
-                    let target = parent.convert(NSPoint(x: (compact ? 15 : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing,
+                    let target = parent.convert(NSPoint(x: (compact ? 1 : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing,
                         y: window.frame.height - MacBrowserLayout.sidebarTitlebarHeight / 2), from: nil)
                     button.setFrameOrigin(NSPoint(x: target.x, y: target.y - button.frame.height / 2))
                 }

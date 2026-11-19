@@ -2,6 +2,16 @@
 
 # Browser quality and coverage
 
+## 0.15.3 (25)
+
+The expanded Mac profile switcher uses a borderless 44 pt row with the tab count aligned beneath the name, consistent 8 pt content insets and a separate fullscreen toggle reservation. Its highlight is limited to interaction. The attached rail is 56 pt wide, the minimum for three native 14 pt window buttons on a 20 pt pitch with their hit regions intact. Icon targets remain 42 × 36 pt. The surface reaches all window edges, the footer has no bottom inset, and fullscreen removes the traffic-light band and extra top gap.
+
+Tab snapshot entries retain the original WebKit viewport size in points independently of compressed bitmap dimensions and Retina scale. The cover draws that fixed logical size at the top-left, clipping a different viewport instead of stretching. On Mac it shares the final web-view frame, including content beneath the header. Its rendering barrier starts after host layout and rejects a completion for changed bounds, frame or obscured insets. The painted view replaces the cover instantly with layer actions disabled. Snapshot data stays in the existing bounded memory-only cache.
+
+Regression coverage checks profile alignment and separation, edge-attached rail geometry, Retina point-size preservation, fixed-size top-left drawing across viewport changes, absence of swap animations and final-layout paint gating. Background before/after PNGs and a controlled snapshot-to-live sequence are indexed in `build/release-0.15.3/REPORT.md`. These are app-owned opaque layout and WebKit page captures; system fullscreen reveal and live glass remain foreground acceptance checks. No installed app or personal browser data is used.
+
+Local validation: BrowserKit 159 passed; Mac 223 executed, 212 passed and eleven existing foreground-dependent skips; zero failures. The full browser gate includes all 9,597 contrast checks, strict Mac signature/entitlements, public safety, background-UI policy and whitespace checks. The iPhone Simulator app compiles for arm64 and x86_64 without launching a simulator. All background audits report zero activation, frontmost or display-overlap violations. The resized switch sequence keeps the fixture rectangle at exactly x=80, y=100, width=160, height=80 points across all eight snapshot/live frames; the original presentation changes both size and position at the swap.
+
 ## 0.15.2 (24)
 
 The Mac sidebar and icon rail attach to the physical left edge for the full content height, including ordinary macOS fullscreen and the narrow overlay. The previous outer ten-point padding, twenty-point material corners and floating shadow exposed a strip of toolbar colour next to the page. The material now uses a rectangular surface and a single trailing divider; overlays retain a trailing shadow. The slate/glass palette, contrast backing, internal content spacing, profile header, search, pins, lazy rows, New Tab, footer and hover-peek behavior remain.

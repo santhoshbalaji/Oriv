@@ -130,7 +130,7 @@ struct BrowserSidebar: View {
         VStack(spacing: railLayout ? 6 : 0) {
             if !railLayout { profileHeader.focused($utilityFocus, equals: "profile") }
             searchField
-            if railLayout { newTab.padding(.bottom, 4) }
+            if railLayout { newTab }
             if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
                 Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 14)
             }
@@ -138,8 +138,8 @@ struct BrowserSidebar: View {
             if !railLayout { newTab.padding(.bottom, MacBrowserLayout.sidebarFooterGap) }
             footer
         }
-        .padding(.horizontal, MacBrowserLayout.sidebarInset)
-        .padding(.bottom, MacBrowserLayout.sidebarInset)
+        .padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarInset)
+        .padding(.bottom, railLayout ? 0 : MacBrowserLayout.sidebarInset)
         .font(.system(size: 14))
         .foregroundStyle(theme.text)
         .focusEffectDisabled()
@@ -180,15 +180,16 @@ struct BrowserSidebar: View {
                         Spacer(minLength: 0)
                     }
                 }
+                .padding(.horizontal, MacBrowserLayout.sidebarRowInset)
                 .foregroundStyle(session.isExternalPrivate ? theme.privateAccent : theme.text)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(session.isExternalPrivate ? "Private browsing, \(SidebarTabs.countLabel(session.tabs.count))" : "\(controller.profile?.name ?? "Personal"), \(SidebarTabs.countLabel(session.tabs.count))")
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
         .background(BrowserGeometryMarker(name: "sidebarProfileGeometry"))
         .padding(.trailing, profileTrailingInset)
-        .padding(.horizontal, MacBrowserLayout.sidebarRowInset).padding(.vertical, 8)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder private var searchField: some View {
@@ -203,7 +204,7 @@ struct BrowserSidebar: View {
                 .background(BrowserGeometryMarker(name: "sidebarSearchGeometry"))
                 .accessibilityLabel("Search tabs").help("Search Tabs (⇧⌘A)")
                 .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
-                .padding(.horizontal, MacBrowserLayout.railInset - MacBrowserLayout.sidebarInset)
+                .padding(.horizontal, MacBrowserLayout.railInset)
         } else {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").accessibilityHidden(true)
@@ -301,7 +302,7 @@ struct BrowserSidebar: View {
                         Text(controller.tabSearch.isEmpty ? "No tabs" : "No matching tabs").font(OrivType.detail).foregroundStyle(theme.secondaryText).padding(12)
                     }
                 }
-                .padding(.horizontal, railLayout ? MacBrowserLayout.railInset - MacBrowserLayout.sidebarInset : 0).padding(.bottom, 10)
+                .padding(.horizontal, railLayout ? MacBrowserLayout.railInset : 0).padding(.bottom, railLayout ? 0 : 10)
                 // Lazy rows share tab IDs across the two collections. Rebuild
                 // their layout on a mode change instead of reusing expanded cells.
                 .scrollTargetLayout()
@@ -402,7 +403,7 @@ struct BrowserSidebar: View {
                 if !railLayout { Text("New Tab"); Spacer(); Text("⌘T").font(.system(size: 10)).foregroundStyle(theme.secondaryText) }
             }.font(OrivType.body).padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarRowInset).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
         }.buttonStyle(ContentButtonStyle()).frame(width: compact ? 42 : nil)
-            .padding(.horizontal, peeking ? MacBrowserLayout.railInset - MacBrowserLayout.sidebarInset : 0)
+            .padding(.horizontal, peeking ? MacBrowserLayout.railInset : 0)
             .background(BrowserGeometryMarker(name: "sidebarNewTabGeometry"))
             .focused($utilityFocus, equals: "new-tab")
             .accessibilityLabel("New Tab").accessibilityIdentifier("newTabButton").help("New Tab (⌘T)")
@@ -411,7 +412,7 @@ struct BrowserSidebar: View {
     @ViewBuilder private var footer: some View {
         if railLayout {
             VStack(alignment: .leading, spacing: 6) { footerButtons }.frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, MacBrowserLayout.railInset - MacBrowserLayout.sidebarInset).foregroundStyle(theme.secondaryText)
+                .padding(.horizontal, MacBrowserLayout.railInset).foregroundStyle(theme.secondaryText)
                 .background(BrowserGeometryMarker(name: "sidebarFooterGeometry"))
         } else {
             HStack(spacing: 0) { footerButtons }.padding(.horizontal, 8).frame(height: 42)

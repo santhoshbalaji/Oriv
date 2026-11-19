@@ -41,7 +41,7 @@ final class WebViewHost: NSView {
         clipsToBounds = true
         addSubview(switchCover)
         attachIfWindowed()
-        if let tab { switchCover.begin(tab,in:webView) }
+        if let tab { switchCover.begin(tab,in:webView,waitForLayout:true) }
         observeFullscreen()
     }
     func setTab(_ tab:BrowserTab) {
@@ -69,7 +69,7 @@ final class WebViewHost: NSView {
             fullscreenObservation = nil
             webView.removeFromSuperview()
             webView = view; self.tab = tab
-            attachIfWindowed(); switchCover.begin(tab,in:view); observeFullscreen()
+            attachIfWindowed(); switchCover.begin(tab,in:view,waitForLayout:true); needsLayout = true; observeFullscreen()
         } else { pendingTab = nil }
         switchCover.confirmIfReady(tab)
     }
@@ -111,9 +111,9 @@ final class WebViewHost: NSView {
 
     override func layout() {
         super.layout()
-        switchCover.frame = bounds
-        if let tab { switchCover.confirmIfReady(tab) }
         guard webView.fullscreenState == .notInFullscreen, webView.superview === self else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         if let window {
             let rect = convert(bounds, to: nil)
             // Keep SwiftUI's native toolbar in its own layout region. Extending the
@@ -131,6 +131,11 @@ final class WebViewHost: NSView {
                 onGeometryChange?()
             }
         } else { webView.frame = bounds }
+        // Cover the same point viewport WebKit captured, including the portion
+        // beneath the toolbar. A shorter host-sized cover stretched that image.
+        switchCover.frame = webView.frame
+        switchCover.layoutSubtreeIfNeeded()
+        if let tab { switchCover.layoutDidSettle(tab) }
     }
 }
 

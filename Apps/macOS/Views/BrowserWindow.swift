@@ -200,7 +200,7 @@ struct BrowserWindow: View {
         .overlay(alignment: .topLeading) {
             sidebarToggle
                 .padding(.leading, railHeader ? MacBrowserLayout.railInset : controller.sidebar.width - MacBrowserLayout.sidebarInset - 30)
-                .padding(.top, railHeader ? (fullscreen ? 8 : MacBrowserLayout.sidebarTitlebarHeight + 4) : (fullscreen ? 8 : 1))
+                .padding(.top, railHeader ? (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight) : (fullscreen ? 8 : 1))
                 .opacity(windowActive ? 1 : 0.75)
         }
         .background {
@@ -232,7 +232,7 @@ struct BrowserWindow: View {
     private var railHeader: Bool { compact || controller.sidebar.peeking }
     private var sidebarHeader: some View {
         Color.clear
-            .frame(height: railHeader ? (fullscreen ? 44 : MacBrowserLayout.sidebarTitlebarHeight + 40) : (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight))
+            .frame(height: railHeader ? (fullscreen ? 36 : MacBrowserLayout.sidebarTitlebarHeight + 36) : (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight))
             .background(BrowserDragRegion())
             .background(BrowserGeometryMarker(name: "sidebarTitlebarGeometry"))
             .accessibilityHidden(true)

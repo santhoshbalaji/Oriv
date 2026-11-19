@@ -32,9 +32,14 @@ struct ProfileMenu: View {
     var compact = false
     var iconOnly = false
     var tabCount: Int? = nil
+    @State private var headerHovered = false
     var body: some View {
         Group {
-            if tabCount != nil { picker.menuStyle(.button).buttonStyle(ContentButtonStyle()).menuIndicator(.hidden).focusEffectDisabled() }
+            if tabCount != nil {
+                picker.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).focusEffectDisabled()
+                    .background(theme.text.opacity(headerHovered ? 0.05 : 0), in: .rect(cornerRadius: 8))
+                    .onHover { headerHovered = $0 }
+            }
             else { picker.menuStyle(.borderlessButton).menuIndicator(iconOnly ? .hidden : .automatic) }
         }
         .accessibilityLabel("Profile: \(profiles.active.name)")
@@ -54,15 +59,16 @@ struct ProfileMenu: View {
             Button("Manage Profiles…", systemImage: "person.crop.rectangle.stack") { profiles.showManager = true }
         } label: {
             if let tabCount {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Label(profiles.active.name, systemImage: "rectangle.stack")
-                            .font(.system(size: 17, weight: .semibold)).lineLimit(1)
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
-                    }.foregroundStyle(theme.text)
-                    if tabCount > 0 { Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.secondaryText) }
-                }
+                HStack(spacing: 8) {
+                    Image(systemName: "rectangle.stack").font(.system(size: 17, weight: .semibold)).frame(width: 19)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(profiles.active.name).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                            .background(BrowserGeometryMarker(name: "sidebarProfileNameGeometry"))
+                        Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                            .background(BrowserGeometryMarker(name: "sidebarProfileCountGeometry"))
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                }.foregroundStyle(theme.text).padding(.horizontal, 8).frame(height: 44).contentShape(Rectangle())
             } else {
                 HStack(spacing: 8) {
                     Image(systemName: profiles.active.symbol.rawValue).foregroundStyle(profiles.active.color.tint(in: theme))

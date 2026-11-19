@@ -125,7 +125,12 @@ import XCTest
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let w = host(c); defer { w.close() }
         w.setContentSize(NSSize(width: 780, height: 760))
-        try await wait("Narrow rail did not mount") { c.sidebar.rail }
+        try await wait("Narrow rail did not mount") {
+            guard c.sidebar.rail, let surface = self.marker("sidebarSurfaceGeometry", in: w),
+                  let toggle = self.marker("sidebarToggleGeometry", in: w) else { return false }
+            return surface.bounds.width == MacBrowserLayout.railWidth &&
+                toggle.convert(toggle.bounds, to: nil).maxX <= MacBrowserLayout.railWidth
+        }
         try click("sidebarToggleGeometry", in: w)
         try await wait("Explicit overlay did not open") { c.sidebar.narrowOverlay }
         try await Task.sleep(for: .milliseconds(200))

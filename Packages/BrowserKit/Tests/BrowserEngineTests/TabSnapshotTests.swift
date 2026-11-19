@@ -35,6 +35,15 @@ import CoreGraphics
             XCTAssertNil(TabSnapshotCache.compress(try XCTUnwrap(context.makeImage())))
         }
     }
+    func testCompressionRetainsViewportPointsIndependentlyOfRetinaPixels() throws {
+        let context = try XCTUnwrap(CGContext(data:nil,width:1600,height:1200,bitsPerComponent:8,bytesPerRow:6400,
+            space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(CGColor(gray:1,alpha:1)); context.fill(CGRect(x:0,y:0,width:1600,height:1200))
+        context.setFillColor(CGColor(gray:0,alpha:1)); context.fill(CGRect(x:100,y:100,width:200,height:200))
+        let snapshot = try XCTUnwrap(TabSnapshotCache.compress(try XCTUnwrap(context.makeImage()),pointSize:CGSize(width:800,height:600)))
+        XCTAssertEqual(snapshot.pointSize,CGSize(width:800,height:600))
+        XCTAssertEqual(snapshot.width,640); XCTAssertEqual(snapshot.height,480)
+    }
     func testPrivateImagesAreNotSerializedAndCloseInvalidatesLateCapture() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at:directory) }
