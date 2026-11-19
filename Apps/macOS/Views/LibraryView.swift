@@ -128,20 +128,20 @@ struct LibraryView: View {
                 let context = URLDisplay.Context(history.map { ($0.title, $0.url) })
                 List {
                     ForEach(history) { entry in
-                    HStack(spacing: OrivSpacing.medium) {
-                        pageRow(entry.title, url: entry.url, context: context)
-                        Text(entry.visitedAt, format: .dateTime.month(.abbreviated).day())
-                            .font(.caption).foregroundStyle(theme.secondaryText).fixedSize()
-                        Button { controller.session.removeHistory(entry.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 24, height: 24) }
-                            .buttonStyle(.borderless).foregroundStyle(theme.secondaryText).accessibilityLabel("Remove \(entry.title) from history")
-                    }
+                        HStack(spacing: OrivSpacing.medium) {
+                            pageRow(entry.title, url: entry.url, context: context)
+                            Text(entry.visitedAt, format: .dateTime.month(.abbreviated).day())
+                                .font(.caption).foregroundStyle(theme.secondaryText).fixedSize()
+                            Button { controller.session.removeHistory(entry.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 24, height: 24) }
+                                .buttonStyle(.borderless).foregroundStyle(theme.secondaryText).accessibilityLabel("Remove \(entry.title) from history")
+                        }
                     }
                     if historyOffset > 0 || page.count > historyPageSize {
                         HStack {
                             Button("Previous Page") { historyOffset -= historyPageSize }.disabled(historyOffset == 0)
                             Spacer()
                             Button("Next Page") { historyOffset += historyPageSize }.disabled(page.count <= historyPageSize)
-                        }
+                        }.buttonStyle(.borderless)
                     }
                 }.listStyle(.inset).scrollContentBackground(.hidden)
             }
