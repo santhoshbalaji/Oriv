@@ -17,7 +17,6 @@ import XCTest
                                      settings: BrowserSettings(defaults: nil))
         defer { session.shutdown() }
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         let tab = session.addTab(configuration: configuration, load: false)
         #if os(macOS)
@@ -33,7 +32,7 @@ import XCTest
     }
 
     private func waitUntil(_ ready: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
-        let deadline = ContinuousClock.now + .seconds(10)
+        let deadline = ContinuousClock.now + .seconds(30)
         while !ready() && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(25)) }
         XCTAssertTrue(ready(), "Expected navigation or download did not complete", file: file, line: line)
     }

@@ -27,3 +27,20 @@ jobs:
           path: build/browser-quality.*/
           retention-days: 14
           if-no-files-found: warn
+  iphone:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Run iPhone Simulator tests
+        run: ./scripts/check-iphone.sh
+      - name: Keep iPhone test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: iphone-browser-quality
+          path: build/iphone-quality.*/
+          retention-days: 14
+          if-no-files-found: warn

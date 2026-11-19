@@ -12,19 +12,8 @@ python3 scripts/check-contrast.py
 mkdir -p build
 quality_output=$(mktemp -d "$PWD/build/browser-quality.XXXXXX")
 { sw_vers; xcodebuild -version; } | tee "$quality_output/toolchain.log"
-quality_server=''
-privacy_server=''
-cleanup() {
-  if [[ -n "$quality_server" ]]; then
-    kill "$quality_server" 2>/dev/null || true
-    wait "$quality_server" 2>/dev/null || true
-  fi
-  if [[ -n "$privacy_server" ]]; then
-    kill "$privacy_server" 2>/dev/null || true
-    wait "$privacy_server" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT
+source scripts/browser-fixtures.sh
+trap stop_browser_fixtures EXIT
 
 # Compile the iPhone app without booting a simulator or requiring signing.
 xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivMobile \
@@ -32,33 +21,7 @@ xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivMobile \
   -derivedDataPath build/mobile CODE_SIGNING_ALLOWED=NO build \
   2>&1 | tee "$quality_output/mobile.log"
 swift test --package-path Packages/BrowserKit 2>&1 | tee "$quality_output/shared.log"
-swift scripts/generate-media-fixtures.swift build/media-fixtures > "$quality_output/media.log" 2>&1
-python3 scripts/qa-server.py > "$quality_output/fixture.log" 2>&1 &
-quality_server=$!
-fixture_deadline=$((SECONDS + 60))
-while (( SECONDS < fixture_deadline )); do
-  if ! kill -0 "$quality_server" 2>/dev/null; then cat "$quality_output/fixture.log"; exit 1; fi
-  if grep -q 'Browser QA fixture at' "$quality_output/fixture.log"; then break; fi
-  sleep 0.1
-done
-if ! grep -q 'Browser QA fixture at' "$quality_output/fixture.log"; then
-  cat "$quality_output/fixture.log"
-  echo 'The local QA fixture did not start. Stop any existing fixture on port 8768 and retry.' >&2
-  exit 1
-fi
-python3 scripts/qa-server.py --port 18768 > "$quality_output/privacy-fixture.log" 2>&1 &
-privacy_server=$!
-fixture_deadline=$((SECONDS + 60))
-while (( SECONDS < fixture_deadline )); do
-  if ! kill -0 "$privacy_server" 2>/dev/null; then cat "$quality_output/privacy-fixture.log"; exit 1; fi
-  if grep -q 'Browser QA fixture at' "$quality_output/privacy-fixture.log"; then break; fi
-  sleep 0.1
-done
-if ! grep -q 'Browser QA fixture at' "$quality_output/privacy-fixture.log"; then
-  cat "$quality_output/privacy-fixture.log"
-  echo 'The privacy QA fixture did not start. Stop any existing fixture on port 18768 and retry.' >&2
-  exit 1
-fi
+start_browser_fixtures "$quality_output"
 xcodebuild -project PersonalBrowser.xcodeproj -scheme PersonalBrowser \
   -configuration Debug -destination 'platform=macOS' \
   -derivedDataPath build/DevDerivedData \
