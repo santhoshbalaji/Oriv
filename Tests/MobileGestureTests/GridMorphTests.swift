@@ -23,6 +23,10 @@ import BrowserEngine
         for threshold in [0.1,0.3,0.5,0.7,0.9] as [CGFloat] {
             let button = try MorphFixture(count:1,privateTab:false); defer { button.dispose() }
             try await button.ready()
+            // Give the simulator time to deliver a frame in each narrow sample
+            // interval. The native spring and geometry still run at their real
+            // progress on the window's local Core Animation clock.
+            button.setAnimationSpeed(0.2)
             let sampling = UIUpdateLink(view: button.window)
             var stopped = false
             sampling.addAction(to: .afterCATransactionCommit) { sampling, _ in
@@ -42,6 +46,7 @@ import BrowserEngine
             defer { sampling.isEnabled = false }
             button.controller.sheet = .tabs
             try await button.wait(label:"button frame sample at \(threshold)") { stopped }
+            button.setAnimationSpeed(1)
             try await Task.sleep(for:.milliseconds(40))
             let buttonClip = try XCTUnwrap(button.source.webView.superview)
             let a = buttonClip.convert(buttonClip.bounds,to:button.window)
@@ -457,6 +462,14 @@ import BrowserEngine
         }
         controller.tabPresentation.capture(tab, refresh: true)
         try await wait(label: "\(path) snapshot") { self.controller.tabPresentation.images[tab.id] != nil }
+    }
+    func setAnimationSpeed(_ speed: Float) {
+        let layer = window.layer
+        let time = CACurrentMediaTime()
+        let local = layer.convertTime(time, from: nil)
+        layer.beginTime = layer.superlayer?.convertTime(time, from: nil) ?? time
+        layer.timeOffset = local
+        layer.speed = speed
     }
     func wait(label:String = "",timeout: TimeInterval = 12,_ predicate:() -> Bool) async throws {
         let deadline = CACurrentMediaTime() + timeout
