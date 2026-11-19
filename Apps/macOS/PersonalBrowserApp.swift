@@ -103,6 +103,10 @@ struct PersonalBrowserApp: App {
         profiles?.continuity.receiveRemoteNotification(userInfo)
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        #if ORIV_BENCH
+        // Speedometer edits form fields; the benchmark driver must quit unattended.
+        if SpeedometerBenchmark.configured { return .terminateNow }
+        #endif
         let controllers = profiles?.allControllers ?? controller.map { [$0] } ?? []
         let downloads = controllers.contains { $0.downloads.hasActiveDownloads }
         let edited = controllers.contains { $0.session.tabs.contains(where: \.hasEditedFields) }
