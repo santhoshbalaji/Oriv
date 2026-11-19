@@ -197,14 +197,14 @@ import XCTest
     }
     func testPeekGraceHoldRulesAndEscapeCancellation() async throws {
         let s = SidebarPresentation(); s.setPreference(true); s.hoverEnabled = true
-        s.pointer(true); try await pause(280); XCTAssertTrue(s.peeking)
+        s.pointer(true); do { let changed = try await waitUntil({ s.peeking }); XCTAssertTrue(changed) }
         s.pointer(false); try await pause(200); XCTAssertTrue(s.peeking)
         s.menuOpen = true; try await pause(200); XCTAssertTrue(s.peeking)
         s.menuOpen = false; s.searchOpen = true; try await pause(380); XCTAssertTrue(s.peeking)
         s.searchOpen = false; s.focusInside = true; try await pause(380); XCTAssertTrue(s.peeking)
         s.focusInside = false; s.dragging = true; try await pause(380); XCTAssertTrue(s.peeking)
         s.panelInside = true; s.dragging = false; try await pause(380); XCTAssertTrue(s.peeking)
-        s.panelInside = false; try await pause(380); XCTAssertFalse(s.peeking)
+        s.panelInside = false; do { let changed = try await waitUntil({ !s.peeking }); XCTAssertTrue(changed) }
         s.pointer(true); try await pause(280); s.dismissOverlay(); XCTAssertFalse(s.peeking)
     }
     func testVoiceOverAndWebpageFullscreenSuppressAutomaticPeek() async throws {
@@ -213,14 +213,14 @@ import XCTest
         s.voiceOver = false; s.fullscreen(true); s.pointer(true)
         try await pause(280); XCTAssertFalse(s.peeking); XCTAssertEqual(s.reservation, 0)
         s.fullscreen(false); XCTAssertTrue(s.rail); XCTAssertEqual(s.reservation, MacBrowserLayout.railWidth)
-        s.pointer(true); try await pause(280); XCTAssertTrue(s.peeking)
+        s.pointer(true); do { let changed = try await waitUntil({ s.peeking }); XCTAssertTrue(changed) }
         s.voiceOver = true; XCTAssertFalse(s.peeking); XCTAssertTrue(s.hoverEnabled)
     }
     func testDragDwellCanRevealTitlesWithoutHoverSetting() async throws {
         let s = SidebarPresentation(); s.setPreference(true); s.dragging = true
-        s.pointer(true, drag: true); try await pause(280); XCTAssertTrue(s.peeking)
+        s.pointer(true, drag: true); do { let changed = try await waitUntil({ s.peeking }); XCTAssertTrue(changed) }
         s.pointer(false); try await pause(380); XCTAssertTrue(s.peeking)
-        s.dragging = false; try await pause(380); XCTAssertFalse(s.peeking)
+        s.dragging = false; do { let changed = try await waitUntil({ !s.peeking }); XCTAssertTrue(changed) }
     }
     func testTooltipStationaryTimingRestartAndDismiss() async throws {
         let tooltip = SidebarTooltip(), first = UUID(), second = UUID()
@@ -297,7 +297,7 @@ import XCTest
         let tab = try XCTUnwrap(c.session.selectedTab)
         c.sidebarTooltip.hover(id: tab.id, text: SidebarTabs.label(tab, selected: true))
         try await pause(650); XCTAssertTrue(w.firstResponder === responder)
-        c.sidebar.pointer(true); try await pause(280); XCTAssertTrue(c.sidebar.peeking)
+        c.sidebar.pointer(true); do { let changed = try await waitUntil({ c.sidebar.peeking }); XCTAssertTrue(changed) }
         c.toggleSidebar(); XCTAssertFalse(c.compactSidebar); XCTAssertFalse(c.sidebar.peeking)
         XCTAssertEqual(c.sidebar.reservation, MacBrowserLayout.sidebarWidth)
     }
