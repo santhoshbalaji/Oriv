@@ -450,6 +450,8 @@ public final class BrowserSession {
         guard let historyStore else { return }
         do {
             try historyStore.clear(since: date)
+            let index = suggestionIndex
+            Task(priority: .utility) { await index.refreshHistory(from: historyStore) }
             tabs.forEach { $0.cancelPendingHistory() }
             refreshSharedHistory()
             historyRevision += 1

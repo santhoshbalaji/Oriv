@@ -592,17 +592,21 @@ import BrowserCore
         let profiles = MobileProfiles(), c = profiles.current
         defer { c.session.shutdown(); profiles.continuity.shutdown() }
         let tab = try XCTUnwrap(c.session.selectedTab)
-        tab.navigate(to:URL(string:"http://127.0.0.1:8768/gestures")!)
-        try await wait { !tab.isLoading && tab.title == "Gesture Lab" }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first(where:\.isKeyWindow)
         let root = UIHostingController(rootView:MobileRootView(controller:c,profiles:profiles).browserAppearance(c.appearance,followsPage:true).environment(\.scenePhase,.active))
         let window = UIWindow(windowScene:scene); window.rootViewController = root; window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
-        try await wait { tab.webView.window === window }
+        tab.navigate(to:URL(string:"http://127.0.0.1:8768/gestures")!)
+        try await wait(context:{ "Grid fixture: \(tab.title), loading=\(tab.isLoading), error=\(tab.errorMessage ?? "none")" }) {
+            tab.webView.window === window && !tab.isLoading && tab.title == "Gesture Lab"
+        }
         c.sheet = .tabs
-        try await wait { c.tabPresentation.activeID == nil }
-        try await Task.sleep(for:.milliseconds(600))
+        func findGrid(_ controller:UIViewController) -> MobileTabGridController? {
+            if let grid = controller as? MobileTabGridController { return grid }
+            return controller.children.lazy.compactMap { findGrid($0) }.first
+        }
+        try await wait { c.tabPresentation.activeID == nil && findGrid(root)?.viewIfLoaded?.accessibilityElementsHidden == false }
         func findBar(_ controller:UIViewController) -> MobileKeyboardBar.Controller? {
             if let bar = controller as? MobileKeyboardBar.Controller { return bar }
             return controller.children.lazy.compactMap { findBar($0) }.first

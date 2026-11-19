@@ -8,7 +8,8 @@ public actor AddressSuggestionIndex {
     public init() {}
     func refreshHistory(from store: VisitHistoryStore?) {
         if let delta = try? store?.suggestionDelta() {
-            regular.updateVisits(delta.entries, changed: delta.changed)
+            if delta.replacesHistory { regular.replaceVisits(delta.entries) }
+            else { regular.applyVisitDelta(delta.entries, changed: delta.changed) }
         }
     }
 

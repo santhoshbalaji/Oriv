@@ -411,12 +411,10 @@ import BrowserEngine
             source = c.session.addTab(isPrivate:true,load:false)
             c.session.closeTab(initial.id)
         } else { source = initial }
-        source.navigate(to:URL(string:"http://127.0.0.1:8768/two")!)
         for _ in 1..<count { _ = c.session.addTab(isPrivate:privateTab,select:false,load:false) }
         let sourceID = source.id
         if count > 1 {
             destination = c.session.tabs.first { $0.id != sourceID }!
-            destination.navigate(to:URL(string:"http://127.0.0.1:8768/chrome-paint")!)
         } else { destination = source }
         c.session.selectTab(source.id)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive })
@@ -426,18 +424,30 @@ import BrowserEngine
         window.makeKeyAndVisible()
     }
     func ready() async throws {
-        try await wait { !self.source.isLoading && self.source.hasLoaded && !self.destination.isLoading && self.destination.hasLoaded && self.source.webView.window === self.window }
-        controller.tabPresentation.capture(source,refresh:true)
-        if destination !== source { controller.tabPresentation.capture(destination,refresh:true) }
-        try await wait { self.controller.tabPresentation.images[self.source.id] != nil && self.controller.tabPresentation.images[self.destination.id] != nil }
-        try await Task.sleep(for:.milliseconds(350))
+        // Prepare each snapshot while its tab is mounted. iOS 27 can suspend
+        // an unattached WebKit view before the fixture or snapshot completes.
+        try await prepare(source, path: "two")
+        if destination !== source {
+            try await prepare(destination, path: "chrome-paint")
+            controller.session.selectTab(source.id)
+            try await wait(label: "source reattached") { self.source.webView.window === self.window }
+        }
     }
-    func wait(label:String = "",_ predicate:() -> Bool) async throws {
-        let deadline = CACurrentMediaTime()+12
+    private func prepare(_ tab: BrowserTab, path: String) async throws {
+        controller.session.selectTab(tab.id)
+        tab.navigate(to: URL(string: "http://127.0.0.1:8768/\(path)")!)
+        try await wait(label: "\(path) loaded and attached", timeout: 30) {
+            !tab.isLoading && tab.hasLoaded && tab.webView.window === self.window
+        }
+        controller.tabPresentation.capture(tab, refresh: true)
+        try await wait(label: "\(path) snapshot") { self.controller.tabPresentation.images[tab.id] != nil }
+    }
+    func wait(label:String = "",timeout: TimeInterval = 12,_ predicate:() -> Bool) async throws {
+        let deadline = CACurrentMediaTime() + timeout
         while !predicate() {
             if CACurrentMediaTime()>deadline {
-                print("Morph wait timeout: \(label), sheet=\(String(describing:controller.sheet)), active=\(controller.tabPresentation.activeID != nil), animating=\(controller.gridMorph.isAnimating), nativeProgress=\(controller.gridMorph.progress)")
-                throw MorphTimeout()
+                throw MorphTimeout(condition: label, sheet: String(describing: controller.sheet),
+                    nativeProgress: controller.gridMorph.progress)
             }
             try await Task.sleep(for:.milliseconds(10))
         }
@@ -449,7 +459,11 @@ import BrowserEngine
         controller.session.shutdown(); profiles.continuity.shutdown()
     }
 }
-private struct MorphTimeout:Error {}
+private struct MorphTimeout: Error {
+    let condition: String
+    let sheet: String
+    let nativeProgress: CGFloat
+}
 
 @MainActor private final class MorphFrames:NSObject {
     let fixture:MorphFixture

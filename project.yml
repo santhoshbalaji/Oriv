@@ -100,7 +100,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Apps/macOS/PersonalBrowser.entitlements
         ENABLE_HARDENED_RUNTIME: true
         MARKETING_VERSION: 0.16.0
-        CURRENT_PROJECT_VERSION: '30'
+        CURRENT_PROJECT_VERSION: '31'
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: local.personalbrowser.qa
@@ -168,7 +168,7 @@ targets:
         GENERATE_INFOPLIST_FILE: true
         TARGETED_DEVICE_FAMILY: '1,2'
         MARKETING_VERSION: 0.16.0
-        CURRENT_PROJECT_VERSION: '30'
+        CURRENT_PROJECT_VERSION: '31'
         INFOPLIST_KEY_CFBundleDisplayName: Oriv-Dev
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:

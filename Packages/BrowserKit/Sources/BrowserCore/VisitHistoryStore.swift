@@ -8,10 +8,12 @@ public final class VisitHistoryStore: @unchecked Sendable {
     public static let sharedLimit = 500
 
     private let lock = NSLock()
+    private let suggestionReaderLock = NSLock()
     private let db: OpaquePointer
     private let limit: Int
     private var suggestionChanges: Set<URL> = []
     private var suggestionsSeeded = false
+    private static let suggestionDeltaLimit = 256
 
     public init(fileURL: URL? = nil, limit: Int = maximumVisits) throws {
         self.limit = max(1, limit)
@@ -28,7 +30,9 @@ public final class VisitHistoryStore: @unchecked Sendable {
         try run("PRAGMA secure_delete = ON")
         let version = try query("PRAGMA user_version") { sqlite3_column_int($0, 0) }.first
         guard version == 0 || version == 1 else { throw Failure() }
-        try run("""
+        if version == 0 {
+            try run("""
+            BEGIN IMMEDIATE;
             CREATE TABLE IF NOT EXISTS visits (
                 id TEXT PRIMARY KEY NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL,
                 date REAL NOT NULL, visits INTEGER NOT NULL, typed INTEGER NOT NULL,
@@ -40,7 +44,9 @@ public final class VisitHistoryStore: @unchecked Sendable {
             CREATE INDEX IF NOT EXISTS history_shared ON visits(date DESC, id) WHERE shared = 1;
             CREATE TABLE IF NOT EXISTS migration (id INTEGER PRIMARY KEY);
             PRAGMA user_version = 1;
+            COMMIT;
             """)
+        }
         if let fileURL {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         }
@@ -49,8 +55,11 @@ public final class VisitHistoryStore: @unchecked Sendable {
     deinit { sqlite3_close(db) }
 
     public func migrate(_ entries: [HistoryEntry]) throws {
+        // An already-migrated profile can launch without a write transaction
+        // or checking retention across all existing rows.
+        if try lock.withLock({ try migrationComplete() }) { return }
         try write(prune: true) {
-            guard try query("SELECT id FROM migration WHERE id = 1", row: { sqlite3_column_int($0, 0) }).isEmpty else { return [] }
+            guard try !migrationComplete() else { return [] }
             var shared = Set<URL>()
             for entry in entries.sorted(by: { $0.visitedAt > $1.visitedAt }) where AddressResolver.isWebURL(entry.url) {
                 let share = shared.count < Self.sharedLimit && shared.insert(entry.url).inserted
@@ -59,6 +68,10 @@ public final class VisitHistoryStore: @unchecked Sendable {
             try run("INSERT INTO migration VALUES (1)")
             return entries.map(\.url)
         }
+    }
+
+    private func migrationComplete() throws -> Bool {
+        try !query("SELECT id FROM migration WHERE id = 1") { sqlite3_column_int($0, 0) }.isEmpty
     }
 
     public func record(_ entry: HistoryEntry, shared: Bool) throws {
@@ -88,7 +101,14 @@ public final class VisitHistoryStore: @unchecked Sendable {
     }
 
     public func clear(since: Date) throws {
-        try write { try delete(where: "date >= ?", [.real(since.timeIntervalSinceReferenceDate)]) }
+        try write(invalidateSuggestions: true) {
+            if since == .distantPast {
+                try run("DELETE FROM visits")
+            } else {
+                try execute("DELETE FROM visits WHERE date >= ?", [.real(since.timeIntervalSinceReferenceDate)])
+            }
+            return []
+        }
     }
 
     public var count: Int {
@@ -150,35 +170,93 @@ public final class VisitHistoryStore: @unchecked Sendable {
         }
     }
 
+    public struct SuggestionVisit: Sendable {
+        public let id: UUID
+        public let address: String
+        public let title: String
+        public let visitedAt: Date
+        public var visitCount: Int
+        public var typedCount: Int
+    }
+
     /// The first read returns all URL aggregates. Subsequent reads include
     /// only changed URLs, including those that no longer have any visits.
-    public func suggestionDelta() throws -> (entries: [HistoryEntry], changed: Set<URL>) {
-        try lock.withLock {
-            let entries: [HistoryEntry]
-            if suggestionsSeeded && suggestionChanges.count <= 256 {
-                entries = try suggestionChanges.flatMap { url in
-                    try query("""
-                        SELECT latest.id, latest.url, latest.title, latest.date, counts.visits, counts.typed
-                        FROM (SELECT \(columns) FROM visits WHERE url = ? ORDER BY date DESC, id LIMIT 1) AS latest
-                        CROSS JOIN (SELECT min(1000000, sum(visits)) AS visits, min(1000000, sum(typed)) AS typed
-                                    FROM visits WHERE url = ?) AS counts
-                        """, [.text(url.absoluteString), .text(url.absoluteString)], row: readEntry)
+    public func suggestionDelta() throws -> (entries: [SuggestionVisit], changed: Set<URL>, replacesHistory: Bool) {
+        try suggestionReaderLock.withLock { try readSuggestionDelta() }
+    }
+
+    private func readSuggestionDelta() throws -> (entries: [SuggestionVisit], changed: Set<URL>, replacesHistory: Bool) {
+        while true {
+            if let delta = try lock.withLock({ () throws -> ([SuggestionVisit], Set<URL>, Bool)? in
+                if suggestionsSeeded && suggestionChanges.count <= Self.suggestionDeltaLimit {
+                    let delta = try takeSuggestionChanges()
+                    return (delta.entries, delta.changed, false)
                 }
-            } else {
-                // SQLite's single max() selects the associated visit's title and ID.
-                entries = try query("""
-                    SELECT id, url, title, max(date), min(1000000, sum(visits)), min(1000000, sum(typed))
-                    FROM visits GROUP BY url
-                    """, row: readEntry)
                 suggestionsSeeded = true
+                suggestionChanges.removeAll()
+                return nil
+            }) { return delta }
+
+            do {
+                // Release the connection between batches so the start page and
+                // navigation can read or write while the suggestion actor seeds.
+                var entries: [String: SuggestionVisit] = [:]
+                var cursor: Int64 = 0
+                while true {
+                    let previous = cursor
+                    let batch = try lock.withLock {
+                        try query("SELECT \(columns), rowid FROM visits WHERE rowid > ? ORDER BY rowid LIMIT 256",
+                                  [.int(Int(previous))]) { (try readSuggestionVisit($0), sqlite3_column_int64($0, 6)) }
+                    }
+                    guard let last = batch.last else { break }
+                    cursor = last.1
+                    for (entry, _) in batch {
+                        entries[entry.address] = Self.combine(entries[entry.address], entry)
+                    }
+                }
+                let delta = try lock.withLock { () throws -> (entries: [SuggestionVisit], changed: Set<URL>)? in
+                    guard suggestionsSeeded, suggestionChanges.count <= Self.suggestionDeltaLimit else {
+                        suggestionsSeeded = false
+                        return nil
+                    }
+                    return try takeSuggestionChanges()
+                }
+                guard let (updates, changed) = delta else { continue }
+                for url in changed { entries[url.absoluteString] = nil }
+                for entry in updates { entries[entry.address] = entry }
+                return (Array(entries.values), [], true)
+            } catch {
+                lock.withLock { suggestionsSeeded = false }
+                throw error
             }
-            let changed = suggestionChanges
-            suggestionChanges.removeAll()
-            return (entries, changed)
         }
     }
 
-    private func write(prune: Bool = false, _ changes: () throws -> [URL]) throws {
+    private static func combine(_ previous: SuggestionVisit?, _ entry: SuggestionVisit) -> SuggestionVisit {
+        guard let previous else { return entry }
+        let useEntry = entry.visitedAt > previous.visitedAt
+            || (entry.visitedAt == previous.visitedAt && entry.id.uuidString < previous.id.uuidString)
+        var result = useEntry ? entry : previous
+        result.visitCount = min(1_000_000, entry.visitCount + previous.visitCount)
+        result.typedCount = min(1_000_000, entry.typedCount + previous.typedCount)
+        return result
+    }
+
+    private func takeSuggestionChanges() throws -> (entries: [SuggestionVisit], changed: Set<URL>) {
+        let entries = try suggestionChanges.flatMap { url in
+            try query("""
+                SELECT latest.id, latest.url, latest.title, latest.date, counts.visits, counts.typed
+                FROM (SELECT \(columns) FROM visits WHERE url = ? ORDER BY date DESC, id LIMIT 1) AS latest
+                CROSS JOIN (SELECT min(1000000, sum(visits)) AS visits, min(1000000, sum(typed)) AS typed
+                            FROM visits WHERE url = ?) AS counts
+                """, [.text(url.absoluteString), .text(url.absoluteString)], row: readSuggestionVisit)
+        }
+        let changed = suggestionChanges
+        suggestionChanges.removeAll()
+        return (entries, changed)
+    }
+
+    private func write(prune: Bool = false, invalidateSuggestions: Bool = false, _ changes: () throws -> [URL]) throws {
         try lock.withLock {
             try run("BEGIN IMMEDIATE")
             do {
@@ -193,7 +271,10 @@ public final class VisitHistoryStore: @unchecked Sendable {
                     for id in extraShared { evicted += try demoteShared(where: "id = ?", [.text(id)]) }
                 }
                 try run("COMMIT")
-                if suggestionsSeeded {
+                if invalidateSuggestions {
+                    suggestionsSeeded = false
+                    suggestionChanges.removeAll()
+                } else if suggestionsSeeded {
                     suggestionChanges.formUnion(changed)
                     suggestionChanges.formUnion(evicted)
                 }
@@ -231,6 +312,13 @@ public final class VisitHistoryStore: @unchecked Sendable {
 
     private static func fold(_ string: String) -> String {
         string.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+    }
+
+    private func readSuggestionVisit(_ statement: OpaquePointer) throws -> SuggestionVisit {
+        guard let id = UUID(uuidString: string(statement, 0)) else { throw Failure() }
+        return SuggestionVisit(id: id, address: string(statement, 1), title: string(statement, 2),
+                               visitedAt: Date(timeIntervalSinceReferenceDate: sqlite3_column_double(statement, 3)),
+                               visitCount: Int(sqlite3_column_int64(statement, 4)), typedCount: Int(sqlite3_column_int64(statement, 5)))
     }
 
     private func readEntry(_ statement: OpaquePointer) throws -> HistoryEntry {

@@ -14,7 +14,9 @@ import Testing
         let fourth = HistoryEntry(title: "Current", url: repeated, visitedAt: now)
         try store.migrate([first])
         try store.record(typed, shared: true)
-        let initial = try #require(store.suggestionDelta().entries.first)
+        let seed = try store.suggestionDelta()
+        #expect(seed.replacesHistory)
+        let initial = try #require(seed.entries.first)
         #expect(initial.id == typed.id)
         #expect(initial.visitCount == 2)
         #expect(initial.typedCount == 1)
@@ -25,14 +27,36 @@ import Testing
         #expect(try store.page(offset: 2, limit: 2) == [typed])
         #expect(try store.page(search: "cafe") == [typed])
         let update = try store.suggestionDelta()
+        #expect(!update.replacesHistory)
         #expect(update.changed == [repeated, other])
-        #expect(update.entries.first { $0.url == repeated }?.visitCount == 2)
+        #expect(update.entries.first { $0.address == repeated.absoluteString }?.visitCount == 2)
         #expect(try store.sharedHistory() == [typed])
         try store.clear(since: now.addingTimeInterval(-1))
         #expect(try store.page() == [typed])
+        let afterPartialClear = try store.suggestionDelta()
+        #expect(afterPartialClear.replacesHistory)
+        #expect(afterPartialClear.entries.map(\.id) == [typed.id])
         try store.clear(since: .distantPast)
         #expect(try store.page().isEmpty)
         #expect(try store.suggestionDelta().entries.isEmpty)
+    }
+
+    @Test func bulkReplacementDropsErasedVisitsAndRetainsBookmarks() throws {
+        let store = try VisitHistoryStore()
+        let visits = (0...256).map { number in
+            HistoryEntry(title: "Visit \(number)", url: URL(string: "https://example.test/\(number)")!)
+        }
+        try store.migrate(visits)
+        var index = LocalSuggestionIndex()
+        index.updateBookmarks([Bookmark(title: "Saved destination", url: visits[0].url)])
+        index.replaceVisits(try store.suggestionDelta().entries)
+        #expect(index.matches("visit").count == 7)
+        for visit in visits { try store.remove(visit.id) }
+        let replacement = try store.suggestionDelta()
+        #expect(replacement.replacesHistory)
+        index.replaceVisits(replacement.entries)
+        #expect(index.matches("visit").isEmpty)
+        #expect(index.matches("saved").map(\.url) == [visits[0].url])
     }
 
     @Test func continuityEvictionPreservesLocalVisitsAndClearErasesThem() throws {

@@ -2,6 +2,9 @@ import XCTest
 import BrowserCore
 @testable import BrowserEngine
 import WebKit
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor final class BrowserExperienceTests: XCTestCase {
     private func session(store: SessionFileStore? = nil, recordFixture: Bool = false) -> BrowserSession {
@@ -65,13 +68,25 @@ import WebKit
         let session = session()
         defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
+        #if os(iOS)
+        // WebKit can suspend a detached view before it delivers the bridge message.
+        // Match the app's attached-view lifecycle without changing the key window.
+        let window = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }.first)
+        let webView = tab.webView
+        webView.frame = window.bounds
+        window.addSubview(webView)
+        defer { webView.removeFromSuperview() }
+        #endif
         tab.navigate(to: URL(string: "http://127.0.0.1:8768/quality")!)
-        try await wait { tab.title == "Browser quality fixture" && !tab.isLoading }
+        try await wait("the draft document to finish") { tab.title == "Browser quality fixture" && !tab.isLoading }
         XCTAssertFalse(session.requiresCloseConfirmation(tab.id))
         _ = try await tab.webView.callAsyncJavaScript("window.webkit.messageHandlers.editedField.postMessage(true)", arguments: [:], in: nil, contentWorld: .world(name: "OrivTabState"))
-        try await wait { session.requiresCloseConfirmation(tab.id) }
+        try await wait("the edited-field bridge message") { session.requiresCloseConfirmation(tab.id) }
         tab.navigate(to: URL(string: "http://127.0.0.1:8768/two")!)
-        try await wait { !tab.isLoading && !session.requiresCloseConfirmation(tab.id) }
+        try await wait("the next document to finish and reset the edit flag") {
+            tab.title == "Second page" && !tab.isLoading && !session.requiresCloseConfirmation(tab.id)
+        }
         XCTAssertFalse(session.requiresCloseConfirmation(UUID()))
     }
     func testLateDocumentTitleKVOUpdatesExistingHistoryVisit() async throws {
@@ -172,9 +187,11 @@ import WebKit
         XCTAssertTrue(final.history.isEmpty)
         final.shutdown()
     }
-    private func wait(_ predicate: () -> Bool) async throws {
-        let end = Date.now.addingTimeInterval(20)
-        while !predicate() && Date.now < end { try await Task.sleep(for: .milliseconds(40)) }
-        XCTAssertTrue(predicate())
+    private func wait(_ condition: String = "the fixture condition", file: StaticString = #filePath, line: UInt = #line,
+                      _ predicate: () -> Bool) async throws {
+        let clock = ContinuousClock()
+        let end = clock.now + .seconds(20)
+        while !predicate() && clock.now < end { try await Task.sleep(for: .milliseconds(40)) }
+        _ = try XCTUnwrap(predicate() ? true : nil, "Timed out waiting for \(condition)", file: file, line: line)
     }
 }
