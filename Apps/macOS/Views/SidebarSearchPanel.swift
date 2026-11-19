@@ -30,28 +30,7 @@ struct SidebarSearchPanel: View {
                 .onKeyPress(.upArrow) { selected = max(0, selected - 1); return .handled }
             Text("\(results.count) \(privateScope ? "private" : "regular") tabs")
                 .font(.caption).foregroundStyle(Theme.sidebar.secondaryText).accessibilityIdentifier("tabSearchResultCount")
-            ScrollViewReader { reader in
-                ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(Array(results.enumerated()), id: \.element.id) { index, tab in
-                            HStack {
-                                Button { controller.session.selectTab(tab.id); dismiss() } label: {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(tab.displayTitle).lineLimit(2)
-                                        Text(tab.hostname).font(.caption).foregroundStyle(Theme.sidebar.secondaryText)
-                                    }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
-                                }.buttonStyle(ContentButtonStyle()).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
-                                Button { controller.requestCloseTab(tab.id) } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
-                                    .buttonStyle(ContentButtonStyle()).accessibilityLabel("Close \(tab.displayTitle)")
-                            }
-                            .background(index == selected ? Theme.sidebar.selection : .clear, in: .rect(cornerRadius: 8))
-                            .id(tab.id)
-                        }
-                    }
-                }.onChange(of: selected) { _, index in
-                    if results.indices.contains(index) { reader.scrollTo(results[index].id) }
-                }
-            }
+            resultList
         }.padding(14).foregroundStyle(Theme.sidebar.text)
             .environment(\.browserTheme, Theme.sidebar).focusEffectDisabled()
             .background(Theme.sidebar.surface, in: .rect(cornerRadius: 14))
@@ -69,6 +48,31 @@ struct SidebarSearchPanel: View {
             }
             .onDisappear { results = []; controller.tabSearch = "" }
     }
+    private var resultList: some View {
+        ScrollViewReader { reader in
+            ScrollView {
+                LazyVStack(spacing: 4) {
+                    ForEach(Array(results.enumerated()), id: \.element.id) { index, tab in
+                        HStack {
+                            Button { controller.session.selectTab(tab.id); dismiss() } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(tab.displayTitle).lineLimit(2)
+                                    Text(tab.hostname).font(.caption).foregroundStyle(Theme.sidebar.secondaryText)
+                                }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
+                            }.buttonStyle(ContentButtonStyle()).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
+                            Button { controller.requestCloseTab(tab.id) } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
+                                .buttonStyle(ContentButtonStyle()).accessibilityLabel("Close \(tab.displayTitle)")
+                        }
+                        .background(index == selected ? Theme.sidebar.selection : .clear, in: .rect(cornerRadius: 8))
+                        .id(tab.id)
+                    }
+                }
+            }.onChange(of: selected) { _, index in
+                if results.indices.contains(index) { reader.scrollTo(results[index].id) }
+            }
+        }
+    }
+
     private func activate() {
         guard results.indices.contains(selected) else { return }
         controller.session.selectTab(results[selected].id); dismiss()

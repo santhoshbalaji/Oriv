@@ -157,42 +157,47 @@ struct MobileBrowserView: View {
             }
             .preferredColorScheme(statusScheme)
     }
-    private var browser: some View {
-            GeometryReader { geometry in
-                ZStack {
-                    pageChrome.color.opacity(hasLivePage && !editingAddress ? 0 : 1).ignoresSafeArea().allowsHitTesting(false)
-                        .animation(reduceMotion || !pageChrome.animatesColor ? nil : .easeInOut(duration: 0.2), value: pageChrome.color)
-                    if editingAddress {
-                        suggestions.background(theme.canvas).safeAreaPadding(.bottom,bottomOcclusion+barHeight)
-                    } else {
-                        page(top: max(geometry.safeAreaInsets.top, windowInsets.top), bottom: max(geometry.safeAreaInsets.bottom, windowInsets.bottom) + (nativeFinding ? 0 : barHeight))
-                            .opacity(reduceMotion ? 1-min(abs(gestures.translation)/max(geometry.size.width,1),1) : 1)
-                            .overlay { swipePreview(width: geometry.size.width) }
-                            .offset(x: reduceMotion ? 0 : gestures.translation)
-                            .ignoresSafeArea(.container, edges: [.top, .bottom])
-                            .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-                            .scrollEdgeEffectHidden(reduceTransparency, for: [.top, .bottom])
-                            .overlay(alignment: .top) {
-                                VStack(spacing: 0) { notices }.padding(.leading,windowInsets.left).padding(.trailing,windowInsets.right)
-                            }
-                    }
-                }
-                .overlay(alignment:.top) {
-                    topBar(width:geometry.size.width)
-                        .frame(height:max(geometry.safeAreaInsets.top,windowInsets.top))
-                        .allowsHitTesting(false).accessibilityHidden(true)
+    private var browserSurface: some View {
+        GeometryReader { geometry in
+            ZStack {
+                pageChrome.color.opacity(hasLivePage && !editingAddress ? 0 : 1).ignoresSafeArea().allowsHitTesting(false)
+                    .animation(reduceMotion || !pageChrome.animatesColor ? nil : .easeInOut(duration: 0.2), value: pageChrome.color)
+                if editingAddress {
+                    suggestions.background(theme.canvas).safeAreaPadding(.bottom,bottomOcclusion+barHeight)
+                } else {
+                    page(top: max(geometry.safeAreaInsets.top, windowInsets.top), bottom: max(geometry.safeAreaInsets.bottom, windowInsets.bottom) + (nativeFinding ? 0 : barHeight))
+                        .opacity(reduceMotion ? 1-min(abs(gestures.translation)/max(geometry.size.width,1),1) : 1)
+                        .overlay { swipePreview(width: geometry.size.width) }
+                        .offset(x: reduceMotion ? 0 : gestures.translation)
+                        .ignoresSafeArea(.container, edges: [.top, .bottom])
+                        .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+                        .scrollEdgeEffectHidden(reduceTransparency, for: [.top, .bottom])
+                        .overlay(alignment: .top) {
+                            VStack(spacing: 0) { notices }.padding(.leading,windowInsets.left).padding(.trailing,windowInsets.right)
+                        }
                 }
             }
-            .overlay {
-                MobileKeyboardBar(content:{ AnyView(barContent) },contentVersion:barContentVersion,handoff:swipeHandoff,reduceMotion:reduceMotion,
-                    hidden:nativeFinding || (controller.sheet == .tabs && presentation.activeID == nil && gestures.gridProgress == 1),
-                    interactive:!gestures.finishingSwipe && (gestures.source != nil || (controller.sheet == nil && !gestures.gridClosing && gestures.gridProgress == 0)),
-                    accessibilityHidden:gestures.gridProgress > 0 || controller.sheet == .tabs || gestures.gridClosing) { height,occlusion in
-                        controller.viewportLayout.update(barHeight:height,keyboardOverlap:occlusion,
-                            resting:!editingAddress && !minimized && occlusion <= windowInsets.bottom+1)
-                        if !hasLivePage || editingAddress { barHeight = height; keyboardOverlap = occlusion }
-                    }
+            .overlay(alignment:.top) {
+                topBar(width:geometry.size.width)
+                    .frame(height:max(geometry.safeAreaInsets.top,windowInsets.top))
+                    .allowsHitTesting(false).accessibilityHidden(true)
             }
+        }
+    }
+
+    private var keyboardBar: some View {
+        MobileKeyboardBar(content:{ AnyView(barContent) },contentVersion:barContentVersion,handoff:swipeHandoff,reduceMotion:reduceMotion,
+            hidden:nativeFinding || (controller.sheet == .tabs && presentation.activeID == nil && gestures.gridProgress == 1),
+            interactive:!gestures.finishingSwipe && (gestures.source != nil || (controller.sheet == nil && !gestures.gridClosing && gestures.gridProgress == 0)),
+            accessibilityHidden:gestures.gridProgress > 0 || controller.sheet == .tabs || gestures.gridClosing) { height,occlusion in
+                controller.viewportLayout.update(barHeight:height,keyboardOverlap:occlusion,
+                    resting:!editingAddress && !minimized && occlusion <= windowInsets.bottom+1)
+                if !hasLivePage || editingAddress { barHeight = height; keyboardOverlap = occlusion }
+            }
+    }
+
+    private var browserLifecycle: some View {
+        browserSurface.overlay { keyboardBar }
             .toolbar(.hidden, for: .navigationBar)
             .onDisappear { cancelTransition(); presentation.discard() }
             .task(id:tab?.isLoading) {
@@ -200,70 +205,59 @@ struct MobileBrowserView: View {
                 try? await Task.sleep(for:.milliseconds(250))
                 if !Task.isCancelled { gridPrepared = true }
             }
-                .onAppear { controller.session.activateSelectedTab() }
-                .task(id: controller.addressFocusRequest) {
-                    await Task.yield()
-                    consumeFocusRequest()
+            .onAppear { controller.session.activateSelectedTab() }
+            .task(id: controller.addressFocusRequest) {
+                await Task.yield()
+                consumeFocusRequest()
+            }
+            .onChange(of:controller.session.tabs.map(\.id)) { old, ids in
+                // The presentation model can clear activeID before this
+                // callback runs. The moving image still owns its identity.
+                let removedDuringTransition = gridOrigin != nil && old.contains { !ids.contains($0) }
+                let removedSnapshot = controller.gridMorph.tabID.map { !ids.contains($0) } ?? false
+                if removedDuringTransition || removedSnapshot { cancelTransition() }
+                profiles.finishExternalGroupIfEmpty()
+            }
+            .onChange(of: tab?.id) { _, _ in
+                if gestures.source != nil { cancelTransition() }
+                editingAddress = false; nativeFinding = false
+                if swipeHandoff != tab?.id { minimized = false }
+                swipeHandoff = nil
+                controller.trimBackgroundTabs()
+                if presentation.inserting && gestures.gridProgress == 0 {
+                    presentation.insertionProgress = 1
+                    withAnimation(reduceMotion ? .easeInOut(duration:0.18) : .spring(response:0.4,dampingFraction:0.9),completionCriteria:.removed) {
+                        presentation.insertionProgress = 0
+                    } completion: { presentation.inserting = false; consumeFocusRequest() }
                 }
-                .onChange(of:controller.session.tabs.map(\.id)) { old, ids in
-                    // The presentation model can clear activeID before this
-                    // callback runs. The moving image still owns its identity.
-                    let removedDuringTransition = gridOrigin != nil && old.contains { !ids.contains($0) }
-                    let removedSnapshot = controller.gridMorph.tabID.map { !ids.contains($0) } ?? false
-                    if removedDuringTransition || removedSnapshot { cancelTransition() }
-                    profiles.finishExternalGroupIfEmpty()
-                }
-                .onChange(of: tab?.id) { _, _ in
-                    if gestures.source != nil { cancelTransition() }
-                    editingAddress = false; nativeFinding = false
-                    if swipeHandoff != tab?.id { minimized = false }
-                    swipeHandoff = nil
-                    controller.trimBackgroundTabs()
-                    if presentation.inserting && gestures.gridProgress == 0 {
-                        presentation.insertionProgress = 1
-                        withAnimation(reduceMotion ? .easeInOut(duration:0.18) : .spring(response:0.4,dampingFraction:0.9),completionCriteria:.removed) {
-                            presentation.insertionProgress = 0
-                        } completion: { presentation.inserting = false; consumeFocusRequest() }
-                    }
-                }
-                .onChange(of:tab?.isLoading) { _, loading in
-                    if loading == false, let tab { presentation.refreshAfterScrolling(tab) }
-                }
-                .onChange(of:scenePhase) { _, phase in if phase != .active { cancelTransition() } }
-                .onReceive(NotificationCenter.default.publisher(for:UIApplication.willResignActiveNotification)) { _ in cancelTransition() }
-                .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)) { _ in cancelTransition() }
-                .onChange(of:swipe.isActive) { wasActive, active in
-                    if wasActive && !active && gestures.source != nil { cancelTransition() }
-                }
-                .environment(\.siteIcons, controller.session.siteIcons)
-                .task(id: "\(address)-\(editingAddress)-\(tab?.id.uuidString ?? "")") {
-                    await addressMatches.update(editingAddress ? address : "", session: controller.session, isPrivate: tab?.isPrivate == true)
-                }
-                .onReceive(NotificationCenter.default.publisher(for:UIResponder.keyboardWillChangeFrameNotification)) { _ in
-                    if gestures.source != nil || presentation.activeID != nil || gestures.gridClosing { cancelTransition() }
-                }
-                .onChange(of: controller.sheet, initial: true) { oldSheet, sheet in
-                    gestures.gridPresented = sheet == .tabs
-                    if restoringGridState {
-                        restoringGridState = false; gestures.gridProgress = sheet == .tabs ? 1 : 0
-                        return
-                    }
-                    if oldSheet == sheet, sheet == .tabs { gestures.gridProgress = 1; return }
-                    if sheet == .tabs {
-                        transitionGeneration += 1; gestures.gridClosing = false
-                        if gridOrigin == nil { gridOrigin = .page }
-                        let progress = gestures.gridProgress
-                        gestures.cancel(); gestures.gridProgress = progress
-                        if let tab, tab.isInstantiated { tab.webView.findInteraction?.dismissFindNavigator(); tab.webView.endEditing(true) }
-                        presentation.begin(tab)
-                        animateGrid(to:1) { gridOrigin = nil; presentation.settleInGrid(tab) }
-                    }
-                    else if sheet != nil { cancelTransition() }
-                    else if !gestures.gridClosing && (gestures.gridProgress > 0 || controller.gridMorph.isAnimating || presentation.activeID != nil) { closeGrid() }
-                    else if !gestures.gridClosing { consumeFocusRequest() }
-                }
-                .sheet(item: Binding(get: { controller.sheet == .tabs ? nil : controller.sheet }, set: { controller.sheet = $0 }), onDismiss: consumeFocusRequest) { sheet in
-                    Group {
+            }
+            .onChange(of:tab?.isLoading) { _, loading in
+                if loading == false, let tab { presentation.refreshAfterScrolling(tab) }
+            }
+    }
+
+    private var browserInteractions: some View {
+        browserLifecycle
+            .onChange(of:scenePhase) { _, phase in if phase != .active { cancelTransition() } }
+            .onReceive(NotificationCenter.default.publisher(for:UIApplication.willResignActiveNotification)) { _ in cancelTransition() }
+            .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)) { _ in cancelTransition() }
+            .onChange(of:swipe.isActive) { wasActive, active in
+                if wasActive && !active && gestures.source != nil { cancelTransition() }
+            }
+            .environment(\.siteIcons, controller.session.siteIcons)
+            .task(id: "\(address)-\(editingAddress)-\(tab?.id.uuidString ?? "")") {
+                await addressMatches.update(editingAddress ? address : "", session: controller.session, isPrivate: tab?.isPrivate == true)
+            }
+            .onReceive(NotificationCenter.default.publisher(for:UIResponder.keyboardWillChangeFrameNotification)) { _ in
+                if gestures.source != nil || presentation.activeID != nil || gestures.gridClosing { cancelTransition() }
+            }
+    }
+
+    private var browser: some View {
+        browserInteractions
+            .onChange(of: controller.sheet, initial: true, sheetChanged)
+            .sheet(item: Binding(get: { controller.sheet == .tabs ? nil : controller.sheet }, set: { controller.sheet = $0 }), onDismiss: consumeFocusRequest) { sheet in
+                Group {
                     switch sheet {
                     case .tabs: EmptyView()
                     case .library: MobileLibraryView(controller: controller, profiles: profiles)
@@ -276,12 +270,33 @@ struct MobileBrowserView: View {
                     case .site: if let tab { NavigationStack { MobileSiteSettings(session: controller.session, tab: tab) } }
                     case .share: if let tab, let url = tab.url { MobilePageShare(webView: tab.webView, url: URLCleaner.clean(url)) }
                     }
-                    }.browserAppearance(controller.appearance)
-                        .environment(\.siteIcons, controller.session.siteIcons)
-                }
-                .alert("Unable to complete action", isPresented: Binding(get: { controller.message != nil }, set: { if !$0 { controller.message = nil } })) {
-                    Button("OK") { controller.message = nil }
-                } message: { Text(controller.message ?? "") }
+                }.browserAppearance(controller.appearance)
+                    .environment(\.siteIcons, controller.session.siteIcons)
+            }
+            .alert("Unable to complete action", isPresented: Binding(get: { controller.message != nil }, set: { if !$0 { controller.message = nil } })) {
+                Button("OK") { controller.message = nil }
+            } message: { Text(controller.message ?? "") }
+    }
+
+    private func sheetChanged(from oldSheet: MobileSheet?, to sheet: MobileSheet?) {
+        gestures.gridPresented = sheet == .tabs
+        if restoringGridState {
+            restoringGridState = false; gestures.gridProgress = sheet == .tabs ? 1 : 0
+            return
+        }
+        if oldSheet == sheet, sheet == .tabs { gestures.gridProgress = 1; return }
+        if sheet == .tabs {
+            transitionGeneration += 1; gestures.gridClosing = false
+            if gridOrigin == nil { gridOrigin = .page }
+            let progress = gestures.gridProgress
+            gestures.cancel(); gestures.gridProgress = progress
+            if let tab, tab.isInstantiated { tab.webView.findInteraction?.dismissFindNavigator(); tab.webView.endEditing(true) }
+            presentation.begin(tab)
+            animateGrid(to:1) { gridOrigin = nil; presentation.settleInGrid(tab) }
+        }
+        else if sheet != nil { cancelTransition() }
+        else if !gestures.gridClosing && (gestures.gridProgress > 0 || controller.gridMorph.isAnimating || presentation.activeID != nil) { closeGrid() }
+        else if !gestures.gridClosing { consumeFocusRequest() }
     }
 
     private func consumeFocusRequest() {
@@ -357,17 +372,21 @@ struct MobileBrowserView: View {
             .buttonStyle(.plain).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true)).accessibilityLabel("Forward")
             .accessibilityAction(named: "Show History") { showHistory(forward: true) }
     }
+    @ViewBuilder private var tabsMenu: some View {
+        Button("New Tab", systemImage: "plus") { controller.newTab() }
+        Button("New Private Tab", systemImage: "eyeglasses") { controller.newTab(isPrivate: true) }
+        Divider()
+        Menu("Switch Profile", systemImage: "person.crop.circle") {
+            ForEach(profiles.profiles.filter { $0.archivedAt == nil }) { profile in Button(profile.name) { profiles.select(profile) } }
+        }
+        Divider()
+        Button("Close This Tab", systemImage: "xmark", role: .destructive) { if let tab { controller.close([tab.id]) } }
+        Button("Close All Tabs", systemImage: "xmark.square", role: .destructive) { controller.closeAllTabs() }
+    }
+
     private var tabsButton: some View {
         Menu {
-            Button("New Tab", systemImage: "plus") { controller.newTab() }
-            Button("New Private Tab", systemImage: "eyeglasses") { controller.newTab(isPrivate: true) }
-            Divider()
-            Menu("Switch Profile", systemImage: "person.crop.circle") {
-                ForEach(profiles.profiles.filter { $0.archivedAt == nil }) { profile in Button(profile.name) { profiles.select(profile) } }
-            }
-            Divider()
-            Button("Close This Tab", systemImage: "xmark", role: .destructive) { if let tab { controller.close([tab.id]) } }
-            Button("Close All Tabs", systemImage: "xmark.square", role: .destructive) { controller.closeAllTabs() }
+            tabsMenu
         } label: {
             Image(systemName: "square.on.square").font(.system(size: 21, weight: .medium)).frame(width: 48, height: 48)
         } primaryAction: { controller.sheet = .tabs }

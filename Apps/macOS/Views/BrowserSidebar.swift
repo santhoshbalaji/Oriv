@@ -248,74 +248,78 @@ struct BrowserSidebar: View {
         DispatchQueue.main.async { pendingFocus = id }
     }
 
+    private var tabRows: some View {
+        LazyVStack(spacing: railLayout ? 6 : 1) {
+            let pinned = filteredTabs.filter(\.isPinned)
+            let regular = filteredTabs.filter { !$0.isPrivate && !$0.isPinned }
+            let privateTabs = filteredTabs.filter(\.isPrivate)
+            if railLayout {
+                ForEach(Array(filteredTabs.enumerated()), id: \.element.id) { index, tab in
+                    if index > 0, filteredTabs[index - 1].isPinned != tab.isPinned || filteredTabs[index - 1].isPrivate != tab.isPrivate {
+                        Rectangle().fill(theme.separator.opacity(0.7)).frame(width: 24, height: 1).padding(.vertical, 6)
+                    }
+                    tabItem(tab, tile: true)
+                }
+            } else {
+                if !session.isExternalPrivate {
+                    if !pinned.isEmpty { sectionHeading("Pinned", count: pinned.count, target: .pinned(true)) }
+                    if pinned.isEmpty && controller.tabSearch.isEmpty && draggingTab {
+                        Text("Pin tab").font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                            .frame(maxWidth: .infinity, minHeight: 27)
+                            .modifier(SidebarDropTargetModifier(target: .pinned(true), controller: controller))
+                    }
+                    if !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        // Search always exposes titles, including matching pins.
+                        ForEach(pinned) { tab in tabItem(tab) }
+                    } else {
+                            // At most eight eager cells; every remaining tab is lazy.
+                            ForEach(0..<((min(pinned.count, SidebarTabs.gridLimit) + 3) / 4), id: \.self) { row in
+                                HStack(spacing: 8) {
+                                    ForEach(0..<4) { column in
+                                        let index = row * 4 + column
+                                        if index < pinned.count { tabItem(pinned[index], tile: true) }
+                                        else { Color.clear.frame(width: 56, height: 48) }
+                                    }
+                                }.padding(.horizontal, 6).padding(.vertical, 4)
+                            }
+                            if pinned.count > SidebarTabs.gridLimit {
+                                sectionHeading("More pinned tabs", count: pinned.count - SidebarTabs.gridLimit)
+                                ForEach(Array(pinned.dropFirst(SidebarTabs.gridLimit))) { tab in tabItem(tab) }
+                            }
+                    }
+                    if !regular.isEmpty { sectionHeading("Tabs", count: regular.count, target: .pinned(false)) }
+                    else if draggingTab && controller.tabSearch.isEmpty {
+                        Text("Unpin tab").font(OrivType.caption).frame(maxWidth: .infinity, minHeight: 27)
+                            .modifier(SidebarDropTargetModifier(target: .pinned(false), controller: controller))
+                    }
+                    ForEach(regular) { tab in tabItem(tab) }
+                }
+                if !privateTabs.isEmpty {
+                    Section {
+                        ForEach(privateTabs) { tab in tabItem(tab) }
+                    } header: { sectionHeading("Private", count: privateTabs.count) }
+                    .accessibilityLabel("Private tabs")
+                }
+            }
+            if filteredTabs.isEmpty {
+                Text(controller.tabSearch.isEmpty ? "No tabs" : "No matching tabs").font(OrivType.detail).foregroundStyle(theme.secondaryText).padding(12)
+            }
+        }
+        .padding(.horizontal, railLayout ? MacBrowserLayout.railInset : 0).padding(.bottom, railLayout ? 0 : 10)
+        // Lazy rows share tab IDs across the two collections. Rebuild
+        // their layout on a mode change instead of reusing expanded cells.
+        .scrollTargetLayout()
+        .id(railLayout)
+        .transaction(value: railLayout) { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+    }
+
     private var tabCollection: some View {
         ScrollViewReader { reader in
             ScrollView {
-                LazyVStack(spacing: railLayout ? 6 : 1) {
-                    let pinned = filteredTabs.filter(\.isPinned)
-                    let regular = filteredTabs.filter { !$0.isPrivate && !$0.isPinned }
-                    let privateTabs = filteredTabs.filter(\.isPrivate)
-                    if railLayout {
-                        ForEach(Array(filteredTabs.enumerated()), id: \.element.id) { index, tab in
-                            if index > 0, filteredTabs[index - 1].isPinned != tab.isPinned || filteredTabs[index - 1].isPrivate != tab.isPrivate {
-                                Rectangle().fill(theme.separator.opacity(0.7)).frame(width: 24, height: 1).padding(.vertical, 6)
-                            }
-                            tabItem(tab, tile: true)
-                        }
-                    } else {
-                        if !session.isExternalPrivate {
-                            if !pinned.isEmpty { sectionHeading("Pinned", count: pinned.count, target: .pinned(true)) }
-                            if pinned.isEmpty && controller.tabSearch.isEmpty && draggingTab {
-                                Text("Pin tab").font(OrivType.caption).foregroundStyle(theme.secondaryText)
-                                    .frame(maxWidth: .infinity, minHeight: 27)
-                                    .modifier(SidebarDropTargetModifier(target: .pinned(true), controller: controller))
-                            }
-                            if !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                // Search always exposes titles, including matching pins.
-                                ForEach(pinned) { tab in tabItem(tab) }
-                            } else {
-                                    // At most eight eager cells; every remaining tab is lazy.
-                                    ForEach(0..<((min(pinned.count, SidebarTabs.gridLimit) + 3) / 4), id: \.self) { row in
-                                        HStack(spacing: 8) {
-                                            ForEach(0..<4) { column in
-                                                let index = row * 4 + column
-                                                if index < pinned.count { tabItem(pinned[index], tile: true) }
-                                                else { Color.clear.frame(width: 56, height: 48) }
-                                            }
-                                        }.padding(.horizontal, 6).padding(.vertical, 4)
-                                    }
-                                    if pinned.count > SidebarTabs.gridLimit {
-                                        sectionHeading("More pinned tabs", count: pinned.count - SidebarTabs.gridLimit)
-                                        ForEach(Array(pinned.dropFirst(SidebarTabs.gridLimit))) { tab in tabItem(tab) }
-                                    }
-                            }
-                            if !regular.isEmpty { sectionHeading("Tabs", count: regular.count, target: .pinned(false)) }
-                            else if draggingTab && controller.tabSearch.isEmpty {
-                                Text("Unpin tab").font(OrivType.caption).frame(maxWidth: .infinity, minHeight: 27)
-                                    .modifier(SidebarDropTargetModifier(target: .pinned(false), controller: controller))
-                            }
-                            ForEach(regular) { tab in tabItem(tab) }
-                        }
-                        if !privateTabs.isEmpty {
-                            Section {
-                                ForEach(privateTabs) { tab in tabItem(tab) }
-                            } header: { sectionHeading("Private", count: privateTabs.count) }
-                            .accessibilityLabel("Private tabs")
-                        }
-                    }
-                    if filteredTabs.isEmpty {
-                        Text(controller.tabSearch.isEmpty ? "No tabs" : "No matching tabs").font(OrivType.detail).foregroundStyle(theme.secondaryText).padding(12)
-                    }
-                }
-                .padding(.horizontal, railLayout ? MacBrowserLayout.railInset : 0).padding(.bottom, railLayout ? 0 : 10)
-                // Lazy rows share tab IDs across the two collections. Rebuild
-                // their layout on a mode change instead of reusing expanded cells.
-                .scrollTargetLayout()
-                .id(railLayout)
-                .transaction(value: railLayout) { transaction in
-                    transaction.animation = nil
-                    transaction.disablesAnimations = true
-                }
+                tabRows
             }
             .scrollPosition(id: Binding(get: { railLayout ? railAnchor : expandedAnchor }, set: {
                 if railLayout { railAnchor = $0 } else { expandedAnchor = $0 }
