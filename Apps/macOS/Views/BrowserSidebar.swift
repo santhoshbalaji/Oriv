@@ -102,6 +102,11 @@ private struct SidebarTabFocus: ViewModifier {
     }
 }
 
+private struct SidebarFocusContext: Equatable {
+    let rail: Bool
+    let request: Int
+}
+
 struct BrowserSidebar: View {
     private let theme = Theme.sidebar
     @Bindable var controller: BrowserController
@@ -337,12 +342,15 @@ struct BrowserSidebar: View {
                     pendingFocus = nil
                 }
             }
-            .onChange(of: focusRequest) { _, _ in
-                pendingFocus = session.selectedTabID
-            }
-            .onChange(of: railLayout) { _, _ in
-                pendingFocus = nil
-                if let id = (railLayout ? railAnchor : expandedAnchor) ?? session.selectedTabID { reader.scrollTo(id) }
+            .onChange(of: SidebarFocusContext(rail: railLayout, request: focusRequest)) { previous, next in
+                // A busy run loop can coalesce the toggle handoff with the
+                // collection rebuild. Cancel the old layout's request before
+                // applying the new one, rather than letting separate observers
+                // erase the handoff after it has been installed.
+                pendingFocus = previous.request != next.request ? session.selectedTabID : nil
+                if let id = pendingFocus ?? (next.rail ? railAnchor : expandedAnchor) ?? session.selectedTabID {
+                    reader.scrollTo(id)
+                }
             }
             .onChange(of: searchFocused) { _, focused in if focused { pendingFocus = nil } }
             .onChange(of: utilityFocus) { _, focused in if focused != nil { pendingFocus = nil } }

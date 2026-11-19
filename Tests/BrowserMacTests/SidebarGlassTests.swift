@@ -1,26 +1,43 @@
 import AppKit
 import BrowserCore
 @testable import BrowserEngine
+import Observation
 import SwiftUI
 import WebKit
 import XCTest
 @testable import PersonalBrowser
 
 @MainActor final class SidebarGlassTests: BackgroundUITestCase {
+    private final class FocusTestWindow: BackgroundUIMode.Window {
+        // Exercise 1x window/SwiftUI geometry without changing any display.
+        var scale: CGFloat?
+        override var backingScaleFactor: CGFloat { scale ?? super.backingScaleFactor }
+    }
+    @Observable final class FocusRequest { var value = 0 }
+    private struct FocusRequestHost: View {
+        let controller: BrowserController
+        let request: FocusRequest
+        var body: some View {
+            BrowserSidebar(controller: controller, focusRequest: request.value).environment(\.displayScale, 1)
+        }
+    }
     private func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
     private func nodes(_ element: Any, depth: Int = 0) -> [any NSAccessibilityProtocol] {
         guard depth < 24, let node = element as? any NSAccessibilityProtocol else { return [] }
         return [node] + (node.accessibilityChildren() ?? []).flatMap { nodes($0, depth: depth + 1) }
     }
     private func window(_ controller: BrowserController, solid: Bool = false, reduceMotion: Bool? = nil,
-                        appearance: BrowserAppearance = .light) -> NSWindow {
-        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 760),
+                        appearance: BrowserAppearance = .light, size: NSSize = NSSize(width: 1000, height: 760),
+                        displayScale: CGFloat? = nil) -> NSWindow {
+        let window = FocusTestWindow(contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.scale = displayScale
         window.isReleasedWhenClosed = false
         window.contentViewController = NSHostingController(rootView: BrowserWindow(controller: controller)
             .browserAppearance(appearance).environment(\.chromeReduceTransparencyOverride, solid)
-            .environment(\.sidebarCaptureReduceMotion, reduceMotion))
-        window.setContentSize(NSSize(width: 1000, height: 760))
+            .environment(\.sidebarCaptureReduceMotion, reduceMotion)
+            .transformEnvironment(\.displayScale) { if let displayScale { $0 = displayScale } })
+        window.setContentSize(size)
         BackgroundUIMode.show(window, key: true)
         return window
     }
@@ -31,6 +48,19 @@ import XCTest
         let deadline = ContinuousClock.now + .seconds(5)
         while !condition(), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
+        }
+        if !condition() {
+            for window in NSApp.windows {
+                guard let content = window.contentView else { continue }
+                for view in views(content) {
+                    if let scroll = view as? NSScrollView {
+                        print("SIDEBAR_FOCUS_FAILURE viewport=\(scroll.contentView.bounds) document=\(String(describing: scroll.documentView?.bounds)) responder=\(String(describing: window.firstResponder))")
+                    }
+                    if let name = view.identifier?.rawValue, name.hasPrefix("sidebarKeyboardFocus-") || name.hasPrefix("sidebarSelection-") {
+                        print("SIDEBAR_FOCUS_FAILURE \(name) frame=\(view.convert(view.bounds, to: view.enclosingScrollView?.contentView))")
+                    }
+                }
+            }
         }
         _ = try XCTUnwrap(condition() ? true : nil, message, file: file, line: line)
     }
@@ -284,10 +314,57 @@ import XCTest
         try key(125, "\u{f701}"); try await settle(); XCTAssertEqual(c.session.selectedTabID, regular.id)
     }
     func testNativeArrowNavigationScrollsThroughSixtyLazyRowsAndRail() async throws {
+        try await checkNativeArrowNavigation(size: NSSize(width: 1000, height: 760))
+    }
+
+    func testNativeArrowNavigationInShortWindowsAtOnePointScale() async throws {
+        for height in [520.0, 521.0, 600.0] {
+            try await checkNativeArrowNavigation(size: NSSize(width: 840, height: height), displayScale: 1)
+        }
+    }
+
+    func testFocusRequestSurvivesCoalescedLazyRailRebuild() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         for _ in 1..<60 { _ = c.session.addTab(select: false, load: false) }
         let tabs = c.session.orderedTabs
-        let w = window(c); defer { w.close() }
+        c.session.selectTab(tabs[59].id)
+        let w = FocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 296, height: 520),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        w.scale = 1; w.isReleasedWhenClosed = false
+        defer { w.close() }
+        let request = FocusRequest()
+        let host = NSHostingView(rootView: FocusRequestHost(controller: c, request: request))
+        w.contentView = host
+        BackgroundUIMode.show(w)
+        try await settle()
+        request.value = 1
+        try await waitUntil("Expanded request did not materialize the last lazy row") {
+            self.hasVisibleKeyboardFocus(tabs[59].id, in: w)
+        }
+        w.makeFirstResponder(nil)
+        // On a busy run loop, the toggle handoff and collection rebuild can
+        // reach SwiftUI in the same update. Neither request may erase the other.
+        c.compactSidebar = true
+        request.value = 2
+        w.setContentSize(NSSize(width: MacBrowserLayout.railWidth, height: 520))
+        try await waitUntil("Rail rebuild discarded the new focus request") {
+            let row = w.contentView.flatMap { self.views($0).first { $0.identifier?.rawValue == "sidebarItem-\(tabs[59].id)" } }
+            return row?.bounds.width == MacBrowserLayout.railItemWidth && self.hasVisibleKeyboardFocus(tabs[59].id, in: w)
+        }
+        NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
+            characters: "\u{f700}", charactersIgnoringModifiers: "\u{f700}", isARepeat: false, keyCode: 126)))
+        try await waitUntil("Coalesced handoff did not accept native rail navigation") {
+            c.session.selectedTabID == tabs[58].id && self.hasVisibleKeyboardFocus(tabs[58].id, in: w)
+        }
+    }
+
+    private func checkNativeArrowNavigation(size: NSSize, displayScale: CGFloat? = nil) async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        for _ in 1..<60 { _ = c.session.addTab(select: false, load: false) }
+        let tabs = c.session.orderedTabs
+        let w = window(c, size: size, displayScale: displayScale); defer { w.close() }
+        print("SIDEBAR_FOCUS_ENV size=\(size) displayScale=\(String(describing: displayScale)) backingScale=\(w.backingScaleFactor) CI=\(ProcessInfo.processInfo.environment["CI", default: ""])")
         try await waitUntil("Initial address field did not acquire its editor") {
             w.contentView.map { self.views($0).contains { ($0 as? FocusAwareAddressField)?.currentEditor() != nil } } == true
         }
