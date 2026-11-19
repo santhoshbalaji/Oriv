@@ -54,7 +54,7 @@ public struct LocalSuggestionIndex: Sendable {
     private struct Posting: Sendable {
         var count = 0
         var single: String?
-        var others: Set<String>?
+        var others: [String]?
 
         mutating func insert(_ key: String, cap: Int) {
             count += 1
@@ -67,7 +67,7 @@ public struct LocalSuggestionIndex: Sendable {
                 if let single {
                     others = [single, key]
                     self.single = nil
-                } else { others?.insert(key) }
+                } else { others?.append(key) }
             default: break
             }
         }
@@ -75,10 +75,10 @@ public struct LocalSuggestionIndex: Sendable {
         mutating func remove(_ key: String) {
             count -= 1
             if single == key { single = nil }
-            others?.remove(key)
+            if let position = others?.firstIndex(of: key) { others?.remove(at: position) }
         }
 
-        var candidates: Set<String>? {
+        var candidates: [String]? {
             if let single { return [single] }
             return others
         }
@@ -90,20 +90,26 @@ public struct LocalSuggestionIndex: Sendable {
     private var titleKeys: [String] = []
     private var grams: [UInt32: Posting] = [:]
     private var shortGrams: [UInt32: Int] = [:]
+    private var gramScratch = GramKeys()
 
-    private static func gramKeys(_ text: String) -> (short: Set<UInt32>, long: Set<UInt32>) {
-        var short = Set<UInt32>(), long = Set<UInt32>()
-        var pair: UInt32 = 0
-        var count = 0
-        for byte in text.utf8 {
-            let gram = pair << 8 | UInt32(byte)
-            short.insert(UInt32(byte))
-            if count >= 1 { short.insert(0x10000 | gram & 0xffff) }
-            if count >= 2 { long.insert(gram) }
-            pair = gram & 0xffff
-            count += 1
+    private struct GramKeys: Sendable {
+        var short = Set<UInt32>()
+        var long = Set<UInt32>()
+
+        mutating func collect(_ text: String) {
+            short.removeAll(keepingCapacity: true)
+            long.removeAll(keepingCapacity: true)
+            var pair: UInt32 = 0
+            var count = 0
+            for byte in text.utf8 {
+                let gram = pair << 8 | UInt32(byte)
+                short.insert(UInt32(byte))
+                if count >= 1 { short.insert(0x10000 | gram & 0xffff) }
+                if count >= 2 { long.insert(gram) }
+                pair = gram & 0xffff
+                count += 1
+            }
         }
-        return (short, long)
     }
 
     private static func contains(_ text: String, bytes: [UInt8]) -> Bool {
@@ -209,12 +215,12 @@ public struct LocalSuggestionIndex: Sendable {
             Self.updatePosting(&titleWords, term: token, key: entry.key, cap: 65, adding: adding)
             if !batch { Self.updateKey(token, keys: &titleKeys, exists: titleWords[token] != nil) }
         }
-        let terms = Self.gramKeys(entry.text)
-        for gram in terms.short {
+        gramScratch.collect(entry.text)
+        for gram in gramScratch.short {
             let count = shortGrams[gram, default: 0] + (adding ? 1 : -1)
             shortGrams[gram] = count == 0 ? nil : count
         }
-        for gram in terms.long {
+        for gram in gramScratch.long {
             Self.updatePosting(&grams, term: gram, key: entry.key, cap: 128, adding: adding)
         }
     }
@@ -345,13 +351,14 @@ public struct LocalSuggestionIndex: Sendable {
         addTier(prefixCandidates(query, keys: titleKeys, words: titleWords), predicate: hasTitlePrefix)
         if result.count < limit {
             let bytes = Array(query.utf8)
-            let terms = Self.gramKeys(query)
+            var terms = GramKeys()
+            terms.collect(query)
             let absent = bytes.count < 3
                 ? terms.short.contains { shortGrams[$0] == nil }
                 : terms.long.contains { grams[$0] == nil }
             if !absent {
                 let rarest = terms.long.compactMap { grams[$0]?.candidates }.min { $0.count < $1.count }
-                addTier(rarest) { Self.contains($0.text, bytes: bytes) }
+                addTier(rarest.map { Set($0) }) { Self.contains($0.text, bytes: bytes) }
             }
             for entry in openRanked where Self.contains(entry.text, bytes: bytes) { append(entry) }
         }

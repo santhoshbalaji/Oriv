@@ -200,7 +200,8 @@ public final class VisitHistoryStore: @unchecked Sendable {
             do {
                 // Release the connection between batches so the start page and
                 // navigation can read or write while the suggestion actor seeds.
-                var entries: [String: SuggestionVisit] = [:]
+                var entries: [SuggestionVisit] = []
+                var positions: [String: Int] = [:]
                 var cursor: Int64 = 0
                 while true {
                     let previous = cursor
@@ -211,7 +212,12 @@ public final class VisitHistoryStore: @unchecked Sendable {
                     guard let last = batch.last else { break }
                     cursor = last.1
                     for (entry, _) in batch {
-                        entries[entry.address] = Self.combine(entries[entry.address], entry)
+                        if let position = positions[entry.address] {
+                            entries[position] = Self.combine(entries[position], entry)
+                        } else {
+                            positions[entry.address] = entries.count
+                            entries.append(entry)
+                        }
                     }
                 }
                 let delta = try lock.withLock { () throws -> (entries: [SuggestionVisit], changed: Set<URL>)? in
@@ -222,9 +228,17 @@ public final class VisitHistoryStore: @unchecked Sendable {
                     return try takeSuggestionChanges()
                 }
                 guard let (updates, changed) = delta else { continue }
-                for url in changed { entries[url.absoluteString] = nil }
-                for entry in updates { entries[entry.address] = entry }
-                return (Array(entries.values), [], true)
+                for url in changed {
+                    guard let position = positions.removeValue(forKey: url.absoluteString) else { continue }
+                    let last = entries.count - 1
+                    if position != last {
+                        entries.swapAt(position, last)
+                        positions[entries[position].address] = position
+                    }
+                    entries.removeLast()
+                }
+                entries.append(contentsOf: updates)
+                return (entries, [], true)
             } catch {
                 lock.withLock { suggestionsSeeded = false }
                 throw error
@@ -232,8 +246,7 @@ public final class VisitHistoryStore: @unchecked Sendable {
         }
     }
 
-    private static func combine(_ previous: SuggestionVisit?, _ entry: SuggestionVisit) -> SuggestionVisit {
-        guard let previous else { return entry }
+    private static func combine(_ previous: SuggestionVisit, _ entry: SuggestionVisit) -> SuggestionVisit {
         let useEntry = entry.visitedAt > previous.visitedAt
             || (entry.visitedAt == previous.visitedAt && entry.id.uuidString < previous.id.uuidString)
         var result = useEntry ? entry : previous
