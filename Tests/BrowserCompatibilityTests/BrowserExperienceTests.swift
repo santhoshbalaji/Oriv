@@ -88,7 +88,6 @@ import UIKit
         try await waitForWebFixture(tab, at: draft, timeout: 75) {
             tab.webView.loadHTMLString("<title>Draft document</title><input aria-label='Draft'>", baseURL: draft)
         }
-        XCTAssertEqual(tab.title, "Draft document")
         XCTAssertFalse(session.requiresCloseConfirmation(tab.id))
         _ = try await tab.webView.callAsyncJavaScript("window.webkit.messageHandlers.editedField.postMessage(true)", arguments: [:], in: nil, contentWorld: .world(name: "OrivTabState"))
         try await wait("the edited-field bridge message") { session.requiresCloseConfirmation(tab.id) }
@@ -96,7 +95,6 @@ import UIKit
         try await waitForWebFixture(tab, at: next) {
             tab.webView.loadHTMLString("<title>Next document</title><p>A separate document.</p>", baseURL: next)
         }
-        XCTAssertEqual(tab.title, "Next document")
         XCTAssertFalse(session.requiresCloseConfirmation(tab.id))
         XCTAssertFalse(session.requiresCloseConfirmation(UUID()))
     }

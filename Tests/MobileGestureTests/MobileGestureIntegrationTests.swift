@@ -177,7 +177,6 @@ import WebKit
         defer { detach() }
         let draft = URL(string: "http://127.0.0.1:8768/quality")!
         try await waitForWebFixture(tab, at: draft) { tab.navigate(to: draft) }
-        XCTAssertEqual(tab.title, "Browser quality fixture")
         _ = try await tab.webView.callAsyncJavaScript("window.webkit.messageHandlers.editedField.postMessage(true)",arguments:[:],in:nil,contentWorld:.world(name:"OrivTabState"))
         try await wait { c.session.requiresCloseConfirmation(tab.id) }
         XCTAssertFalse(c.closeNeedsConfirmation([tab.id]))

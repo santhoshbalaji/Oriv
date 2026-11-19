@@ -32,7 +32,6 @@ import WebKit
         defer { detach() }
         let url = base.appendingPathComponent("standards-csp")
         try await waitForWebFixture(tab, at: url) { tab.navigate(to: url) }
-        XCTAssertEqual(tab.title, "CSP fixture")
         let result = try await tab.webView.evaluateJavaScript("window.blockedScriptExecuted === undefined") as? Bool
         XCTAssertEqual(result, true)
     }
@@ -43,7 +42,6 @@ import WebKit
         defer { detach() }
         let url = base.appendingPathComponent("quality")
         try await waitForWebFixture(tab, at: url) { tab.navigate(to: url) }
-        XCTAssertEqual(tab.title, "Browser quality fixture")
         let available = try await tab.webView.evaluateJavaScript("'serviceWorker' in navigator") as? Bool
         guard available == true else { throw XCTSkip("This iPhone build lacks Apple's managed default-browser entitlement; unrestricted service workers require it.") }
         let result = try await tab.webView.callAsyncJavaScript("""

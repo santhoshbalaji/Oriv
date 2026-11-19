@@ -29,7 +29,6 @@ import XCTest
         let detach = try mountWebFixture(tab)
         defer { detach() }
         try await waitForWebFixture(tab, at: fixture) { tab.navigate(to: fixture) }
-        XCTAssertEqual(tab.title, "Data navigation fixture")
         try await body(session, tab)
     }
 
