@@ -80,8 +80,10 @@ final class TabSwitchCover: CoverView {
         #else
         layer.removeAllAnimations(); alpha = 1; isUserInteractionEnabled = true
         #endif
+        // This cover owns the decoded bitmap only until it is cleared or replaced.
         if let snapshot = tab.switchSnapshot, let source = CGImageSourceCreateWithData(snapshot.jpeg as CFData,nil),
-           let cg = CGImageSourceCreateImageAtIndex(source,0,[kCGImageSourceShouldCacheImmediately:true] as CFDictionary) {
+           let cg = CGImageSourceCreateImageAtIndex(source,0,[kCGImageSourceShouldCacheImmediately:true] as CFDictionary),
+           cg.bytesPerRow * cg.height <= TabSnapshotCache.maximumDecodedBytes {
             #if os(macOS)
             imageView.image = NSImage(cgImage:cg,size:snapshot.pointSize)
             #else

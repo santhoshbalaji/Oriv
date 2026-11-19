@@ -5,8 +5,9 @@ import WebKit
 import CoreGraphics
 
 @MainActor final class TabSnapshotTests: XCTestCase {
-    func testBudgetChargesDecodedPixelsAndEvictsLeastRecentlyUsed() throws {
+    func testBudgetChargesStoredBytesAndEvictsLeastRecentlyUsed() throws {
         let image = try snapshot(width:100,height:100)
+        XCTAssertEqual(image.cost, image.jpeg.count + 256)
         let cache = TabSnapshotCache(byteLimit:image.cost*2)
         let a = UUID(), b = UUID(), c = UUID()
         cache.insert(image,for:a); cache.insert(image,for:b)
@@ -19,6 +20,17 @@ import CoreGraphics
         cache.insert(oversized,for:a)
         XCTAssertNil(cache.snapshot(for:a)); XCTAssertLessThanOrEqual(cache.cost,cache.byteLimit)
         cache.removeAll(); XCTAssertEqual(cache.count,0); XCTAssertEqual(cache.cost,0)
+    }
+    func testDefaultBudgetRetainsTwentyDistinctViewportSnapshots() throws {
+        let cache = TabSnapshotCache()
+        let ids = (0..<24).map { _ in UUID() }
+        for (index, id) in ids.enumerated() {
+            let image = try snapshot(width: 1280, height: 960, variant: index)
+            cache.insert(image, for: id)
+        }
+        XCTAssertEqual(cache.count, ids.count)
+        XCTAssertTrue(ids.allSatisfy { cache.snapshot(for: $0) != nil })
+        XCTAssertLessThanOrEqual(cache.cost, cache.byteLimit)
     }
     func testDownsamplingBoundsWideAndTallImages() throws {
         for (w,h) in [(2400,1800),(400,3200)] {
@@ -103,9 +115,9 @@ import CoreGraphics
         let dormant = session.addTab(select:false,load:false)
         XCTAssertFalse(session.recentLiveTabIDs.contains(dormant.id)); XCTAssertFalse(dormant.isInstantiated)
     }
-    private func snapshot(width:Int,height:Int) throws -> TabSnapshotCache.Snapshot {
+    private func snapshot(width:Int,height:Int,variant:Int = 0) throws -> TabSnapshotCache.Snapshot {
         let context = try XCTUnwrap(CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.noneSkipLast.rawValue))
-        context.setFillColor(CGColor(red:0.2,green:0.7,blue:0.4,alpha:1)); context.fill(CGRect(x:0,y:0,width:width,height:height))
+        context.setFillColor(CGColor(red: 0.2 + Double(variant) / 100,green:0.7,blue:0.4,alpha:1)); context.fill(CGRect(x:0,y:0,width:width,height:height))
         context.setFillColor(CGColor(gray:0,alpha:1)); context.fill(CGRect(x:width/4,y:height/4,width:width/2,height:height/2))
         return try XCTUnwrap(TabSnapshotCache.compress(try XCTUnwrap(context.makeImage())))
     }

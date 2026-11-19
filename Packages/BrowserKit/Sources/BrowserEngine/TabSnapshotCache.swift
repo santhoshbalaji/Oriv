@@ -5,8 +5,8 @@ import ImageIO
 import Observation
 
 /// Transient pixels only: no file URL, disk writer, session or continuity API.
-/// Charge compressed bytes AND potential decoded storage, rather than assuming
-/// a small JPEG is a small image. Decoded images belong only to visible covers.
+/// Entries retain only JPEG bytes and metadata. The presentation layer
+/// separately bounds the decoded image held by each visible cover.
 @MainActor @Observable public final class TabSnapshotCache {
     public struct Snapshot {
         public let jpeg: Data
@@ -19,9 +19,11 @@ import Observation
             self.jpeg = jpeg; self.width = width; self.height = height
             self.pointSize = pointSize ?? CGSize(width: width, height: height)
         }
-        var cost: Int { jpeg.count + width * height * 4 }
+        // Allow for the snapshot metadata, cache key and collection storage.
+        var cost: Int { jpeg.count + 256 }
     }
     public static let maximumDimension = 640
+    public static let maximumDecodedBytes = maximumDimension * maximumDimension * 4
     public static let invalidated = Notification.Name("OrivTabSnapshotInvalidated")
     public let byteLimit: Int
     public private(set) var cost = 0
@@ -48,8 +50,8 @@ import Observation
               snapshot.pointSize.width > 0, snapshot.pointSize.height > 0,
               snapshot.width <= Self.maximumDimension, snapshot.height <= Self.maximumDimension,
               snapshot.cost <= byteLimit else { return }
+        while cost > byteLimit - snapshot.cost, let oldest = order.first { remove(oldest) }
         entries[id] = snapshot; order.append(id); cost += snapshot.cost
-        while cost > byteLimit, let oldest = order.first { remove(oldest) }
         revision += 1
     }
     public func remove(_ id: UUID) {
