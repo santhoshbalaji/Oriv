@@ -417,6 +417,17 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func navigate(to destination: URL, typed: Bool = false) {
         guard AddressResolver.isWebURL(destination) else { return }
         let destination = settings?.privacy.cleanedNavigationURL(destination, isPrivate: isPrivate) ?? URLCleaner.clean(destination)
+        loadAddress(destination, typed: typed)
+    }
+
+    /// Explicit address entry and bookmark selection use a WebKit client load.
+    /// WebKit blocks page-initiated top-frame data document loads.
+    func navigateToUserDataURL(_ destination: URL) {
+        guard AddressResolver.isDataURL(destination) else { return }
+        loadAddress(destination, typed: false)
+    }
+
+    private func loadAddress(_ destination: URL, typed: Bool) {
         invalidateSwitchSnapshot()
         savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil; isRestoringWebView = false; applyingRestoration = false
         pendingHTTPUpgrade = nil
@@ -961,6 +972,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             } else { pendingHTTPUpgrade = nil }
         }
         let scheme = url.scheme?.lowercased() ?? ""
+        // WebKit rejects the document load but can ask the UI delegate to create a
+        // blank popup first. Cancel the new-window request before creating a tab.
+        if scheme == "data", navigationAction.targetFrame == nil, !navigationAction.shouldPerformDownload {
+            decisionHandler(.cancel); return
+        }
         if ["http", "https"].contains(scheme), !AddressResolver.isWebURL(url) { decisionHandler(.cancel); return }
         #if os(macOS)
         if navigationAction.navigationType == .linkActivated, navigationAction.modifierFlags.contains(.command), AddressResolver.isWebURL(url) {

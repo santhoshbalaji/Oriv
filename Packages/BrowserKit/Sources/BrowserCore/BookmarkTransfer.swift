@@ -32,7 +32,7 @@ public enum BookmarkTransfer {
             guard let link = href.firstMatch(in: attributes, range: NSRange(attributes.startIndex..., in: attributes)),
                   let group = (1...3).first(where: { link.range(at: $0).location != NSNotFound }) else { skipped += 1; continue }
             let raw = decodeEntities((attributes as NSString).substring(with: link.range(at: group))).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let url = URL(string: raw), AddressResolver.isWebURL(url), seen.insert(url).inserted else { skipped += 1; continue }
+            guard let url = URL(string: raw), AddressResolver.isBookmarkURL(url), seen.insert(url).inserted else { skipped += 1; continue }
             let body = source.substring(with: match.range(at: 2))
             let stripped = tags.stringByReplacingMatches(in: body, range: NSRange(body.startIndex..., in: body), withTemplate: "")
             let title = decodeEntities(stripped).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,7 +41,7 @@ public enum BookmarkTransfer {
         return Import(bookmarks: result, skipped: skipped)
     }
     public static func export(_ bookmarks: [Bookmark]) -> Data {
-        let links = bookmarks.filter { AddressResolver.isWebURL($0.url) }.map {
+        let links = bookmarks.filter { AddressResolver.isBookmarkURL($0.url) }.map {
             "    <DT><A HREF=\"\(escape($0.url.absoluteString))\">\(escape($0.title))</A>"
         }.joined(separator: "\n")
         return Data("""

@@ -361,14 +361,18 @@ public final class BrowserSession {
         let engine = settings.searchEngine
         let url = try AddressResolver.resolve(text, searchEngine: engine)
         if selectedTab == nil { addTab() }
-        selectedTab?.navigate(to: url, typed: url != engine.searchURL(text))
+        if AddressResolver.isDataURL(url) { selectedTab?.navigateToUserDataURL(url) }
+        else { selectedTab?.navigate(to: url, typed: url != engine.searchURL(text)) }
     }
 
     /// Saved links reuse an empty regular tab; they never replace a private page or edited document.
     public func openSavedPage(_ url: URL, inNewTab: Bool = false) {
-        guard AddressResolver.isWebURL(url) else { return }
-        if !inNewTab, let tab = selectedTab, tab.url == nil, !tab.isPrivate {
-            tab.navigate(to: url)
+        guard AddressResolver.isBookmarkURL(url) else { return }
+        let emptyTab = !inNewTab && selectedTab?.url == nil && selectedTab?.isPrivate == false ? selectedTab : nil
+        if AddressResolver.isDataURL(url) {
+            (emptyTab ?? addTab()).navigateToUserDataURL(url)
+        } else if let emptyTab {
+            emptyTab.navigate(to: url)
         } else { addTab(url: url) }
     }
 
@@ -400,7 +404,7 @@ public final class BrowserSession {
     }
 
     public func toggleBookmark() {
-        guard let tab = selectedTab, !tab.isPrivate, let url = tab.url, AddressResolver.isWebURL(url) else { return }
+        guard let tab = selectedTab, !tab.isPrivate, let url = tab.url, AddressResolver.isBookmarkURL(url) else { return }
         if let existing = bookmarks.first(where: { $0.url == url }) { removeBookmark(existing.id); return }
         else { bookmarks.append(Bookmark(title: tab.displayTitle, url: url)) }
         saveNow()
@@ -430,7 +434,7 @@ public final class BrowserSession {
 
     @discardableResult public func importBookmarks(_ entries: [Bookmark]) -> Int {
         var urls = Set(bookmarks.map(\.url)), ids = Set(bookmarks.map(\.id))
-        let incoming = entries.filter { AddressResolver.isWebURL($0.url) && urls.insert($0.url).inserted && ids.insert($0.id).inserted }
+        let incoming = entries.filter { AddressResolver.isBookmarkURL($0.url) && urls.insert($0.url).inserted && ids.insert($0.id).inserted }
         bookmarks.append(contentsOf: incoming); saveNow(); return incoming.count
     }
 
@@ -570,6 +574,8 @@ public final class BrowserSession {
                                 removedIDs: Set<UUID> = [],
                                 clearRanges: [ClosedRange<Date>] = []) throws {
         guard canPersist, let historyStore else { throw ContinuityError.invalidData }
+        // Data bookmarks are local documents and are outside the continuity URL policy.
+        let bookmarks = bookmarks + self.bookmarks.filter { AddressResolver.isDataURL($0.url) }
         let history = history.filter { historyAllows($0.url) }
         let removedIDs = removedIDs.subtracting(appliedHistoryRemovals)
         let clearRanges = Set(clearRanges).subtracting(appliedHistoryClears)

@@ -20,7 +20,7 @@ struct AddressTests {
         #expect(try AddressResolver.resolve("SwiftUI 26.0 features").host == "duckduckgo.com")
     }
 
-    @Test(arguments: ["javascript:alert(1)", "data:text/html,hello", "file:///etc/passwd", "ftp://example.com", "about:config"])
+    @Test(arguments: ["javascript:alert(1)", "file:///etc/passwd", "ftp://example.com", "about:config"])
     func rejectsExecutableAndLocalSchemes(_ input: String) {
         #expect(throws: AddressError.unsupportedScheme) { try AddressResolver.resolve(input) }
     }

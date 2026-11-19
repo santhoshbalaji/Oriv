@@ -7,7 +7,7 @@ public enum AddressError: LocalizedError, Equatable {
         switch self {
         case .empty: "Enter a website address or search terms."
         case .invalidURL: "This address could not be opened. Check the hostname and try again."
-        case .unsupportedScheme: "Enter an HTTP or HTTPS address. Other address types cannot be opened here."
+        case .unsupportedScheme: "Enter an HTTP, HTTPS, or data address."
         }
     }
 }
@@ -17,7 +17,11 @@ public enum AddressResolver {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { throw AddressError.empty }
         let lower = value.lowercased()
-        if ["javascript:", "data:", "file:", "about:", "blob:"].contains(where: lower.hasPrefix) {
+        if lower.hasPrefix("data:") {
+            guard let url = URL(string: value), isDataURL(url) else { throw AddressError.invalidURL }
+            return url
+        }
+        if ["javascript:", "file:", "about:", "blob:"].contains(where: lower.hasPrefix) {
             throw AddressError.unsupportedScheme
         }
         if value.contains("://") {
@@ -33,6 +37,12 @@ public enum AddressResolver {
         }
         return searchEngine.searchURL(value)
     }
+
+    public static func isDataURL(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "data" && url.host == nil && url.absoluteString.contains(",")
+    }
+
+    public static func isBookmarkURL(_ url: URL) -> Bool { isWebURL(url) || isDataURL(url) }
 
     public static func isWebURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),

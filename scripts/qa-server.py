@@ -139,6 +139,9 @@ class Handler(BaseHTTPRequestHandler):
             })()));'''
             self.send_bytes(body, 'text/javascript')
             return
+        if path == '/data-navigation':
+            self.send_bytes((FIXTURES / 'data-navigation.html').read_bytes(), 'text/html; charset=utf-8')
+            return
         if path == '/standards':
             self.send_bytes((FIXTURES / 'standards.html').read_bytes(), 'text/html; charset=utf-8')
             return

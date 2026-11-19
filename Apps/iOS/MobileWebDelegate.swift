@@ -27,7 +27,9 @@ import Observation
     private var canPresent: Bool { session?.isProfileActive == true && session?.selectedTabID == tab?.id && Self.presenter?.presentedViewController == nil && !(Self.presenter is UIAlertController) }
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        guard navigationAction.targetFrame == nil, let session, session.isProfileActive, let tab else { return nil }
+        // Window creation can reach the UI delegate before navigation policy.
+        guard navigationAction.targetFrame == nil, navigationAction.request.url?.scheme?.lowercased() != "data",
+              let session, session.isProfileActive, let tab else { return nil }
         return session.addTab(url: navigationAction.request.url, isPrivate: tab.isPrivate, configuration: configuration, load: false).webView
     }
     func webViewDidClose(_ webView: WKWebView) { if let tab { controller?.close([tab.id]) } }

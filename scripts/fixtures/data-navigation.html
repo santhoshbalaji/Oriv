@@ -1,0 +1,14 @@
+<!doctype html>
+<title>Data navigation fixture</title>
+<a id="link" href="data:text/html,%3Ctitle%3EData%20destination%3C/title%3E">Open data document</a>
+<a id="download" download="data-fixture.txt" href="data:text/plain,fixture-download">Download data</a>
+<form id="form" method="post" action="data:text/html,%3Ctitle%3EData%20destination%3C/title%3E"></form>
+<iframe src="data:text/html,%3Cscript%3Eparent.postMessage('data-iframe-ok','*')%3C/script%3E"></iframe>
+<img id="image" alt="One pixel"
+     src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
+<script>
+addEventListener('message', event => {
+    if (event.source === document.querySelector('iframe').contentWindow && event.data === 'data-iframe-ok')
+        window.dataIframeLoaded = true;
+});
+</script>

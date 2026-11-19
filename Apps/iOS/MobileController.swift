@@ -157,7 +157,7 @@ import WebKit
     }
     func perform(_ operation: () throws -> Void) { do { try operation() } catch { message = error.localizedDescription } }
     func open(_ url: URL) {
-        guard AddressResolver.isWebURL(url) else { return }
+        guard AddressResolver.isBookmarkURL(url) else { return }
         session.openSavedPage(url); sheet = nil
     }
     var continuitySource: ContinuitySource {

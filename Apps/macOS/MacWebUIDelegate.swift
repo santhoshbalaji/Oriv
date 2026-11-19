@@ -51,7 +51,9 @@ import WebKit
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        guard navigationAction.targetFrame == nil, let session, session.isProfileActive, let tab else { return nil }
+        // Window creation can reach the UI delegate before navigation policy.
+        guard navigationAction.targetFrame == nil, navigationAction.request.url?.scheme?.lowercased() != "data",
+              let session, session.isProfileActive, let tab else { return nil }
         let created = session.addTab(url: navigationAction.request.url, isPrivate: tab.isPrivate,
                                     configuration: configuration, load: false)
         // WebKit loads the original request, preserving POST bodies and opener semantics.

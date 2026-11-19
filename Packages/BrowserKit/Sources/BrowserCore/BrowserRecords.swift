@@ -115,7 +115,7 @@ public struct BrowserSnapshot: Codable, Equatable, Sendable {
         if !result.tabs.contains(where: { $0.id == selectedTabID }) {
             result.selectedTabID = result.tabs.first?.id
         }
-        result.bookmarks = bookmarks.filter { AddressResolver.isWebURL($0.url) }
+        result.bookmarks = bookmarks.filter { AddressResolver.isBookmarkURL($0.url) }
         result.history = Array(history.filter { AddressResolver.isWebURL($0.url) }.prefix(500))
         return result
     }
