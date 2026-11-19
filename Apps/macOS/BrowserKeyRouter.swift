@@ -32,6 +32,10 @@ struct BrowserKeyRouter: NSViewRepresentable {
                   event.window === window || (overviewVisible && event.window?.sheetParent === window),
                   window.attachedSheet == nil || overviewVisible else { return false }
             let flags = event.modifierFlags.intersection([.control, .shift, .command, .option])
+            // Handled shortcuts can bypass the sidebar's window monitor.
+            if !flags.intersection([.command, .control, .option]).isEmpty {
+                (window.firstResponder as? SidebarTabCollection)?.updateFocusInput(for: event)
+            }
             if event.keyCode == 48 && (flags == .control || flags == [.control, .shift]) {
                 session.selectRelativeTab(flags.contains(.shift) ? -1 : 1)
                 return true

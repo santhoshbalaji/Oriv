@@ -35,7 +35,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
         list.isSelectable = true
         list.allowsEmptySelection = false
         list.backgroundColors = [.clear]
-        list.focusRingType = .default
+        list.focusRingType = .none
         list.setAccessibilityLabel("Sidebar tabs")
         list.setAccessibilityIdentifier("sidebarTabs")
         list.register(SidebarCollectionItem.self, forItemWithIdentifier: SidebarCollectionItem.identifier)
@@ -304,9 +304,20 @@ private struct SidebarSection {
         guard let list else { return }
         let path = id.flatMap(path(for:))
         list.selectionIndexPaths = path.map { [$0] } ?? []
-        if let path, reveal {
-            list.layoutSubtreeIfNeeded()
-            if let frame = list.layoutAttributesForItem(at: path)?.frame { list.scrollToVisible(frame) }
+        if let path, reveal { revealItem(at: path) }
+    }
+
+    func revealItem(at path: IndexPath) {
+        guard let list, sections.indices.contains(path.section) else { return }
+        list.layoutSubtreeIfNeeded()
+        guard let frame = list.layoutAttributesForItem(at: path)?.frame else { return }
+        let section = sections[path.section]
+        if section.heading != nil, path.item < (section.grid ? 4 : 1),
+           let header = list.layoutAttributesForSupplementaryElement(ofKind: NSCollectionView.elementKindSectionHeader,
+                                                                    at: IndexPath(item: 0, section: path.section)) {
+            list.scrollToVisible(frame.union(header.frame))
+        } else {
+            list.scrollToVisible(frame)
         }
     }
 
@@ -522,6 +533,9 @@ private struct SidebarSection {
 final class SidebarTabCollection: NSCollectionView {
     weak var sidebar: SidebarCollectionData?
     private(set) var navigatingWithKeys = false
+    private var keyboardNavigation = false
+    private var ownsFocus = false
+    var showsKeyboardFocus: Bool { ownsFocus && keyboardNavigation }
     private var pointerTracking: NSTrackingArea?
 
     override func becomeFirstResponder() -> Bool {
@@ -539,7 +553,32 @@ final class SidebarTabCollection: NSCollectionView {
         return true
     }
 
-    private func publishFocus(_ focused: Bool) { sidebar?.setFocus(focused) }
+    private func publishFocus(_ focused: Bool) {
+        ownsFocus = focused
+        updateFocusRing()
+        sidebar?.setFocus(focused)
+    }
+
+    private func updateFocusRing() {
+        guard let path = selectionIndexPaths.first, let item = item(at: path) as? SidebarCollectionItem else { return }
+        item.updateFocusRing()
+    }
+
+    func updateFocusInput(for event: NSEvent) {
+        let wasKeyboard = keyboardNavigation
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            keyboardNavigation = false
+        case .keyDown:
+            if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+                keyboardNavigation = false
+            } else if [48, 115, 116, 119, 121, 123, 124, 125, 126].contains(event.keyCode) {
+                keyboardNavigation = true
+            }
+        default: break
+        }
+        if keyboardNavigation != wasKeyboard { updateFocusRing() }
+    }
 
     func focusTab(_ id: UUID?) {
         guard let window, window.makeFirstResponder(self) else { return }
@@ -547,6 +586,7 @@ final class SidebarTabCollection: NSCollectionView {
     }
 
     override func keyDown(with event: NSEvent) {
+        updateFocusInput(for: event)
         let modified = !event.modifierFlags.intersection([.command, .control, .option]).isEmpty
         if !modified {
             switch event.keyCode {
@@ -558,9 +598,11 @@ final class SidebarTabCollection: NSCollectionView {
                     return
                 }
             case 115, 116, 119, 121, 123...126:
+                let previous = selectionIndexPaths
                 navigatingWithKeys = true
                 defer { navigatingWithKeys = false }
                 super.keyDown(with: event)
+                if previous != selectionIndexPaths, let path = selectionIndexPaths.first { sidebar?.revealItem(at: path) }
                 sidebar?.settlePreview()
                 return
             default: break
@@ -616,18 +658,6 @@ final class SidebarTabCollection: NSCollectionView {
     override func mouseExited(with event: NSEvent) {
         sidebar?.controller?.sidebar.pointer(false)
         sidebar?.setHovered(nil)
-    }
-
-    override var focusRingMaskBounds: NSRect {
-        guard let frame = selectionIndexPaths.first.flatMap({ layoutAttributesForItem(at: $0)?.frame }) else { return .zero }
-        let visible = frame.intersection(visibleRect)
-        return visible.width > 4 && visible.height > 4 ? visible.insetBy(dx: 2, dy: 2) : .zero
-    }
-
-    override func drawFocusRingMask() {
-        let rect = focusRingMaskBounds
-        guard !rect.isEmpty else { return }
-        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
     }
 }
 
@@ -685,7 +715,6 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
         didSet {
             if isSelected != oldValue {
                 refresh()
-                collectionView?.noteFocusRingMaskChanged()
             }
         }
     }
@@ -697,6 +726,12 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
         #endif
         (view as? SidebarAccessibleRow)?.setAccessibilityIdentifier("sidebarTab-\(tab.id)")
         host.rootView = artwork(isSelected)
+        updateFocusRing()
+    }
+
+    func updateFocusRing() {
+        let list = collectionView as? SidebarTabCollection
+        (view as? SidebarAccessibleRow)?.showsFocusRing = isSelected && list?.showsKeyboardFocus == true
     }
 
     func performClick(at point: NSPoint) -> Bool {
@@ -711,6 +746,24 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
 
 private final class SidebarAccessibleRow: NSView {
     weak var item: SidebarCollectionItem?
+    var showsFocusRing = false {
+        didSet {
+            guard showsFocusRing != oldValue else { return }
+            if showsFocusRing {
+                let ring = SidebarRowFocusRing(frame: bounds)
+                ring.autoresizingMask = [.width, .height]
+                addSubview(ring)
+            } else {
+                subviews.last(where: { $0 is SidebarRowFocusRing })?.removeFromSuperview()
+            }
+        }
+    }
+
+    override var focusRingMaskBounds: NSRect { showsFocusRing ? bounds.insetBy(dx: 4, dy: 4) : .zero }
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: focusRingMaskBounds, xRadius: 8, yRadius: 8).fill()
+    }
+
     override func accessibilityChildren() -> [Any]? { [] }
     override func accessibilityLabel() -> String? {
         guard let item, let tab = item.tab else { return nil }
@@ -732,6 +785,22 @@ private final class SidebarAccessibleRow: NSView {
             })
         }
         return actions
+    }
+}
+
+/// Draw the AppKit ring above the hosted artwork. The collection remains the
+/// responder and owns keyboard navigation, including through recycled rows.
+private final class SidebarRowFocusRing: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func accessibilityIsIgnored() -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let row = superview else { return }
+        NSGraphicsContext.saveGraphicsState()
+        NSFocusRingPlacement.only.set()
+        NSColor.black.setFill()
+        row.drawFocusRingMask()
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 

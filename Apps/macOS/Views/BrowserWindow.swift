@@ -168,7 +168,7 @@ struct BrowserWindow: View {
             if !open { restoreSearchFocus() }
         }
         .onDisappear { controller.sidebar.cancel(); controller.sidebarTooltip.dismiss() }
-        .background(SidebarWindowEvents(controller: controller, dismiss: dismissSidebarOverlay))
+        .background(SidebarWindowEvents(controller: controller, tabList: sidebarTabs, dismiss: dismissSidebarOverlay))
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
