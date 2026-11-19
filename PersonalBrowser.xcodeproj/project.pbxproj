@@ -888,7 +888,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/ContinuityRelease.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -897,7 +897,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile";
@@ -914,7 +914,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/Mobile.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -923,7 +923,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios.dev;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
@@ -1149,7 +1149,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/PersonalBrowser.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -1163,7 +1163,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.qa;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";
@@ -1178,7 +1178,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/ContinuityRelease.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -1192,7 +1192,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.mac;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";
@@ -1208,7 +1208,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/Mobile.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -1217,7 +1217,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios.dev;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
@@ -1412,7 +1412,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/PersonalBrowser.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -1426,7 +1426,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.mac;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";
@@ -1459,7 +1459,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/Continuity.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -1468,7 +1468,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios.dev;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
@@ -1485,7 +1485,7 @@
 				CODE_SIGN_ENTITLEMENTS = Apps/iOS/BrowserDevelopment.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/iOS/Resources/Info.plist;
@@ -1494,7 +1494,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.ios.dev;
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
@@ -1581,7 +1581,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/Continuity.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -1595,7 +1595,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.santhoshbalaji.oriv.mac.dev;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";
@@ -1610,7 +1610,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Apps/macOS/PersonalBrowser.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/macOS/Resources/Info.plist;
@@ -1624,7 +1624,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.15.3;
+				MARKETING_VERSION = 0.15.4;
 				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.mac;
 				PRODUCT_MODULE_NAME = PersonalBrowser;
 				PRODUCT_NAME = "$(ORIV_APP_NAME)";

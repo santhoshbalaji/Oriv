@@ -95,7 +95,8 @@ def composite(front, back, opacity):
     return "".join(f"{round(int(front[i:i+2], 16) * opacity + int(back[i:i+2], 16) * (1-opacity)):02X}" for i in (0, 2, 4))
 
 sidebar_opacity = float(re.search(r"static let backingOpacity = ([0-9.]+)", sidebar_source).group(1))
-field_opacity = float(re.search(r"background\(theme.field.opacity\(([0-9.]+)\)", sidebar_source).group(1))
+focused_field_opacity, field_opacity = map(float, re.search(
+    r"background\(theme.field.opacity\(searchFocused \? ([0-9.]+) : ([0-9.]+)\)", sidebar_source).groups())
 button_source = block("struct ContentButtonStyle", "struct SwitchToTabBadge")
 press_opacity = float(re.search(r"isPressed \? ([0-9.]+)", button_source).group(1))
 sidebar_negative = "--negative-sidebar-test" in sys.argv
@@ -115,6 +116,7 @@ for mode in ("light", "dark"):
                            "hover": tokens["thread"],
                            "pinned tile": composite(field, panel, 0.6),
                            "search": composite(field, panel, field_opacity),
+                           "focused search": composite(field, panel, focused_field_opacity),
                            "footer": surface}
             label = f"Mac sidebar {mode}, page #{page}, {accessibility}"
             for state, background in backgrounds.items():

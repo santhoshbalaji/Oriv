@@ -2,6 +2,14 @@
 
 # Browser quality and coverage
 
+## 0.15.4 (28)
+
+Mac chrome focus decoration follows navigation rather than command shortcuts when Full Keyboard Access is off. Tab, Shift-Tab and arrows without Command, Control or Option reveal the rounded focus cue. Space and Return preserve a cue established by navigation; typing and function keys do not establish one. Mouse presses hide it. Command shortcuts hide decoration while retaining their normal focus handoffs, so collapsing the sidebar, Search Tabs, New Tab and Control-Tab cannot outline the last clicked row or control. The first arrow still navigates through the existing lazy-row focus mechanism. Full Keyboard Access retains keyboard focus cues, including shortcut-driven focus.
+
+Search Tabs keeps its native editor/caret and focused field fill when opened by ⇧⌘A, without an accent outline until navigation. Selected tabs retain their selection fill and accent bar independently of focus decoration. Control-Tab updates modality before consuming its event, regardless of local-monitor installation order. Shared iPhone button styling retains its macOS guards.
+
+Regression coverage includes pointer-to-shortcut transitions in both appearances, subsequent native arrow navigation, search focus restored after navigation, modified navigation keys, function keys, activation keys, all three mouse buttons and Full Keyboard Access. Background before/after layout PNGs and validation evidence are indexed in `build/release-0.15.4/REPORT.md`; these do not establish live compositor or foreground accessibility acceptance.
+
 ## 0.15.3 (25)
 
 The expanded Mac profile switcher uses a borderless 44 pt row with the tab count aligned beneath the name, consistent 8 pt content insets and a separate fullscreen toggle reservation. Its highlight is limited to interaction. The attached rail is 56 pt wide, the minimum for three native 14 pt window buttons on a 20 pt pitch with their hit regions intact. Icon targets remain 42 × 36 pt. The surface reaches all window edges, the footer has no bottom inset, and fullscreen removes the traffic-light band and extra top gap.

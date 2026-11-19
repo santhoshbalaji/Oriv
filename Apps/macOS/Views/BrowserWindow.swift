@@ -66,7 +66,7 @@ struct BrowserWindow: View {
     var body: some View {
         routedContent
         .environment(\.chromeFocusState, chromeFocus)
-        .background(BrowserKeyRouter(session: session, overviewVisible: showTabs))
+        .background(BrowserKeyRouter(session: session, overviewVisible: showTabs, input: chromeFocus))
         .environment(\.siteIcons, session.siteIcons)
         .focusedSceneValue(\.browserController, controller)
         .onAppear {

@@ -6,8 +6,14 @@ import SwiftUI
 /// a click only hides its decoration, without breaking arrows or VoiceOver.
 @MainActor @Observable final class ChromeFocusState {
     private(set) var keyboardNavigation: Bool? = nil
+    private let fullKeyboardAccessEnabled: () -> Bool
+
+    init(fullKeyboardAccessEnabled: @escaping () -> Bool = { NSApp.isFullKeyboardAccessEnabled }) {
+        self.fullKeyboardAccessEnabled = fullKeyboardAccessEnabled
+    }
+
     var showsFocus: Bool {
-        keyboardNavigation ?? (NSApp.isFullKeyboardAccessEnabled || NSWorkspace.shared.isVoiceOverEnabled)
+        keyboardNavigation ?? (fullKeyboardAccessEnabled() || NSWorkspace.shared.isVoiceOverEnabled)
     }
 
     func receive(_ event: NSEvent) {
@@ -15,9 +21,18 @@ import SwiftUI
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             keyboardNavigation = false
         case .keyDown:
-            // Tab, arrows and explicit chrome shortcuts enable keyboard cues.
-            if [48, 123, 124, 125, 126].contains(event.keyCode) ||
-                event.modifierFlags.intersection([.command, .control]).isEmpty == false {
+            if fullKeyboardAccessEnabled() {
+                // Respect the system's broader keyboard-focus policy.
+                keyboardNavigation = true
+            } else if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+                // Shortcuts can transfer focus, but must not decorate a mouse
+                // target or their destination before actual navigation.
+                keyboardNavigation = false
+            } else if [48, 123, 124, 125, 126].contains(event.keyCode) {
+                // Shift-Tab and bare arrows navigate. AppKit also marks arrows
+                // with .function, so do not reject that flag. Ordinary typing,
+                // function keys and Space/Return never enter navigation mode;
+                // activation preserves an already-established navigation cue.
                 keyboardNavigation = true
             }
         default: break
@@ -41,7 +56,7 @@ struct ChromeFocusIndicator: ViewModifier {
     var focused: Bool? = nil
     var radius: CGFloat = 9
     var color: Color? = nil
-    var marker: String? = nil
+    var marker = "chromeFocusIndicator"
     @Environment(\.isFocused) private var isFocused
     @Environment(\.chromeFocusState) private var input
     @Environment(\.browserTheme) private var theme
@@ -53,7 +68,7 @@ struct ChromeFocusIndicator: ViewModifier {
                 if visible {
                     RoundedRectangle(cornerRadius: radius).strokeBorder(color ?? theme.accent, lineWidth: 2)
                         .allowsHitTesting(false).accessibilityHidden(true)
-                        .background { if let marker { BrowserGeometryMarker(name: marker) } }
+                        .background(BrowserGeometryMarker(name: marker))
                 }
             }
     }

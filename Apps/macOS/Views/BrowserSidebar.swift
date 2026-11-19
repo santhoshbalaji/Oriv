@@ -234,7 +234,7 @@ struct BrowserSidebar: View {
             }
             .font(OrivType.detail).foregroundStyle(theme.secondaryText)
             .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 32)
-            .background(theme.field.opacity(0.7), in: .rect(cornerRadius: 9))
+            .background(theme.field.opacity(searchFocused ? 1 : 0.7), in: .rect(cornerRadius: 9))
             .modifier(ChromeFocusIndicator(focused: searchFocused, marker: "sidebarSearchFocusIndicator"))
             .background(BrowserGeometryMarker(name: "sidebarSearchGeometry"))
             .padding(.bottom, 10)
