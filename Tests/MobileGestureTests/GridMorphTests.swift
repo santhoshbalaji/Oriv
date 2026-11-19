@@ -23,18 +23,25 @@ import BrowserEngine
         for threshold in [0.1,0.3,0.5,0.7,0.9] as [CGFloat] {
             let button = try MorphFixture(count:1,privateTab:false); defer { button.dispose() }
             try await button.ready()
-            let sampling = MorphFrames(button); var stopped = false
-            sampling.onFrame = {
+            let sampling = UIUpdateLink(view: button.window)
+            var stopped = false
+            sampling.addAction(to: .afterCATransactionCommit) { sampling, _ in
                 guard !stopped, let rect = button.source.webView.superview?.frame,
                       let card = button.controller.tabPresentation.cardFrames[button.source.id] else { return }
-                let p = (button.window.bounds.width-rect.width)/(button.window.bounds.width-card.width)
+                let travel = button.window.bounds.width - card.width
+                guard travel > 0 else { return }
+                let p = (button.window.bounds.width - rect.width) / travel
                 if p >= threshold {
-                    stopped = true; button.controller.gridMorph.pause(at:p)
+                    sampling.isEnabled = false
+                    stopped = true
+                    button.controller.gridMorph.pause(at:p)
                 }
             }
-            sampling.start(); button.controller.sheet = .tabs
-            try await button.wait(label:"button frame sample") { stopped }
-            sampling.stop()
+            sampling.requiresContinuousUpdates = true
+            sampling.isEnabled = true
+            defer { sampling.isEnabled = false }
+            button.controller.sheet = .tabs
+            try await button.wait(label:"button frame sample at \(threshold)") { stopped }
             try await Task.sleep(for:.milliseconds(40))
             let buttonClip = try XCTUnwrap(button.source.webView.superview)
             let a = buttonClip.convert(buttonClip.bounds,to:button.window)
@@ -455,6 +462,7 @@ import BrowserEngine
         let deadline = CACurrentMediaTime() + timeout
         while !predicate() {
             if CACurrentMediaTime()>deadline {
+                XCTFail("Timed out waiting for \(label), sheet=\(String(describing: controller.sheet)), progress=\(controller.gridMorph.progress)")
                 throw MorphTimeout(condition: label, sheet: String(describing: controller.sheet),
                     nativeProgress: controller.gridMorph.progress)
             }

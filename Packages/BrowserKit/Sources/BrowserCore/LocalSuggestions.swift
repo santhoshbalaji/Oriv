@@ -20,7 +20,6 @@ public struct LocalSuggestionIndex: Sendable {
         var key: String
         var title: String
         var historyTitle: String?
-        var text: String
         var foldedTitle: String
         var host: String
         var visits: Int
@@ -28,6 +27,8 @@ public struct LocalSuggestionIndex: Sendable {
         var date: Date
         var bookmarked: Bool
         var rank: Double
+
+        var searchText: String { LocalSuggestionIndex.fold(key) + " " + foldedTitle }
 
         var suggestion: BrowserSuggestion? {
             URL(string: key).map { BrowserSuggestion(title: title, url: $0,
@@ -188,12 +189,14 @@ public struct LocalSuggestionIndex: Sendable {
         entries.reserveCapacity(capacity)
         positions.reserveCapacity(capacity)
         var removals = changed
+        var hostsByAuthority: [Substring: String] = [:]
         for visit in visits {
             let key = visit.address
             removals.remove(key)
             let title = savedBookmarks[key]?.title ?? visit.title
+            let host = entry(for: key)?.host ?? Self.host(for: key, cache: &hostsByAuthority)
             let entry = makeEntry(key: key, title: title, historyTitle: visit.title,
-                host: entry(for: key)?.host ?? URL(string: key)?.host ?? "", visits: visit.visitCount,
+                host: host, visits: visit.visitCount,
                 typed: visit.typedCount, date: visit.visitedAt, bookmarked: savedBookmarks[key] != nil)
             setEntry(entry, key: key, batch: batch)
         }
@@ -241,7 +244,7 @@ public struct LocalSuggestionIndex: Sendable {
             Self.updatePosting(&titleWords, term: token, key: entry.key, cap: 65, adding: adding)
             if !batch { Self.updateKey(token, keys: &titleKeys, exists: titleWords[token] != nil) }
         }
-        gramScratch.collect(entry.text)
+        gramScratch.collect(entry.searchText)
         for gram in gramScratch.short {
             let count = shortGrams[gram, default: 0] + (adding ? 1 : -1)
             shortGrams[gram] = count == 0 ? nil : count
@@ -264,7 +267,7 @@ public struct LocalSuggestionIndex: Sendable {
             let ranked = rankedKey(old)
             ordered.remove(at: Self.lowerBound(ordered) { RankedKey.precedes($0, ranked) })
         }
-        if old?.text != entry?.text {
+        if old?.foldedTitle != entry?.foldedTitle {
             if let old { index(old, adding: false, batch: batch) }
             if let entry { index(entry, adding: true, batch: batch) }
         }
@@ -295,13 +298,25 @@ public struct LocalSuggestionIndex: Sendable {
         return low
     }
 
+    private static func host(for address: String, cache: inout [Substring: String]) -> String {
+        // Resolve the URL authority once per bulk update. Paths and queries
+        // cannot change the hostname, including userinfo and IPv6 literals.
+        guard let separator = address.range(of: "://") else { return URL(string: address)?.host ?? "" }
+        let end = address[separator.upperBound...].firstIndex(where: { "/?#".contains($0) }) ?? address.endIndex
+        let authority = address[..<end]
+        if let host = cache[authority] { return host }
+        let host = URL(string: address)?.host ?? ""
+        cache[authority] = host
+        return host
+    }
+
     private func makeEntry(key: String, title: String, historyTitle: String? = nil, host: String, visits: Int = 0,
                            typed: Int = 0, date: Date = .distantPast, bookmarked: Bool = false) -> Entry {
         let indexedTitle = historyTitle.map { $0 == title ? title : title + "\n" + $0 } ?? title
         let foldedTitle = Self.fold(indexedTitle)
         var host = Self.fold(host)
         if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
-        return Entry(key: key, title: title, historyTitle: historyTitle, text: Self.fold(key) + " " + foldedTitle, foldedTitle: foldedTitle,
+        return Entry(key: key, title: title, historyTitle: historyTitle, foldedTitle: foldedTitle,
                      host: host, visits: visits, typed: typed, date: date, bookmarked: bookmarked,
                      rank: Self.score(visits: visits, typed: typed, date: date, bookmarked: bookmarked, now: rankingDate))
     }
@@ -316,7 +331,6 @@ public struct LocalSuggestionIndex: Sendable {
             let key = tab.url.absoluteString
             let title = Self.fold(tab.title)
             if var duplicate = open[key] {
-                duplicate.text += "\n" + title
                 duplicate.foldedTitle += "\n" + title
                 open[key] = duplicate
                 continue
@@ -324,8 +338,7 @@ public struct LocalSuggestionIndex: Sendable {
             let indexed = entry(for: key)
             var entry = indexed ?? makeEntry(key: key, title: tab.title, host: tab.url.host ?? "")
             if indexed != nil {
-                entry.text += " " + title
-                entry.foldedTitle += "\n" + title
+                entry.foldedTitle += " " + title
             }
             open[key] = entry
             openSuggestions[key] = tab
@@ -385,9 +398,9 @@ public struct LocalSuggestionIndex: Sendable {
                 : terms.long.contains { grams[$0] == nil }
             if !absent {
                 let rarest = terms.long.compactMap { grams[$0]?.candidates }.min { $0.count < $1.count }
-                addTier(rarest.map { Set($0) }) { Self.contains($0.text, bytes: bytes) }
+                addTier(rarest.map { Set($0) }) { Self.contains($0.searchText, bytes: bytes) }
             }
-            for entry in openRanked where Self.contains(entry.text, bytes: bytes) { append(entry) }
+            for entry in openRanked where Self.contains(entry.searchText, bytes: bytes) { append(entry) }
         }
         return result
     }

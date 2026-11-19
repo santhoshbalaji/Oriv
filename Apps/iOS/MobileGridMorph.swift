@@ -104,13 +104,20 @@ import SwiftUI
                     spring = Spring(mass:value.mass,stiffness:value.stiffness,damping:value.damping)
                 }
             }
-            // Presentation readback is a frame late here. Evaluate UIKit's
-            // public animation parameters at the update's model time instead.
-            guard let timing else { return }
-            let time = max(0,(marker.clock.layer.convertTime(info.modelTime,from:nil)-timing.beginTime)*Double(timing.speed)+timing.timeOffset)
-            let fraction = spring?.value(target:1.0,initialVelocity:0.0,time:time)
-                ?? Self.cubic(timing.timingFunction,time:min(time/max(0.001,timing.duration),1))
-            let value = min(max(self.from+(target-self.from)*CGFloat(fraction),0),1)
+            let sample: CGFloat
+            if let timing {
+                // Model time keeps the grid and WebKit geometry on the same frame.
+                let time = max(0,(marker.clock.layer.convertTime(info.modelTime,from:nil)-timing.beginTime)*Double(timing.speed)+timing.timeOffset)
+                let fraction = spring?.value(target:1.0,initialVelocity:0.0,time:time)
+                    ?? Self.cubic(timing.timingFunction,time:min(time/max(0.001,timing.duration),1))
+                sample = self.from+(target-self.from)*CGFloat(fraction)
+            } else if let presentation = marker.clock.layer.presentation() {
+                // UIKit may publish the presented transform before the animation's
+                // begin time is readable. Keep driving the grid during those frames.
+                sample = presentation.affineTransform().tx / HostExtent.value
+                guard abs(sample - target) > 0.0001 else { return }
+            } else { return }
+            let value = min(max(sample,0),1)
             self.progress = value
             var transaction = Transaction(animation:nil); transaction.disablesAnimations = true
             withTransaction(transaction) { self.update?(value) }
