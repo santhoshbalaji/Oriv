@@ -141,6 +141,7 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-b":
     expected |= {f"mac-glass-sidebar-b-12-{mode}-1280-rail-{variant}"
                  for mode in ("light", "dark") for variant in ("peek", "search", "tooltip")}
     expected |= {f"mac-glass-sidebar-b-12-{mode}-760-expanded-narrow" for mode in ("light", "dark")}
+    expected |= {f"mac-glass-sidebar-b-100-{mode}-1280-{state}-scrolled" for mode in ("light", "dark") for state in ("expanded", "rail")}
     expected |= {"mac-glass-sidebar-b-private-" + state for state in ("expanded", "rail")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
     expected = {f"mac-glass-sidebar-contrast-{mode}-{page}-{state}-{variant}"

@@ -401,9 +401,14 @@ import XCTest
             NSApp.sendEvent(event)
         }
 
-        let hasRow = try await waitUntil { target(.tab(tab.id)) != nil }
+        func row() -> NSView? {
+            guard let list = w.contentView.map(views)?.compactMap({ $0 as? SidebarTabCollection }).first,
+                  let path = list.sidebar?.path(for: tab.id) else { return nil }
+            return list.item(at: path)?.view
+        }
+        let hasRow = try await waitUntil { row() != nil }
         XCTAssertTrue(hasRow)
-        let row = try XCTUnwrap(target(.tab(tab.id)))
+        let row = try XCTUnwrap(row())
         row.identifier = nil
         let content = try XCTUnwrap(w.contentView)
         let events = try XCTUnwrap(views(content).compactMap { $0 as? SidebarWindowEvents.EventView }.first)

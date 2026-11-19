@@ -117,16 +117,9 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
     }
 }
 
-struct SidebarTooltipBounds: PreferenceKey {
-    static let defaultValue: [UUID: Anchor<CGRect>] = [:]
-    static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
-    }
-}
-
 /// Supplies window-space hit regions for the event monitor without intercepting input.
 struct SidebarHitTarget: NSViewRepresentable {
-    enum Kind: Equatable { case searchPanel, tab(UUID) }
+    enum Kind: Equatable { case searchPanel }
     let kind: Kind
 
     func makeNSView(context: Context) -> TargetView {
@@ -140,7 +133,6 @@ struct SidebarHitTarget: NSViewRepresentable {
         #if DEBUG
         switch kind {
         case .searchPanel: view.identifier = NSUserInterfaceItemIdentifier("sidebarSearchPanel")
-        case .tab(let id): view.identifier = NSUserInterfaceItemIdentifier("sidebarItem-\(id)")
         }
         #endif
     }
@@ -154,14 +146,12 @@ struct SidebarHitTarget: NSViewRepresentable {
 /// Window-scoped events; no new panel, focus request, polling, or app activation.
 struct SidebarWindowEvents: NSViewRepresentable {
     let controller: BrowserController
-    let input: ChromeFocusState
     var dismiss: () -> Void
     func makeNSView(context: Context) -> EventView { EventView() }
-    func updateNSView(_ view: EventView, context: Context) { view.controller = controller; view.input = input; view.dismiss = dismiss; if let window = view.window { controller.sidebarWindow = window } }
+    func updateNSView(_ view: EventView, context: Context) { view.controller = controller; view.dismiss = dismiss; if let window = view.window { controller.sidebarWindow = window } }
     static func dismantleNSView(_ view: EventView, coordinator: ()) { view.detach() }
     final class EventView: NSView {
         weak var controller: BrowserController?
-        var input: ChromeFocusState?
         var dismiss: (() -> Void)?
         private var monitor: Any?
         private var observers: [NSObjectProtocol] = []
@@ -173,7 +163,6 @@ struct SidebarWindowEvents: NSViewRepresentable {
             controller?.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp]) { [weak self] event in
                 guard let self, event.window === self.window, let controller = self.controller else { return event }
-                self.input?.receive(event)
                 let tooltipVisible = controller.sidebarTooltip.tabID != nil
                 controller.sidebarTooltip.dismiss()
                 if event.type == .keyDown, event.keyCode == 53, tooltipVisible,
@@ -183,6 +172,8 @@ struct SidebarWindowEvents: NSViewRepresentable {
                     self.dismiss?(); return nil
                 }
                 if event.type == .leftMouseDown {
+                    if !controller.tabSearchPanel, let content = self.window?.contentView,
+                       self.sidebarList(in: content)?.interact(at: event.locationInWindow) == true { return nil }
                     if controller.tabSearchPanel, let content = self.window?.contentView {
                         let insidePanel = self.target(at: event.locationInWindow, in: content) { $0 == .searchPanel } != nil
                         if !insidePanel { self.dismiss?() }
@@ -202,15 +193,13 @@ struct SidebarWindowEvents: NSViewRepresentable {
             })
         }
         func requestCloseTab(at point: NSPoint) -> Bool {
-            guard let controller, let content = window?.contentView else { return false }
-            let hit = target(at: point, in: content) {
-                if case .tab = $0 { return true }
-                return false
-            }
-            guard case .tab(let id) = hit,
-                  let tab = controller.session.tabs.first(where: { $0.id == id }), !tab.isPinned else { return false }
-            controller.requestCloseTab(id)
-            return true
+            guard let content = window?.contentView else { return false }
+            return sidebarList(in: content)?.closeTab(at: point) ?? false
+        }
+
+        private func sidebarList(in view: NSView) -> SidebarTabCollection? {
+            if let list = view as? SidebarTabCollection { return list }
+            return view.subviews.lazy.compactMap { self.sidebarList(in: $0) }.first
         }
 
         private func target(at point: NSPoint, in view: NSView,

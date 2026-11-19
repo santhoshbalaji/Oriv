@@ -20,9 +20,8 @@ struct SidebarSearchPanel: View {
                 Text("Private tabs").tag(true)
             }.pickerStyle(.segmented)
             TextField("Search titles and hosts", text: $controller.tabSearch)
-                .textFieldStyle(.plain).focused($focused).focusEffectDisabled()
+                .textFieldStyle(.plain).focused($focused)
                 .padding(8).background(Theme.sidebar.field, in: .rect(cornerRadius: 9))
-                .modifier(ChromeFocusIndicator(focused: focused, color: Theme.sidebar.accent))
                 .accessibilityIdentifier("railTabSearchField")
                 .onExitCommand(perform: dismiss)
                 .onSubmit { activate() }
@@ -32,7 +31,7 @@ struct SidebarSearchPanel: View {
                 .font(.caption).foregroundStyle(Theme.sidebar.secondaryText).accessibilityIdentifier("tabSearchResultCount")
             resultList
         }.padding(14).foregroundStyle(Theme.sidebar.text)
-            .environment(\.browserTheme, Theme.sidebar).focusEffectDisabled()
+            .environment(\.browserTheme, Theme.sidebar)
             .background(Theme.sidebar.surface, in: .rect(cornerRadius: 14))
             .overlay { RoundedRectangle(cornerRadius: 14).stroke(Theme.sidebar.separator) }
             .background(SidebarHitTarget(kind: .searchPanel))

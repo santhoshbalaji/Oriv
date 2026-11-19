@@ -13,14 +13,6 @@ import XCTest
         var scale: CGFloat?
         override var backingScaleFactor: CGFloat { scale ?? super.backingScaleFactor }
     }
-    @Observable final class FocusRequest { var value = 0 }
-    private struct FocusRequestHost: View {
-        let controller: BrowserController
-        let request: FocusRequest
-        var body: some View {
-            BrowserSidebar(controller: controller, focusRequest: request.value).environment(\.displayScale, 1)
-        }
-    }
     private func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
     private func nodes(_ element: Any, depth: Int = 0) -> [any NSAccessibilityProtocol] {
         guard depth < 24, let node = element as? any NSAccessibilityProtocol else { return [] }
@@ -66,17 +58,17 @@ import XCTest
     }
 
     private func hasVisibleKeyboardFocus(_ id: UUID, in window: NSWindow) -> Bool {
-        guard let marker = window.contentView.flatMap({ views($0).first {
-            $0.identifier?.rawValue == "sidebarKeyboardFocus-\(id)"
-        } }), let scroll = marker.enclosingScrollView else { return false }
-        let frame = marker.convert(marker.bounds, to: scroll.contentView)
-        return frame.height > 0 && scroll.contentView.bounds.insetBy(dx: -1, dy: -1).contains(frame)
+        guard let list = window.firstResponder as? SidebarTabCollection,
+              list.sidebar?.selectedID == id,
+              let path = list.sidebar?.path(for: id),
+              let frame = list.layoutAttributesForItem(at: path)?.frame else { return false }
+        return list.visibleRect.insetBy(dx: -1, dy: -1).contains(frame)
     }
 
     private func checkFocusedRailViewport(_ id: UUID, in window: NSWindow,
                                           file: StaticString = #filePath, line: UInt = #line) throws {
         let marker = try XCTUnwrap(window.contentView.flatMap { views($0).first {
-            $0.identifier?.rawValue == "sidebarKeyboardFocus-\(id)"
+            $0.identifier?.rawValue == "sidebarItem-\(id)"
         } }, file: file, line: line)
         let scroll = try XCTUnwrap(marker.enclosingScrollView, file: file, line: line)
         let frame = marker.convert(marker.bounds, to: scroll.contentView)
@@ -297,19 +289,6 @@ import XCTest
         let privateTab = c.session.addTab(isPrivate: true, load: false)
         XCTAssertTrue(SidebarTabs.label(privateTab, selected: false).contains("Private"))
     }
-    func testGridAndRailArrowOrderReachesRowsWithoutSkippingThem() throws {
-        let c = BrowserController(testing: true); defer { c.shutdown() }
-        let first = try XCTUnwrap(c.session.selectedTab), second = c.session.addTab(select: false, load: false)
-        let regular = c.session.addTab(select: false, load: false), privateTab = c.session.addTab(isPrivate: true, select: false, load: false)
-        c.session.togglePinned(first.id); c.session.togglePinned(second.id)
-        let tabs = c.session.orderedTabs
-        XCTAssertEqual(SidebarTabs.keyboardTarget(from: second.id, key: .downArrow, tabs: tabs, rail: false)?.id, regular.id)
-        XCTAssertEqual(SidebarTabs.keyboardTarget(from: first.id, key: .rightArrow, tabs: tabs, rail: false)?.id, second.id)
-        XCTAssertEqual(SidebarTabs.keyboardTarget(from: second.id, key: .upArrow, tabs: tabs, rail: false)?.id, second.id)
-        XCTAssertEqual(SidebarTabs.keyboardTarget(from: regular.id, key: .upArrow, tabs: tabs, rail: false)?.id, second.id)
-        XCTAssertEqual(SidebarTabs.keyboardTarget(from: regular.id, key: .downArrow, tabs: tabs, rail: false)?.id, privateTab.id)
-        XCTAssertEqual(SidebarTabs.keyboardTarget(from: first.id, key: .downArrow, tabs: tabs, rail: true)?.id, second.id)
-    }
     func testNativeArrowAndReturnEventsNavigateFromSearchThroughPinsAndRows() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let first = try XCTUnwrap(c.session.selectedTab), second = c.session.addTab(select: false, load: false)
@@ -318,59 +297,24 @@ import XCTest
         let w = window(c); defer { w.close() }; try await settle()
         c.searchTabs(); try await settle()
         func key(_ code: UInt16, _ text: String) throws {
-            NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
-                characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code)))
+                characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code))
+            if let list = w.firstResponder as? SidebarTabCollection { list.keyDown(with: event) }
+            else { NSApp.sendEvent(event) }
         }
         try key(125, "\u{f701}"); try await settle() // Search -> first pin focus.
         try key(36, "\r"); try await settle(); XCTAssertEqual(c.session.selectedTabID, first.id)
         try key(124, "\u{f703}"); try await settle(); XCTAssertEqual(c.session.selectedTabID, second.id)
         try key(125, "\u{f701}"); try await settle(); XCTAssertEqual(c.session.selectedTabID, regular.id)
     }
-    func testNativeArrowNavigationScrollsThroughSixtyLazyRowsAndRail() async throws {
+    func testNativeArrowNavigationScrollsThroughSixtyRowsAndRail() async throws {
         try await checkNativeArrowNavigation(size: NSSize(width: 1000, height: 760))
     }
 
     func testNativeArrowNavigationInShortWindowsAtOnePointScale() async throws {
         for height in [520.0, 521.0, 600.0] {
             try await checkNativeArrowNavigation(size: NSSize(width: 840, height: height), displayScale: 1)
-        }
-    }
-
-    func testFocusRequestSurvivesCoalescedLazyRailRebuild() async throws {
-        let c = BrowserController(testing: true); defer { c.shutdown() }
-        for _ in 1..<60 { _ = c.session.addTab(select: false, load: false) }
-        let tabs = c.session.orderedTabs
-        c.session.selectTab(tabs[59].id)
-        let w = FocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 296, height: 520),
-            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        w.scale = 1; w.isReleasedWhenClosed = false
-        defer { w.close() }
-        let request = FocusRequest()
-        let host = NSHostingView(rootView: FocusRequestHost(controller: c, request: request))
-        w.contentView = host
-        BackgroundUIMode.show(w)
-        try await settle()
-        request.value = 1
-        try await waitUntil("Expanded request did not materialize the last lazy row") {
-            self.hasVisibleKeyboardFocus(tabs[59].id, in: w)
-        }
-        w.makeFirstResponder(nil)
-        // On a busy run loop, the toggle handoff and collection rebuild can
-        // reach SwiftUI in the same update. Neither request may erase the other.
-        c.compactSidebar = true
-        request.value = 2
-        w.setContentSize(NSSize(width: MacBrowserLayout.railWidth, height: 520))
-        try await waitUntil("Rail rebuild discarded the new focus request") {
-            let row = w.contentView.flatMap { self.views($0).first { $0.identifier?.rawValue == "sidebarItem-\(tabs[59].id)" } }
-            return row?.bounds.width == MacBrowserLayout.railItemWidth && self.hasVisibleKeyboardFocus(tabs[59].id, in: w)
-        }
-        try checkFocusedRailViewport(tabs[59].id, in: w)
-        NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
-            characters: "\u{f700}", charactersIgnoringModifiers: "\u{f700}", isARepeat: false, keyCode: 126)))
-        try await waitUntil("Coalesced handoff did not accept native rail navigation") {
-            c.session.selectedTabID == tabs[58].id && self.hasVisibleKeyboardFocus(tabs[58].id, in: w)
         }
     }
 
@@ -390,18 +334,22 @@ import XCTest
             } == true
         }
         func key(_ code: UInt16, _ text: String) throws {
-            NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
-                characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code)))
+                characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code))
+            if let list = w.firstResponder as? SidebarTabCollection { list.keyDown(with: event) }
+            else { NSApp.sendEvent(event) }
         }
         try key(125, "\u{f701}")
         try await waitUntil("Search did not hand focus to the first row") { self.hasVisibleKeyboardFocus(tabs[0].id, in: w) }
         for index in 1..<60 {
             try key(125, "\u{f701}")
-            try await waitUntil("Expanded arrow focus lost at lazy row \(index)") {
-                c.session.selectedTabID == tabs[index].id && self.hasVisibleKeyboardFocus(tabs[index].id, in: w)
+            try await waitUntil("Expanded arrow focus lost at row \(index)") {
+                self.hasVisibleKeyboardFocus(tabs[index].id, in: w)
             }
         }
+        try key(36, "\r")
+        XCTAssertEqual(c.session.selectedTabID, tabs.last?.id)
         let toggle = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
             characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1))
@@ -416,8 +364,8 @@ import XCTest
         try checkFocusedRailViewport(tabs[59].id, in: w)
         for index in stride(from: 58, through: 0, by: -1) {
             try key(126, "\u{f700}")
-            try await waitUntil("Rail arrow focus lost at lazy row \(index)") {
-                c.session.selectedTabID == tabs[index].id && self.hasVisibleKeyboardFocus(tabs[index].id, in: w)
+            try await waitUntil("Rail arrow focus lost at row \(index)") {
+                self.hasVisibleKeyboardFocus(tabs[index].id, in: w)
             }
         }
     }
@@ -473,9 +421,9 @@ import XCTest
         let labels = all.compactMap { $0.accessibilityLabel() }
         XCTAssertTrue(labels.contains("Search tabs"))
         XCTAssertFalse(labels.contains("Pinned, 0 tabs")); XCTAssertTrue(labels.contains("Tabs, 2 tabs"))
-        XCTAssertTrue(labels.contains("Close New Tab"), "Hidden glyph must retain a native AX close control")
         let row = try XCTUnwrap(all.first { $0.accessibilityLabel() == SidebarTabs.label(first, selected: true) })
-        XCTAssertEqual(row.accessibilityRole(), .button)
+        XCTAssertEqual(row.accessibilityRole(), .row)
+        XCTAssertTrue(row.accessibilityCustomActions()?.contains { $0.name == "Close Tab" } == true)
         let searchIndex = try XCTUnwrap(labels.firstIndex(of: "Search tabs"))
         let tabIndex = try XCTUnwrap(labels.firstIndex(of: SidebarTabs.label(first, selected: true)))
         let newIndex = try XCTUnwrap(labels.firstIndex(of: "New Tab"))

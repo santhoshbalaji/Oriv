@@ -126,7 +126,9 @@ struct BrowserWindowChrome: NSViewRepresentable {
                 didSetInitialFocus = true
                 window.initialFirstResponder = target
                 DispatchQueue.main.async { [weak window, weak target] in
-                    guard let window, let target, !(window.firstResponder is NSTextView), !(window.firstResponder is NSTextField) else { return }
+                    guard let window, let target,
+                          !(window.firstResponder is NSTextView), !(window.firstResponder is NSTextField),
+                          !(window.firstResponder is SidebarTabCollection) else { return }
                     window.makeFirstResponder(target)
                 }
             }

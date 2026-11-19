@@ -76,10 +76,16 @@ import XCTest
             XCTAssertEqual(controller.sidebar.narrowOverlay, width == 780)
             let surface = try frame("sidebarSurfaceGeometry", in: window)
             let tab = try XCTUnwrap(controller.session.selectedTabID)
+            let rowView = try XCTUnwrap(window.contentView.flatMap {
+                descendants($0).first { $0.identifier?.rawValue == "sidebarItem-\(tab)" }
+            })
+            let scroll = try XCTUnwrap(rowView.enclosingScrollView)
+            let scrollerGutter = scroll.bounds.width - scroll.contentView.bounds.width
             for name in ["sidebarSearchGeometry", "sidebarItem-\(tab)", "sidebarSelection-\(tab)", "sidebarNewTabGeometry", "sidebarFooterGeometry"] {
                 let rect = try frame(name, in: window)
+                let gutter = name.hasPrefix("sidebarItem-") || name.hasPrefix("sidebarSelection-") ? scrollerGutter : 0
                 XCTAssertEqual(rect.minX - surface.minX, 8, accuracy: 0.5, name)
-                XCTAssertEqual(surface.maxX - rect.maxX, 8, accuracy: 0.5, name)
+                XCTAssertEqual(surface.maxX - rect.maxX, 8 + gutter, accuracy: 0.5, name)
             }
             let row = try frame("sidebarItem-\(tab)", in: window)
             let icon = try frame("sidebarFavicon-\(tab)", in: window)

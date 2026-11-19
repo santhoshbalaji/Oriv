@@ -20,10 +20,9 @@ struct BrowserWindow: View {
     @State private var fullscreen = false
     @State private var windowActive = true
     @State private var windowContext = MacBrowserWindowContext()
-    @State private var chromeFocus = ChromeFocusState()
+    @State private var sidebarTabs = SidebarListHandle()
     @FocusState private var sidebarHeaderToggleFocused: Bool
     @State private var sidebarContainsKeyboardFocus = false
-    @State private var sidebarTabFocusRequest = 0
     @State private var address = ""
     @State private var findText = ""
     @State private var showFind = false
@@ -66,8 +65,7 @@ struct BrowserWindow: View {
 
     private var sceneContent: some View {
         routedContent
-            .environment(\.chromeFocusState, chromeFocus)
-            .background(BrowserKeyRouter(session: session, overviewVisible: showTabs, input: chromeFocus))
+            .background(BrowserKeyRouter(session: session, overviewVisible: showTabs))
             .environment(\.siteIcons, session.siteIcons)
             .focusedSceneValue(\.browserController, controller)
     }
@@ -170,7 +168,7 @@ struct BrowserWindow: View {
             if !open { restoreSearchFocus() }
         }
         .onDisappear { controller.sidebar.cancel(); controller.sidebarTooltip.dismiss() }
-        .background(SidebarWindowEvents(controller: controller, input: chromeFocus, dismiss: dismissSidebarOverlay))
+        .background(SidebarWindowEvents(controller: controller, dismiss: dismissSidebarOverlay))
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
@@ -178,17 +176,16 @@ struct BrowserWindow: View {
             externalPresentationRequest: session.isExternalPrivate ? profiles?.externalPresentationRequest : nil,
             stateChanged: { fullscreen = $0; windowActive = $1 },
             contentWidthChanged: { controller.sidebar.resize(availableWidth: $0) }))
-        .overlayPreferenceValue(SidebarTooltipBounds.self) { bounds in
+        .overlay {
             GeometryReader { geometry in
-                if let id = controller.sidebarTooltip.tabID, let anchor = bounds[id], !controller.tabSearchPanel {
-                    let rect = geometry[anchor]
+                if let id = controller.sidebarTooltip.tabID, let rect = sidebarTabs.frame(for: id), !controller.tabSearchPanel {
                     let width = min(320, max(1, geometry.size.width - 16))
                     SidebarTooltipBubble(text: controller.sidebarTooltip.text, width: width,
                                          maximumHeight: min(180, geometry.size.height - 32))
                     .browserGeometryMarker("sidebarTooltipGeometry")
                     .onHover { controller.sidebarTooltip.hold($0) }
                     .offset(x: min(controller.sidebar.width - 10 + 8, geometry.size.width - width - 8),
-                            y: min(max(16, rect.minY), max(16, geometry.size.height - 196)))
+                            y: min(max(16, geometry.size.height - rect.maxY), max(16, geometry.size.height - 196)))
                     .accessibilityHidden(true)
                 }
             }
@@ -214,7 +211,7 @@ struct BrowserWindow: View {
     private var sidebarPanel: some View {
         VStack(spacing: 0) {
             sidebarHeader
-            BrowserSidebar(controller: controller, profiles: profiles, focusRequest: sidebarTabFocusRequest,
+            BrowserSidebar(controller: controller, profiles: profiles, tabList: sidebarTabs,
                            profileTrailingInset: fullscreen ? 38 : 0)
                 .environment(\.layoutDirection, layoutDirection)
                 .onPreferenceChange(SidebarKeyboardFocusKey.self) {
@@ -270,8 +267,7 @@ struct BrowserWindow: View {
         Button(action: toggleSidebar) {
             Image(systemName: "sidebar.left").font(.system(size: 14)).frame(width: railHeader ? 42 : 30, height: railHeader ? 36 : 30).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).focusable().focusEffectDisabled().focused($sidebarHeaderToggleFocused)
-        .modifier(ChromeFocusIndicator(focused: sidebarHeaderToggleFocused, color: Theme.sidebar.accent, marker: "sidebarToggleFocusIndicator"))
+        .buttonStyle(.plain).focusable().focused($sidebarHeaderToggleFocused)
         .keyboardShortcut("s", modifiers: [.command, .option])
         .help(controller.sidebar.peeking ? "Keep Sidebar Expanded (⌥⌘S)" : railHeader ? "Expand Sidebar (⌥⌘S)" : "Collapse to Icon Rail (⌥⌘S)")
         .accessibilityLabel(controller.sidebar.peeking ? "Keep Sidebar Expanded" : railHeader ? "Expand Sidebar" : "Collapse Sidebar")
@@ -280,7 +276,7 @@ struct BrowserWindow: View {
         .accessibilityIdentifier("sidebarToggle")
         .browserGeometryMarker("sidebarToggleGeometry")
         .browserGeometryMarker("sidebarToggleKeyboardFocus", when: sidebarHeaderToggleFocused)
-        .onKeyPress(.downArrow) { sidebarTabFocusRequest += 1; return .handled }
+        .onKeyPress(.downArrow) { sidebarTabs.focus(); return .handled }
         .accessibilitySortPriority(2)
         .foregroundStyle(Theme.sidebar.text)
     }
@@ -310,7 +306,6 @@ struct BrowserWindow: View {
         .background(BrowserDragRegion())
         .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
         .accessibilityIdentifier("mainTopBar")
-        .focusEffectDisabled()
         .browserGeometryMarker("browserTopBarGeometry")
     }
 
@@ -381,9 +376,6 @@ struct BrowserWindow: View {
                 .modifier(chromeGlass)
                 .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
                 .environment(\.browserTheme, toolbarTheme)
-                .overlay {
-                    Capsule().strokeBorder(addressFocused && chromeFocus.showsFocus ? theme.accent : .clear, lineWidth: 1.5)
-                }
                 .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
                 .browserGeometryMarker("browserAddressGeometry")
     }
@@ -645,7 +637,6 @@ private struct MacChromeButtonFace<Label: View>: View {
     var body: some View {
         label.contentShape(Rectangle())
             .background(.primary.opacity(enabled ? (pressed ? 0.12 : hovered ? 0.07 : 0) : 0), in: Capsule())
-            .modifier(ChromeFocusIndicator(radius: 16))
             .onHover { hovered = $0 }
     }
 }

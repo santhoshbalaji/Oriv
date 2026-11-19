@@ -338,6 +338,7 @@ import WebKit
                 tab.webView.loadHTMLString(sidebarFixture(color: mode == "light" ? "#f3f5ef" : "#202a25", light: mode == "light").replacingOccurrences(of: "<title>Found, don’t follow</title>", with: "<title>\(titles[6])</title>"), baseURL: records[9].url)
                 for _ in 0..<100 { if !tab.webView.isLoading && tab.webView.title != nil { break }; try? await Task.sleep(for: .milliseconds(25)) }
                 var scenes: [(Int, Bool, String)] = [820, 1280].flatMap { width in [false, true].map { (width, $0, "default") } }
+                if count == 100 { scenes += [false, true].map { (1280, $0, "scrolled") } }
                 if count == 12 {
                     scenes += ["hover", "focus", "reduced", "increased", "motion"].flatMap { variant in [false, true].map { (1280, $0, variant) } }
                     scenes += ["peek", "search", "tooltip"].map { (1280, true, $0) }
@@ -350,7 +351,6 @@ import WebKit
                     let suffix = variant == "default" ? "" : "-" + variant
                     let name = "mac-glass-sidebar-b-\(count)-\(mode)-\(width)-\(rail ? "rail" : "expanded")\(suffix)"
                     let state = SidebarCaptureState(hover: variant == "hover" ? records[10].id : nil,
-                                                    focus: variant == "focus" ? records[9].id : nil,
                                                     loading: records[10].id, audio: records[9].id)
                     await capture(name, directory, CGSize(width: width, height: 900), key: activate, compositeWeb: tab.webView, appearance: appearance,
                                   prepare: { window in
@@ -369,10 +369,31 @@ import WebKit
                                           try? await Task.sleep(for: .milliseconds(500))
                                           if !controller.sidebar.peeking { manifest.failures.append("Peek did not open: \(name)") }
                                       }
+                                      if variant == "focus" {
+                                          @MainActor func collection(in view: NSView) -> SidebarTabCollection? {
+                                              (view as? SidebarTabCollection) ?? view.subviews.lazy.compactMap(collection(in:)).first
+                                          }
+                                          window.contentView.flatMap(collection(in:))?.focusTab(records[9].id)
+                                      }
                                       if variant == "search" { controller.searchTabs(); try? await Task.sleep(for: .milliseconds(250)) }
                                       if variant == "tooltip" {
                                           controller.sidebarTooltip.hover(id: records[9].id, text: SidebarTabs.label(tab, selected: true))
                                           try? await Task.sleep(for: .milliseconds(700))
+                                      }
+                                      if variant == "scrolled" {
+                                          @MainActor func tabScroll(in view: NSView) -> NSScrollView? {
+                                              if view.identifier?.rawValue.hasPrefix("sidebarItem-") == true {
+                                                  return view.enclosingScrollView
+                                              }
+                                              return view.subviews.lazy.compactMap(tabScroll(in:)).first
+                                          }
+                                          if let scroll = window.contentView.flatMap(tabScroll(in:)) {
+                                              let clip = scroll.contentView
+                                              clip.scroll(to: NSPoint(x: 0, y: clip.bounds.minY + 810))
+                                              scroll.reflectScrolledClipView(clip)
+                                              try? await Task.sleep(for: .milliseconds(200))
+                                              if clip.bounds.minY < 500 { manifest.failures.append("Sidebar did not scroll: \(name)") }
+                                          } else { manifest.failures.append("Sidebar scroll view unavailable: \(name)") }
                                       }
                                       writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
                                   }) {
@@ -534,12 +555,9 @@ import WebKit
                                 } else { manifest.failures.append("Missing click target: \(name)") }
                                 try? await Task.sleep(for: .milliseconds(250))
                             }
-                            if state.hasPrefix("mouse"), window.contentView.map({ views($0).contains { $0.identifier?.rawValue.hasPrefix("sidebarFocusIndicator-") == true || $0.identifier?.rawValue == "sidebarToggleFocusIndicator" } }) == true {
-                                manifest.failures.append("Mouse focus decoration: \(name)")
-                            }
                             if c.sidebar.rail != (layout == "rail") { manifest.failures.append("Wrong sidebar mode: \(name)") }
-                            if ["keyboard", "selected-focused"].contains(state), window.contentView.map({ views($0).contains { $0.identifier?.rawValue.hasPrefix("sidebarFocusIndicator-") == true } }) != true {
-                                manifest.failures.append("Keyboard focus decoration missing: \(name)")
+                            if ["keyboard", "selected-focused"].contains(state), !(window.firstResponder is SidebarTabCollection) {
+                                manifest.failures.append("Native sidebar focus missing: \(name)")
                             }
                             writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
                         }) {
@@ -564,7 +582,9 @@ import WebKit
 
     private static func writeSidebarGeometry(_ window: NSWindow, to url: URL) {
         func markers(_ view: NSView) -> [NSView] {
-            (view is BrowserGeometryMarker.Marker || view is SidebarHitTarget.TargetView ? [view] : []) + view.subviews.flatMap(markers)
+            let tab = view.identifier?.rawValue.hasPrefix("sidebarItem-") == true
+            return (view is BrowserGeometryMarker.Marker || view is SidebarHitTarget.TargetView || tab ? [view] : [])
+                + view.subviews.flatMap(markers)
         }
         let frames = (window.contentView.map { markers($0).map { ["name": $0.identifier?.rawValue ?? "", "frame": NSStringFromRect($0.convert($0.bounds, to: nil))] } }) ?? []
         let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type -> [String: Any]? in

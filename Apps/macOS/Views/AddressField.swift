@@ -32,7 +32,6 @@ struct AddressField: NSViewRepresentable {
         field.lineBreakMode = .byTruncatingMiddle
         field.maximumNumberOfLines = 1
         field.usesSingleLineMode = true
-        field.focusRingType = .none
         field.delegate = context.coordinator
         field.focusBegan = { [weak coordinator = context.coordinator] in coordinator?.parent.isEditing = true }
         field.setAccessibilityLabel("Address and search")
