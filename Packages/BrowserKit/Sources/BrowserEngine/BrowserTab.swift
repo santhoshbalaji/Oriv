@@ -1008,11 +1008,14 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     public func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                         decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
+        let http = navigationResponse.response as? HTTPURLResponse
+        let disposition = http?.value(forHTTPHeaderField: "Content-Disposition")?
+            .split(separator: ";", maxSplits: 1).first?.trimmingCharacters(in: .whitespaces).lowercased()
+        let downloads = disposition == "attachment" || !navigationResponse.canShowMIMEType
         if navigationResponse.isForMainFrame {
-            let status = (navigationResponse.response as? HTTPURLResponse)?.statusCode ?? 200
-            historyResponseAllowed = status < 400 && navigationResponse.canShowMIMEType
+            historyResponseAllowed = (http?.statusCode ?? 200) < 400 && !downloads
         }
-        decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
+        decisionHandler(downloads ? .download : .allow)
     }
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         didStartDownload = true
