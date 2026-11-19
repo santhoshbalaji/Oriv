@@ -120,17 +120,18 @@ import BrowserCore
         let profiles = MobileProfiles(), c = profiles.current
         defer { c.session.shutdown(); profiles.continuity.shutdown() }
         let source = try XCTUnwrap(c.session.selectedTab)
-        source.navigate(to:URL(string:"http://127.0.0.1:8768/chrome-paint?delay=0")!)
-        let target = c.session.addTab(url:URL(string:"http://127.0.0.1:8768/swipe-light")!,select:false)
-        target.activate()
+        let target = c.session.addTab(select:false,load:false)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first(where:\.isKeyWindow), window = UIWindow(windowScene:scene)
         window.rootViewController = UIHostingController(rootView:MobileRootView(controller:c,profiles:profiles)
             .browserAppearance(c.appearance,followsPage:true).environment(\.scenePhase,.active))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
-        try await wait { !source.isLoading && !target.isLoading && c.chrome(for:source).sampledTop != nil && c.chrome(for:target).sampledTop != nil }
-        try await Task.sleep(for:.milliseconds(250))
+        for (tab, path) in [(target, "swipe-light"), (source, "chrome-paint?delay=0")] {
+            c.session.selectTab(tab.id)
+            tab.navigate(to:URL(string:"http://127.0.0.1:8768/\(path)")!)
+            try await wait { tab.webView.window === window && !tab.isLoading && c.chrome(for:tab).sampledTop != nil }
+        }
         let dark = ChromeColor(0,0,0), sourceColor = TopFillFrames.rgb(UIColor(c.chrome(for:source).color))
         let targetColor = TopFillFrames.rgb(UIColor(c.chrome(for:target).color))
         for (name,a,b,action) in [
@@ -140,8 +141,16 @@ import BrowserCore
             ("grid-new",dark,dark,{ c.tabPresentation.pendingNewTab = false; c.sheet = nil })
         ] as [(String,ChromeColor,ChromeColor,() -> Void)] {
             let frames = TopFillFrames(window:window,surface:window,from:a,to:b)
-            frames.start(); action()
-            try await Task.sleep(for:.milliseconds(900)); frames.stop()
+            frames.start()
+            defer { frames.stop() }
+            action()
+            try await wait(timeout:5,context:{ "\(name) never reached its final chrome state" }) {
+                frames.rows.count > 10 && c.tabPresentation.activeID == nil && !c.gridMorph.isAnimating
+                    && c.topChrome.presentationColor.deltaE(b) <= 1
+            }
+            let settledFrame = frames.rows.count
+            try await wait { frames.rows.count > settledFrame }
+            frames.stop()
             let attachment = XCTAttachment(data:try JSONSerialization.data(withJSONObject:frames.rows,options:[.prettyPrinted,.sortedKeys]),uniformTypeIdentifier:"public.json")
             attachment.name = "top-fill-\(name)-frames"; attachment.lifetime = .keepAlways; add(attachment)
             let pixels = frames.rows.compactMap { $0["actual"] as? [Double] }.map { ChromeColor($0[0],$0[1],$0[2]) }
