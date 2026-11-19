@@ -70,15 +70,19 @@ import UIKit
         let tab = try XCTUnwrap(session.selectedTab)
         let detach = try mountWebFixture(tab)
         defer { detach() }
-        let draft = URL(string: "http://127.0.0.1:8768/quality")!
-        try await waitForWebFixture(tab, at: draft) { tab.navigate(to: draft) }
-        XCTAssertEqual(tab.title, "Browser quality fixture")
+        let draft = URL(string: "https://fixture.invalid/draft")!
+        try await waitForWebFixture(tab, at: draft) {
+            tab.webView.loadHTMLString("<title>Draft document</title><input aria-label='Draft'>", baseURL: draft)
+        }
+        XCTAssertEqual(tab.title, "Draft document")
         XCTAssertFalse(session.requiresCloseConfirmation(tab.id))
         _ = try await tab.webView.callAsyncJavaScript("window.webkit.messageHandlers.editedField.postMessage(true)", arguments: [:], in: nil, contentWorld: .world(name: "OrivTabState"))
         try await wait("the edited-field bridge message") { session.requiresCloseConfirmation(tab.id) }
-        let next = URL(string: "http://127.0.0.1:8768/two")!
-        try await waitForWebFixture(tab, at: next) { tab.navigate(to: next) }
-        XCTAssertEqual(tab.title, "Second page")
+        let next = URL(string: "https://fixture.invalid/next")!
+        try await waitForWebFixture(tab, at: next) {
+            tab.webView.loadHTMLString("<title>Next document</title><p>A separate document.</p>", baseURL: next)
+        }
+        XCTAssertEqual(tab.title, "Next document")
         XCTAssertFalse(session.requiresCloseConfirmation(tab.id))
         XCTAssertFalse(session.requiresCloseConfirmation(UUID()))
     }
