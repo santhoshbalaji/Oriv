@@ -27,9 +27,8 @@ struct NativeSidebarTabs: NSViewRepresentable {
     func makeCoordinator() -> SidebarCollectionData { SidebarCollectionData() }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let layout = SidebarTabLayout()
         let list = SidebarTabCollection()
-        list.collectionViewLayout = layout
+        list.collectionViewLayout = SidebarTabLayout()
         list.dataSource = context.coordinator
         list.delegate = context.coordinator
         list.sidebar = context.coordinator
@@ -75,9 +74,71 @@ struct NativeSidebarTabs: NSViewRepresentable {
     }
 }
 
-private final class SidebarTabLayout: NSCollectionViewFlowLayout {
-    override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
-        newBounds.width != collectionView?.bounds.width || super.shouldInvalidateLayout(forBoundsChange: newBounds)
+/// Style B has fixed geometry with two widths and a four-column pinned grid.
+private final class SidebarTabLayout: NSCollectionViewLayout {
+    private var items: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
+    private var headers: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
+    private var contentSize = NSSize.zero
+
+    override func prepare() {
+        super.prepare()
+        items.removeAll(keepingCapacity: true)
+        headers.removeAll(keepingCapacity: true)
+        guard let list = collectionView as? SidebarTabCollection, let data = list.sidebar else { return }
+        let width = list.enclosingScrollView?.contentView.bounds.width ?? list.bounds.width
+        let icons = data.isIconLayout
+        let edge = icons ? MacBrowserLayout.railInset : 0
+        let rowWidth = data.isRail ? MacBrowserLayout.railItemWidth : max(0, width - 2 * edge)
+        let rowHeight = data.rowHeight
+        let spacing: CGFloat = icons ? 6 : 1
+        var y: CGFloat = 0
+        for (section, group) in data.sections.enumerated() {
+            if group.headerHeight > 0 {
+                let path = IndexPath(item: 0, section: section)
+                let header = NSCollectionViewLayoutAttributes(forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader,
+                                                               with: path)
+                header.frame = NSRect(x: 0, y: y, width: width, height: group.headerHeight)
+                headers[path] = header
+                y += group.headerHeight
+            }
+            if group.grid { y += 4 }
+            for index in group.tabs.indices {
+                let path = IndexPath(item: index, section: section)
+                let item = NSCollectionViewLayoutAttributes(forItemWith: path)
+                if group.grid {
+                    let offset = max(0, (width - 248) / 2)
+                    item.frame = NSRect(x: offset + CGFloat(index % 4) * 64, y: y + CGFloat(index / 4) * 57, width: 56, height: 48)
+                } else {
+                    item.frame = NSRect(x: edge, y: y + CGFloat(index) * (rowHeight + spacing), width: rowWidth, height: rowHeight)
+                }
+                items[path] = item
+            }
+            if group.grid { y += CGFloat((group.tabs.count + 3) / 4) * 57 - 4 }
+            else if !group.tabs.isEmpty { y += CGFloat(group.tabs.count) * (rowHeight + spacing) - (icons ? spacing : 0) }
+        }
+        contentSize = NSSize(width: width, height: y + (icons ? 0 : 9))
+    }
+
+    override var collectionViewContentSize: NSSize { contentSize }
+    override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool { newBounds.width != contentSize.width }
+    override func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
+        (Array(items.values) + Array(headers.values)).filter { $0.frame.intersects(rect) }
+    }
+    override func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? { items[indexPath] }
+    override func layoutAttributesForSupplementaryView(ofKind elementKind: String,
+                                                        at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? { headers[indexPath] }
+
+    override func layoutAttributesForDropTarget(at point: NSPoint) -> NSCollectionViewLayoutAttributes? {
+        if let item = items.values.first(where: { $0.frame.contains(point) }) { return item }
+        guard let header = headers.values.first(where: { $0.frame.contains(point) }), let path = header.indexPath else { return nil }
+        return layoutAttributesForInterItemGap(before: path)
+    }
+
+    override func layoutAttributesForInterItemGap(before indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
+        guard let frame = headers[indexPath]?.frame ?? items[indexPath]?.frame else { return nil }
+        let gap = NSCollectionViewLayoutAttributes(forInterItemGapBefore: indexPath)
+        gap.frame = NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: 2)
+        return gap
     }
 }
 
@@ -90,11 +151,13 @@ private final class SidebarTabClipView: NSClipView {
 }
 
 private final class SidebarTabScrollView: NSScrollView {
+    private var viewportWidth: CGFloat = 0
     override func tile() {
         super.tile()
         guard let list = documentView as? SidebarTabCollection else { return }
         let width = contentView.bounds.width
-        if width > 0, list.frame.width != width {
+        if width > 0, width != viewportWidth {
+            viewportWidth = width
             list.setFrameSize(NSSize(width: width, height: list.frame.height))
             list.collectionViewLayout?.invalidateLayout()
         }
@@ -123,18 +186,21 @@ private struct SidebarSection {
     }
 }
 
-@MainActor final class SidebarCollectionData: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegateFlowLayout {
+@MainActor final class SidebarCollectionData: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
     static let pasteboardType = NSPasteboard.PasteboardType("com.oriv.browser.sidebar-tab")
 
     weak var list: SidebarTabCollection?
     private var configuration: NativeSidebarTabs?
-    private var sections: [SidebarSection] = []
+    fileprivate private(set) var sections: [SidebarSection] = []
     private var environment = EnvironmentValues()
     private var activeID: UUID?
     private var preview: Task<Void, Never>?
     private(set) var hovered: IndexPath?
     private var drag: SidebarTabTransfer?
     var controller: BrowserController? { configuration?.controller }
+    var isRail: Bool { configuration?.rail == true }
+    var isIconLayout: Bool { isRail || configuration?.peek == true }
+    var rowHeight: CGFloat { isIconLayout || !environment.dynamicTypeSize.isAccessibilitySize ? 36 : 60 }
 
     private func makeSections(_ configuration: NativeSidebarTabs) -> [SidebarSection] {
         let pinned = configuration.tabs.filter(\.isPinned)
@@ -188,9 +254,6 @@ private struct SidebarSection {
         sections = newSections
         activeID = newActive
 
-        if changesLayout && old != nil {
-            list.collectionViewLayout = SidebarTabLayout()
-        }
         if changesLayout || changesContent {
             setHovered(nil)
             list.reloadData()
@@ -364,42 +427,6 @@ private struct SidebarSection {
             else { Text(heading).font(OrivType.detail).foregroundStyle(Theme.sidebar.secondaryText) }
         }
     }
-
-    func collectionView(_ collectionView: NSCollectionView, layout: NSCollectionViewLayout, sizeForItemAt path: IndexPath) -> NSSize {
-        if sections[path.section].grid { return NSSize(width: min(56, collectionView.bounds.width), height: 48) }
-        let icons = configuration?.rail == true || configuration?.peek == true
-        let viewport = collectionView.enclosingScrollView?.contentView.bounds.width ?? collectionView.bounds.width
-        let available = min(viewport, collectionView.bounds.width) - (icons ? 2 * MacBrowserLayout.railInset : 0)
-        let width = configuration?.rail == true ? min(MacBrowserLayout.railItemWidth, available) : available
-        return NSSize(width: max(0, width), height: icons || !environment.dynamicTypeSize.isAccessibilitySize ? 36 : 60)
-    }
-
-    func collectionView(_ collectionView: NSCollectionView, layout: NSCollectionViewLayout,
-                        referenceSizeForHeaderInSection section: Int) -> NSSize {
-        NSSize(width: collectionView.bounds.width, height: sections[section].headerHeight)
-    }
-
-    func collectionView(_ collectionView: NSCollectionView, layout: NSCollectionViewLayout, insetForSectionAt section: Int) -> NSEdgeInsets {
-        if sections[section].grid {
-            let edges = max(0, (collectionView.bounds.width - 248) / 2)
-            return NSEdgeInsets(top: 4, left: edges, bottom: 5, right: edges)
-        }
-        let icons = configuration?.rail == true || configuration?.peek == true
-        let inset = icons ? min(MacBrowserLayout.railInset, collectionView.bounds.width / 2) : 0
-        let right = configuration?.rail == true
-            ? max(inset, collectionView.bounds.width - inset - MacBrowserLayout.railItemWidth)
-            : inset
-        return NSEdgeInsets(top: 0, left: inset, bottom: icons ? 0 : 1, right: right)
-    }
-
-    func collectionView(_ collectionView: NSCollectionView, layout: NSCollectionViewLayout,
-                        minimumLineSpacingForSectionAt section: Int) -> CGFloat {
-        if sections[section].grid { return 9 }
-        return configuration?.rail == true || configuration?.peek == true ? 6 : 1
-    }
-
-    func collectionView(_ collectionView: NSCollectionView, layout: NSCollectionViewLayout,
-                        minimumInteritemSpacingForSectionAt section: Int) -> CGFloat { 8 }
 
     func menu(for tab: BrowserTab) -> NSMenu {
         let menu = NSMenu()
@@ -593,7 +620,8 @@ final class SidebarTabCollection: NSCollectionView {
 
     override var focusRingMaskBounds: NSRect {
         guard let frame = selectionIndexPaths.first.flatMap({ layoutAttributesForItem(at: $0)?.frame }) else { return .zero }
-        return frame.intersection(visibleRect).insetBy(dx: 2, dy: 2)
+        let visible = frame.intersection(visibleRect)
+        return visible.width > 4 && visible.height > 4 ? visible.insetBy(dx: 2, dy: 2) : .zero
     }
 
     override func drawFocusRingMask() {
