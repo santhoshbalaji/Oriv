@@ -2,6 +2,16 @@
 
 # Browser quality and coverage
 
+## 0.16.0 (30)
+
+Each regular profile keeps its latest 50,000 visits in a SQLite history database. The shared migration preserves legacy visit IDs, timestamps, titles and counts before removing history from the session file and its backup. History in both app libraries searches and pages through the database. Clearing history removes matching visits from address suggestions and clears regular site icons.
+
+WebKit records committed HTTP(S) destinations, including the final destination of a server redirect, plus debounced same-document changes. Late titles update the corresponding visit. Private tabs, HTTP error pages, downloads, non-web destinations and the QA fixture by default are excluded. Address-bar ranking uses visit frequency, typed submissions and recency, with URL-level index updates off the main actor.
+
+Continuity still shares a projection of up to 500 recent main-frame destinations in the existing encrypted CloudKit record. Same-document visits, typed weights and older local visits stay on-device. The [history design](../build/release-0.16.0/DESIGN.md) describes migration and clear propagation.
+
+Run the optimized 50,000-entry match benchmark with `ORIV_BACKGROUND_UI=1 ORIV_HISTORY_BENCHMARK=1 swift test --package-path Packages/BrowserKit -c release --filter fiftyThousandHistoryKeystrokes`.
+
 ## 0.15.5 (29)
 
 The local browser gate builds the unsigned iPhone app for a generic Simulator destination and runs the same checks as hosted CI. Debug builds flag slow Swift type checking. Both apps compile shared theme tokens, identity and artwork from `Apps/Shared`; Mac sidebar and focus styling stay in the Mac target.
