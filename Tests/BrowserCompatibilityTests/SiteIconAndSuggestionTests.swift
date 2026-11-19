@@ -9,20 +9,24 @@ import WebKit
         BrowserSession(dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil),
                        settings: BrowserSettings(defaults: nil), faviconDirectory: directory)
     }
-    private func load(_ tab: BrowserTab) async throws {
-        tab.navigate(to: URL(string: "http://127.0.0.1:18768/favicon-page")!)
+    private func load(_ tab: BrowserTab, run: String = "") async throws {
+        tab.navigate(to: URL(string: "http://127.0.0.1:18768/favicon-page?run=\(run)")!)
         for _ in 0..<300 {
             if tab.webView.title == "Favicon fixture", !tab.webView.isLoading { return }
             try await Task.sleep(for: .milliseconds(25))
         }
         XCTFail("Local favicon fixture did not finish")
     }
-    func testSiteOwnedSVGUsesWebKitCookiesCoalescesAndPersistsRegularOnly() async throws {
+    func testSiteOwnedSVGUsesAnonymousBrowserIdentityAndPersistsRegularOnly() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("OrivIcons-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let session = session(directory: root); defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
-        try await load(tab)
+        let run = UUID().uuidString
+        tab.webView.customUserAgent = "Oriv-QA-Favicon-UA/1.0"
+        try await load(tab, run: run)
+        let cookie = try await tab.webView.evaluateJavaScript("document.cookie") as? String
+        XCTAssertTrue(cookie?.contains("oriv-icon=allowed") == true)
         let url = try XCTUnwrap(tab.url)
         async let one: Void = session.siteIcons.load(url, isPrivate: false)
         async let two: Void = session.siteIcons.load(url, isPrivate: false)
@@ -30,6 +34,16 @@ import WebKit
         XCTAssertEqual(session.siteIcons.revision, 1, "Concurrent loads must publish only one decoded icon")
         let icon = try XCTUnwrap(session.siteIcons.icon(for: url, isPrivate: false))
         XCTAssertLessThanOrEqual(icon.image.width, 64); XCTAssertLessThanOrEqual(icon.image.height, 64)
+        let requestsURL = URL(string: "http://127.0.0.1:18768/favicon-requests?run=\(run)")!
+        let (data, _) = try await URLSession.shared.data(from: requestsURL)
+        let requests = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        XCTAssertEqual(requests.compactMap { $0["path"] as? String }, ["/favicon-redirect", "/favicon-image.svg"])
+        for request in requests {
+            XCTAssertEqual(request["User-Agent"] as? String, tab.webView.customUserAgent)
+            for header in ["Cookie", "Authorization", "Referer"] {
+                XCTAssertTrue(request[header] is NSNull, "Unexpected \(header) on \(request)")
+            }
+        }
         let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
         XCTAssertEqual(files.count, 1)
         XCTAssertTrue(files[0].lastPathComponent.hasSuffix(".png")); XCTAssertFalse(files[0].lastPathComponent.contains("127"))
@@ -84,11 +98,6 @@ import WebKit
         XCTAssertNil(session.siteIcons.icon(for: tab.url, isPrivate: true))
     }
     func testIndexedSuggestionsUpdateAndPrivateQueriesSeeOnlyTheirTabs() async throws {
-        let pageCookie = try XCTUnwrap(HTTPCookie(properties: [.name: "page", .value: "fixture", .domain: "rank.test", .path: "/"]))
-        let otherCookie = try XCTUnwrap(HTTPCookie(properties: [.name: "other", .value: "fixture", .domain: "other.test", .path: "/"]))
-        let contextCookies = SiteIconStore.firstPartyCookies([pageCookie, otherCookie], pageURL: URL(string: "https://rank.test")!)
-        XCTAssertEqual(contextCookies.map(\.name), ["page"])
-
         let session = session(), other = self.session(); defer { session.shutdown(); other.shutdown() }
         let url = URL(string: "https://rank.test/regular")!
         try session.applyContinuity(bookmarks: [Bookmark(title: "Rank bookmark", url: url)],

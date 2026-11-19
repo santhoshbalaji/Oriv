@@ -20,20 +20,37 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>{title}</title
 class Handler(BaseHTTPRequestHandler):
     privacy_destination_requests = 0
     privacy_destination_runs = {}
+    favicon_requests = {}
 
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == '/favicon-page':
-            body = b'<html><head><title>Favicon fixture</title><link rel="icon" href="/favicon-image.svg"></head><body><h1>Site icon</h1><input value="Keyboard fixture"></body></html>'
+            run = parse_qs(urlsplit(self.path).query).get('run', [''])[0]
+            icon = '/favicon-redirect?run=' + quote(run, safe='')
+            body = f'<html><head><title>Favicon fixture</title><link rel="icon" href="{icon}"></head><body><h1>Site icon</h1><input value="Keyboard fixture"></body></html>'.encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', str(len(body)))
             self.send_header('Set-Cookie', 'oriv-icon=allowed; Path=/; SameSite=Lax')
             self.end_headers(); self.wfile.write(body)
             return
-        if path == '/favicon-image.svg':
-            if 'oriv-icon=allowed' not in self.headers.get('Cookie', ''):
+        if path in ('/favicon-redirect', '/favicon-image.svg', '/favicon-requests'):
+            run = parse_qs(urlsplit(self.path).query).get('run', [''])[0]
+            if path == '/favicon-requests':
+                self.send_bytes(json.dumps(Handler.favicon_requests.pop(run, [])).encode(), 'application/json', no_store=True)
+                return
+            headers = {name: self.headers.get(name) for name in ('User-Agent', 'Cookie', 'Authorization', 'Referer')}
+            if run:
+                Handler.favicon_requests.setdefault(run, []).append({'path': path, **headers})
+            if any(headers[name] is not None for name in ('Cookie', 'Authorization', 'Referer')):
                 self.send_error(403); return
+            if path == '/favicon-redirect':
+                self.send_response(302)
+                self.send_header('Location', '/favicon-image.svg?run=' + quote(run, safe=''))
+                self.send_header('Set-Cookie', 'oriv-icon-redirect=blocked; Path=/')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
             self.send_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="#217f67"/><path d="M28 64L54 90L102 38" stroke="white" stroke-width="13" fill="none"/></svg>', 'image/svg+xml')
             return
         if path == '/ads-front.min.js':

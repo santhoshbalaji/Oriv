@@ -53,11 +53,10 @@ browsing never records visits or visit counts.
 Site icons come from icon/apple-touch-icon links in an already loaded page, with
 that site's `/favicon.ico` as a fallback. Looking up a saved-page icon never loads
 that page or wakes a sleeping tab. There is no third-party favicon service. Icon
-requests use an ephemeral URLSession with cookies copied from the matching
-WKWebsiteDataStore. Only cookies valid for the loaded page host seed the
-ephemeral jar; linked third-party icons never gain other sites' profile cookies.
-Automatic domain/path/secure cookie matching is retained.
-Neither URLCache nor credential persistence is enabled. Requests and response
+requests use the page’s WebKit User-Agent and an ephemeral URLSession with
+cookies, credential storage and HTTP caching disabled. Icon URLs with embedded
+credentials are rejected, authentication challenges are cancelled (with default
+TLS certificate validation), and requests omit the page referrer. Requests and response
 sizes are bounded. ImageIO decoding/downsampling happens off the main actor;
 WebKit rasterizes SVG when ImageIO cannot decode it and the document permits it.
 

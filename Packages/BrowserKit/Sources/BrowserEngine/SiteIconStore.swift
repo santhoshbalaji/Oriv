@@ -200,29 +200,33 @@ public actor SiteIconDiskCache {
     private func fetch(in view: WKWebView, pageURL: URL, isPrivate: Bool) async -> SiteIcon? {
         guard canDiscover(in: view, pageURL: pageURL, isPrivate: isPrivate) else { return nil }
         // The site's own DOM supplies candidates. No history URL is probed.
-        let links = (try? await view.evaluateJavaScript("""
-            Array.from(document.querySelectorAll('link[rel]')).filter(l =>
+        guard let metadata = (try? await view.callAsyncJavaScript("""
+            const links = Array.from(document.querySelectorAll('link[rel]')).filter(l =>
               /^(icon|shortcut icon|apple-touch-icon|apple-touch-icon-precomposed)$/i.test(l.rel.trim()))
-              .slice(0, 8).map(l => l.href)
-            """)) as? [String] ?? []
-        var candidates = links.compactMap(URL.init(string:))
+              .slice(0, 8).map(l => l.href);
+            return [navigator.userAgent, ...links];
+            """, arguments: [:], in: nil, contentWorld: .world(name: "OrivSiteIcon"))) as? [String],
+              let userAgent = metadata.first, !userAgent.isEmpty,
+              canDiscover(in: view, pageURL: pageURL, isPrivate: isPrivate) else { return nil }
+        var candidates = metadata.dropFirst().compactMap(URL.init(string:))
         if let fallback = URL(string: "/favicon.ico", relativeTo: pageURL)?.absoluteURL { candidates.append(fallback) }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil; configuration.urlCredentialStorage = nil
+        configuration.urlCache = nil
+        configuration.urlCredentialStorage = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpAdditionalHeaders = ["User-Agent": userAgent]
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 5; configuration.timeoutIntervalForResource = 8
-        // An ephemeral cookie jar seeded from this WKWebsiteDataStore retains
-        // domain/path/secure matching, including across redirects.
-        let cookies = await view.configuration.websiteDataStore.httpCookieStore.allCookies()
-        Self.firstPartyCookies(cookies, pageURL: pageURL).forEach { configuration.httpCookieStorage?.setCookie($0) }
-        let session = URLSession(configuration: configuration)
+        let transport = IconTransport(securePage: pageURL.scheme == "https")
+        let session = URLSession(configuration: configuration, delegate: transport, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         for url in candidates.prefix(9) {
             guard canDiscover(in: view, pageURL: pageURL, isPrivate: isPrivate) else { return nil }
             var data: Data?
             if url.scheme == "data", url.absoluteString.utf8.count < 1_400_000 { data = Self.dataURL(url) }
-            else if AddressResolver.isWebURL(url), pageURL.scheme != "https" || url.scheme == "https" {
-                data = await Self.download(url, session: session, securePage: pageURL.scheme == "https")
+            else if transport.allows(url) {
+                data = await Self.download(url, session: session)
             }
             guard let data else { continue }
             if let icon = await disk.decode(data) { return icon }
@@ -243,20 +247,12 @@ public actor SiteIconDiskCache {
         }
         return nil
     }
-    /// A linked third-party icon must not gain the rest of the profile's
-    /// authenticated cookies by bypassing WebKit's third-party-cookie policy.
-    static func firstPartyCookies(_ cookies: [HTTPCookie], pageURL: URL) -> [HTTPCookie] {
-        guard let host = pageURL.host?.lowercased() else { return [] }
-        return cookies.filter { cookie in
-            let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-            return !domain.isEmpty && (host == domain || host.hasSuffix("." + domain))
-        }
-    }
-    private nonisolated static func download(_ url: URL, session: URLSession, securePage: Bool) async -> Data? {
+    private nonisolated static func download(_ url: URL, session: URLSession) async -> Data? {
         do {
-            let (bytes, response) = try await session.bytes(from: url)
+            var request = URLRequest(url: url)
+            request.httpShouldHandleCookies = false
+            let (bytes, response) = try await session.bytes(for: request)
             guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode),
-                  !securePage || response.url?.scheme == "https",
                   response.expectedContentLength <= 1_048_576 else { return nil }
             var result = Data()
             for try await byte in bytes {
@@ -270,5 +266,47 @@ public actor SiteIconDiskCache {
         let parts = url.absoluteString.split(separator: ",", maxSplits: 1)
         guard parts.count == 2 else { return nil }
         return parts[0].hasSuffix(";base64") ? Data(base64Encoded: String(parts[1])) : String(parts[1]).removingPercentEncoding?.data(using: .utf8)
+    }
+}
+
+/// Anonymous transport for both discovered URLs and redirected favicon requests.
+private final class IconTransport: NSObject, URLSessionTaskDelegate {
+    let securePage: Bool
+
+    init(securePage: Bool) { self.securePage = securePage }
+
+    func allows(_ url: URL) -> Bool {
+        AddressResolver.isWebURL(url) && (!securePage || url.scheme == "https") &&
+            url.user() == nil && url.password() == nil
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        guard let url = request.url, allows(url) else { return nil }
+        var request = request
+        request.httpShouldHandleCookies = false
+        for header in ["Cookie", "Authorization", "Proxy-Authorization", "Referer"] {
+            request.setValue(nil, forHTTPHeaderField: header)
+        }
+        return request
+    }
+
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
+                    -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        disposition(for: challenge)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    didReceive challenge: URLAuthenticationChallenge) async
+                    -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        disposition(for: challenge)
+    }
+
+    private func disposition(for challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
+            return (.performDefaultHandling, nil)
+        }
+        return (.cancelAuthenticationChallenge, nil)
     }
 }
