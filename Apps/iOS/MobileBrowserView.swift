@@ -4,6 +4,7 @@ import BrowserEngine
 import WebKit
 
 struct MobileBrowserView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.browserTheme) private var theme
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
@@ -52,12 +53,17 @@ struct MobileBrowserView: View {
     private var presentation: MobileTabPresentation { controller.tabPresentation }
     private var bottomOcclusion:CGFloat { max(windowInsets.bottom,keyboardOverlap) }
     private var hasLivePage: Bool { tab?.url != nil && tab?.errorMessage == nil && tab?.httpWarningURL == nil }
+    private var homeColor: ChromeColor {
+        let systemScheme = tab?.url == nil ? colorScheme : pageSystemScheme
+        return PageChrome.resolveCanvas(theme.canvas, scheme: controller.appearance.colorScheme ?? systemScheme)
+    }
     private var statusScheme:ColorScheme? {
+        if tab?.url == nil { return controller.appearance.colorScheme }
         let dark = controller.topChrome.isDark
         // Seed the first hosting pass from known paint, before the native fill
         // attaches. Avoid an artificial dark-to-light trait change at mounting.
         if !controller.topChrome.hasRendered {
-            return editingAddress || tab?.url == nil ? controller.appearance.colorScheme : (pageChrome.isDark ? .dark : .light)
+            return editingAddress ? controller.appearance.colorScheme : (pageChrome.isDark ? .dark : .light)
         }
         return dark ? .dark : .light
     }
@@ -146,6 +152,9 @@ struct MobileBrowserView: View {
             .onChange(of:geometry.size) { old, new in if old != new { cancelTransition() } }
         }.ignoresSafeArea()
             .background { MobileGridProgressView(morph:controller.gridMorph).frame(width:1,height:1).allowsHitTesting(false).accessibilityHidden(true) }
+            .onChange(of: homeColor, initial: true) { _, color in
+                controller.chrome(for: nil).setEmptyPageColor(color)
+            }
             .preferredColorScheme(statusScheme)
     }
     private var browser: some View {
@@ -631,8 +640,7 @@ struct MobileBrowserView: View {
     }
 
     private func topBar(width:CGFloat) -> some View {
-        let traits = UITraitCollection(userInterfaceStyle:(controller.appearance.colorScheme ?? pageSystemScheme) == .dark ? .dark : .light)
-        let canvas = MobileTopChrome.rgb(UIColor(theme.canvas).resolvedColor(with:traits))
+        let canvas = homeColor
         var destination = canvas, destinationOpacity:CGFloat = 1
         if gestures.translation != 0,
            case .tab(let id) = controller.session.tabSwipeTarget(gestures.translation < 0 ? 1 : -1),

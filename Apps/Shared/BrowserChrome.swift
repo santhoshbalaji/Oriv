@@ -148,6 +148,26 @@ private typealias PlatformColor = UIColor
     #if DEBUG
     @ObservationIgnored private let timingOwner = NotificationOwner()
     #endif
+    @ObservationIgnored private var emptyPageColor = ChromeColor(0, 0, 0)
+
+    /// Resolve adaptive colors using the owning window's appearance.
+    static func resolveCanvas(_ color: Color, scheme: ColorScheme) -> ChromeColor {
+        #if os(macOS)
+        let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        var resolved: ChromeColor?
+        appearance?.performAsCurrentDrawingAppearance { resolved = rgba(NSColor(color)) }
+        #else
+        let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
+        let resolved = rgba(UIColor(color).resolvedColor(with: traits))
+        #endif
+        return resolved ?? ChromeColor(0, 0, 0)
+    }
+
+    func setEmptyPageColor(_ color: ChromeColor) {
+        emptyPageColor = color
+        if webView?.url == nil, lastMeasured == nil { apply(color) }
+    }
+
     var foreground: Color { isDark ? .white : .black }
 
     func observe(_ view: WKWebView?, isPrivate: Bool = false) {
@@ -181,7 +201,7 @@ private typealias PlatformColor = UIColor
         #endif
         navigationPainting = true; animatesColor = false; documentID = 0; lastScrollTime = 0; navigationSeed = nil
         guard let view else {
-            if lastMeasured == nil { apply(Self.rgba(PlatformColor(Theme.t3Code.canvas))!) }
+            if lastMeasured == nil { apply(emptyPageColor) }
             return
         }
         Self.install(on: view, isPrivate: isPrivate)
@@ -252,8 +272,8 @@ private typealias PlatformColor = UIColor
     }
 
     private func refresh() {
-        let canvas = Self.rgba(PlatformColor(Theme.t3Code.canvas))!
-        guard let webView, webView.url != nil else { apply(canvas); return }
+        guard let webView, webView.url != nil else { apply(emptyPageColor); return }
+        let canvas = ChromeColor(0, 0, 0)
         installObserver(webView)
         #if os(macOS)
         var neutral = ChromeColor(0.94, 0.94, 0.94)

@@ -57,6 +57,7 @@ struct BrowserWindow: View {
         let width = (compactAddress as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
         return min(ceil(width) + 4, max(60, addressWidth - 180))
     }
+    private var emptyPageColor: ChromeColor { PageChrome.resolveCanvas(theme.page, scheme: colorScheme) }
     private var toolbarTheme: Theme { pageChrome.isDark ? theme : .classic }
     private var contentUnderChrome: Bool { pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
     private var chromeForeground: Color { pageChrome.foreground }
@@ -95,6 +96,7 @@ struct BrowserWindow: View {
         .onChange(of: controller.passwordsGuideRequest) { _, _ in showPasswords = true }
         .onChange(of: scenePhase) { _, phase in if phase != .active { session.saveNow() } }
         .task(id: "\(tab?.id.uuidString ?? "none")-\(tab?.url != nil || tab?.hasLoaded == true)") { pageChrome.observe(tab.flatMap { $0.url != nil || $0.hasLoaded ? $0.webView : nil }, isPrivate: tab?.isPrivate == true) }
+        .onChange(of: emptyPageColor, initial: true) { _, color in pageChrome.setEmptyPageColor(color) }
         .onChange(of: colorScheme) { _, _ in pageChrome.requestSample() }
         .onDisappear { pageChrome.observe(nil) }
     }
