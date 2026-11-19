@@ -160,6 +160,8 @@ import WebKit
         defer { controller.session.shutdown() }
         let tab = try XCTUnwrap(controller.session.selectedTab)
         let delegate = try XCTUnwrap(tab.webView.uiDelegate as? MobileWebDelegate)
+        let detach = try mountWebFixture(tab)
+        defer { detach() }
         tab.webView.loadHTMLString("<img src='https://example.test/image.png'><a href='https://example.test/two'>Link</a>", baseURL: URL(string: "https://example.test"))
         try await wait { tab.hasLoaded && !tab.isLoading }
         let titles = delegate.linkActions(URL(string: "https://example.test/two")!, revision: tab.documentRevision).map(\.title)
@@ -171,8 +173,11 @@ import WebKit
     func testNormalEditedCloseIsImmediateAndRecoverableButPrivateAndBulkRequireConfirmation() async throws {
         let c = MobileController(); defer { c.session.shutdown() }
         let tab = try XCTUnwrap(c.session.selectedTab)
-        tab.navigate(to:URL(string:"http://127.0.0.1:8768/quality")!)
-        try await wait { tab.title == "Browser quality fixture" && !tab.isLoading }
+        let detach = try mountWebFixture(tab)
+        defer { detach() }
+        let draft = URL(string: "http://127.0.0.1:8768/quality")!
+        try await waitForWebFixture(tab, at: draft) { tab.navigate(to: draft) }
+        XCTAssertEqual(tab.title, "Browser quality fixture")
         _ = try await tab.webView.callAsyncJavaScript("window.webkit.messageHandlers.editedField.postMessage(true)",arguments:[:],in:nil,contentWorld:.world(name:"OrivTabState"))
         try await wait { c.session.requiresCloseConfirmation(tab.id) }
         XCTAssertFalse(c.closeNeedsConfirmation([tab.id]))

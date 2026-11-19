@@ -14,6 +14,8 @@ import WebKit
     func testDOMLayoutHistoryStorageAndCrossOriginPolicies() async throws {
         let tab = BrowserTab(dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
         defer { tab.close() }
+        let detach = try mountWebFixture(tab)
+        defer { detach() }
         tab.navigate(to: base.appendingPathComponent("standards"))
         try await wait("Standards fixture completed") { tab.title == "Web platform complete" }
         let results = try await tab.webView.evaluateJavaScript("window.orivStandardsResults") as? [String: Any]
@@ -26,16 +28,22 @@ import WebKit
     func testContentSecurityPolicyBlocksPageScript() async throws {
         let tab = BrowserTab(dataStore: .nonPersistent())
         defer { tab.close() }
-        tab.navigate(to: base.appendingPathComponent("standards-csp"))
-        try await wait("CSP page loaded") { tab.title == "CSP fixture" && !tab.isLoading }
+        let detach = try mountWebFixture(tab)
+        defer { detach() }
+        let url = base.appendingPathComponent("standards-csp")
+        try await waitForWebFixture(tab, at: url) { tab.navigate(to: url) }
+        XCTAssertEqual(tab.title, "CSP fixture")
         let result = try await tab.webView.evaluateJavaScript("window.blockedScriptExecuted === undefined") as? Bool
         XCTAssertEqual(result, true)
     }
     func testServiceWorkerAndCacheStorageWhenPlatformAllowsThem() async throws {
         let tab = BrowserTab(dataStore: .nonPersistent())
         defer { tab.close() }
-        tab.navigate(to: base.appendingPathComponent("quality"))
-        try await wait("Worker fixture loaded") { tab.title == "Browser quality fixture" && !tab.isLoading }
+        let detach = try mountWebFixture(tab)
+        defer { detach() }
+        let url = base.appendingPathComponent("quality")
+        try await waitForWebFixture(tab, at: url) { tab.navigate(to: url) }
+        XCTAssertEqual(tab.title, "Browser quality fixture")
         let available = try await tab.webView.evaluateJavaScript("'serviceWorker' in navigator") as? Bool
         guard available == true else { throw XCTSkip("This iPhone build lacks Apple's managed default-browser entitlement; unrestricted service workers require it.") }
         let result = try await tab.webView.callAsyncJavaScript("""
@@ -56,19 +64,29 @@ import WebKit
         let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil))
         defer { session.shutdown() }
         let regular = try XCTUnwrap(session.selectedTab)
-        regular.navigate(to: base.appendingPathComponent("quality"))
-        try await wait("Regular page loaded") { regular.title == "Browser quality fixture" }
+        let detachRegular = try mountWebFixture(regular)
+        defer { detachRegular() }
+        let url = base.appendingPathComponent("quality")
+        try await waitForWebFixture(regular, at: url) { regular.navigate(to: url) }
         _ = try await regular.webView.evaluateJavaScript("localStorage.setItem('scope','regular')")
-        let privateTab = session.addTab(url: base.appendingPathComponent("quality"), isPrivate: true)
-        try await wait("Private page loaded") { privateTab.title == "Browser quality fixture" }
-        let initial = try await privateTab.webView.evaluateJavaScript("localStorage.getItem('scope') === null") as? Bool
-        XCTAssertEqual(initial, true)
-        _ = try await privateTab.webView.evaluateJavaScript("localStorage.setItem('scope','private')")
-        session.closeTab(privateTab.id)
-        let next = session.addTab(url: base.appendingPathComponent("quality"), isPrivate: true)
-        try await wait("Fresh private page loaded") { next.title == "Browser quality fixture" }
-        let fresh = try await next.webView.evaluateJavaScript("localStorage.getItem('scope') === null") as? Bool
-        XCTAssertEqual(fresh, true)
+        do {
+            let privateTab = session.addTab(isPrivate: true, load: false)
+            let detachPrivate = try mountWebFixture(privateTab)
+            defer { detachPrivate() }
+            try await waitForWebFixture(privateTab, at: url) { privateTab.navigate(to: url) }
+            let initial = try await privateTab.webView.evaluateJavaScript("localStorage.getItem('scope') === null") as? Bool
+            XCTAssertEqual(initial, true)
+            _ = try await privateTab.webView.evaluateJavaScript("localStorage.setItem('scope','private')")
+            session.closeTab(privateTab.id)
+        }
+        do {
+            let next = session.addTab(isPrivate: true, load: false)
+            let detachNext = try mountWebFixture(next)
+            defer { detachNext() }
+            try await waitForWebFixture(next, at: url) { next.navigate(to: url) }
+            let fresh = try await next.webView.evaluateJavaScript("localStorage.getItem('scope') === null") as? Bool
+            XCTAssertEqual(fresh, true)
+        }
         let retained = try await regular.webView.evaluateJavaScript("localStorage.getItem('scope')") as? String
         XCTAssertEqual(retained, "regular")
     }

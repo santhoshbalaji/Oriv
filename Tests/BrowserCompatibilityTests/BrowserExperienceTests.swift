@@ -10,19 +10,6 @@ import UIKit
     private func session(store: SessionFileStore? = nil, recordFixture: Bool = false) -> BrowserSession {
         BrowserSession(store: store, dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil), recordsQAFixtureHistory: recordFixture)
     }
-    private func attachFixture(_ tab: BrowserTab) throws -> () -> Void {
-        #if os(iOS)
-        // Attaching keeps the fixture live on iOS 27 without replacing the key window.
-        let window = try XCTUnwrap(UIApplication.shared.connectedScenes
-            .compactMap { ($0 as? UIWindowScene)?.keyWindow }.first)
-        let view = tab.webView
-        view.frame = window.bounds
-        window.addSubview(view)
-        return { view.removeFromSuperview() }
-        #else
-        return {}
-        #endif
-    }
     func testSuggestionsDeduplicateAndNeverCrossPrivacyOrProfileBoundaries() throws {
         let session = session(), otherProfile = self.session()
         defer { session.shutdown(); otherProfile.shutdown() }
@@ -81,26 +68,28 @@ import UIKit
         let session = session()
         defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
-        let detach = try attachFixture(tab)
+        let detach = try mountWebFixture(tab)
         defer { detach() }
-        tab.navigate(to: URL(string: "http://127.0.0.1:8768/quality")!)
-        try await wait("the draft document to finish") { tab.title == "Browser quality fixture" && !tab.isLoading }
+        let draft = URL(string: "http://127.0.0.1:8768/quality")!
+        try await waitForWebFixture(tab, at: draft) { tab.navigate(to: draft) }
+        XCTAssertEqual(tab.title, "Browser quality fixture")
         XCTAssertFalse(session.requiresCloseConfirmation(tab.id))
         _ = try await tab.webView.callAsyncJavaScript("window.webkit.messageHandlers.editedField.postMessage(true)", arguments: [:], in: nil, contentWorld: .world(name: "OrivTabState"))
         try await wait("the edited-field bridge message") { session.requiresCloseConfirmation(tab.id) }
-        tab.navigate(to: URL(string: "http://127.0.0.1:8768/two")!)
-        try await wait("the next document to finish and reset the edit flag") {
-            tab.title == "Second page" && !tab.isLoading && !session.requiresCloseConfirmation(tab.id)
-        }
+        let next = URL(string: "http://127.0.0.1:8768/two")!
+        try await waitForWebFixture(tab, at: next) { tab.navigate(to: next) }
+        XCTAssertEqual(tab.title, "Second page")
+        XCTAssertFalse(session.requiresCloseConfirmation(tab.id))
         XCTAssertFalse(session.requiresCloseConfirmation(UUID()))
     }
     func testLateDocumentTitleKVOUpdatesExistingHistoryVisit() async throws {
         let session = session(recordFixture: true); defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
-        let detach = try attachFixture(tab)
+        let detach = try mountWebFixture(tab)
         defer { detach() }
-        tab.navigate(to: URL(string: "http://127.0.0.1:8768/quality")!)
-        try await wait { !tab.isLoading && session.history.first?.title == "Browser quality fixture" }
+        let url = URL(string: "http://127.0.0.1:8768/quality")!
+        try await waitForWebFixture(tab, at: url) { tab.navigate(to: url) }
+        try await wait { session.history.first?.title == "Browser quality fixture" }
         let visit = try XCTUnwrap(session.history.first)
         _ = try await tab.webView.evaluateJavaScript("document.title = 'Title delivered after finish'; true")
         try await wait { session.history.first?.title == "Title delivered after finish" }
@@ -112,10 +101,11 @@ import UIKit
         let enabled = session(recordFixture: true), disabled = session()
         defer { enabled.shutdown(); disabled.shutdown() }
         let tab = try XCTUnwrap(enabled.selectedTab)
-        let detach = try attachFixture(tab)
+        let detach = try mountWebFixture(tab)
         defer { detach() }
-        tab.navigate(to: base.appendingPathComponent("quality"))
-        try await wait("the initial route to finish and record a visit") { !tab.isLoading && enabled.historyCount == 1 }
+        let quality = base.appendingPathComponent("quality")
+        try await waitForWebFixture(tab, at: quality) { tab.navigate(to: quality) }
+        try await wait("the initial route to record a visit") { enabled.historyCount == 1 }
         _ = try await tab.webView.evaluateJavaScript("history.pushState({}, '', '/spa-route'); true")
         try await wait { enabled.history.first?.url.path == "/spa-route" }
         _ = try await tab.webView.evaluateJavaScript("""
@@ -137,17 +127,18 @@ import UIKit
         XCTAssertEqual(enabled.continuitySnapshot().history.map(\.url.path), ["/quality"])
 
         let privateTab = enabled.addTab(isPrivate: true, load: false)
-        let detachPrivate = try attachFixture(privateTab)
+        let detachPrivate = try mountWebFixture(privateTab)
         defer { detachPrivate() }
-        privateTab.navigate(to: base.appendingPathComponent("one"))
-        try await wait("the private fixture to finish") { !privateTab.isLoading && privateTab.title == "Browser foundation" }
+        let one = base.appendingPathComponent("one")
+        try await waitForWebFixture(privateTab, at: one) { privateTab.navigate(to: one) }
+        XCTAssertEqual(privateTab.title, "Browser foundation")
         _ = try await privateTab.webView.evaluateJavaScript("history.pushState({}, '', '/private-route'); true")
         try await wait { privateTab.url?.path == "/private-route" }
         let fixture = try XCTUnwrap(disabled.selectedTab)
-        let detachDefault = try attachFixture(fixture)
+        let detachDefault = try mountWebFixture(fixture)
         defer { detachDefault() }
-        fixture.navigate(to: base.appendingPathComponent("one"))
-        try await wait("the default fixture to finish") { !fixture.isLoading && fixture.title == "Browser foundation" }
+        try await waitForWebFixture(fixture, at: one) { fixture.navigate(to: one) }
+        XCTAssertEqual(fixture.title, "Browser foundation")
         _ = try await fixture.webView.evaluateJavaScript("history.pushState({}, '', '/fixture-route'); true")
         try await wait { fixture.url?.path == "/fixture-route" }
         XCTAssertEqual(enabled.history, entries)
@@ -159,14 +150,17 @@ import UIKit
         defer { session.shutdown() }
         let base = URL(string: "http://127.0.0.1:8768")!
         let tab = try XCTUnwrap(session.selectedTab)
-        let detach = try attachFixture(tab)
+        let detach = try mountWebFixture(tab)
         defer { detach() }
-        try session.navigate(base.appendingPathComponent("history-redirect").absoluteString)
-        try await wait { !tab.isLoading && session.history.first?.url.path == "/quality" }
+        try await waitForWebFixture(tab, at: base.appendingPathComponent("quality")) {
+            try session.navigate(base.appendingPathComponent("history-redirect").absoluteString)
+        }
+        try await wait { session.history.first?.url.path == "/quality" }
         XCTAssertEqual(session.historyCount, 1)
         XCTAssertEqual(session.history.first?.typedCount, 1)
-        tab.navigate(to: base.appendingPathComponent("history-error"))
-        try await wait { tab.title == "Missing history fixture" && !tab.isLoading }
+        let missing = base.appendingPathComponent("history-error")
+        try await waitForWebFixture(tab, at: missing) { tab.navigate(to: missing) }
+        XCTAssertEqual(tab.title, "Missing history fixture")
         XCTAssertEqual(session.historyCount, 1)
         var downloaded = false
         session.handleDownload = { download in downloaded = true; download.cancel { _ in } }
@@ -212,4 +206,51 @@ import UIKit
         while !predicate() && clock.now < end { try await Task.sleep(for: .milliseconds(40)) }
         _ = try XCTUnwrap(predicate() ? true : nil, "Timed out waiting for \(condition)", file: file, line: line)
     }
+}
+
+@MainActor func mountWebFixture(_ tab: BrowserTab) throws -> () -> Void {
+    #if os(iOS)
+    // UIKit must present the fixture as part of the XCTest host scene.
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let scene = try XCTUnwrap(scenes.first { $0.activationState == .foregroundActive }
+        ?? scenes.first { $0.keyWindow != nil }, "Expected a window scene in the simulator test host")
+    let previousWindow = scene.keyWindow
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    let view = tab.webView
+    controller.view = view
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    return {
+        window.isHidden = true
+        view.removeFromSuperview()
+        window.rootViewController = nil
+        if previousWindow?.isHidden == false { previousWindow?.makeKey() }
+    }
+    #else
+    return {}
+    #endif
+}
+
+@MainActor func waitForWebFixture(_ tab: BrowserTab, at url: URL,
+                                  file: StaticString = #filePath, line: UInt = #line,
+                                  navigate: () throws -> Void) async throws {
+    let ready = XCTestExpectation(description: "Finished fixture navigation to \(url.path)")
+    let previous = tab.onDocumentReady
+    let revision = tab.documentRevision
+    var finished = false
+    tab.onDocumentReady = { [weak tab] destination in
+        previous?(destination)
+        guard let tab, tab.documentRevision > revision, destination == url, !finished else { return }
+        finished = true
+        ready.fulfill()
+    }
+    defer { tab.onDocumentReady = previous }
+    try navigate()
+    let result = await XCTWaiter.fulfillment(of: [ready], timeout: 20)
+    _ = try XCTUnwrap(result == .completed ? true : nil,
+                      "\(ready.description). Browser error: \(tab.errorMessage ?? "none")",
+                      file: file, line: line)
 }

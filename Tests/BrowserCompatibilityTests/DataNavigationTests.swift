@@ -26,8 +26,10 @@ import XCTest
         #endif
         tab.webView.uiDelegate = delegate
         defer { withExtendedLifetime(delegate) {} }
-        tab.navigate(to: fixture)
-        try await waitUntil { tab.title == "Data navigation fixture" && !tab.isLoading }
+        let detach = try mountWebFixture(tab)
+        defer { detach() }
+        try await waitForWebFixture(tab, at: fixture) { tab.navigate(to: fixture) }
+        XCTAssertEqual(tab.title, "Data navigation fixture")
         try await body(session, tab)
     }
 
