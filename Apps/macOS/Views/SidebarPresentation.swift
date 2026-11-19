@@ -189,16 +189,7 @@ struct SidebarWindowEvents: NSViewRepresentable {
                     } else if event.locationInWindow.x > controller.sidebar.width, controller.sidebar.overlay { self.dismiss?() }
                 }
                 if event.type == .otherMouseUp, event.buttonNumber == 2,
-                   let content = self.window?.contentView {
-                    let target = self.target(at: event.locationInWindow, in: content) {
-                        if case .tab = $0 { return true }
-                        return false
-                    }
-                    if case .tab(let id) = target,
-                       let tab = controller.session.tabs.first(where: { $0.id == id }), !tab.isPinned {
-                        controller.requestCloseTab(id); return nil
-                    }
-                }
+                   self.requestCloseTab(at: event.locationInWindow) { return nil }
                 return event
             }
             for (name, open) in [(NSMenu.didBeginTrackingNotification, true), (NSMenu.didEndTrackingNotification, false)] {
@@ -210,6 +201,18 @@ struct SidebarWindowEvents: NSViewRepresentable {
                 MainActor.assumeIsolated { self?.controller?.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled }
             })
         }
+        func requestCloseTab(at point: NSPoint) -> Bool {
+            guard let controller, let content = window?.contentView else { return false }
+            let hit = target(at: point, in: content) {
+                if case .tab = $0 { return true }
+                return false
+            }
+            guard case .tab(let id) = hit,
+                  let tab = controller.session.tabs.first(where: { $0.id == id }), !tab.isPinned else { return false }
+            controller.requestCloseTab(id)
+            return true
+        }
+
         private func target(at point: NSPoint, in view: NSView,
                             matching: (SidebarHitTarget.Kind) -> Bool) -> SidebarHitTarget.Kind? {
             if let kind = (view as? SidebarHitTarget.TargetView)?.kind, matching(kind),

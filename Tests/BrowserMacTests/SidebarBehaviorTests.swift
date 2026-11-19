@@ -394,24 +394,20 @@ import XCTest
         func center(_ view: NSView) -> NSPoint {
             view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
         }
-        func send(_ type: NSEvent.EventType, at point: NSPoint) throws {
-            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+        func click(at point: NSPoint) throws {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber,
-                context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
-            if type == .otherMouseUp {
-                let click = try XCTUnwrap(event.cgEvent)
-                click.setIntegerValueField(.mouseEventButtonNumber, value: 2)
-                NSApp.sendEvent(try XCTUnwrap(NSEvent(cgEvent: click)))
-            } else {
-                NSApp.sendEvent(event)
-            }
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            NSApp.sendEvent(event)
         }
 
         let hasRow = try await waitUntil { target(.tab(tab.id)) != nil }
         XCTAssertTrue(hasRow)
         let row = try XCTUnwrap(target(.tab(tab.id)))
         row.identifier = nil
-        try send(.otherMouseUp, at: center(row))
+        let content = try XCTUnwrap(w.contentView)
+        let events = try XCTUnwrap(views(content).compactMap { $0 as? SidebarWindowEvents.EventView }.first)
+        XCTAssertTrue(events.requestCloseTab(at: center(row)))
         XCTAssertFalse(c.session.tabs.contains { $0.id == tab.id })
 
         c.searchTabs()
@@ -419,9 +415,9 @@ import XCTest
         XCTAssertTrue(hasPanel)
         let panel = try XCTUnwrap(target(.searchPanel))
         panel.identifier = nil
-        try send(.leftMouseDown, at: center(panel))
+        try click(at: center(panel))
         XCTAssertTrue(c.tabSearchPanel)
-        try send(.leftMouseDown, at: NSPoint(x: 700, y: 400))
+        try click(at: NSPoint(x: 700, y: 400))
         XCTAssertFalse(c.tabSearchPanel)
     }
 
