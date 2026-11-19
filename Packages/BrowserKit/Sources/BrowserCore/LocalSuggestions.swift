@@ -45,7 +45,31 @@ public struct LocalSuggestionIndex: Sendable {
             return a.key < b.key
         }
     }
-    private var entries: [String: Entry] = [:]
+    // Keep the large records packed. The hash table only needs an array offset.
+    private var entries: [Entry] = []
+    private var positions: [String: Int] = [:]
+
+    private func entry(for key: String) -> Entry? {
+        positions[key].map { entries[$0] }
+    }
+
+    private mutating func storeEntry(_ entry: Entry?, key: String) {
+        if let position = positions[key] {
+            if let entry {
+                entries[position] = entry
+            } else {
+                positions[key] = nil
+                let last = entries.removeLast()
+                if position < entries.count {
+                    entries[position] = last
+                    positions[last.key] = position
+                }
+            }
+        } else if let entry {
+            positions[key] = entries.count
+            entries.append(entry)
+        }
+    }
     private var ordered: [RankedKey] = []
     private let rankingDate = Date()
 
@@ -128,7 +152,7 @@ public struct LocalSuggestionIndex: Sendable {
         return text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
     }
     public mutating func update(history: [HistoryEntry], bookmarks: [Bookmark]) {
-        updateVisits(history, changed: Set(entries.keys))
+        updateVisits(history, changed: Set(positions.keys))
         updateBookmarks(bookmarks)
     }
 
@@ -160,14 +184,16 @@ public struct LocalSuggestionIndex: Sendable {
 
     private mutating func applyVisits(_ visits: [VisitHistoryStore.SuggestionVisit], changed: Set<String>) {
         let batch = visits.count + changed.count > 64
-        entries.reserveCapacity(max(entries.count, visits.count))
+        let capacity = max(entries.count, visits.count)
+        entries.reserveCapacity(capacity)
+        positions.reserveCapacity(capacity)
         var removals = changed
         for visit in visits {
             let key = visit.address
             removals.remove(key)
             let title = savedBookmarks[key]?.title ?? visit.title
             let entry = makeEntry(key: key, title: title, historyTitle: visit.title,
-                host: entries[key]?.host ?? URL(string: key)?.host ?? "", visits: visit.visitCount,
+                host: entry(for: key)?.host ?? URL(string: key)?.host ?? "", visits: visit.visitCount,
                 typed: visit.typedCount, date: visit.visitedAt, bookmarked: savedBookmarks[key] != nil)
             setEntry(entry, key: key, batch: batch)
         }
@@ -186,7 +212,7 @@ public struct LocalSuggestionIndex: Sendable {
         savedBookmarks = latest
         let batch = changes.count > 64
         for key in changes {
-            let old = entries[key], bookmark = latest[key]
+            let old = entry(for: key), bookmark = latest[key]
             let title = bookmark?.title ?? old?.historyTitle
             let entry = title.map { title in
                 makeEntry(key: key, title: title, historyTitle: old?.historyTitle,
@@ -233,7 +259,7 @@ public struct LocalSuggestionIndex: Sendable {
     }
 
     private mutating func setEntry(_ entry: Entry?, key: String, batch: Bool) {
-        let old = entries[key]
+        let old = self.entry(for: key)
         if !batch, let old {
             let ranked = rankedKey(old)
             ordered.remove(at: Self.lowerBound(ordered) { RankedKey.precedes($0, ranked) })
@@ -242,7 +268,7 @@ public struct LocalSuggestionIndex: Sendable {
             if let old { index(old, adding: false, batch: batch) }
             if let entry { index(entry, adding: true, batch: batch) }
         }
-        entries[key] = entry
+        storeEntry(entry, key: key)
         if !batch, let entry {
             let ranked = rankedKey(entry)
             ordered.insert(ranked, at: Self.lowerBound(ordered) { RankedKey.precedes($0, ranked) })
@@ -250,7 +276,7 @@ public struct LocalSuggestionIndex: Sendable {
     }
 
     private mutating func finishBatch() {
-        ordered = entries.values.map(rankedKey)
+        ordered = entries.map(rankedKey)
         ordered.sort(by: RankedKey.precedes)
         hostKeys = hostWords.keys.sorted()
         titleKeys = titleWords.keys.sorted()
@@ -295,8 +321,9 @@ public struct LocalSuggestionIndex: Sendable {
                 open[key] = duplicate
                 continue
             }
-            var entry = entries[key] ?? makeEntry(key: key, title: tab.title, host: tab.url.host ?? "")
-            if entries[key] != nil {
+            let indexed = entry(for: key)
+            var entry = indexed ?? makeEntry(key: key, title: tab.title, host: tab.url.host ?? "")
+            if indexed != nil {
                 entry.text += " " + title
                 entry.foldedTitle += "\n" + title
             }
@@ -336,12 +363,12 @@ public struct LocalSuggestionIndex: Sendable {
         func addTier(_ candidates: Set<String>?, predicate: (Entry) -> Bool) {
             guard result.count < limit else { return }
             if let candidates {
-                for entry in candidates.compactMap({ entries[$0] }).sorted(by: { better($0, $1, now: now) }) {
+                for entry in candidates.compactMap({ entry(for: $0) }).sorted(by: { better($0, $1, now: now) }) {
                     if predicate(entry) { append(entry) }
                 }
             } else {
                 for candidate in ordered {
-                    guard let entry = entries[candidate.key], predicate(entry) else { continue }
+                    guard let entry = entry(for: candidate.key), predicate(entry) else { continue }
                     append(entry)
                     if result.count == limit { break }
                 }
