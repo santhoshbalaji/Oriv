@@ -154,32 +154,48 @@ struct MobileTabsView: View {
         dismissGrid()
     }
     private func closeModeTabs() { controller.close(modeTabs.map(\.id), confirmAll: true) }
-    private var profilePicker: some View {
-        Menu {
-            Button("Private", systemImage: "eyeglasses") { privateMode = true }
-            Button("\(controller.session.tabs.filter { !$0.isPrivate }.count) Tabs", systemImage: "square.on.square") { privateMode = false }
-            Divider()
-            ForEach(profiles.profiles.filter { $0.archivedAt == nil }) { profile in
-                Button(profile.name, systemImage: controller.profileID == profile.id ? "checkmark" : profile.symbol.rawValue) {
-                    guard controller.profileID != profile.id else { return }
-                    controller.sheet = nil
-                    profiles.select(profile); profiles.current.sheet = .tabs
-                }
+    private var regularTabLabel: String {
+        let count = controller.session.tabs.count { !$0.isPrivate }
+        return "\(count) Tabs"
+    }
+
+    @ViewBuilder private var profileChoices: some View {
+        Button("Private", systemImage: "eyeglasses") { privateMode = true }
+        Button(regularTabLabel, systemImage: "square.on.square") { privateMode = false }
+        Divider()
+        ForEach(profiles.profiles.filter { $0.archivedAt == nil }) { profile in
+            Button(profile.name, systemImage: controller.profileID == profile.id ? "checkmark" : profile.symbol.rawValue) {
+                guard controller.profileID != profile.id else { return }
+                controller.sheet = nil
+                profiles.select(profile); profiles.current.sheet = .tabs
             }
-            if profiles.externalPrivate != nil { Button("External Private Tabs", systemImage: "eyeglasses") { controller.sheet = nil; profiles.showExternalPrivate(); profiles.current.sheet = .tabs } }
+        }
+        if profiles.externalPrivate != nil { Button("External Private Tabs", systemImage: "eyeglasses") { controller.sheet = nil; profiles.showExternalPrivate(); profiles.current.sheet = .tabs } }
+    }
+
+    private var profilePickerLabel: some View {
+        HStack(spacing: 8) {
+            if !typeSize.isAccessibilitySize {
+                Text("Private").foregroundStyle(privateMode ? .primary : .secondary)
+                Divider().frame(height: 18)
+            }
+            Text(typeSize.isAccessibilitySize && privateMode ? "Private" : regularTabLabel).fontWeight(.semibold)
+                .foregroundStyle(privateMode && !typeSize.isAccessibilitySize ? .secondary : .primary)
+            Image(systemName: "chevron.down").font(.caption)
+        }.font(.subheadline).lineLimit(1).frame(minHeight: 44).padding(.horizontal, 12)
+    }
+
+    private var profilePicker: some View {
+        let profileName = profiles.profiles.first { $0.id == controller.profileID }?.name ?? "External Private Tabs"
+        let mode = privateMode ? "Private" : "Tabs"
+        return Menu {
+            profileChoices
         } label: {
-            HStack(spacing: 8) {
-                if !typeSize.isAccessibilitySize {
-                    Text("Private").foregroundStyle(privateMode ? .primary : .secondary)
-                    Divider().frame(height: 18)
-                }
-                Text(typeSize.isAccessibilitySize && privateMode ? "Private" : "\(controller.session.tabs.filter { !$0.isPrivate }.count) Tabs").fontWeight(.semibold)
-                    .foregroundStyle(privateMode && !typeSize.isAccessibilitySize ? .secondary : .primary)
-                Image(systemName: "chevron.down").font(.caption)
-            }.font(.subheadline).lineLimit(1).frame(minHeight: 44).padding(.horizontal, 12)
-        }.accessibilityLabel("Browsing Mode and Profile")
-            .accessibilityValue("\(privateMode ? "Private" : "Tabs"), \(profiles.profiles.first { $0.id == controller.profileID }?.name ?? "External Private Tabs")")
-            .menuOrder(.fixed).tint(.primary).browserGlass()
+            profilePickerLabel
+        }
+        .accessibilityLabel("Browsing Mode and Profile")
+        .accessibilityValue("\(mode), \(profileName)")
+        .menuOrder(.fixed).tint(.primary).browserGlass()
     }
 }
 

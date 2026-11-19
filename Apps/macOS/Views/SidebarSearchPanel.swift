@@ -53,24 +53,28 @@ struct SidebarSearchPanel: View {
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(Array(results.enumerated()), id: \.element.id) { index, tab in
-                        HStack {
-                            Button { controller.session.selectTab(tab.id); dismiss() } label: {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(tab.displayTitle).lineLimit(2)
-                                    Text(tab.hostname).font(.caption).foregroundStyle(Theme.sidebar.secondaryText)
-                                }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
-                            }.buttonStyle(ContentButtonStyle()).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
-                            Button { controller.requestCloseTab(tab.id) } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
-                                .buttonStyle(ContentButtonStyle()).accessibilityLabel("Close \(tab.displayTitle)")
-                        }
-                        .background(index == selected ? Theme.sidebar.selection : .clear, in: .rect(cornerRadius: 8))
-                        .id(tab.id)
+                        resultRow(tab, index: index)
                     }
                 }
             }.onChange(of: selected) { _, index in
                 if results.indices.contains(index) { reader.scrollTo(results[index].id) }
             }
         }
+    }
+
+    private func resultRow(_ tab: BrowserTab, index: Int) -> some View {
+        HStack {
+            Button { controller.session.selectTab(tab.id); dismiss() } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(tab.displayTitle).lineLimit(2)
+                    Text(tab.hostname).font(.caption).foregroundStyle(Theme.sidebar.secondaryText)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
+            }.buttonStyle(ContentButtonStyle()).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
+            Button { controller.requestCloseTab(tab.id) } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
+                .buttonStyle(ContentButtonStyle()).accessibilityLabel("Close \(tab.displayTitle)")
+        }
+        .background(index == selected ? Theme.sidebar.selection : .clear, in: .rect(cornerRadius: 8))
+        .id(tab.id)
     }
 
     private func activate() {

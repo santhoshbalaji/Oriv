@@ -64,41 +64,67 @@ struct BrowserWindow: View {
     private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark) }
     private var privateCue: Color { pageChrome.contrasting(pageChrome.isDark ? Color(red: 0.733, green: 0.522, blue: 0.961) : Color(red: 0.537, green: 0.267, blue: 0.671)) }
 
-    var body: some View {
+    private var sceneContent: some View {
         routedContent
-        .environment(\.chromeFocusState, chromeFocus)
-        .background(BrowserKeyRouter(session: session, overviewVisible: showTabs, input: chromeFocus))
-        .environment(\.siteIcons, session.siteIcons)
-        .focusedSceneValue(\.browserController, controller)
-        .onAppear {
-            session.activateSelectedTab(); syncAddress(); if tab?.url == nil { controller.focusAddress() }
-            if !session.isExternalPrivate {
-                profiles?.showRegularWindow = { openWindow(id: "browser") }
-                profiles?.showExternalWindow = { openWindow(id: "external-private") }
-                profiles?.closeExternalWindow = { dismissWindow(id: "external-private") }
-                if profiles?.externalPrivate != nil { openWindow(id: "external-private") }
+            .environment(\.chromeFocusState, chromeFocus)
+            .background(BrowserKeyRouter(session: session, overviewVisible: showTabs, input: chromeFocus))
+            .environment(\.siteIcons, session.siteIcons)
+            .focusedSceneValue(\.browserController, controller)
+    }
+
+    private var windowLifecycle: some View {
+        sceneContent
+            .onAppear(perform: prepareWindow)
+            .onChange(of: session.tabs.count) { _, count in
+                if session.isExternalPrivate && count == 0 { dismissWindow(id: "external-private"); profiles?.endExternalPrivate() }
             }
+            .task(id: "\(address)-\(addressFocused)-\(session.selectedTabID?.uuidString ?? "")") {
+                await addressMatches.update(addressFocused ? address : "", session: session, isPrivate: tab?.isPrivate == true)
+            }
+            .onChange(of: session.selectedTabID) { _, _ in addressFocused = false; syncAddress(); showFind = false; showSiteInfo = false; showProtection = false }
+            .onChange(of: tab?.url) { _, _ in if !addressFocused { syncAddress() } }
+    }
+
+    var body: some View {
+        windowLifecycle
+            .onChange(of: controller.findRequest) { _, _ in showFind = true; findFocused = true }
+            .onChange(of: controller.findNextRequest) { _, _ in
+                showFind = true
+                if findText.isEmpty { findFocused = true }
+                else { tab?.find(findText, backwards: controller.findBackwards, caseSensitive: findCaseSensitive) }
+            }
+            .onChange(of: controller.passwordsGuideRequest) { _, _ in showPasswords = true }
+            .onChange(of: scenePhase) { _, phase in if phase != .active { session.saveNow() } }
+            .task(id: selectedPage) { observeSelectedPage() }
+            .onChange(of: emptyPageColor, initial: true) { _, color in pageChrome.setEmptyPageColor(color) }
+            .onChange(of: colorScheme) { _, _ in pageChrome.requestSample() }
+            .onDisappear { pageChrome.observe(nil) }
+    }
+
+    private func prepareWindow() {
+        session.activateSelectedTab(); syncAddress(); if tab?.url == nil { controller.focusAddress() }
+        if !session.isExternalPrivate {
+            profiles?.showRegularWindow = { openWindow(id: "browser") }
+            profiles?.showExternalWindow = { openWindow(id: "external-private") }
+            profiles?.closeExternalWindow = { dismissWindow(id: "external-private") }
+            if profiles?.externalPrivate != nil { openWindow(id: "external-private") }
         }
-        .onChange(of: session.tabs.count) { _, count in
-            if session.isExternalPrivate && count == 0 { dismissWindow(id: "external-private"); profiles?.endExternalPrivate() }
+    }
+
+    private var selectedPage: String {
+        let id = tab?.id.uuidString ?? "none"
+        let hasPage = tab?.url != nil || tab?.hasLoaded == true
+        return "\(id)-\(hasPage)"
+    }
+
+    private func observeSelectedPage() {
+        let selected = tab
+        let isPrivate = selected?.isPrivate == true
+        if let selected, selected.url != nil || selected.hasLoaded {
+            pageChrome.observe(selected.webView, isPrivate: isPrivate)
+        } else {
+            pageChrome.observe(nil, isPrivate: isPrivate)
         }
-        .task(id: "\(address)-\(addressFocused)-\(session.selectedTabID?.uuidString ?? "")") {
-            await addressMatches.update(addressFocused ? address : "", session: session, isPrivate: tab?.isPrivate == true)
-        }
-        .onChange(of: session.selectedTabID) { _, _ in addressFocused = false; syncAddress(); showFind = false; showSiteInfo = false; showProtection = false }
-        .onChange(of: tab?.url) { _, _ in if !addressFocused { syncAddress() } }
-        .onChange(of: controller.findRequest) { _, _ in showFind = true; findFocused = true }
-        .onChange(of: controller.findNextRequest) { _, _ in
-            showFind = true
-            if findText.isEmpty { findFocused = true }
-            else { tab?.find(findText, backwards: controller.findBackwards, caseSensitive: findCaseSensitive) }
-        }
-        .onChange(of: controller.passwordsGuideRequest) { _, _ in showPasswords = true }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { session.saveNow() } }
-        .task(id: "\(tab?.id.uuidString ?? "none")-\(tab?.url != nil || tab?.hasLoaded == true)") { pageChrome.observe(tab.flatMap { $0.url != nil || $0.hasLoaded ? $0.webView : nil }, isPrivate: tab?.isPrivate == true) }
-        .onChange(of: emptyPageColor, initial: true) { _, color in pageChrome.setEmptyPageColor(color) }
-        .onChange(of: colorScheme) { _, _ in pageChrome.requestSample() }
-        .onDisappear { pageChrome.observe(nil) }
     }
 
     private var shell: some View {
