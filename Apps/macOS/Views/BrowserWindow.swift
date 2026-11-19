@@ -159,7 +159,7 @@ struct BrowserWindow: View {
                     let width = min(320, max(1, geometry.size.width - 16))
                     SidebarTooltipBubble(text: controller.sidebarTooltip.text, width: width,
                                          maximumHeight: min(180, geometry.size.height - 32))
-                    .background(BrowserGeometryMarker(name: "sidebarTooltipGeometry"))
+                    .browserGeometryMarker("sidebarTooltipGeometry")
                     .onHover { controller.sidebarTooltip.hold($0) }
                     .offset(x: min(controller.sidebar.width - 10 + 8, geometry.size.width - width - 8),
                             y: min(max(16, rect.minY), max(16, geometry.size.height - 196)))
@@ -207,11 +207,11 @@ struct BrowserWindow: View {
         }
         .background {
             Color.clear.modifier(MacSidebarGlass())
-                .background(BrowserGeometryMarker(name: "sidebarSurfaceGeometry"))
+                .browserGeometryMarker("sidebarSurfaceGeometry")
         }
         .onHover { inside in controller.sidebar.panelInside = inside }
         .onChange(of: sidebarHeaderToggleFocused) { _, focused in controller.sidebar.focusInside = focused || sidebarContainsKeyboardFocus }
-        .background(BrowserGeometryMarker(name: "browserSidebarGeometry"))
+        .browserGeometryMarker("browserSidebarGeometry")
     }
 
     private func restoreSearchFocus() {
@@ -236,7 +236,7 @@ struct BrowserWindow: View {
         Color.clear
             .frame(height: railHeader ? (fullscreen ? 36 : MacBrowserLayout.sidebarTitlebarHeight + 36) : (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight))
             .background(BrowserDragRegion())
-            .background(BrowserGeometryMarker(name: "sidebarTitlebarGeometry"))
+            .browserGeometryMarker("sidebarTitlebarGeometry")
             .accessibilityHidden(true)
     }
 
@@ -252,8 +252,8 @@ struct BrowserWindow: View {
         .accessibilityValue(railHeader ? "Icon rail" : "Expanded")
         .accessibilityHint("Toggle sidebar with Option-Command-S")
         .accessibilityIdentifier("sidebarToggle")
-        .background(BrowserGeometryMarker(name: "sidebarToggleGeometry"))
-        .background { if sidebarHeaderToggleFocused { BrowserGeometryMarker(name: "sidebarToggleKeyboardFocus") } }
+        .browserGeometryMarker("sidebarToggleGeometry")
+        .browserGeometryMarker("sidebarToggleKeyboardFocus", when: sidebarHeaderToggleFocused)
         .onKeyPress(.downArrow) { sidebarTabFocusRequest += 1; return .handled }
         .accessibilitySortPriority(2)
         .foregroundStyle(Theme.sidebar.text)
@@ -285,7 +285,7 @@ struct BrowserWindow: View {
         .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
         .accessibilityIdentifier("mainTopBar")
         .focusEffectDisabled()
-        .background(BrowserGeometryMarker(name: "browserTopBarGeometry"))
+        .browserGeometryMarker("browserTopBarGeometry")
     }
 
     private var navigationControls: some View {
@@ -359,7 +359,7 @@ struct BrowserWindow: View {
                     Capsule().strokeBorder(addressFocused && chromeFocus.showsFocus ? theme.accent : .clear, lineWidth: 1.5)
                 }
                 .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
-                .background(BrowserGeometryMarker(name: "browserAddressGeometry"))
+                .browserGeometryMarker("browserAddressGeometry")
     }
 
     // Site privacy shares the content header's glass and adaptive foreground.
@@ -374,7 +374,7 @@ struct BrowserWindow: View {
                 }
                 .help("Site Privacy").accessibilityLabel("Site Privacy")
                 .accessibilityIdentifier("sitePrivacyButton")
-                .background(BrowserGeometryMarker(name: "browserPrivacyGeometry"))
+                .browserGeometryMarker("browserPrivacyGeometry")
                 .popover(isPresented: $showProtection) { AdBlockingPopover(session: session) }
                 if let url = tab?.url, pageRail || windowWidth >= 1000 {
                     ShareLink(item: URLCleaner.clean(url)) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
@@ -404,7 +404,7 @@ struct BrowserWindow: View {
         .accessibilityIdentifier("browserPageMenu")
         .foregroundStyle(chromeForeground)
         .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
-        .background(BrowserGeometryMarker(name: "browserPageMenuGeometry"))
+        .browserGeometryMarker("browserPageMenuGeometry")
         .popover(isPresented: $showPasswords) { PasswordsGuide(compact: true) }
     }
 

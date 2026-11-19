@@ -26,6 +26,6 @@ struct AdBlockingPopover: View {
                 .font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
         .padding(20) }.frame(width: 360, height: 620)
-            .background(BrowserGeometryMarker(name: "sitePrivacyPanelGeometry"))
+            .browserGeometryMarker("sitePrivacyPanelGeometry")
     }
 }

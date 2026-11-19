@@ -63,9 +63,9 @@ struct ProfileMenu: View {
                     Image(systemName: "rectangle.stack").font(.system(size: 17, weight: .semibold)).frame(width: 19)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(profiles.active.name).font(.system(size: 17, weight: .semibold)).lineLimit(1)
-                            .background(BrowserGeometryMarker(name: "sidebarProfileNameGeometry"))
+                            .browserGeometryMarker("sidebarProfileNameGeometry")
                         Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.secondaryText)
-                            .background(BrowserGeometryMarker(name: "sidebarProfileCountGeometry"))
+                            .browserGeometryMarker("sidebarProfileCountGeometry")
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
                 }.foregroundStyle(theme.text).padding(.horizontal, 8).frame(height: 44).contentShape(Rectangle())

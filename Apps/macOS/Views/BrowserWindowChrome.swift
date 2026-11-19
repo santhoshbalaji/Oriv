@@ -214,6 +214,20 @@ struct BrowserDragRegion: NSViewRepresentable {
     }
 }
 
+extension View {
+    /// Debug-only geometry anchors for native tests and owned captures.
+    func browserGeometryMarker(_ name: @autoclosure () -> String,
+                               when visible: @autoclosure () -> Bool = true) -> some View {
+        #if DEBUG
+        let marker = visible() ? name() : nil
+        return background { if let marker { BrowserGeometryMarker(name: marker) } }
+        #else
+        self
+        #endif
+    }
+}
+
+#if DEBUG
 /// Non-interactive geometry anchors for native regression tests and owned captures.
 struct BrowserGeometryMarker: NSViewRepresentable {
     let name: String
@@ -223,3 +237,4 @@ struct BrowserGeometryMarker: NSViewRepresentable {
     func updateNSView(_ view: Marker, context: Context) { view.identifier = NSUserInterfaceItemIdentifier(name) }
     final class Marker: NSView { override func hitTest(_ point: NSPoint) -> NSView? { nil } }
 }
+#endif

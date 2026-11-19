@@ -192,7 +192,7 @@ struct BrowserSidebar: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
-        .background(BrowserGeometryMarker(name: "sidebarProfileGeometry"))
+        .browserGeometryMarker("sidebarProfileGeometry")
         .padding(.trailing, profileTrailingInset)
         .padding(.vertical, 8)
     }
@@ -206,7 +206,7 @@ struct BrowserSidebar: View {
                 }
             }.frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
                 .buttonStyle(ContentButtonStyle()).focused($utilityFocus, equals: "search")
-                .background(BrowserGeometryMarker(name: "sidebarSearchGeometry"))
+                .browserGeometryMarker("sidebarSearchGeometry")
                 .accessibilityLabel("Search tabs").help("Search Tabs (⇧⌘A)")
                 .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
                 .padding(.horizontal, MacBrowserLayout.railInset)
@@ -236,7 +236,7 @@ struct BrowserSidebar: View {
             .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 32)
             .background(theme.field.opacity(searchFocused ? 1 : 0.7), in: .rect(cornerRadius: 9))
             .modifier(ChromeFocusIndicator(focused: searchFocused, marker: "sidebarSearchFocusIndicator"))
-            .background(BrowserGeometryMarker(name: "sidebarSearchGeometry"))
+            .browserGeometryMarker("sidebarSearchGeometry")
             .padding(.bottom, 10)
         }
     }
@@ -415,7 +415,7 @@ struct BrowserSidebar: View {
             }.font(OrivType.body).padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarRowInset).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
         }.buttonStyle(ContentButtonStyle()).frame(width: compact ? 42 : nil)
             .padding(.horizontal, peeking ? MacBrowserLayout.railInset : 0)
-            .background(BrowserGeometryMarker(name: "sidebarNewTabGeometry"))
+            .browserGeometryMarker("sidebarNewTabGeometry")
             .focused($utilityFocus, equals: "new-tab")
             .accessibilityLabel("New Tab").accessibilityIdentifier("newTabButton").help("New Tab (⌘T)")
     }
@@ -424,12 +424,12 @@ struct BrowserSidebar: View {
         if railLayout {
             VStack(alignment: .leading, spacing: 6) { footerButtons }.frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, MacBrowserLayout.railInset).foregroundStyle(theme.secondaryText)
-                .background(BrowserGeometryMarker(name: "sidebarFooterGeometry"))
+                .browserGeometryMarker("sidebarFooterGeometry")
         } else {
             HStack(spacing: 0) { footerButtons }.padding(.horizontal, 8).frame(height: 42)
                 .background(theme.surface, in: .rect(cornerRadius: 14))
                 .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(theme.separator.opacity(0.5), lineWidth: 0.5) }
-                .background(BrowserGeometryMarker(name: "sidebarFooterGeometry"))
+                .browserGeometryMarker("sidebarFooterGeometry")
         }
     }
     @ViewBuilder private var footerButtons: some View {
@@ -447,7 +447,7 @@ struct BrowserSidebar: View {
             }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText)
                 .focused($utilityFocus, equals: section.rawValue)
                 .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.rawValue)
-                .help(section.rawValue).background(BrowserGeometryMarker(name: "sidebarFooter-\(section.rawValue)"))
+                .help(section.rawValue).browserGeometryMarker("sidebarFooter-\(section.rawValue)")
         }
         if !railLayout { Spacer(minLength: 0) }
         SettingsLink {
@@ -458,7 +458,7 @@ struct BrowserSidebar: View {
         }
             .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText).accessibilityLabel("Settings").help("Settings (⌘,)")
             .focused($utilityFocus, equals: "settings")
-            .background(BrowserGeometryMarker(name: "sidebarFooter-Settings"))
+            .browserGeometryMarker("sidebarFooter-Settings")
     }
 }
 
@@ -473,7 +473,7 @@ private struct SidebarSectionHeading: View {
             if title == "Private" { Image(systemName: "eyeglasses").accessibilityHidden(true) }
             Text(title).modifier(SidebarLabelFade()); Spacer(); if count > 0 { Text("\(count)").font(.system(size: 11)).monospacedDigit() }
         }.font(OrivType.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
-            .background(BrowserGeometryMarker(name: "sidebarSection-\(title)"))
+            .browserGeometryMarker("sidebarSection-\(title)")
             .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 27).padding(.top, title == "Private" ? 8 : (title == "Pinned" ? 0 : 4))
             .accessibilityElement(children: .ignore).accessibilityLabel("\(title), \(SidebarTabs.countLabel(count))").accessibilityAddTraits(.isHeader)
             .modifier(SidebarDropTargetModifier(target: target, controller: controller))
@@ -584,27 +584,27 @@ private struct SidebarTabItem: View {
                     .opacity(hovered || selected || closeFocused || keyboardFocused ? 1 : 0)
                     .accessibilityHidden(false)
                     .accessibilityLabel("Close \(tab.displayTitle)").help("Close tab")
-                    .background(BrowserGeometryMarker(name: "sidebarClose-\(tab.id)"))
+                    .browserGeometryMarker("sidebarClose-\(tab.id)")
                     .padding(.trailing, MacBrowserLayout.sidebarRowInset)
             }
         }
         .frame(width: rail && !peek ? 42 : (tile && !rail ? 56 : nil))
-        .background(BrowserGeometryMarker(name: "sidebarItem-\(tab.id)"))
-        .background { if keyboardFocused { BrowserGeometryMarker(name: "sidebarKeyboardFocus-\(tab.id)") } }
+        .browserGeometryMarker("sidebarItem-\(tab.id)")
+        .browserGeometryMarker("sidebarKeyboardFocus-\(tab.id)", when: keyboardFocused)
         // The mock's lifted selection stays centred within the rail inset.
         .background(selected ? theme.selection : (hovered ? theme.thread : (tile && !rail ? theme.field.opacity(0.6) : .clear)),
                     in: .rect(cornerRadius: rail ? 10 : (tile ? 12 : 9)))
-        .background { if selected { BrowserGeometryMarker(name: "sidebarSelection-\(tab.id)") } }
+        .browserGeometryMarker("sidebarSelection-\(tab.id)", when: selected)
         .overlay(alignment: .leading) {
             if selected {
-                SelectionMarker(height: 16).background(BrowserGeometryMarker(name: "sidebarAccent-\(tab.id)")).padding(.leading, 1)
+                SelectionMarker(height: 16).browserGeometryMarker("sidebarAccent-\(tab.id)").padding(.leading, 1)
             }
         }
         .overlay {
             RoundedRectangle(cornerRadius: rail ? 10 : (tile ? 12 : 9))
                 .strokeBorder(showsFocus ? theme.accent : (selected && contrast == .increased ? theme.text : .clear), lineWidth: 2)
                 .allowsHitTesting(false).accessibilityHidden(true)
-                .background { if showsFocus { BrowserGeometryMarker(name: "sidebarFocusIndicator-\(tab.id)") } }
+                .browserGeometryMarker("sidebarFocusIndicator-\(tab.id)", when: showsFocus)
         }
         .anchorPreference(key: SidebarTooltipBounds.self, value: .bounds) { [tab.id: $0] }
         .onContinuousHover { phase in
@@ -643,7 +643,7 @@ private struct SidebarTabItem: View {
     private var favicon: some View {
         ZStack {
             SiteIdentity(url: tab.url, size: rail ? 22 : (tile ? 24 : 19), isPrivate: tab.isPrivate, isSelected: selected, sidebarIcon: true)
-                .background(BrowserGeometryMarker(name: "sidebarFavicon-\(tab.id)"))
+                .browserGeometryMarker("sidebarFavicon-\(tab.id)")
             if loading {
                 Circle().trim(from: 0, to: 0.75).stroke(theme.accent, lineWidth: 2)
                     .frame(width: rail ? 26 : 24, height: rail ? 26 : 24).accessibilityHidden(true)

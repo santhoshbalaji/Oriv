@@ -68,7 +68,7 @@ struct ChromeFocusIndicator: ViewModifier {
                 if visible {
                     RoundedRectangle(cornerRadius: radius).strokeBorder(color ?? theme.accent, lineWidth: 2)
                         .allowsHitTesting(false).accessibilityHidden(true)
-                        .background(BrowserGeometryMarker(name: marker))
+                        .browserGeometryMarker(marker)
                 }
             }
     }

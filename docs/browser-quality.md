@@ -2,6 +2,14 @@
 
 # Browser quality and coverage
 
+## 0.15.5 (29)
+
+The local browser gate builds the unsigned iPhone app for a generic Simulator destination and runs the same checks as hosted CI. Debug builds flag slow Swift type checking. Both apps compile shared theme tokens, identity and artwork from `Apps/Shared`; Mac sidebar and focus styling stay in the Mac target.
+
+Empty tabs resolve chrome colors against their window appearance. Favicon discovery uses the originating WebKit User-Agent and an anonymous session, including across redirects. Private icons remain in memory and are cleared when the private session ends.
+
+The 8 MiB in-memory tab snapshot cache charges JPEG bytes plus per-entry overhead and evicts in least-recently-used order. Each visible destination cover bounds its own decode and releases it on dismissal or invalidation. Mac geometry anchors compile only in Debug, where existing layout and focus tests still use them. Background capture and memory evidence is indexed in `build/release-0.15.5/REPORT.md`.
+
 ## 0.15.4 (28)
 
 Mac chrome focus decoration follows navigation rather than command shortcuts when Full Keyboard Access is off. Tab, Shift-Tab and arrows without Command, Control or Option reveal the rounded focus cue. Space and Return preserve a cue established by navigation; typing and function keys do not establish one. Mouse presses hide it. Command shortcuts hide decoration while retaining their normal focus handoffs, so collapsing the sidebar, Search Tabs, New Tab and Control-Tab cannot outline the last clicked row or control. The first arrow still navigates through the existing lazy-row focus mechanism. Full Keyboard Access retains keyboard focus cues, including shortcut-driven focus.
