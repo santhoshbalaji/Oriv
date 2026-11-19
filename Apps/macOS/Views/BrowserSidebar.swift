@@ -328,7 +328,10 @@ struct BrowserSidebar: View {
                 case .ended: controller.sidebar.pointer(false)
                 }
             }
-            .scrollIndicators(.hidden)
+            // On Macs with legacy scrollbars, .hidden still reserves a 17 pt
+            // gutter. The 56 pt rail needs its full width for 42 pt focus rings
+            // and 7 pt insets; keyboard arrows and the scroll wheel remain usable.
+            .scrollIndicators(railLayout ? .never : .hidden)
             .accessibilityIdentifier("sidebarTabs")
             .onChange(of: session.selectedTabID) { _, id in if let id { reader.scrollTo(id) } }
             .onChange(of: pendingFocus) { _, id in

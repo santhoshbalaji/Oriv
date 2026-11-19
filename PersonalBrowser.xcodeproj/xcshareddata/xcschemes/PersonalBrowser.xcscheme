@@ -66,6 +66,10 @@
          </TestableReference>
       </Testables>
       <CommandLineArguments>
+         <CommandLineArgument
+            argument = "-AppleShowScrollBars Always"
+            isEnabled = "YES">
+         </CommandLineArgument>
       </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable

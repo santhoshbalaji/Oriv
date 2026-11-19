@@ -99,7 +99,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Apps/macOS/PersonalBrowser.entitlements
         ENABLE_HARDENED_RUNTIME: true
         MARKETING_VERSION: 0.15.3
-        CURRENT_PROJECT_VERSION: '26'
+        CURRENT_PROJECT_VERSION: '27'
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: local.personalbrowser.qa
@@ -168,7 +168,7 @@ targets:
         GENERATE_INFOPLIST_FILE: true
         TARGETED_DEVICE_FAMILY: '1,2'
         MARKETING_VERSION: 0.15.3
-        CURRENT_PROJECT_VERSION: '26'
+        CURRENT_PROJECT_VERSION: '27'
         INFOPLIST_KEY_CFBundleDisplayName: Oriv-Dev
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:
@@ -307,6 +307,10 @@ schemes:
     test:
       targets:
       - BrowserMacTests
+      # Exercise the gutter used on Macs with a mouse and on hosted runners.
+      # These arguments affect only the test process, not the user's defaults.
+      commandLineArguments:
+        '-AppleShowScrollBars Always': true
       environmentVariables:
         BROWSER_TESTING: '1'
         ORIV_BACKGROUND_UI: '1'

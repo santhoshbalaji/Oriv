@@ -54,7 +54,7 @@ import XCTest
                 guard let content = window.contentView else { continue }
                 for view in views(content) {
                     if let scroll = view as? NSScrollView {
-                        print("SIDEBAR_FOCUS_FAILURE viewport=\(scroll.contentView.bounds) document=\(String(describing: scroll.documentView?.bounds)) responder=\(String(describing: window.firstResponder))")
+                        print("SIDEBAR_FOCUS_FAILURE viewport=\(scroll.contentView.bounds) document=\(String(describing: scroll.documentView?.bounds)) scrollerStyle=\(scroll.scrollerStyle.rawValue) verticalScroller=\(scroll.hasVerticalScroller) responder=\(String(describing: window.firstResponder))")
                     }
                     if let name = view.identifier?.rawValue, name.hasPrefix("sidebarKeyboardFocus-") || name.hasPrefix("sidebarSelection-") {
                         print("SIDEBAR_FOCUS_FAILURE \(name) frame=\(view.convert(view.bounds, to: view.enclosingScrollView?.contentView))")
@@ -71,6 +71,20 @@ import XCTest
         } }), let scroll = marker.enclosingScrollView else { return false }
         let frame = marker.convert(marker.bounds, to: scroll.contentView)
         return frame.height > 0 && scroll.contentView.bounds.insetBy(dx: -1, dy: -1).contains(frame)
+    }
+
+    private func checkFocusedRailViewport(_ id: UUID, in window: NSWindow,
+                                          file: StaticString = #filePath, line: UInt = #line) throws {
+        let marker = try XCTUnwrap(window.contentView.flatMap { views($0).first {
+            $0.identifier?.rawValue == "sidebarKeyboardFocus-\(id)"
+        } }, file: file, line: line)
+        let scroll = try XCTUnwrap(marker.enclosingScrollView, file: file, line: line)
+        let frame = marker.convert(marker.bounds, to: scroll.contentView)
+        print("SIDEBAR_RAIL_VIEWPORT viewport=\(scroll.contentView.bounds) focusedRow=\(frame) scrollerStyle=\(scroll.scrollerStyle.rawValue) verticalScroller=\(scroll.hasVerticalScroller)")
+        XCTAssertEqual(scroll.contentView.bounds.width, MacBrowserLayout.railWidth, accuracy: 1,
+                       "A scrollbar gutter must not clip rail rows or their focus rings", file: file, line: line)
+        XCTAssertEqual(frame.minX, MacBrowserLayout.railInset, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(frame.width, MacBrowserLayout.railItemWidth, accuracy: 1, file: file, line: line)
     }
 
     private func toggleSidebar(in window: NSWindow) throws {
@@ -351,6 +365,7 @@ import XCTest
             let row = w.contentView.flatMap { self.views($0).first { $0.identifier?.rawValue == "sidebarItem-\(tabs[59].id)" } }
             return row?.bounds.width == MacBrowserLayout.railItemWidth && self.hasVisibleKeyboardFocus(tabs[59].id, in: w)
         }
+        try checkFocusedRailViewport(tabs[59].id, in: w)
         NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
             characters: "\u{f700}", charactersIgnoringModifiers: "\u{f700}", isARepeat: false, keyCode: 126)))
@@ -364,7 +379,7 @@ import XCTest
         for _ in 1..<60 { _ = c.session.addTab(select: false, load: false) }
         let tabs = c.session.orderedTabs
         let w = window(c, size: size, displayScale: displayScale); defer { w.close() }
-        print("SIDEBAR_FOCUS_ENV size=\(size) displayScale=\(String(describing: displayScale)) backingScale=\(w.backingScaleFactor) CI=\(ProcessInfo.processInfo.environment["CI", default: ""])")
+        print("SIDEBAR_FOCUS_ENV size=\(size) displayScale=\(String(describing: displayScale)) backingScale=\(w.backingScaleFactor) preferredScrollerStyle=\(NSScroller.preferredScrollerStyle.rawValue) CI=\(ProcessInfo.processInfo.environment["CI", default: ""])")
         try await waitUntil("Initial address field did not acquire its editor") {
             w.contentView.map { self.views($0).contains { ($0 as? FocusAwareAddressField)?.currentEditor() != nil } } == true
         }
@@ -398,6 +413,7 @@ import XCTest
         }
         try key(125, "\u{f701}") // Toggle -> selected rail tab.
         try await waitUntil("Toggle did not hand focus to the selected rail row") { self.hasVisibleKeyboardFocus(tabs[59].id, in: w) }
+        try checkFocusedRailViewport(tabs[59].id, in: w)
         for index in stride(from: 58, through: 0, by: -1) {
             try key(126, "\u{f700}")
             try await waitUntil("Rail arrow focus lost at lazy row \(index)") {
