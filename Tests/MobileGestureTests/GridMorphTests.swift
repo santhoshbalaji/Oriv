@@ -432,6 +432,15 @@ import BrowserEngine
             controller.session.selectTab(source.id)
             try await wait(label: "source reattached") { self.source.webView.window === self.window }
         }
+        try await wait(label: "prepared native grid and live browser geometry") {
+            guard let root = window.rootViewController, let grid = preparedGrid(in: root) else { return false }
+            return grid.navigationController != nil && grid.isViewLoaded
+                && source.hasRenderedContent && !source.webView.bounds.isEmpty
+        }
+    }
+    private func preparedGrid(in parent: UIViewController) -> MobileTabGridController? {
+        if let grid = parent as? MobileTabGridController { return grid }
+        return parent.children.lazy.compactMap { self.preparedGrid(in: $0) }.first
     }
     private func prepare(_ tab: BrowserTab, path: String) async throws {
         controller.session.selectTab(tab.id)

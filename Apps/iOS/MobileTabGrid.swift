@@ -56,7 +56,6 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         let updated = [model.tabs.filter { !$0.isPrivate }, model.tabs.filter(\.isPrivate)].filter { !$0.isEmpty }
         let next = model.tabs.map { "\($0.id)-\($0.isPinned)-\($0.displayTitle)-\(model.controller.session.selectedTabID == $0.id)-\(model.largeText)" }
         let previous = sections
-        sections = updated
         (collectionViewLayout as? MobileTabGridLayout)?.reduceMotion = model.reduceMotion
         collectionView.overrideUserInterfaceStyle = model.controller.appearance.colorScheme.map { $0 == .dark ? .dark : .light } ?? .unspecified
         if identity != next {
@@ -74,7 +73,12 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             // BrowserSession creates a fresh home tab after the final close.
             // Keep that path, with a batch replacement instead of a reload flash.
             let lastReplacement = oldIDs.count == 1 && newIDs.count == 1 && oldIDs != newIDs
-            if onlyDeletes || lastReplacement {
+            let canAnimate = collectionView.window != nil && !collectionView.bounds.isEmpty
+                && !collectionView.isHidden && !collectionView.hasUncommittedUpdates
+            if (onlyDeletes || lastReplacement) && canAnimate {
+                // UIKit can refresh its pre-update counts during layout. Keep
+                // the old data source until the batch actually starts.
+                collectionView.layoutIfNeeded()
                 let rate = UIUpdateLink(view:collectionView)
                 rate.preferredFrameRateRange = CAFrameRateRange(minimum:80,maximum:120,preferred:120)
                 rate.isEnabled = true
@@ -82,6 +86,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
                                usingSpringWithDamping:model.reduceMotion ? 1 : 0.88,initialSpringVelocity:0,
                                options:[.beginFromCurrentState,.allowUserInteraction]) {
                     self.collectionView.performBatchUpdates {
+                        self.sections = updated
                         self.collectionView.deleteSections(removedSections)
                         self.collectionView.deleteItems(at:deletions)
                         if lastReplacement {
@@ -91,12 +96,18 @@ struct MobileTabGrid: UIViewControllerRepresentable {
                     } completion: { [weak self] _ in rate.isEnabled = false; self?.publishFrames() }
                 }
             } else if oldIDs == newIDs {
+                sections = updated
                 collectionView.reconfigureItems(at:collectionView.indexPathsForVisibleItems)
             } else {
-                UIView.transition(with:collectionView,duration:model.reduceMotion ? 0.18 : 0.25,options:.transitionCrossDissolve) { self.collectionView.reloadData() }
+                sections = updated
+                if canAnimate && !onlyDeletes && !lastReplacement {
+                    UIView.transition(with:collectionView,duration:model.reduceMotion ? 0.18 : 0.25,options:.transitionCrossDissolve) { self.collectionView.reloadData() }
+                } else {
+                    collectionView.reloadData()
+                }
                 collectionView.collectionViewLayout.invalidateLayout()
             }
-        }
+        } else { sections = updated }
         collectionView.backgroundView = model.tabs.isEmpty ? UIHostingController(rootView: BrowserEmptyState("No matching tabs")).view : nil
         synchronizeVisibility()
         if model.presented && !wasPresented { revealSelected(announce:true) }
