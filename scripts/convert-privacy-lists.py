@@ -23,7 +23,6 @@ TYPES = {'script': 'script', 'image': 'image', 'stylesheet': 'style-sheet', 'fon
 # `fetch` and `raw` are distinct on recent WebKit. Never filter a main document.
 RESOURCES = sorted(set(TYPES.values()) | {'fetch', 'svg-document'})
 DOMAIN = re.compile(r'^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$')
-SIMPLE_ID = re.compile(r'#[a-zA-Z_-][a-zA-Z0-9_-]*')
 
 def scope(domains):
     yes, no = [], []
@@ -127,28 +126,7 @@ def parse(text):
             counts['dropped:' + str(error)] += 1
     return blocks, allows, cosmetics, cosmetic_exceptions, counts
 
-def pack_generic_ids(selectors):
-    # Keep exact ID selectors in each disjunction. The substring guard lets
-    # WebKit reject a group cheaply and folds ASCII case in quirks documents.
-    # :where() leaves the ID selector's specificity unchanged.
-    groups = {fragment: [] for fragment in ('ads', 'adv', 'ad-', 'ad_', 'ad')}
-    plain = []
-    for selector in selectors:
-        fragment = next((f for f in groups if f in selector.lower()), None) if SIMPLE_ID.fullmatch(selector) else None
-        if fragment is None:
-            plain.append(selector)
-        else:
-            groups[fragment].append(selector)
-    for fragment, names in groups.items():
-        if len(names) < 16:
-            plain.extend(names)
-            continue
-        for start in range(0, len(names), 256):
-            ids = ','.join(names[start:start+256])
-            plain.append(f':is({ids}):where([id*="{fragment}" i])')
-    return sorted(plain)
-
-def cosmetic_rules(entries, exceptions, light=False, pack_ids=False):
+def cosmetic_rules(entries, exceptions, light=False):
     # Global cosmetic exceptions suppress their selector; scoped exceptions below
     # conservatively preserve all visible content on the affected sites.
     excluded = {selector for sc, selector in exceptions if not sc}
@@ -161,8 +139,6 @@ def cosmetic_rules(entries, exceptions, light=False, pack_ids=False):
     result = []
     for key, selectors in sorted(grouped.items()):
         unique = sorted(set(selectors))
-        if pack_ids and key == '{}':
-            unique = pack_generic_ids(unique)
         for start in range(0, len(unique), 50):
             result.append({'trigger': {'url-filter': '.*', **json.loads(key)}, 'action': {'type': 'css-display-none', 'selector': ','.join(unique[start:start+50])}})
     # WebKit cannot undo just one CSS selector. Scoped cosmetic exceptions
@@ -215,8 +191,8 @@ def main():
         b, a, c, e, _ = parsed[name]
         blocks += b; allows += a; cosmetics += c; exceptions += e
     b, a, c, e, _ = parsed['cookies']
-    groups = {'network': (blocks, allows), 'cosmetics-light': (cosmetic_rules(cosmetics, exceptions, light=True, pack_ids=True), []),
-              'cosmetics-strict': (cosmetic_rules(cosmetics, exceptions, pack_ids=True), []),
+    groups = {'network': (blocks, allows), 'cosmetics-light': (cosmetic_rules(cosmetics, exceptions, True), []),
+              'cosmetics-strict': (cosmetic_rules(cosmetics, exceptions), []),
               'cookies-network': (b, a), 'cookies-cosmetics': (cosmetic_rules(c, e), [])}
     outputs = {}
     for name, (rules, exceptions) in groups.items():
@@ -231,14 +207,13 @@ def main():
             value = rules[i:i+budget] + exceptions
             filename = f'{name}-{len(chunks)}.orivrules'
             raw = encode(value)
-            packed = name in ('cosmetics-light', 'cosmetics-strict')
-            header = {'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'source': 'manifest.json', 'modifications': 'Oriv supported-subset conversion v1; exact generic IDs grouped' if packed else 'Oriv supported-subset conversion v1', 'decodedBytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
+            header = {'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'source': 'manifest.json', 'modifications': 'Oriv supported-subset conversion v1', 'decodedBytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
             payload = encode(header) + base64.b64encode(zlib.compress(raw, level=9, wbits=-15)) + b'\n'
             write_atomic(destination / filename, payload)
             chunks.append({'file': filename, 'rules': len(value), 'bytes': len(raw), 'bundledBytes': len(payload), 'sha256': hashlib.sha256(raw).hexdigest()})
         outputs[name] = chunks
-    manifest = {'rulesVersion': '2026.11.11-' + PIN[:12], 'converterVersion': 2, 'upstreamCommit': PIN, 'sources': sources, 'outputs': outputs, 'counts': report,
-                'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'modifications': 'Converted supported network and plain cosmetic subset; unsupported syntax dropped; scoped cosmetic exceptions conservatively allow all cosmetics; grouped/split WebKit rules; exact generic IDs grouped with matching guards.'}
+    manifest = {'rulesVersion': '2026.11.11-' + PIN[:12], 'converterVersion': 1, 'upstreamCommit': PIN, 'sources': sources, 'outputs': outputs, 'counts': report,
+                'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'modifications': 'Converted supported network and plain cosmetic subset; unsupported syntax dropped; scoped cosmetic exceptions conservatively allow all cosmetics; grouped/split WebKit rules.'}
     write_atomic(destination / 'manifest.json', json.dumps(manifest, indent=2, sort_keys=True).encode() + b'\n')
     keep = {destination / chunk['file'] for chunks in outputs.values() for chunk in chunks}
     for stale in old_files - keep: stale.unlink()
