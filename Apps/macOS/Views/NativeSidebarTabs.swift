@@ -61,7 +61,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let list = context.coordinator.list else { return }
         // Legacy scrollbars reserve space even when idle. In the rail,
-        // wheel/trackpad and keyboard scrolling use the entire 56 pt viewport.
+        // wheel/trackpad and keyboard scrolling use the entire rail viewport.
         let iconLayout = rail || peek
         scroll.scrollerStyle = iconLayout ? .overlay : NSScroller.preferredScrollerStyle
         scroll.hasVerticalScroller = !iconLayout

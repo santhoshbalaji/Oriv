@@ -269,7 +269,7 @@ import XCTest
                 let frame = button.convert(button.bounds, to: nil)
                 XCTAssertFalse(button.isHiddenOrHasHiddenAncestor)
                 XCTAssertTrue(button.window === window && window.isVisible)
-                XCTAssertEqual(frame.minX, (collapsed ? 1 : MacBrowserLayout.lightsInset) + CGFloat(i) * MacBrowserLayout.lightsSpacing, accuracy: 1)
+                XCTAssertEqual(frame.minX, (collapsed ? MacBrowserLayout.railLightsInset : MacBrowserLayout.lightsInset) + CGFloat(i) * MacBrowserLayout.lightsSpacing, accuracy: 1)
                 XCTAssertEqual(window.contentView!.bounds.maxY - frame.midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)
                 XCTAssertLessThanOrEqual(frame.maxX, collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
                 XCTAssertTrue(button.superview!.bounds.contains(button.frame), "Native hit testing must include the entire button")
@@ -451,7 +451,7 @@ import XCTest
         try checkGeometry(window, collapsed: true)
         let returned = try XCTUnwrap(window.standardWindowButton(.closeButton))
         XCTAssertFalse(returned.isHiddenOrHasHiddenAncestor)
-        XCTAssertEqual(returned.convert(returned.bounds, to: nil).minX, 1, accuracy: 1)
+        XCTAssertEqual(returned.convert(returned.bounds, to: nil).minX, MacBrowserLayout.railLightsInset, accuracy: 1)
         if BackgroundUIMode.isEnabled {
             XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, ProcessInfo.processInfo.processIdentifier)
         }

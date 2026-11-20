@@ -228,7 +228,7 @@ import XCTest
         c.compactSidebar = true
         try await wait("Rail kept legacy scrollbar space") { c.sidebar.rail && !scroll.hasVerticalScroller }
         scroll.tile()
-        XCTAssertEqual(scroll.contentView.bounds.width, 56, accuracy: 0.5)
+        XCTAssertEqual(scroll.contentView.bounds.width, MacBrowserLayout.railWidth, accuracy: 0.5)
         XCTAssertFalse(scroll.hasVerticalScroller)
         let path = try XCTUnwrap(list.selectionIndexPaths.first)
         let row = try XCTUnwrap(list.item(at: path)?.view)
@@ -290,12 +290,13 @@ import XCTest
         try await Task.sleep(for: .milliseconds(200))
         let surface = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: w))
         XCTAssertEqual(surface.convert(surface.bounds, to: nil), NSRect(x: 0, y: 0, width: MacBrowserLayout.sidebarWidth, height: w.contentView!.bounds.height))
-        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+        for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
             let button = try XCTUnwrap(w.standardWindowButton(type))
             XCTAssertFalse(button.isHiddenOrHasHiddenAncestor)
             let rect = button.convert(button.bounds, to: nil)
-            XCTAssertGreaterThanOrEqual(rect.minX, 0)
-            XCTAssertLessThanOrEqual(rect.maxX, MacBrowserLayout.railWidth)
+            XCTAssertGreaterThanOrEqual(rect.minX, 8)
+            XCTAssertLessThanOrEqual(rect.maxX, MacBrowserLayout.railWidth - 8)
+            XCTAssertEqual(rect.minX, MacBrowserLayout.railLightsInset + CGFloat(index) * 20, accuracy: 0.5)
             XCTAssertEqual(w.contentView!.bounds.maxY - rect.midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)
         }
     }
