@@ -7,6 +7,7 @@ import Observation
 /// Keeping opened profiles alive preserves form state and in-progress downloads.
 @MainActor @Observable final class BrowserProfiles {
     let continuity: BrowserContinuity
+    private let privateTabIsolation: PrivateTabIsolation
     private(set) var registry = ProfileRegistry()
     private(set) var canModify = true
     var error: String?
@@ -38,6 +39,7 @@ import Observation
     init(rootDirectory: URL? = nil, testing: Bool? = nil) {
         let isTesting = testing ?? (ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1")
         self.testing = isTesting
+        privateTabIsolation = PrivateTabIsolation(defaults: isTesting ? nil : .standard)
         linkDefaults = isTesting ? nil : .standard
         openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: isTesting ? nil : .standard)
         root = rootDirectory ?? (isTesting ? nil : URL.applicationSupportDirectory.appendingPathComponent("PersonalBrowser", isDirectory: true))
@@ -49,7 +51,7 @@ import Observation
         catch { loadError = error.localizedDescription }
         registry = loaded
         let selected = loaded.profiles.first { $0.id == loaded.activeID } ?? .personal
-        controller = BrowserController(profile: selected, rootDirectory: root, testing: isTesting)
+        controller = BrowserController(profile: selected, rootDirectory: root, testing: isTesting, privateTabIsolation: privateTabIsolation)
         controllers[selected.id] = controller
         if let loadError { canModify = false; notice = loadError }
         else if recovered { notice = "Your profile list was recovered from its last valid backup." }
@@ -115,7 +117,7 @@ import Observation
     private func obtain(_ id: UUID) throws -> BrowserController {
         guard let profile = registry.profiles.first(where: { $0.id == id && $0.archivedAt == nil }) else { throw ProfileError.missing }
         if let existing = controllers[id] { return existing }
-        let created = BrowserController(profile: profile, rootDirectory: root, testing: testing)
+        let created = BrowserController(profile: profile, rootDirectory: root, testing: testing, privateTabIsolation: privateTabIsolation)
         created.session.setProfileActive(false)
         controllers[id] = created
         return created
@@ -184,7 +186,7 @@ import Observation
         guard ExternalLinkRouting.accepts(url) else { return }
         guard openExternalLinksPrivately else { controller.openExternal(url); return }
         if externalPrivate == nil {
-            let context = BrowserController(profile: nil, testing: testing)
+            let context = BrowserController(profile: nil, testing: testing, privateTabIsolation: privateTabIsolation)
             // The private-only session starts with an empty private tab. Replace it on first arrival.
             let initial = context.session.selectedTabID
             context.session.addTab(url: url, isPrivate: true)

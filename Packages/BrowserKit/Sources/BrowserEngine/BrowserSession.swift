@@ -210,6 +210,9 @@ public final class BrowserSession {
         tabReclamationTask?.cancel(); tabReclamationTask = nil
         #endif
         tabs.forEach { $0.close() }
+        privateDataStore = nil
+        adBlocker.endPrivateSession()
+        settings.endPrivateSession()
         tabSnapshots.removeAll()
         saveTask?.cancel()
         configureWebView = nil; handleDownload = nil; handleExternalURL = nil; didCloseTab = nil; shouldSelectTab = nil; didSelectTab = nil
@@ -249,8 +252,22 @@ public final class BrowserSession {
     @discardableResult public func addTab(url: URL? = nil, isPrivate: Bool = false,
                                           configuration: WKWebViewConfiguration? = nil,
                                           select: Bool = true, load: Bool = true) -> BrowserTab {
+        insertTab(url: url, isPrivate: isPrivate, configuration: configuration, dataStore: nil, select: select, load: load)
+    }
+
+    /// Use WebKit's related configuration and the opener's store, including
+    /// when the preference changed after the opener was created.
+    public func openPopup(from opener: BrowserTab, url: URL?, configuration: WKWebViewConfiguration) -> WKWebView? {
+        guard !isShutDown, isProfileActive, tabs.contains(where: { $0 === opener }),
+              let dataStore = opener.websiteDataStore else { return nil }
+        return insertTab(url: url, isPrivate: opener.isPrivate, configuration: configuration,
+                         dataStore: dataStore, select: true, load: false).webView
+    }
+
+    private func insertTab(url: URL?, isPrivate: Bool, configuration: WKWebViewConfiguration?,
+                           dataStore: WKWebsiteDataStore?, select: Bool, load: Bool) -> BrowserTab {
         let tab = makeTab(record: TabRecord(title: url?.host ?? "New tab", url: url),
-                          isPrivate: isPrivate, configuration: configuration)
+                          isPrivate: isPrivate, configuration: configuration, openerStore: dataStore)
         tabs.append(tab)
         if select { selectedTabID = tab.id; didSelectTab?(tab) }
         if load && select { tab.activate() }
@@ -297,9 +314,11 @@ public final class BrowserSession {
         tab.close()
         tabs.remove(at: index)
         didCloseTab?(id)
+        if let privateDataStore, !tabs.contains(where: { $0.isPrivate && $0.websiteDataStore === privateDataStore }) {
+            self.privateDataStore = nil
+        }
         if !tabs.contains(where: \.isPrivate) {
             siteIcons.endPrivateSession()
-            privateDataStore = nil
             adBlocker.endPrivateSession()
             settings.endPrivateSession()
         }
@@ -630,13 +649,20 @@ public final class BrowserSession {
     }
 
     private func makeTab(record: TabRecord = TabRecord(), isPrivate: Bool = false,
-                         configuration: WKWebViewConfiguration? = nil) -> BrowserTab {
+                         configuration: WKWebViewConfiguration? = nil, openerStore: WKWebsiteDataStore? = nil) -> BrowserTab {
         let isPrivate = isPrivate || isExternalPrivate
-        if isPrivate && privateDataStore == nil { privateDataStore = .nonPersistent() }
-        // A supplied popup configuration must stay in this session and mode too.
-        configuration?.websiteDataStore = isPrivate ? privateDataStore! : regularDataStore
+        let dataStore: WKWebsiteDataStore
+        if let openerStore { dataStore = openerStore }
+        else if !isPrivate { dataStore = regularDataStore }
+        else if settings.privateTabIsolation.isEnabled { dataStore = .nonPersistent() }
+        else {
+            let shared = privateDataStore ?? .nonPersistent()
+            privateDataStore = shared
+            dataStore = shared
+        }
+        configuration?.websiteDataStore = dataStore
         let tab = BrowserTab(record: record, isPrivate: isPrivate, configuration: configuration,
-                             dataStore: isPrivate ? privateDataStore! : regularDataStore, adBlocker: adBlocker, settings: settings)
+                             dataStore: dataStore, adBlocker: adBlocker, settings: settings)
         tab.snapshotCache = tabSnapshots
         tab.setProfileActive(isProfileActive)
         tab.onChange = { [weak self, weak tab] in

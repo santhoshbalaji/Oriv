@@ -147,7 +147,7 @@ import AppKit
         let privateTab = s.addTab(isPrivate: true, load: false)
         let injected = WKWebViewConfiguration(); injected.websiteDataStore = regular.webView.configuration.websiteDataStore
         let popup = s.addTab(isPrivate: true, configuration: injected, select: false, load: false)
-        XCTAssertTrue(popup.webView.configuration.websiteDataStore === privateTab.webView.configuration.websiteDataStore)
+        XCTAssertFalse(popup.webView.configuration.websiteDataStore === privateTab.webView.configuration.websiteDataStore)
         XCTAssertFalse(popup.webView.configuration.websiteDataStore === regular.webView.configuration.websiteDataStore)
         XCTAssertFalse(popup.webView.configuration.websiteDataStore === other.addTab(isPrivate: true, load: false).webView.configuration.websiteDataStore)
         s.closeTab(popup.id); s.closeTab(privateTab.id)

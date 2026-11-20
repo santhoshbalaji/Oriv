@@ -30,7 +30,7 @@ import Observation
         // Window creation can reach the UI delegate before navigation policy.
         guard navigationAction.targetFrame == nil, navigationAction.request.url?.scheme?.lowercased() != "data",
               let session, session.isProfileActive, let tab else { return nil }
-        return session.addTab(url: navigationAction.request.url, isPrivate: tab.isPrivate, configuration: configuration, load: false).webView
+        return session.openPopup(from: tab, url: navigationAction.request.url, configuration: configuration)
     }
     func webViewDidClose(_ webView: WKWebView) { if let tab { controller?.close([tab.id]) } }
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,

@@ -779,7 +779,7 @@ struct MobileBrowserView: View {
                 if tab?.isPrivate == true {
                     VStack(alignment: .leading, spacing: OrivSpacing.small) {
                         Label("Private browsing", systemImage: "eyeglasses").font(.headline).foregroundStyle(theme.privateAccent)
-                        Text("Private tabs aren’t saved or added to history. Their cookies and website data are erased when the last private tab closes. Websites and your network can still see your activity.").font(.callout).foregroundStyle(theme.secondaryText)
+                        Text("Private tabs aren’t saved or added to history. Cookies and website data are discarded when the last tab sharing them closes. Websites and your network can still see your activity.").font(.callout).foregroundStyle(theme.secondaryText)
                     }.padding(.top, 40)
                 } else {
                     StartPageSites(session: controller.session, emptyMessage: "Bookmarks and frequently visited sites appear here.",

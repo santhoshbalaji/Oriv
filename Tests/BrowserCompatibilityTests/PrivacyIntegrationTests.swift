@@ -92,6 +92,104 @@ import UIKit
         try await wait { tab.title == "Privacy fixture" && !tab.isLoading || tab.errorMessage != nil }
         XCTAssertNil(tab.errorMessage)
     }
+    func testPrivateTabIsolationDefaultsOnAndSavesExplicitOptOut() throws {
+        let name = "oriv.private-isolation." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        // An existing installation with unrelated settings also defaults to on.
+        defaults.set(false, forKey: "browser.restoreTabs")
+        let isolation = PrivateTabIsolation(defaults: defaults)
+        XCTAssertTrue(isolation.isEnabled)
+        isolation.isEnabled = false
+        XCTAssertFalse(PrivateTabIsolation(defaults: defaults).isEnabled)
+    }
+
+    func testPrivateCookieIsolationPreservesPopupAndExistingTabStores() async throws {
+        #if os(macOS)
+        let controller = BrowserController(testing: true, websiteStore: .nonPersistent())
+        #else
+        let controller = MobileController()
+        #endif
+        let session = controller.session
+        defer { session.shutdown() }
+        let url = base.appendingPathComponent("private-cookie-fixture")
+        let regular = try XCTUnwrap(session.selectedTab)
+        let opener = session.addTab(isPrivate: true, load: false)
+        let isolated = session.addTab(isPrivate: true, load: false)
+        let openerStore = try XCTUnwrap(opener.websiteDataStore)
+        XCTAssertFalse(openerStore.isPersistent)
+        XCTAssertFalse(isolated.websiteDataStore === openerStore)
+
+        func navigate(_ tab: BrowserTab) async throws {
+            try hostFixture(tab)
+            try await waitForWebFixture(tab, at: url, timeout: 35) { tab.navigate(to: url) }
+        }
+        func assertCookie(_ tab: BrowserTab, present: Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+            let cookie = try await tab.webView.evaluateJavaScript("document.cookie") as? String
+            XCTAssertEqual(cookie?.contains("oriv-private=synthetic"), present, file: file, line: line)
+        }
+        func setCookie(_ tab: BrowserTab) async throws {
+            _ = try await tab.webView.evaluateJavaScript("document.cookie = 'oriv-private=synthetic; path=/'")
+            try await assertCookie(tab, present: true)
+        }
+        try await navigate(opener)
+        try await setCookie(opener)
+        try await navigate(isolated)
+        try await assertCookie(isolated, present: false)
+
+        session.duplicateTab(opener.id)
+        let duplicate = try XCTUnwrap(session.selectedTab)
+        XCTAssertEqual(duplicate.url, url)
+        XCTAssertFalse(duplicate.websiteDataStore === openerStore)
+        session.closeTab(duplicate.id)
+
+        // Flip the setting before requesting a real WebKit popup.
+        session.settings.privateTabIsolation.isEnabled = false
+        var rule = SiteRule()
+        rule.allowsAutomaticPopups = true
+        session.settings.setRule(rule, for: url, isPrivate: true)
+        session.selectTab(opener.id)
+        let previousIDs = Set(session.tabs.map(\.id))
+        _ = try await opener.webView.evaluateJavaScript("window.open('/private-cookie-fixture', 'login'); true")
+        try await waitForFixtureCondition("WebKit login popup creation", timeout: 35) {
+            session.tabs.contains { !previousIDs.contains($0.id) }
+        }
+        let popup = try XCTUnwrap(session.tabs.first { !previousIDs.contains($0.id) })
+        try hostFixture(popup)
+        try await waitForFixtureCondition("the popup fixture document", timeout: 35) {
+            popup.title == "Private cookie fixture" && !popup.isLoading
+        }
+        XCTAssertTrue(popup.websiteDataStore === openerStore)
+        try await assertCookie(popup, present: true)
+        let hasOpener = try await popup.webView.evaluateJavaScript("window.opener !== null") as? Bool
+        XCTAssertEqual(hasOpener, true)
+        session.closeTab(opener.id)
+        XCTAssertNil(opener.websiteDataStore)
+        try await assertCookie(popup, present: true)
+        session.closeTab(popup.id)
+        XCTAssertNil(popup.websiteDataStore)
+
+        let sharedA = session.addTab(isPrivate: true, load: false)
+        let sharedB = session.addTab(isPrivate: true, load: false)
+        XCTAssertTrue(sharedA.websiteDataStore === sharedB.websiteDataStore)
+        try await navigate(sharedA)
+        try await assertCookie(sharedA, present: false)
+        try await setCookie(sharedA)
+        try await navigate(sharedB)
+        try await assertCookie(sharedB, present: true)
+        try await assertCookie(isolated, present: false)
+        try await navigate(regular)
+        try await assertCookie(regular, present: false)
+
+        session.closeTab(sharedA.id)
+        session.closeTab(sharedB.id)
+        let freshShared = session.addTab(isPrivate: true, load: false)
+        try await navigate(freshShared)
+        try await assertCookie(freshShared, present: false)
+        XCTAssertFalse(session.canReopenTab)
+        XCTAssertEqual(session.snapshot().tabs.map(\.id), [regular.id])
+    }
+
     func testBundledRulesCompileColdAndWarm() async throws {
         let namespace = "oriv.privacy-benchmark." + UUID().uuidString
         let cold = AdBlocker(cacheNamespace: namespace)

@@ -155,7 +155,7 @@ import WebKit
         let second = external.addTab(load: false)
         XCTAssertTrue(external.tabs.allSatisfy(\.isPrivate))
         XCTAssertFalse(first.webView.configuration.websiteDataStore.isPersistent)
-        XCTAssertTrue(first.webView.configuration.websiteDataStore === second.webView.configuration.websiteDataStore)
+        XCTAssertFalse(first.webView.configuration.websiteDataStore === second.webView.configuration.websiteDataStore)
         XCTAssertFalse(first.webView.configuration.websiteDataStore === regularPrivate.webView.configuration.websiteDataStore)
         XCTAssertNil(first.recordHistoryVisit)
         XCTAssertTrue(external.history.isEmpty); XCTAssertTrue(external.snapshot().tabs.isEmpty)

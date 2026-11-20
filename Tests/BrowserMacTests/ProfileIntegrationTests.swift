@@ -134,7 +134,7 @@ import XCTest
         profiles.handleIncomingURL(URL(string: "https://example.test/second")!)
         XCTAssertTrue(profiles.externalPrivate === context); XCTAssertEqual(context.session.tabs.count, 2); XCTAssertEqual(opened, 2)
         XCTAssertEqual(presentationRequests, [1, 2], "Both first and subsequent URLs must request presentation before opening the scene")
-        XCTAssertTrue(context.session.selectedTab?.webView.configuration.websiteDataStore === store)
+        XCTAssertFalse(context.session.selectedTab?.webView.configuration.websiteDataStore === store)
         let current = URL(string: "https://example.test/after-navigation")!
         context.session.setProfileActive(false)
         context.session.selectedTab?.navigate(to: current)

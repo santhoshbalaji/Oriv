@@ -3,9 +3,23 @@ import Foundation
 import Observation
 import WebKit
 
+/// A device-local preference shared by regular profiles and profile-less sessions.
+@MainActor @Observable
+public final class PrivateTabIsolation {
+    private static let key = "browser.isolatePrivateTabs"
+    @ObservationIgnored private let defaults: UserDefaults?
+    public var isEnabled: Bool { didSet { defaults?.set(isEnabled, forKey: Self.key) } }
+
+    public init(defaults: UserDefaults? = nil) {
+        self.defaults = defaults
+        isEnabled = defaults?.object(forKey: Self.key) as? Bool ?? true
+    }
+}
+
 @MainActor @Observable
 public final class BrowserSettings {
     public let privacy: BrowserPrivacy
+    public let privateTabIsolation: PrivateTabIsolation
     public var searchEngine: SearchEngine { didSet { defaults?.set(searchEngine.rawValue, forKey: "browser.searchEngine") } }
     public var restoreTabs: Bool { didSet { defaults?.set(restoreTabs, forKey: "browser.restoreTabs") } }
     public var defaultZoom: Double { didSet { defaults?.set(defaultZoom, forKey: "browser.defaultZoom") } }
@@ -14,8 +28,9 @@ public final class BrowserSettings {
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored public var onRulesChanged: (() -> Void)?
 
-    public init(defaults: UserDefaults? = .standard) {
+    public init(defaults: UserDefaults? = .standard, privateTabIsolation: PrivateTabIsolation? = nil) {
         self.defaults = defaults
+        self.privateTabIsolation = privateTabIsolation ?? PrivateTabIsolation(defaults: defaults)
         privacy = BrowserPrivacy(defaults: defaults)
         searchEngine = defaults?.string(forKey: "browser.searchEngine").flatMap(SearchEngine.init(rawValue:)) ?? .duckDuckGo
         restoreTabs = defaults?.object(forKey: "browser.restoreTabs") as? Bool ?? true

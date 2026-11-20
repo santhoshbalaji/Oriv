@@ -27,7 +27,7 @@ struct StartPage: View {
     private var privateExplanation: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Private browsing", systemImage: "eyeglasses").font(OrivType.body.weight(.semibold)).foregroundStyle(theme.privateAccent)
-            Text("Private tabs aren’t saved or added to history. Their cookies and website data are erased when the last private tab closes. Websites and your network can still see your activity, and downloaded files stay on your Mac.")
+            Text("Private tabs aren’t saved or added to history. Cookies and website data are discarded when the last tab sharing them closes. Websites and your network can still see your activity, and downloaded files stay on your Mac.")
                 .font(OrivType.body).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
         }.padding(.top, 80)
     }

@@ -2,7 +2,15 @@
 
 Oriv uses the same privacy engine on Mac and iPhone. Settings → Privacy applies to the selected profile, including its private tabs. Existing users retain their saved Off/Balanced/Strict blocker choice. New settings default to link cleaning on, HTTPS upgrades on, native Global Privacy Control on where available, and cookie-banner hiding off.
 
-Open **Site Privacy** from the Mac page menu or **Site Privacy & Settings** from the iPhone page menu. Each layer shows its effective setting, the blocker mode, and the bundled list version. Turn off one layer for the current exact hostname, or choose **Site broken? Turn protections off for this site**. Changes offer a reload; choosing Later preserves the current form. Reset Site Protections removes overrides. Off in profile settings takes priority over a site's switch. Scheme/port changes share an exception, while subdomains have separate exceptions. Private exceptions remain memory-only and are erased with the last private tab. The external-private context keeps its existing profile-less ephemeral store and lifetime.
+Open **Site Privacy** from the Mac page menu or **Site Privacy & Settings** from the iPhone page menu. Each layer shows its effective setting, the blocker mode, and the bundled list version. Turn off one layer for the current exact hostname, or choose **Site broken? Turn protections off for this site**. Changes offer a reload; choosing Later preserves the current form. Reset Site Protections removes overrides. Off in profile settings takes priority over a site's switch. Scheme/port changes share an exception, while subdomains have separate exceptions. Private exceptions remain memory-only and are erased with the last private tab. The external-private context remains profile-less.
+
+## Private tab isolation
+
+**Isolate each private tab** is on by default on Mac and iPhone and applies to tabs opened after a setting change. The device-local setting applies to every profile and to external private browsing. New private tabs, duplicates and links explicitly opened in another tab by Oriv start with fresh, non-persistent cookies, local storage, IndexedDB, caches and service worker state.
+
+WebKit-created windows, including sign-in popups and site links that request a new window, use their opener’s store to preserve login and opener behavior. The store lasts until the last tab in that group closes. Turn isolation off to let newly opened private tabs share one ephemeral store within their session. Closing the last tab using that store discards it. Private tabs stay out of saved sessions and Reopen Closed Tab.
+
+Content blockers still apply in each tab. Oriv’s favicon requests use their own cookieless transport. Private icons stay in the session’s in-memory favicon cache. Explicitly saved downloads can remain on disk. More isolated tabs can increase WebKit memory use because they keep separate website state.
 
 ## Clean links
 

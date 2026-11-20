@@ -88,7 +88,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored private var applyingRestoration = false
     @ObservationIgnored private var backingWebView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
-    @ObservationIgnored private let configuration: WKWebViewConfiguration
+    @ObservationIgnored private var configuration: WKWebViewConfiguration?
+    var websiteDataStore: WKWebsiteDataStore? { configuration?.websiteDataStore }
     @ObservationIgnored private let adBlocker: AdBlocker?
     @ObservationIgnored private let settings: BrowserSettings?
     @ObservationIgnored private var policyGeneration = 0
@@ -126,20 +127,24 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         self.isPrivate = isPrivate
         self.settings = settings
         pageZoom = settings?.defaultZoom ?? 1
-        self.configuration = configuration ?? WKWebViewConfiguration()
+        let suppliedConfiguration = configuration != nil
+        let configuration = configuration ?? WKWebViewConfiguration()
+        self.configuration = configuration
         #if os(macOS) && ORIV_BENCH
         self.adBlocker = BenchmarkOptions.disabled.contains("content-blocker") ? nil : adBlocker
         #else
         self.adBlocker = adBlocker
         #endif
-        if configuration == nil { self.configuration.websiteDataStore = dataStore }
+        if !suppliedConfiguration {
+            configuration.websiteDataStore = isPrivate && dataStore.isPersistent ? .nonPersistent() : dataStore
+        }
         // WebKit popups can share their opener's controller. Give each tab its
         // own filtering state so a site's exception cannot disable another tab.
         // Oriv installs its own adapters after creation; preserve supplied scripts.
         let contentController = WKUserContentController()
-        self.configuration.userContentController.userScripts.forEach { contentController.addUserScript($0) }
-        self.configuration.userContentController = contentController
-        BrowserWebConfiguration.apply(to: self.configuration)
+        configuration.userContentController.userScripts.forEach { contentController.addUserScript($0) }
+        configuration.userContentController = contentController
+        BrowserWebConfiguration.apply(to: configuration)
         super.init()
         let world = WKContentWorld.world(name: "OrivTabState")
         #if os(macOS) && ORIV_BENCH
@@ -283,6 +288,12 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     public var webView: WKWebView {
         if let backingWebView { return backingWebView }
+        guard let configuration else {
+            // A view request during UI teardown cannot recreate the closed tab.
+            let empty = WKWebViewConfiguration()
+            empty.websiteDataStore = .nonPersistent()
+            return WKWebView(frame: .zero, configuration: empty)
+        }
         // A popup can execute in its initial about:blank document before a
         // navigation callback. Install the opener session's prepared protection now.
         adBlocker?.applyPrepared(to: configuration.userContentController, url: url, isPrivate: isPrivate)
@@ -749,14 +760,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         backingWebView?.navigationDelegate = nil
         backingWebView?.uiDelegate = nil
         observations.removeAll()
-        configuration.userContentController.removeScriptMessageHandler(forName: "editedField", contentWorld: .world(name: "OrivTabState"))
-        configuration.userContentController.removeScriptMessageHandler(forName: "tabPaint", contentWorld: .world(name: "OrivTabState"))
+        configuration?.userContentController.removeScriptMessageHandler(forName: "editedField", contentWorld: .world(name: "OrivTabState"))
+        configuration?.userContentController.removeScriptMessageHandler(forName: "tabPaint", contentWorld: .world(name: "OrivTabState"))
         #if os(macOS)
-        configuration.userContentController.removeScriptMessageHandler(forName: "tabAudio", contentWorld: .world(name: "OrivTabState"))
-        configuration.userContentController.removeScriptMessageHandler(forName: "displayCaptureRequested", contentWorld: .page)
+        configuration?.userContentController.removeScriptMessageHandler(forName: "tabAudio", contentWorld: .world(name: "OrivTabState"))
+        configuration?.userContentController.removeScriptMessageHandler(forName: "displayCaptureRequested", contentWorld: .page)
         #endif
         hasActiveDownloads = nil
         backingWebView = nil
+        configuration = nil
     }
 
     public func refreshContentBlocking() {

@@ -28,7 +28,8 @@ import WebKit
     }
 
     public init(profile: BrowserProfile?, rootOverride: URL? = nil, testing: Bool,
-                bundleID: String, websiteStore: WKWebsiteDataStore? = nil) {
+                bundleID: String, websiteStore: WKWebsiteDataStore? = nil,
+                privateTabIsolation: PrivateTabIsolation? = nil) {
         if !testing, let profile {
             defaults = profile.defaultsName(bundleID: bundleID).flatMap { UserDefaults(suiteName: $0) }
                 ?? (profile.isPersonal ? .standard : nil)
@@ -51,7 +52,8 @@ import WebKit
         session = BrowserSession(
             store: profileDirectory.map { SessionFileStore(fileURL: $0.appendingPathComponent("session.json")) },
             dataStore: dataStore, adBlocker: AdBlocker(defaults: defaults),
-            settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil,
+            settings: BrowserSettings(defaults: defaults, privateTabIsolation:
+                privateTabIsolation ?? PrivateTabIsolation(defaults: testing ? nil : .standard)), externalPrivate: profile == nil,
             faviconDirectory: profileDirectory?.appendingPathComponent("Favicons", isDirectory: true)
         )
     }

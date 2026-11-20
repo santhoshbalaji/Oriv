@@ -15,6 +15,7 @@ import BrowserEngine
         didSet { if !isEphemeral { UserDefaults.standard.set(openExternalLinksPrivately, forKey: ExternalLinkRouting.defaultsKey) } }
     }
     @ObservationIgnored private let isEphemeral: Bool
+    private let privateTabIsolation: PrivateTabIsolation
     @ObservationIgnored private var controllers: [UUID: MobileController] = [:]
     init() {
         #if DEBUG && targetEnvironment(simulator)
@@ -24,6 +25,7 @@ import BrowserEngine
         #endif
         let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1" || ChromeVisualFixture.mode != nil || liveCapture
         isEphemeral = testing
+        privateTabIsolation = PrivateTabIsolation(defaults: testing ? nil : .standard)
         openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: testing ? nil : .standard)
         continuity = BrowserContinuity(root: testing ? nil : URL.applicationSupportDirectory.appendingPathComponent("Oriv"), deviceName: "iPhone")
         // Compatibility with the earlier mobile profile-name list, without accessing any cloud service.
@@ -38,7 +40,7 @@ import BrowserEngine
         profiles = ChromeVisualFixture.mode != nil ? [.personal, BrowserProfile(name: "Work")] : known
         let initialProfile = known.first { $0.id == selected && $0.archivedAt == nil } ?? .personal
         lastRegularProfileID = initialProfile.id
-        current = MobileController(profile: initialProfile)
+        current = MobileController(profile: initialProfile, privateTabIsolation: privateTabIsolation)
         controllers[current.profileID!] = current
         current.profiles = self
         continuity.configure(profiles: { [weak self] in self?.profiles.filter { $0.archivedAt == nil } ?? [] }, source: { [weak self] profile in
@@ -56,7 +58,7 @@ import BrowserEngine
     }
     private func obtain(_ profile: BrowserProfile) -> MobileController {
         if let existing = controllers[profile.id] { return existing }
-        let created = MobileController(profile: profile); created.session.setProfileActive(false)
+        let created = MobileController(profile: profile, privateTabIsolation: privateTabIsolation); created.session.setProfileActive(false)
         created.profiles = self
         controllers[profile.id] = created; return created
     }
@@ -123,7 +125,7 @@ import BrowserEngine
         }
         current.sheet = nil; current.background()
         if externalPrivate == nil {
-            let context = MobileController(profile: nil)
+            let context = MobileController(profile: nil, privateTabIsolation: privateTabIsolation)
             let initial = context.session.selectedTabID
             context.session.addTab(url: url, isPrivate: true, load: false)
             if let initial { context.session.closeTab(initial) }

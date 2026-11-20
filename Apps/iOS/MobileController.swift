@@ -40,7 +40,7 @@ import WebKit
     @ObservationIgnored private var bookmarkMigration: Task<Void, Never>?
     @ObservationIgnored private var delegates: [UUID: MobileWebDelegate] = [:]
 
-    init(profile: BrowserProfile? = .personal) {
+    init(profile: BrowserProfile? = .personal, privateTabIsolation: PrivateTabIsolation? = nil) {
         #if DEBUG && targetEnvironment(simulator)
         let liveCapture = ChromeVisualFixture.liveURL != nil
         #else
@@ -48,7 +48,8 @@ import WebKit
         #endif
         let testing = SessionFactory.isTesting || ChromeVisualFixture.mode != nil || liveCapture
         profileID = profile?.id
-        let factory = SessionFactory(profile: profile, testing: testing, bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile")
+        let factory = SessionFactory(profile: profile, testing: testing, bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile",
+                                     privateTabIsolation: privateTabIsolation)
         let defaults = factory.defaults
         profileDefaults = defaults
         appearance = defaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:)) ?? .t3Code

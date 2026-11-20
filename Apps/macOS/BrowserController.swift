@@ -72,11 +72,13 @@ final class BrowserController {
     @ObservationIgnored private var privacyMenus: [UUID: MacPrivacyLinkMenu] = [:]
     @ObservationIgnored private var adapters: [UUID: MacWebUIDelegate] = [:]
 
-    init(profile: BrowserProfile? = .personal, rootDirectory: URL? = nil, testing: Bool? = nil, websiteStore: WKWebsiteDataStore? = nil) {
+    init(profile: BrowserProfile? = .personal, rootDirectory: URL? = nil, testing: Bool? = nil, websiteStore: WKWebsiteDataStore? = nil,
+         privateTabIsolation: PrivateTabIsolation? = nil) {
         self.profile = profile
         let factory = SessionFactory(profile: profile, rootOverride: rootDirectory,
             testing: testing ?? SessionFactory.isTesting,
-            bundleID: Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac", websiteStore: websiteStore)
+            bundleID: Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac", websiteStore: websiteStore,
+            privateTabIsolation: privateTabIsolation)
         let defaults = factory.defaults
         profileDefaults = defaults
         sidebar.preferredRail = defaults?.bool(forKey: "compactSidebar") ?? false

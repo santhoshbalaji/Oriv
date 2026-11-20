@@ -75,6 +75,9 @@ class Handler(BaseHTTPRequestHandler):
             count = Handler.privacy_destination_requests if run is None else Handler.privacy_destination_runs.get(run, 0)
             self.send_bytes(json.dumps({'destinationRequests': count}).encode(), 'application/json', no_store=True)
             return
+        if path == '/private-cookie-fixture':
+            self.page('Private cookie fixture', '<main><h1>Private cookie fixture</h1></main>')
+            return
         if path == '/privacy':
             self.send_bytes((FIXTURES / 'privacy.html').read_text().replace(':8768', ':' + str(self.server.server_port)).replace('__GPC__', json.dumps(self.headers.get('Sec-GPC'))).encode(), 'text/html; charset=utf-8')
             return

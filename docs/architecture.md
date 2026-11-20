@@ -12,7 +12,7 @@ Discarded pages keep WebKit `interactionState`, view size and scroll coordinates
 
 Each profile owns a browser session, site rules, blocker preferences and separate persistent website storage. Controllers are created when selected, or as inactive data sources after continuity opt-in. Sync does not activate their WebViews. Inactive profiles suspend media/capture and cannot present website dialogs or popups; existing downloads retain their owner.
 
-Private tabs share a separate ephemeral store within a private session. Closing the last private tab discards that store and private site exceptions/rules. Private records never enter history, bookmarks, restored sessions or reopen history. Explicitly saved downloads can remain on disk; private browsing is not network anonymity.
+Private tabs use separate ephemeral stores by default. WebKit popups share the opener’s store. With isolation off, new private tabs share a store scoped to the session. Each store is discarded when its last tab closes. Closing the last private tab also clears private site exceptions and rules. Private records never enter history, bookmarks, restored sessions or reopen history. Explicitly saved downloads can remain on disk; private browsing is not network anonymity.
 
 `BrowserSession` owns URL/title bookmarks independently of any saved-content database. Snapshots are atomic, bounded and protected by a last-valid backup. Unknown future versions pause writes rather than silently rolling back. Bookmarks remain scoped to their profile and can optionally sync. Website login data always remains local to the device and profile.
 

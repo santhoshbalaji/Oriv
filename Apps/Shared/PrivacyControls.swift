@@ -7,6 +7,12 @@ struct PrivacySettingsControls: View {
     let session: BrowserSession
     @State private var acknowledgements = false
     var body: some View {
+        Toggle("Isolate each private tab", isOn: Binding(
+            get: { session.settings.privateTabIsolation.isEnabled },
+            set: { session.settings.privateTabIsolation.isEnabled = $0 }
+        ))
+        Text("Give new private tabs their own cookies and website data. Changes apply only to tabs you open next.")
+            .font(.caption).foregroundStyle(.secondary)
         ForEach(PrivacyLayer.allCases) { layer in
             Toggle(layer.title, isOn: Binding(get: { session.settings.privacy.isEnabled(layer) }, set: { session.settings.privacy.setEnabled($0, layer) }))
                 .disabled(layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC)
