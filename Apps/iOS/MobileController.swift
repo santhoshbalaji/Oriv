@@ -93,11 +93,18 @@ import WebKit
             adapter.installContextTracking(on: view)
         }
         session.didCloseTab = { [weak self] id in self?.delegates.removeValue(forKey: id)?.invalidate(); self?.tabPresentation.remove(id); self?.chromes.removeValue(forKey:id)?.observe(nil) }
-        session.handleDownload = { [weak self] download in self?.downloads.begin(download) }
-        session.handleExternalURL = { url in
+        session.handleDownload = { [weak self] download in
+            guard let self, session.isProfileActive else { download.cancel { _ in }; return }
+            downloads.begin(download)
+        }
+        session.handleExternalURL = { [weak self] url in
+            guard self?.session.isProfileActive == true else { return }
             let alert = UIAlertController(title: "Open another app?", message: url.absoluteString, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-            alert.addAction(UIAlertAction(title: "Open", style: .default) { _ in UIApplication.shared.open(url) })
+            alert.addAction(UIAlertAction(title: "Open", style: .default) { [weak self] _ in
+                guard self?.session.isProfileActive == true else { return }
+                UIApplication.shared.open(url)
+            })
             MobileWebDelegate.presenter?.present(alert, animated: true)
         }
         if !testing { warmProtection() }
