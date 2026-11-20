@@ -36,6 +36,10 @@ def scope(domains):
         raise ValueError('mixed-domain-scope') # WebKit disallows both in one trigger.
     return {'if-domain': sorted(set(yes))} if yes else {'unless-domain': sorted(set(no))} if no else {}
 
+def cosmetic_domain_url(domain):
+    host = re.escape(domain).replace(r'\*', '[a-z.]+')
+    return r'^https?://([^/]+\.)?' + host + '[:/]'
+
 def cosmetic_scope(domains):
     # TLD wildcard exceptions are allowed conservatively across suffixes rather
     # than dropping an upstream exception (e.g. sony.*). No procedural syntax.
@@ -46,8 +50,7 @@ def cosmetic_scope(domains):
             negative = domain.startswith('~')
             domain = domain.lstrip('~').lower()
             if not re.fullmatch(r'[a-z0-9_-]+(?:\.[a-z0-9_-]+)*(?:\.\*)?', domain): raise
-            host = re.escape(domain).replace(r'\*', '[a-z.]+')
-            (no if negative else yes).append('^https?://([^/]+\\.)?' + host + '[:/]')
+            (no if negative else yes).append(cosmetic_domain_url(domain))
         if yes and no: raise ValueError('mixed-domain-scope')
         return {'if-top-url': sorted(set(yes))} if yes else {'unless-top-url': sorted(set(no))}
 
@@ -133,8 +136,14 @@ def subtract_cosmetic_scope(scope, exception):
     if not scope and key.startswith('if-'):
         return {'unless-' + key[3:]: excluded}
     current_key, included = next(iter(scope.items())) if scope else (None, [])
-    if current_key == key.replace('if-', 'unless-', 1) and key.startswith('if-'):
-        return {current_key: sorted(set(included + excluded))}
+    if current_key and current_key.startswith('unless-') and key.startswith('if-'):
+        if current_key == key.replace('if-', 'unless-', 1):
+            return {current_key: sorted(set(included + excluded))}
+        # A normal-domain exception and a TLD-wildcard exception for the
+        # same selector can share one URL condition.
+        common = (included if current_key == 'unless-top-url' else [cosmetic_domain_url(d[1:]) for d in included])
+        extra = (excluded if key == 'if-top-url' else [cosmetic_domain_url(d[1:]) for d in excluded])
+        return {'unless-top-url': sorted(set(common + extra))}
     if current_key == key == 'if-domain':
         # WebKit has one condition per rule. If an exception is narrower than
         # an included domain, omit this selector for that domain family only.

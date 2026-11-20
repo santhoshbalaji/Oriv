@@ -41,6 +41,16 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(by_selector['.promo'], {'url-filter': '.*', 'if-domain': ['*elsewhere.test']})
         self.assertTrue(all(rule['action']['type'] == 'css-display-none' for rule in rules))
 
+    def test_mixed_exception_patterns_keep_unrelated_sites(self):
+        _, _, entries, exceptions, _ = c.parse(
+            '###cookie\nexample.com#@##cookie\nexample.*#@##cookie\n'
+        )
+        rule, = c.cosmetic_rules(entries, exceptions)
+        self.assertEqual(rule['trigger'], {
+            'url-filter': '.*',
+            'unless-top-url': sorted([c.cosmetic_domain_url('example.com'), c.cosmetic_domain_url('example.*')]),
+        })
+
     def test_bundle_headers_digests_and_counts(self):
         import hashlib
         manifest=json.loads((c.OUT/'manifest.json').read_text())

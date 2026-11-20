@@ -55,11 +55,11 @@
   "outputs": {
     "cookies-cosmetics": [
       {
-        "bundledBytes": 373648,
-        "bytes": 1492697,
+        "bundledBytes": 375576,
+        "bytes": 1508998,
         "file": "cookies-cosmetics-0.orivrules",
-        "rules": 7514,
-        "sha256": "61939e78aa525687c0deada391373d22e917179925668deb9f3923d1cc9f1b88"
+        "rules": 7516,
+        "sha256": "f2ceb957cfdddedfb164f7848de896f82e3ab54da56d713e591e0042713c42c3"
       }
     ],
     "cookies-network": [
