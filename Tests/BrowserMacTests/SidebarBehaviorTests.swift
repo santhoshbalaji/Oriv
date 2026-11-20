@@ -285,7 +285,8 @@ import XCTest
                 XCTAssertEqual(frames[offset].minX, frames[8].minX, accuracy: 0.5)
                 XCTAssertEqual(frames[offset + 3].maxX, frames[8].maxX, accuracy: 0.5)
                 for (left, right) in zip(row, row.dropFirst()) {
-                    XCTAssertEqual(right.minX - left.maxX, 8, accuracy: 0.5)
+                    // Fractional tile widths snap to device pixels; 1x hosted runners land up to ~0.75 pt off.
+                    XCTAssertEqual(right.minX - left.maxX, 8, accuracy: 1)
                     XCTAssertEqual(left.midY, right.midY, accuracy: 0.5)
                 }
             }
