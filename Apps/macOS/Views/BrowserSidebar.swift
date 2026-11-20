@@ -451,7 +451,8 @@ extension EnvironmentValues {
 /// text cannot become white-on-light-grey when the page and system differ.
 /// check-contrast.py reads these constants to test the composited backgrounds.
 struct MacSidebarGlass: ViewModifier {
-    static let backingOpacity = 0.96
+    // Bounds the sampled glass behind fixed sidebar text in both appearances.
+    static let backingOpacity = 0.83
     private let theme = Theme.sidebar
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency

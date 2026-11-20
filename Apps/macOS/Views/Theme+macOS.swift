@@ -9,10 +9,10 @@ extension Theme {
         chrome: adaptive("SidebarChrome", light: 0xE6E4EA, dark: 0x302D35),
         separator: adaptive("SidebarOutline", light: 0xC7C1CE, dark: 0x514B59),
         text: adaptive("SidebarInk", light: 0x252329, dark: 0xF5F3F7),
-        secondaryText: adaptive("SidebarSecondary", light: 0x5B5660, dark: 0xB5B0BC),
+        secondaryText: adaptive("SidebarSecondary", light: 0x504A55, dark: 0xC7C2CF),
         selection: adaptive("SidebarSelection", light: 0xD8D0E0, dark: 0x47414E),
         thread: adaptive("SidebarHover", light: 0xE1DDE6, dark: 0x35313C),
-        accentText: adaptive("SidebarAccentText", light: 0x713C52, dark: 0xE3ADC4))
+        accentText: adaptive("SidebarAccentText", light: 0x713C52, dark: 0xE9B9CF))
 
     static func editorial(_ size: CGFloat) -> Font {
         .system(size: size, weight: .medium, design: .serif)

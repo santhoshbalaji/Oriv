@@ -88,7 +88,7 @@ for mode in ("light", "dark"):
 # dark-appearance + white-page regression.
 sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
 assert "content.background(theme.surface" in sidebar_source
-assert "contrast == .increased" in sidebar_source
+assert "reduceTransparency || captureReduceTransparency || contrast == .increased" in sidebar_source
 assert "content.background(theme.surface.opacity(Self.backingOpacity)" in sidebar_source
 assert "selected ? theme.selection" in sidebar_source
 sidebar_palette = adaptive_tokens(block("static let sidebar = Theme(", "static func editorial", mac_theme))
@@ -111,7 +111,7 @@ for mode in ("light", "dark"):
     primary = "000000" if mode == "light" else "FFFFFF"
     # Black/white bound every channel of any sampled/tinted glass pixel. Include
     # the requested purple explicitly and mid-grey from the reported failure.
-    for page in ("FFFFFF", "000000", "6000D9", "888888"):
+    for page in ("FFFFFF", "000000", "6000D9", "888888", "00D4C8", "FF8C24"):
         for accessibility in ("glass", "reduce transparency", "increase contrast"):
             panel = composite(surface, page, sidebar_opacity if accessibility == "glass" else 1)
             backgrounds = {"panel": panel, "selection / rail": tokens["selection"],

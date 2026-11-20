@@ -53,7 +53,7 @@ import WebKit
         }
         BackgroundUIMode.installAtLaunch()
         if BackgroundUIMode.isEnabled {
-            if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" {
+            if ["sidebar-contrast", "p2"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("All windows stay off every display. Contrast matrix uses the real sidebar with a known white/black/purple glass input and labelled page swatch; the header is a layout spacer. It renders the production contrast backing and controls; reduced/increased variants use the opaque accessibility path. These are synthetic compositing/layout images, not live Liquid Glass acceptance.")
             } else {
                 manifest.limitations.append("All windows stay off every display. Sidebar/glass fallback fixtures use the app's opaque Reduce Transparency variant; they cannot verify Liquid Glass.")
@@ -62,6 +62,7 @@ import WebKit
         if environment["ORIV_BATCH_VISUALS"] == "1" { await renderBatchScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-live" { await renderLiveSidebar(into: directory, activate: activate) }
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "p2" { await renderP2Scenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-attached" { await renderAttachedSidebarScenes(into: directory, activate: activate) }
@@ -223,6 +224,111 @@ import WebKit
         *{box-sizing:border-box}body{margin:0;background:\(color);color:\(ink);font-family:Georgia,serif}header{height:66px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff50;font:600 12px -apple-system,sans-serif}header strong{font-size:25px;color:\(heading);letter-spacing:-1px}.hero{padding:32px max(30px,14vw) 60px;min-height:530px}h1{font-size:48px;font-weight:500;line-height:1.05;color:\(heading);letter-spacing:-2px;margin:0 0 38px}h1 span{display:block;margin-left:80px}.copy{margin-left:80px;max-width:780px;font-size:29px;line-height:1.12;letter-spacing:-1px}.copy p{margin:0 0 32px}.story{background:#e0ebed;color:#35134d;padding:26px max(30px,14vw) 80px;min-height:1400px}.story blockquote{margin:0;border-top:1px solid #958ca5;border-bottom:1px solid #958ca5;padding:24px 0;font-size:28px}.story h2{font:700 28px -apple-system,sans-serif;margin-top:56px}.story p{font-size:30px;line-height:1.3}@media(max-width:700px){header strong{font-size:17px}.hero{padding:32px 30px 50px}h1{font-size:42px}.copy{font-size:25px;margin-left:28px}h1 span{margin-left:28px}}
         </style></head><body><header><span>[START]</span><strong>ENTREPRENEURS FIRST</strong><span>[MENU]</span></header><section class="hero"><h1>FOUND,<span>↳DON’T FOLLOW</span></h1><div class="copy"><p>We turn exceptional individuals into funded founders. We back you first, then give you a bridge to Silicon Valley.</p><p>You might have an early idea, or be testing a cofounder. You might have nothing. What we’re most interested in is you and your potential.</p></div></section><section class="story"><blockquote>“Joining EF was a life-changing decision.”</blockquote><h2>WE BUILD COFOUNDING TEAMS FROM SCRATCH.</h2><p>Your potential is the starting point.</p><p>Meet people with the ambition to build something new. Explore ideas, share what you know and find your next collaborator.</p></section></body></html>
         """
+    }
+
+    private static func renderP2Scenes(into directory: URL, activate: Bool) async {
+        let root = directory.appendingPathComponent("p2-fixture")
+        let home = TabRecord()
+        let tabs = [
+            TabRecord(title: "Field Notes", url: URL(string: "https://atlas.example")),
+            TabRecord(title: "Field Notes", url: URL(string: "https://coastal-research-archive.example")),
+            TabRecord(title: "Reading List", url: URL(string: "https://paper.example"))
+        ]
+        let bookmarks = [
+            Bookmark(title: "Atlas", url: tabs[0].url!),
+            Bookmark(title: "Paper Library", url: tabs[2].url!),
+            Bookmark(title: "Evening Radio", url: URL(string: "https://radio.example")!)
+        ]
+        let history = [
+            HistoryEntry(title: "Coastal Research Archive", url: tabs[1].url!, visitCount: 12),
+            HistoryEntry(title: "Weather Desk", url: URL(string: "https://weather.example")!, visitCount: 8),
+            HistoryEntry(title: "Design Journal", url: URL(string: "https://design.example")!, visitCount: 5)
+        ]
+        let profileRoot = BrowserProfile.personal.directory(in: root)
+        do {
+            try SessionFileStore(fileURL: profileRoot.appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: [home] + tabs, selectedTabID: home.id, bookmarks: bookmarks,
+                                      history: history, legacyBookmarksImported: true), discardPrevious: true)
+        } catch { manifest.failures.append("P2 fixture: \(error)"); return }
+        let controller = BrowserController(rootDirectory: root, testing: true)
+        defer { controller.shutdown() }
+        let icons = SiteIconDiskCache(directory: profileRoot.appendingPathComponent("Favicons"))
+        let artwork: [(Color, String)] = [
+            (.teal, "map.fill"), (.indigo, "books.vertical.fill"), (.red, "waveform"),
+            (.blue, "water.waves"), (.orange, "cloud.sun.fill"), (.purple, "scribble")
+        ]
+        for (url, (color, symbol)) in zip(bookmarks.map(\.url) + history.map(\.url), artwork) {
+            let renderer = ImageRenderer(content: ZStack {
+                RoundedRectangle(cornerRadius: 10).fill(color)
+                Image(systemName: symbol).font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
+            }.frame(width: 36, height: 36))
+            renderer.scale = 2
+            if let cg = renderer.cgImage, let data = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]),
+               let icon = await icons.decode(data), let key = SiteIconStore.key(url, isPrivate: false) {
+                await icons.write(icon, key: key)
+                await controller.session.siteIcons.loadCached(url)
+            } else { manifest.failures.append("P2 favicon fixture could not render") }
+        }
+        func find<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
+            if let match = view as? T { return match }
+            return view.subviews.lazy.compactMap { find(type, in: $0) }.first
+        }
+        let size = CGSize(width: 1150, height: 720)
+        let appearances = [("light", BrowserAppearance.light), ("dark", .dark)]
+        for (label, appearance) in appearances {
+            for layout in ["expanded", "rail"] {
+                controller.compactSidebar = layout == "rail"
+                let name = "mac-glass-p2-\(label)-\(layout)"
+                await capture(name, directory, size, key: activate, appearance: appearance, prepare: { window in
+                    writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+                    if label == "light", layout == "expanded", let content = window.contentView,
+                       let data = find(SidebarTabCollection.self, in: content)?.sidebar,
+                       let tab = controller.session.tabs.first(where: { $0.id == tabs[0].id }) {
+                        let items = data.menu(for: tab).items.map { $0.isSeparatorItem ? "—" : $0.title }
+                        if let receipt = try? JSONEncoder().encode(items) {
+                            try? receipt.write(to: directory.appendingPathComponent("tab-menu-geometry.json"))
+                        }
+                    }
+                }) {
+                    BrowserWindow(controller: controller).frame(width: size.width, height: size.height)
+                        .environment(\.chromeReduceTransparencyOverride, true)
+                }
+            }
+        }
+        manifest.skipped.append("mac-glass-p2-menu: native NSMenu tracking uses a display-constrained system window. The command inventory was read without opening it.")
+        controller.compactSidebar = false
+        controller.newTab(isPrivate: true)
+        await capture("mac-glass-p2-private", directory, size, key: activate, appearance: .dark) {
+            BrowserWindow(controller: controller).frame(width: size.width, height: size.height)
+                .environment(\.chromeReduceTransparencyOverride, true)
+        }
+        controller.session.selectTab(home.id)
+        controller.session.clearHistory()
+        for (label, appearance) in appearances {
+            await capture("mac-glass-p2-\(label)-no-history", directory, size, key: activate, appearance: appearance) {
+                BrowserWindow(controller: controller).frame(width: size.width, height: size.height)
+                    .environment(\.chromeReduceTransparencyOverride, true)
+            }
+            let backdrop = Color(red: 0.04, green: 0.67, blue: 0.64)
+            for variant in ["glass-input", "reduced", "increased"] {
+                let name = "mac-glass-sidebar-contrast-p2-\(label)-\(variant)"
+                await capture(name, directory, size, key: activate, appearance: appearance) {
+                    HStack(spacing: 0) {
+                        BrowserSidebar(controller: controller).padding(.top, 24)
+                            .frame(width: MacBrowserLayout.sidebarWidth)
+                            .background { Color.clear.modifier(MacSidebarGlass()) }
+                        LinearGradient(colors: [backdrop, .indigo, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            .overlay(alignment: .topLeading) {
+                                Text("Synthetic colour input").font(.title).foregroundStyle(.white).padding(32)
+                            }
+                    }.frame(width: size.width, height: size.height)
+                        .environment(\.siteIcons, controller.session.siteIcons)
+                        .environment(\.sidebarCaptureBackdrop, backdrop)
+                        .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
+                        .environment(\.sidebarCaptureContrast, variant == "increased" ? .increased : .standard)
+                }
+            }
+        }
     }
 
     private static func renderSidebarContrastScenes(into directory: URL, activate: Bool) async {

@@ -147,15 +147,22 @@ Accessibility cases exercise the opaque material and selection outline through
 local capture overrides, without changing system accessibility settings.
 
 `scripts/check-contrast.py` reads the backing and highlight opacities from the
-sidebar source, composites them over both page extremes, purple and grey, and
+sidebar source, composites them over both page extremes, purple, grey, teal and orange, and
 checks text at 4.5:1 and icons/indicators at 3:1, including nested fields,
 selection, hover, pressed utility buttons and opaque accessibility variants.
 The dedicated sidebar palette also applies inside T3 profiles. `--negative-sidebar-test` removes the backing
 in the model and must catch the original fixed-foreground/glass mismatch.
-The 96% direction B slate/lilac backing bounds glass luminance while retaining
+The 83% direction B slate/lilac backing bounds glass luminance while retaining
 the system glass edge. Selection and hover use the mock's opaque palette fills.
 The filled Mac address capsule follows the page colour with a guarded 10% dark
 lift / 6% light shade;
 plain header glyphs use the page's explicit contrasting foreground. It avoids colour-scheme flips
 during navigation or scrolling. Foreground compositor fidelity remains a
 separate, explicitly authorized acceptance check.
+
+For the focused toolbar, sidebar and start-page evidence, run
+`ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=p2 ./scripts/capture-mac-visuals.sh --glass --key build/p2-2026-11-20/visuals`.
+The fixtures include populated and cleared history, a private start page, duplicate
+titles, native traffic-light geometry and a tab menu command inventory. The colour
+cases use a synthetic glass input and the two opaque accessibility fallbacks in
+both appearances. Native menu tracking and live glass require foreground acceptance.

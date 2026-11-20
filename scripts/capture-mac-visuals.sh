@@ -151,6 +151,19 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-synthetic-composite" for name in expected} - evidence
         if missing: problems.append(f"missing sidebar contrast composites: {sorted(missing)}")
+if os.environ.get("ORIV_GLASS_SCENE") == "p2":
+    layout = {f"mac-glass-p2-{mode}-{state}" for mode in ("light", "dark")
+              for state in ("expanded", "rail", "no-history")} | {"mac-glass-p2-private"}
+    contrast = {f"mac-glass-sidebar-contrast-p2-{mode}-{variant}" for mode in ("light", "dark")
+                for variant in ("glass-input", "reduced", "increased")}
+    expected = layout | contrast
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = ({name + "-opaque-fallback" for name in layout} |
+                   {name + "-synthetic-composite" for name in contrast}) - evidence
+        if missing: problems.append(f"missing P2 capture evidence: {sorted(missing)}")
+    if not os.path.exists(os.path.join(out, "tab-menu-geometry.json")):
+        problems.append("missing native tab menu inventory")
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-live":
     expected = {"mac-glass-sidebar-live-" + state for state in ("expanded", "rail", "overlay")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-attached":
