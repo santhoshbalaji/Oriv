@@ -32,6 +32,77 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
         XCTAssertEqual(Set(agents).count, 1)
     }
 
+    func testTabMuteSilencesWebAudioAndRestoresOnlyActiveContexts() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let tab = BrowserTab(configuration: configuration, dataStore: .nonPersistent())
+        // This fixture isolates mute semantics from WebKit's autoplay policy.
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        let window = try mediaWindow(for: tab.webView, requiresForeground: false)
+        defer { window.close(); tab.close() }
+        tab.navigate(to: base.appendingPathComponent("one"))
+        try await waitForFixtureCondition("oscillator fixture page", timeout: 30) {
+            tab.title == "Browser foundation" && !tab.isLoading
+        }
+        func js(_ script: String) async throws -> Any? {
+            try await tab.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+        }
+        _ = try await js("""
+            window.makeTone = win => {
+                const audio = new win.AudioContext();
+                const oscillator = audio.createOscillator();
+                const gain = audio.createGain();
+                gain.gain.value = 0.01;
+                oscillator.connect(gain).connect(audio.destination);
+                oscillator.start();
+                return audio;
+            };
+            window.frameForTone = document.createElement('iframe');
+            frameForTone.src = '/two';
+            const loaded = new Promise(resolve => frameForTone.onload = resolve);
+            document.body.append(frameForTone);
+            await loaded;
+            return true;
+            """)
+        _ = try await js("""
+            window.playing = makeTone(window);
+            window.otherFrame = makeTone(frameForTone.contentWindow);
+            window.sitePaused = makeTone(window);
+            window.initialAudioReady = false;
+            Promise.all([playing.resume(), otherFrame.resume(), sitePaused.suspend()]).then(() => initialAudioReady = true);
+            return true;
+            """)
+        try await waitForFixtureCondition("Web Audio tab indicator", timeout: 15) {
+            try await js("return initialAudioReady") as? Bool == true && tab.isPlayingAudio
+        }
+        tab.toggleAudioMute()
+        try await waitForFixtureCondition("main-frame and subframe audio suspension", timeout: 15) {
+            try await js("return [playing, otherFrame, sitePaused].every(audio => audio.state === 'suspended')") as? Bool == true
+                && !tab.isPlayingAudio
+        }
+        _ = try await js("""
+            window.lateFrame = document.createElement('iframe');
+            lateFrame.src = '/two';
+            const loaded = new Promise(resolve => lateFrame.onload = resolve);
+            document.body.append(lateFrame);
+            await loaded;
+            window.lateAudio = makeTone(lateFrame.contentWindow);
+            window.lateStarted = false;
+            lateAudio.resume().then(() => lateStarted = true);
+            return true;
+            """)
+        try await waitForFixtureCondition("new subframe remains silent", timeout: 15) {
+            try await js("return lateAudio.state === 'suspended' && lateAudio.currentTime === 0 && !lateStarted") as? Bool == true
+        }
+        tab.toggleAudioMute()
+        try await waitForFixtureCondition("unmute restores playback and indicator", timeout: 15) {
+            try await js("""
+                return [playing, otherFrame, lateAudio].every(audio => audio.state === 'running' && audio.currentTime > 0)
+                    && lateStarted && sitePaused.state === 'suspended';
+                """) as? Bool == true && tab.isPlayingAudio
+        }
+    }
+
     func testContainerFullscreenKeepsViewportAndRestoresSwiftUILayout() async throws {
         try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
         let tab = BrowserTab(dataStore: .nonPersistent())
@@ -99,8 +170,8 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
 
     // WebKit suppresses video rendering in detached/hidden documents. Exercise the
     // production configuration in a visible window instead of relaxing that policy.
-    private func mediaWindow(for view: WKWebView) throws -> NSWindow {
-        try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)
+    private func mediaWindow(for view: WKWebView, requiresForeground: Bool = true) throws -> NSWindow {
+        if requiresForeground { try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason) }
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 100, y: 100, width: 1000, height: 800),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

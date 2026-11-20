@@ -48,6 +48,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     #if os(macOS)
     public private(set) var isAudioMuted = false
     @ObservationIgnored private var audibleFrames: Set<String> = []
+    @ObservationIgnored private var muteRevision = 0
+    @ObservationIgnored fileprivate let audioChannel = UUID().uuidString
     @ObservationIgnored private var mediaFrames: [String: WKFrameInfo] = [:]
     #endif
     public private(set) var isProfileActive = true
@@ -191,52 +193,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         let installAudio = true
         let installDisplayCapture = true
         #endif
-        let audioScript = WKUserScript(source: """
-            (() => {
-                const frame = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
-                let previous;
-                let muted = false;
-                const mutedByTab = new WeakSet();
-                const media = () => document.querySelectorAll('audio,video');
-                const applyMute = element => {
-                    if (!element.muted) { mutedByTab.add(element); element.muted = true; }
-                };
-                const restoreMute = element => {
-                    if (mutedByTab.delete(element)) element.muted = false;
-                };
-                globalThis.orivSetTabMute = (id, value) => {
-                    if (id !== frame) return;
-                    muted = value;
-                    media().forEach(muted ? applyMute : restoreMute);
-                };
-                const report = event => {
-                    if (event?.target instanceof HTMLMediaElement) {
-                        (muted ? applyMute : restoreMute)(event.target);
-                    }
-                    const elements = [...media()];
-                    if (!elements.length && previous === undefined) return;
-                    const audible = elements.some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
-                    if (audible === previous) return;
-                    previous = audible;
-                    window.webkit.messageHandlers.tabAudio.postMessage({frame, audible});
-                };
-                ['play','playing','pause','ended','volumechange','emptied'].forEach(e => document.addEventListener(e, report, true));
-                window.addEventListener('pagehide', () => {
-                    if (previous === undefined) return;
-                    previous = undefined;
-                    window.webkit.messageHandlers.tabAudio.postMessage({frame, audible:false, hidden:true});
-                });
-                window.addEventListener('pageshow', report);
-            })();
-            """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world)
-        #if ORIV_BENCH
-        BenchmarkOptions.noteScript("tab-audio", source: audioScript.source)
-        #endif
         if installAudio {
-            contentController.add(TabAudioHandler(tab: self), contentWorld: world, name: "tabAudio")
-            if !contentController.userScripts.contains(where: { $0.source == audioScript.source }) {
-                contentController.addUserScript(audioScript)
-            }
+            contentController.add(TabAudioHandler(tab: self), contentWorld: .page, name: "tabAudio")
+            installTabAudioScript(in: contentController)
         }
         // Public WebKit has no display-capture state property. Conservatively
         // protect a document for its entire lifetime after any display request,
@@ -567,15 +526,166 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func clearFind() { findResult = nil }
     public func toggleMediaSuspension() { mediaSuspended.toggle(); backingWebView?.setAllMediaPlaybackSuspended(mediaSuspended || !isProfileActive, completionHandler: nil) }
     #if os(macOS)
+    private static let tabAudioScriptPrefix = "// Oriv tab audio\n"
+
+    // The current mute state is embedded for future documents. Existing frames
+    // receive the revision directly, including frames restored from history.
+    private func installTabAudioScript(in controller: WKUserContentController) {
+        let scripts = controller.userScripts
+        let kept = scripts.filter { !$0.source.hasPrefix(Self.tabAudioScriptPrefix) }
+        if kept.count != scripts.count {
+            controller.removeAllUserScripts()
+            kept.forEach(controller.addUserScript)
+        }
+        let source = Self.tabAudioScriptPrefix + """
+            (() => {
+                const key = '\(audioChannel)';
+                const frame = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
+                const handler = window.webkit.messageHandlers.tabAudio;
+                const post = handler.postMessage.bind(handler);
+                const send = message => { try { post(message); } catch {} };
+                let revision = \(muteRevision);
+                let muted = \(isAudioMuted);
+                let previous;
+                const mutedByTab = new WeakSet();
+                const contexts = new Map();
+                const contextEntries = new WeakMap();
+                const contextFinalizers = new FinalizationRegistry(id => {
+                    contexts.delete(id);
+                    report();
+                });
+                let contextID = 0;
+                const media = () => document.querySelectorAll('audio,video');
+                const applyMute = element => {
+                    if (!element.muted) { mutedByTab.add(element); element.muted = true; }
+                };
+                const restoreMute = element => {
+                    if (mutedByTab.delete(element)) element.muted = false;
+                };
+                const report = event => {
+                    if (event?.target instanceof HTMLMediaElement) {
+                        (muted ? applyMute : restoreMute)(event.target);
+                    }
+                    const elements = media();
+                    if (!elements.length && !contexts.size && previous === undefined) return;
+                    const audible = !muted && (
+                        [...elements].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0) ||
+                        [...contexts.values()].some(ref => ref.deref()?.state === 'running')
+                    );
+                    if (audible === previous) return;
+                    previous = audible;
+                    send({key, frame, audible});
+                };
+
+                const Audio = globalThis.AudioContext ?? globalThis.webkitAudioContext;
+                const suspend = Audio?.prototype.suspend;
+                const resume = Audio?.prototype.resume;
+                const silence = (context, entry) => {
+                    if (context.state === 'closed' || entry.silencing) return;
+                    entry.restore ||= context.state === 'running';
+                    entry.silencing = true;
+                    suspend.call(context).catch(() => {}).finally(() => {
+                        entry.silencing = false;
+                        if (muted && context.state === 'running') silence(context, entry);
+                    });
+                };
+                const restore = (context, entry) => {
+                    if (!entry.restore && !entry.pending.length) return;
+                    const pending = entry.pending.splice(0);
+                    entry.restore = false;
+                    const resumed = resume.call(context);
+                    resumed.then(
+                        () => pending.forEach(({resolve}) => resolve()),
+                        error => pending.forEach(({reject}) => reject(error))
+                    );
+                };
+                if (Audio) {
+                    Audio.prototype.suspend = function () {
+                        const entry = contextEntries.get(this);
+                        if (entry) {
+                            entry.restore = false;
+                            entry.pending.splice(0).forEach(({reject}) => reject(new DOMException('Audio was suspended', 'AbortError')));
+                        }
+                        return suspend.call(this);
+                    };
+                    Audio.prototype.resume = function () {
+                        const entry = contextEntries.get(this);
+                        if (!muted || !entry || this.state === 'closed') return resume.call(this);
+                        return new Promise((resolve, reject) => entry.pending.push({resolve, reject}));
+                    };
+                    const wrapped = new Proxy(Audio, {
+                        construct(target, args, newTarget) {
+                            const context = Reflect.construct(target, args, newTarget);
+                            const id = ++contextID;
+                            const entry = {restore: false, silencing: false, pending: []};
+                            contexts.set(id, new WeakRef(context));
+                            contextEntries.set(context, entry);
+                            contextFinalizers.register(context, id);
+                            context.addEventListener('statechange', () => {
+                                if (context.state === 'closed') {
+                                    contexts.delete(id);
+                                    restore(context, entry);
+                                } else if (muted && context.state === 'running') {
+                                    silence(context, entry);
+                                }
+                                report();
+                            });
+                            if (muted) silence(context, entry);
+                            report();
+                            return context;
+                        }
+                    });
+                    Audio.prototype.constructor = wrapped;
+                    if (globalThis.AudioContext === Audio) globalThis.AudioContext = wrapped;
+                    if (globalThis.webkitAudioContext === Audio) globalThis.webkitAudioContext = wrapped;
+                }
+
+                globalThis.orivSetTabMute = (channel, id, value, version) => {
+                    if (channel !== key || id !== frame || version < revision) return;
+                    revision = version;
+                    if (muted === value) return;
+                    muted = value;
+                    media().forEach(muted ? applyMute : restoreMute);
+                    for (const ref of contexts.values()) {
+                        const context = ref.deref();
+                        if (!context) continue;
+                        const entry = contextEntries.get(context);
+                        if (muted && context.state === 'running') silence(context, entry);
+                        else if (!muted) restore(context, entry);
+                    }
+                    report();
+                };
+                ['play','playing','pause','ended','volumechange','emptied'].forEach(e => document.addEventListener(e, report, true));
+                window.addEventListener('pagehide', () => {
+                    previous = undefined;
+                    send({key, frame, audible: false, hidden: true});
+                });
+                window.addEventListener('pageshow', () => { previous = undefined; report(); });
+                report();
+            })();
+            """
+        #if ORIV_BENCH
+        BenchmarkOptions.noteScript("tab-audio", source: source)
+        #endif
+        controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
+            forMainFrameOnly: false, in: .page))
+    }
+
     public func toggleAudioMute() {
         guard !isClosed, url != nil else { return }
         isAudioMuted.toggle()
+        muteRevision += 1
+        if let controller = backingWebView?.configuration.userContentController,
+           controller.userScripts.contains(where: { $0.source.hasPrefix(Self.tabAudioScriptPrefix) }) {
+            installTabAudioScript(in: controller)
+        }
         for (id, frame) in mediaFrames { applyAudioMute(id: id, frame: frame) }
     }
 
     private func applyAudioMute(id: String, frame: WKFrameInfo) {
-        backingWebView?.callAsyncJavaScript("globalThis.orivSetTabMute?.(id, muted)",
-            arguments: ["id": id, "muted": isAudioMuted], in: frame, in: .world(name: "OrivTabState"),
+        backingWebView?.callAsyncJavaScript("globalThis.orivSetTabMute?.(channel, id, muted, version)",
+            arguments: ["channel": audioChannel, "id": id, "muted": isAudioMuted, "version": muteRevision],
+            in: frame, in: .page,
             completionHandler: nil)
     }
 
@@ -763,7 +873,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         configuration?.userContentController.removeScriptMessageHandler(forName: "editedField", contentWorld: .world(name: "OrivTabState"))
         configuration?.userContentController.removeScriptMessageHandler(forName: "tabPaint", contentWorld: .world(name: "OrivTabState"))
         #if os(macOS)
-        configuration?.userContentController.removeScriptMessageHandler(forName: "tabAudio", contentWorld: .world(name: "OrivTabState"))
+        configuration?.userContentController.removeScriptMessageHandler(forName: "tabAudio", contentWorld: .page)
         configuration?.userContentController.removeScriptMessageHandler(forName: "displayCaptureRequested", contentWorld: .page)
         #endif
         hasActiveDownloads = nil
@@ -1164,10 +1274,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     private weak var tab: BrowserTab?
     init(tab: BrowserTab) { self.tab = tab }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any], let frame = body["frame"] as? String,
+        guard let tab, let body = message.body as? [String: Any],
+              body["key"] as? String == tab.audioChannel, let frame = body["frame"] as? String,
               let audible = body["audible"] as? Bool else { return }
-        tab?.updateMediaFrame(frame, frame: message.frameInfo, hidden: body["hidden"] as? Bool == true)
-        tab?.recordAudio(frame: frame, audible: audible)
+        tab.updateMediaFrame(frame, frame: message.frameInfo, hidden: body["hidden"] as? Bool == true)
+        tab.recordAudio(frame: frame, audible: audible)
     }
 }
 

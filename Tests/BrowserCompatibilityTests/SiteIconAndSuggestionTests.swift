@@ -118,7 +118,7 @@ import WebKit
         let view = tab.webView
         func hasHandler() async throws -> Bool? {
             try await view.callAsyncJavaScript("return !!window.webkit?.messageHandlers?.tabAudio",
-                arguments: [:], in: nil, contentWorld: .world(name: "OrivTabState")) as? Bool
+                arguments: [:], in: nil, contentWorld: .page) as? Bool
         }
         let before = try await hasHandler()
         XCTAssertEqual(before, true)

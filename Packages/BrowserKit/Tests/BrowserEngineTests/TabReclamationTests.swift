@@ -107,6 +107,7 @@ import AppKit
             XCTAssertEqual(scripts.filter { $0.source.contains("window.orivEditTracking") }.count, 1)
             #if os(macOS)
             XCTAssertEqual(scripts.filter { $0.source.contains("displayCaptureRequested") }.count, 1)
+            XCTAssertEqual(scripts.filter { $0.source.hasPrefix("// Oriv tab audio\n") }.count, 1)
             #endif
         }
     }
