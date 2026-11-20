@@ -13,7 +13,7 @@ struct PrivacySettingsControls: View {
         ))
         Text("Give new private tabs their own cookies and website data. Changes apply only to tabs you open next.")
             .font(.caption).foregroundStyle(.secondary)
-        ForEach(PrivacyLayer.allCases) { layer in
+        ForEach(PrivacyLayer.allCases.filter { $0 != .cookieBanners }) { layer in
             Toggle(layer.title, isOn: Binding(get: { session.settings.privacy.isEnabled(layer) }, set: { session.settings.privacy.setEnabled($0, layer) }))
                 .disabled(layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC)
             if layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC {
@@ -25,7 +25,14 @@ struct PrivacySettingsControls: View {
             set: { session.settings.privacy.skipYouTubeAds = $0 }
         )).disabled(!session.settings.privacy.isEnabled(.youtubeAds) || session.adBlocker.mode == .off)
         Text("Copy and Share clean links. Use Copy Original Link to keep every parameter. The link-cleaning switch controls navigation.").font(.caption).foregroundStyle(.secondary)
-        Text("Hides cookie banners. Doesn't reject cookies.").font(.caption).foregroundStyle(.secondary)
+        Picker("Cookie banners", selection: Binding(
+            get: { session.settings.privacy.cookieBannerMode },
+            set: { session.settings.privacy.setCookieBannerMode($0) }
+        )) {
+            ForEach(CookieBannerMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+        }
+        Text("Reject uses known opt-out controls and hides banners when no supported opt-out succeeds.")
+            .font(.caption).foregroundStyle(.secondary)
         Text("Lists: \(AdBlocker.rulesVersion)").font(.caption).textSelection(.enabled)
         Button("Acknowledgements") { acknowledgements = true }
             .sheet(isPresented: $acknowledgements) { PrivacyAcknowledgements() }
@@ -67,7 +74,9 @@ struct PrivacyShieldControls: View {
         }
         if !BrowserPrivacy.supportsGPC { Text("GPC unavailable on this OS (requires 27).").font(.caption).foregroundStyle(.secondary) }
         if let url = tab.url, HTTPSUpgradePolicy.isExempt(url) { Text("HTTPS upgrade is exempt for this local or connectivity-check address.").font(.caption).foregroundStyle(.secondary) }
-        Text("Hides cookie banners. Doesn't reject cookies.").font(.caption).foregroundStyle(.secondary)
+        if privacy.isEnabled(.cookieBanners, for: tab.url, isPrivate: tab.isPrivate) {
+            LabeledContent("Cookie banners", value: tab.cookieBannerResult ?? privacy.cookieBannerMode.rawValue)
+        }
         Text("Lists: \(AdBlocker.rulesVersion)").font(.caption).textSelection(.enabled)
         if tab.isPrivate { Label("Exceptions last only for this private session.", systemImage: "eyeglasses").font(.caption) }
         Button("Site broken? Turn protections off for this site") {

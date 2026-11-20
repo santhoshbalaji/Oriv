@@ -1,0 +1,2 @@
+# Preserve the byte-for-byte upstream licence, including its trailing space.
+Packages/BrowserKit/Sources/BrowserEngine/Resources/Privacy/Autoconsent/MPL-2.0.txt -whitespace

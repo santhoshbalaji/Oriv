@@ -1,0 +1,9 @@
+{
+  "version": "18.9.0",
+  "packageSHA256": "04a49d0c180f1fcd8837e10dd45643d9af809608911c5791c7d15323ea89edcb",
+  "files": {
+    "autoconsent.cjs.js": "a8c58d606aaf15362546fb8e923a7c08323f6b0658deddd066cf736714d6a293",
+    "compact-rules.json": "9708da9b0f21f9d7e520eba60e489eaa00a92f303cc3298f33421a338c2c5d2a",
+    "MPL-2.0.txt": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+  }
+}

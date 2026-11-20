@@ -78,7 +78,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/private-cookie-fixture':
             self.page('Private cookie fixture', '<main><h1>Private cookie fixture</h1></main>')
             return
-        if path == '/youtube-protection':
+        if path in {'/consent', '/youtube-protection'}:
             self.send_bytes((FIXTURES / (path[1:] + '.html')).read_bytes(), 'text/html; charset=utf-8')
             return
         if path.startswith('/youtubei/v1/') or path in {'/get_watch', '/youtube-fixture-unmatched'}:

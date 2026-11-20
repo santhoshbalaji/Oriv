@@ -201,7 +201,8 @@ public final class BrowserSession {
         settings.searchEngine = source.settings.searchEngine
         adBlocker.setMode(source.adBlocker.mode)
         settings.privacy.skipYouTubeAds = source.settings.privacy.skipYouTubeAds
-        for layer in PrivacyLayer.allCases {
+        settings.privacy.setCookieBannerMode(source.settings.privacy.cookieBannerMode)
+        for layer in PrivacyLayer.allCases where layer != .cookieBanners {
             settings.privacy.setEnabled(source.settings.privacy.isEnabled(layer), layer)
         }
     }

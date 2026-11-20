@@ -1,0 +1,25 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width">
+<title>Consent fixture</title>
+<main>Ordinary page content</main>
+<script>
+const kind = new URLSearchParams(location.search).get('cmp');
+const variants = {
+    onetrust: ['onetrust-banner-sdk', 'onetrust-reject-all-handler', 'onetrust-accept-btn-handler'],
+    cookiebot: ['CybotCookiebotDialog', 'CybotCookiebotDialogBodyLevelButtonLevelOptinDeclineAll', 'CybotCookiebotDialogBodyButtonAccept'],
+    unknown: ['AlertCookieBanner', 'fixture-decline', 'fixture-accept']
+};
+const [bannerID, rejectID, acceptID] = variants[kind] ?? variants.unknown;
+const banner = document.createElement('aside');
+banner.id = bannerID;
+banner.innerHTML = '<p>Cookie preferences</p><button id="' + rejectID + '">Reject optional cookies</button>' +
+    '<button id="' + acceptID + '">Accept all</button>';
+window.consentClicks = [];
+if (kind === 'cookiebot') window.Cookiebot = { hasResponse: false, dialog: { visible: true } };
+document.body.append(banner);
+document.getElementById(rejectID).addEventListener('click', () => {
+    consentClicks.push('reject');
+    banner.remove();
+});
+document.getElementById(acceptID).addEventListener('click', () => consentClicks.push('accept'));
+</script>

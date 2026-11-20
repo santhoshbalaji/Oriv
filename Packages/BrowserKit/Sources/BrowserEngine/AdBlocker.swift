@@ -221,21 +221,27 @@ public final class AdBlocker {
             if sharesBundledRules && Self.sharedCompilation == pending { Self.sharedCompilation = nil }
             guard compilation == pending else { throw error }
             isPreparing = false
-            preparationError = "Privacy filtering could not start. Try again or choose Off and disable cookie hiding to load without filtering."
+            preparationError = "Privacy filtering could not start. Try again or choose Off and turn off cookie-banner handling to load without filtering."
             compilation = nil
             throw error
         }
     }
 
+    private var usesCookieHideRules: Bool {
+        cookieBannersEnabled && (privacy?.cookieBannerMode != .reject || !CookieConsent.isAvailable)
+    }
+
+    public var requiresRulePreparation: Bool { mode != .off || usesCookieHideRules }
+
     public func apply(to controller: WKUserContentController, url: URL?, isPrivate: Bool) async throws {
-        if mode != .off || cookieBannersEnabled { try await prepare() }
+        if requiresRulePreparation { try await prepare() }
         applyPrepared(to: controller, url: url, isPrivate: isPrivate)
     }
 
     /// The prepared hot path needs no actor hop. A partial/failed preparation
     /// cannot enter it, preserving the first-navigation protection gate.
     func applyIfPrepared(to controller:WKUserContentController,url:URL?,isPrivate:Bool) -> Bool {
-        guard (mode == .off && !cookieBannersEnabled) || !lists.isEmpty else { return false }
+        guard !requiresRulePreparation || !lists.isEmpty else { return false }
         applyPrepared(to:controller,url:url,isPrivate:isPrivate)
         return true
     }
@@ -262,7 +268,9 @@ public final class AdBlocker {
             youtubeSource = YouTubeProtection.source(disabledHosts: disabled, skipAds: privacy.skipYouTubeAds)
         }
         YouTubeProtection.update(controller, source: youtubeSource)
-        let hideCookies = cookieBannersEnabled && (privacy?.isEnabled(.cookieBanners, for: url, isPrivate: isPrivate) ?? true)
+        let handleCookies = cookieBannersEnabled && (privacy?.isEnabled(.cookieBanners, for: url, isPrivate: isPrivate) ?? true)
+        let hideCookies = handleCookies && usesCookieHideRules
+        CookieConsent.update(controller, enabled: handleCookies && !hideCookies && AdBlocker.host(for: url) != nil)
         CookieBannerRestoration.update(controller, enabled: hideCookies)
         var desired:[String:WKContentRuleList] = [:]
         for (key, list) in lists {
@@ -355,7 +363,10 @@ public enum BundledPrivacyRules {
         guard let root = Bundle.module.url(forResource: "Privacy", withExtension: nil) else { return "Privacy acknowledgements could not be read." }
         let notice = (try? String(contentsOf: root.appendingPathComponent("NOTICE.txt"), encoding: .utf8)) ?? ""
         let license = (try? String(contentsOf: root.appendingPathComponent("CC-BY-SA-3.0.txt"), encoding: .utf8)) ?? ""
-        return notice + "\n\n" + license
+        let consent = ["NOTICE.txt", "MPL-2.0.txt"].compactMap {
+            try? String(contentsOf: root.appendingPathComponent("Autoconsent").appendingPathComponent($0), encoding: .utf8)
+        }
+        return ([notice, license] + consent).joined(separator: "\n\n")
     }
     private struct Manifest: Decodable { let outputs: [String: [Entry]] }
     private struct Entry: Decodable { let file: String; let sha256: String }

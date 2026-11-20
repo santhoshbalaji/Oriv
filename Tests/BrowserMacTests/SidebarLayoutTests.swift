@@ -278,7 +278,7 @@ import XCTest
         }
         controller.compactSidebar = false
         try await waitForSidebar(window, rail: controller.sidebar.reservesRail, overlay: controller.sidebar.overlay)
-        controller.session.settings.privacy.setEnabled(true, .cookieBanners)
+        controller.session.settings.privacy.setCookieBannerMode(.hide)
         tab.reload()
         try await eventually("cookie banner protection", timeout: 40) {
             guard !tab.isLoading else { return false }

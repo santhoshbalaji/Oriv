@@ -94,6 +94,12 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     var websiteDataStore: WKWebsiteDataStore? { configuration?.websiteDataStore }
     @ObservationIgnored private let adBlocker: AdBlocker?
     @ObservationIgnored private let settings: BrowserSettings?
+    public internal(set) var cookieBannerResult: String?
+
+    func allowsCookieRejection(on url: URL?) -> Bool {
+        !isClosed && settings?.privacy.cookieBannerMode == .reject &&
+            settings?.privacy.isEnabled(.cookieBanners, for: url, isPrivate: isPrivate) == true
+    }
     @ObservationIgnored private var policyGeneration = 0
     @ObservationIgnored private var isClosed = false
     @ObservationIgnored private var historyDocumentURL: URL?
@@ -148,6 +154,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         configuration.userContentController = contentController
         BrowserWebConfiguration.apply(to: configuration)
         super.init()
+        contentController.addScriptMessageHandler(CookieConsent(tab: self), contentWorld: CookieConsent.world, name: CookieConsent.handler)
         let world = WKContentWorld.world(name: "OrivTabState")
         #if os(macOS) && ORIV_BENCH
         let installPaint = !BenchmarkOptions.disabled.contains("tab-paint")
@@ -878,6 +885,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         backingWebView?.navigationDelegate = nil
         backingWebView?.uiDelegate = nil
         observations.removeAll()
+        configuration?.userContentController.removeScriptMessageHandler(forName: CookieConsent.handler, contentWorld: CookieConsent.world)
         configuration?.userContentController.removeScriptMessageHandler(forName: "editedField", contentWorld: .world(name: "OrivTabState"))
         configuration?.userContentController.removeScriptMessageHandler(forName: "tabPaint", contentWorld: .world(name: "OrivTabState"))
         #if os(macOS)
@@ -893,7 +901,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         guard let view = backingWebView, let adBlocker else { return }
         Task { @MainActor [weak self] in
             do {
-                if adBlocker.mode != .off || adBlocker.cookieBannersEnabled { try await adBlocker.prepare() }
+                if adBlocker.requiresRulePreparation { try await adBlocker.prepare() }
                 guard let self, !self.isClosed else { return }
                 adBlocker.applyPrepared(to: view.configuration.userContentController,
                                         url: view.url ?? self.url, isPrivate: self.isPrivate)
@@ -1030,6 +1038,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         resetAudio()
         #endif
         guard !isClosed, backingWebView === webView else { return }
+        cookieBannerResult = nil
         identifyPaintedDocument(webView)
         #if os(iOS)
         NotificationCenter.default.post(name:Self.documentCommitted,object:webView)
@@ -1233,7 +1242,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             }
             Task { @MainActor [weak self] in
                 do {
-                    if adBlocker.mode != .off || adBlocker.cookieBannersEnabled { try await adBlocker.prepare() }
+                    if adBlocker.requiresRulePreparation { try await adBlocker.prepare() }
                     guard let self, !self.isClosed, self.policyGeneration == generation else {
                         decisionHandler(.cancel); return
                     }

@@ -2,6 +2,7 @@ import BrowserCore
 @testable import BrowserEngine
 import WebKit
 import XCTest
+import SwiftUI
 #if os(macOS)
 @testable import PersonalBrowser
 import AppKit
@@ -150,6 +151,77 @@ import UIKit
         ], String(describing: result))
     }
 
+    func testCookieBannerModeMigratesExplicitChoices() throws {
+        let name = "oriv.consent-mode." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(false, forKey: "browser.restoreTabs")
+        XCTAssertEqual(BrowserPrivacy(defaults: defaults).cookieBannerMode, .reject)
+        defaults.set(false, forKey: "privacy.cookieBanners")
+        XCTAssertEqual(BrowserPrivacy(defaults: defaults).cookieBannerMode, .off)
+        defaults.set(true, forKey: "privacy.cookieBanners")
+        let privacy = BrowserPrivacy(defaults: defaults)
+        XCTAssertEqual(privacy.cookieBannerMode, .hide)
+        privacy.setCookieBannerMode(.reject)
+        XCTAssertEqual(BrowserPrivacy(defaults: defaults).cookieBannerMode, .reject)
+    }
+
+    func testRejectCookieBannersAndHideUnknownInPrivateTabs() async throws {
+        let settings = BrowserSettings(defaults: nil)
+        let session = BrowserSession(dataStore: .nonPersistent(), settings: settings)
+        defer { session.shutdown() }
+        let tab = session.addTab(isPrivate: true)
+        try hostFixture(tab)
+        func loadConsent(_ cmp: String) async throws {
+            let url = base.appendingPathComponent("consent").appending(queryItems: [.init(name: "cmp", value: cmp)])
+            tab.navigate(to: url)
+            try await wait { tab.url == url && tab.title == "Consent fixture" && !tab.isLoading }
+        }
+        for cmp in ["onetrust", "cookiebot"] {
+            try await loadConsent(cmp)
+            try await waitForFixtureCondition("the \(cmp) reject control", timeout: 18) {
+                (try? await tab.webView.evaluateJavaScript("JSON.stringify(window.consentClicks)")) as? String == "[\"reject\"]"
+            }
+        }
+        try await loadConsent("unknown")
+        try await waitForFixtureCondition("fallback CSS hides the unknown banner", timeout: 18) {
+            (try? await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#AlertCookieBanner')).display")) as? String == "none"
+        }
+        let clicks = try await tab.webView.evaluateJavaScript("JSON.stringify(window.consentClicks)") as? String
+        XCTAssertEqual(clicks, "[]")
+        settings.privacy.setException(true, .cookieBanners, for: base, isPrivate: true)
+        try await loadConsent("onetrust")
+        let available = try await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#onetrust-banner-sdk')).display !== 'none'") as? Bool
+        XCTAssertEqual(available, true)
+        XCTAssertFalse(tab.webView.configuration.userContentController.userScripts.contains { $0.source.hasPrefix("// Oriv cookie consent policy") })
+    }
+
+    func testPrivacySettingsCapture() throws {
+        let session = BrowserSession(dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
+        defer { session.shutdown() }
+        let content = VStack(alignment: .leading, spacing: 12) {
+            Text("Privacy").font(.title2)
+            PrivacySettingsControls(session: session)
+        }.padding(20).background(.background).environment(\.colorScheme, .light)
+        let renderer = ImageRenderer(content: content)
+        #if os(macOS)
+        renderer.proposedSize = ProposedViewSize(width: 560, height: nil)
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.cgImage)
+        let png = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        attachment.name = "mac-privacy-settings"
+        #else
+        renderer.proposedSize = ProposedViewSize(width: 390, height: nil)
+        renderer.scale = 3
+        let image = try XCTUnwrap(renderer.uiImage)
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "iphone-privacy-settings"
+        #endif
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testPrivateTabIsolationDefaultsOnAndSavesExplicitOptOut() throws {
         let name = "oriv.private-isolation." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
@@ -271,12 +343,13 @@ import UIKit
         let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: blocker, settings: settings)
         defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
+        settings.privacy.setCookieBannerMode(.off)
         try await load(tab)
         let visible = try await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#onetrust-banner-sdk')).display !== 'none'") as? Bool
         XCTAssertEqual(visible, true)
         let shippingBlocked = try await tab.webView.evaluateJavaScript("window.shippingTrackerBlocked === true && window.shippingTrackerLoaded !== true") as? Bool
         XCTAssertEqual(shippingBlocked, true, "Pinned EasyList /ads-front.min.js rule must block the actual fixture script")
-        settings.privacy.setEnabled(true, .cookieBanners)
+        settings.privacy.setCookieBannerMode(.hide)
         blocker.setMode(.off) // Cookie hiding must be independent of ad blocking.
         try await load(tab)
         let hidden = try await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#onetrust-banner-sdk')).display") as? String
@@ -299,7 +372,7 @@ import UIKit
         let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: blocker, settings: settings)
         defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
-        settings.privacy.setEnabled(true, .cookieBanners)
+        settings.privacy.setCookieBannerMode(.hide)
         for mode in [AdBlockingMode.balanced, .strict, .off] {
             blocker.setMode(mode)
             let frames = try await loadAdBlockFrames(tab, expecting: mode == .off ? ["shipped"] : [])

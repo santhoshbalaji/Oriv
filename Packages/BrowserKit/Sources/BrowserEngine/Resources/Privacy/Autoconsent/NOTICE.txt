@@ -1,0 +1,8 @@
+DuckDuckGo Autoconsent 18.9.0
+Source: https://github.com/duckduckgo/autoconsent/tree/d6cf4b99c96c5209cf5a9f228209fc9612b05e8c
+Package: https://registry.npmjs.org/@duckduckgo/autoconsent/-/autoconsent-18.9.0.tgz
+Licence: Mozilla Public License 2.0 (MPL-2.0.txt)
+The bundled CommonJS runtime, indexed compact rules and licence are unmodified
+copies of dist/autoconsent.cjs.js, rules/compact-rules.json and LICENSE in the
+published package. The package includes the covered source in lib/ and rules/.
+Oriv's host bridge and policy are separate original MIT files.

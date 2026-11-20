@@ -20,7 +20,13 @@ Each tab owns its user-content controller, including WebKit-created popups. The 
 
 The maintained EasyList/EasyPrivacy/Cookie adaptations, version and conversion counts are bundled under `Packages/BrowserKit/Sources/BrowserEngine/Resources/Privacy/`, separately licensed CC BY-SA 3.0. The original first-party Strict supplement remains in `AdBlockingRules`. An original reproducible converter and compact, digest-checked resources keep unsupported syntax observable without a runtime updater. [Privacy controls](privacy.md) describes the conversion subset, licence route, cookie layer, navigation cleaning, HTTPS and GPC. Updates ship only with app releases.
 
-The maintained network subset excludes top-level document blocking. Media, style and font filters follow supported upstream resource options. The original Strict supplement excludes media, styles and fonts. They can still block a script that a player needs; use the per-site switch when a page breaks. Blocking does not guarantee removal of first-party or server-inserted video ads, including YouTube ads, and it is not a malware or complete tracking protection service.
+The maintained network subset excludes top-level document blocking. Media, style and font filters follow supported upstream resource options. The original Strict supplement excludes media, styles and fonts. They can still block a script that a player needs; use the per-site switch when a page breaks.
+
+## YouTube
+
+**Block YouTube Ads** is on by default and can be switched off for the profile or current YouTube hostname. The ad blocker's **Off** mode and the site's general ad-block exception also disable it. Reload after switching it off if YouTube shows an ad-block warning or playback fails. **Skip ads that still start** is a separate, default-off option that clicks YouTube's skip button when it is available.
+
+Oriv's original MIT script runs at document start on the desktop, mobile, Music and privacy-enhanced YouTube hosts, including eligible frames in those tabs. Ordinary websites receive no YouTube script, including pages that embed a YouTube player. The script removes known ad fields from inline data and from JSON/text reads of selected first-party player and feed responses. It also hides known masthead, search, feed and Shorts ad elements. It leaves outbound requests, response streams and media transport intact. New player formats, integrity checks and ad-block enforcement can still cause ads or playback issues. Ads stitched server-side into the video stream cannot be removed. Updates ship with Oriv.
 
 ## Verification
 

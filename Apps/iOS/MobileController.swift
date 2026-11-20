@@ -117,7 +117,7 @@ import WebKit
     /// Compile ahead of address entry without awaiting launch or weakening the
     /// navigation policy. An immediate first URL still waits for protection.
     func warmProtection() {
-        guard protectionWarmup == nil, session.adBlocker.mode != .off || session.adBlocker.cookieBannersEnabled else { return }
+        guard protectionWarmup == nil, session.adBlocker.requiresRulePreparation else { return }
         protectionWarmup = Task { @MainActor [weak blocker = session.adBlocker] in
             guard let blocker else { return }
             do { try await blocker.prepare() }

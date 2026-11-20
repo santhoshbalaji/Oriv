@@ -10,17 +10,23 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
         switch self {
         case .linkCleaning: "Clean Tracking Links"
         case .httpsUpgrade: "Upgrade to HTTPS"
-        case .cookieBanners: "Hide Cookie Banners"
+        case .cookieBanners: "Handle Cookie Banners"
         case .globalPrivacyControl: "Global Privacy Control"
         case .youtubeAds: "Block YouTube Ads"
         }
     }
-    public var defaultEnabled: Bool { self != .cookieBanners }
+    public var defaultEnabled: Bool { true }
+}
+
+public enum CookieBannerMode: String, CaseIterable, Identifiable, Sendable {
+    case off = "Off", hide = "Hide", reject = "Reject"
+    public var id: String { rawValue }
 }
 
 /// One instance per profile, as with the blocker. No private hostname reaches defaults or rule caches.
 @MainActor @Observable public final class BrowserPrivacy {
-    public private(set) var enabledLayers: Set<PrivacyLayer>
+    private var enabledLayers: Set<PrivacyLayer>
+    public private(set) var cookieBannerMode: CookieBannerMode
     public private(set) var regularExceptions: [String: Set<PrivacyLayer>]
     public private(set) var privateExceptions: [String: Set<PrivacyLayer>] = [:]
     @ObservationIgnored private let defaults: UserDefaults?
@@ -34,7 +40,10 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
     public init(defaults: UserDefaults?) {
         self.defaults = defaults
         skipYouTubeAds = defaults?.bool(forKey: "privacy.skipYouTubeAds") ?? false
-        enabledLayers = Set(PrivacyLayer.allCases.filter { defaults?.object(forKey: "privacy." + $0.rawValue) as? Bool ?? $0.defaultEnabled })
+        let legacy = defaults?.object(forKey: "privacy.cookieBanners") as? Bool
+        cookieBannerMode = defaults?.string(forKey: "privacy.cookieBannerMode").flatMap(CookieBannerMode.init(rawValue:))
+            ?? legacy.map { $0 ? .hide : .off } ?? .reject
+        enabledLayers = Set(PrivacyLayer.allCases.filter { $0 != .cookieBanners }.filter { defaults?.object(forKey: "privacy." + $0.rawValue) as? Bool ?? $0.defaultEnabled })
         regularExceptions = defaults?.data(forKey: "privacy.exceptions").flatMap { try? JSONDecoder().decode([String: Set<PrivacyLayer>].self, from: $0) } ?? [:]
     }
     public var skipYouTubeAds: Bool {
@@ -43,7 +52,15 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
             onChange?()
         }
     }
-    public func isEnabled(_ layer: PrivacyLayer) -> Bool { enabledLayers.contains(layer) }
+    public func isEnabled(_ layer: PrivacyLayer) -> Bool {
+        layer == .cookieBanners ? cookieBannerMode != .off : enabledLayers.contains(layer)
+    }
+    public func setCookieBannerMode(_ mode: CookieBannerMode) {
+        guard cookieBannerMode != mode else { return }
+        cookieBannerMode = mode
+        defaults?.set(mode.rawValue, forKey: "privacy.cookieBannerMode")
+        onChange?()
+    }
     public func isEnabled(_ layer: PrivacyLayer, for url: URL?, isPrivate: Bool) -> Bool {
         guard isEnabled(layer) else { return false }
         return !isException(layer, for: url, isPrivate: isPrivate)
@@ -53,6 +70,11 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
         return (isPrivate ? privateExceptions : regularExceptions)[host]?.contains(layer) == true
     }
     public func setEnabled(_ enabled: Bool, _ layer: PrivacyLayer) {
+        if layer == .cookieBanners {
+            if enabled && cookieBannerMode != .off { return }
+            setCookieBannerMode(enabled ? .reject : .off)
+            return
+        }
         if enabled { enabledLayers.insert(layer) } else { enabledLayers.remove(layer) }
         defaults?.set(enabled, forKey: "privacy." + layer.rawValue); onChange?()
     }
