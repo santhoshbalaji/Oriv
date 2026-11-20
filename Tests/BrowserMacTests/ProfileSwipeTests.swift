@@ -37,6 +37,17 @@ final class ProfileSwipeTests: XCTestCase {
         XCTAssertEqual(gesture.send(.momentum, x: -80), .pass)
     }
 
+    func testFreshBeginDiscardsAnUnfinishedGesture() {
+        var gesture = Gesture()
+        XCTAssertEqual(gesture.send(.began, x: -7), .pass)
+        XCTAssertEqual(gesture.send(.began, x: -6), .pass)
+        XCTAssertEqual(gesture.send(.changed, x: -80), .track(-86))
+        XCTAssertEqual(gesture.send(.began, y: 20), .pass)
+        XCTAssertEqual(gesture.send(.changed, x: -100), .pass)
+        XCTAssertEqual(gesture.send(.ended), .pass)
+        XCTAssertEqual(gesture.send(.momentum), .pass)
+    }
+
     func testFlickRequiresDistanceSpeedAndDirection() {
         var gesture = Gesture()
         XCTAssertEqual(gesture.send(.began), .pass)
@@ -140,7 +151,8 @@ final class ProfileSwipeTests: XCTestCase {
     private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
     private func wheel(_ phase: NSEvent.Phase, x: Int32 = 0, y: Int32 = 0,
-                       momentum: Int64 = 0, time: TimeInterval = 0, units: CGScrollEventUnit = .pixel) throws -> NSEvent {
+                       momentum: Int64 = 0, time: TimeInterval? = nil, units: CGScrollEventUnit = .pixel,
+                       screenPoint: NSPoint? = nil) throws -> NSEvent {
         let event = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: units, wheelCount: 2, wheel1: y, wheel2: x, wheel3: 0))
         // CoreGraphics has its own phase bit values.
         let phases: [UInt: Int64] = [0: 0, NSEvent.Phase.mayBegin.rawValue: 128,
@@ -148,9 +160,114 @@ final class ProfileSwipeTests: XCTestCase {
                                       NSEvent.Phase.ended.rawValue: 4, NSEvent.Phase.cancelled.rawValue: 8]
         event.setIntegerValueField(.scrollWheelEventScrollPhase, value: try XCTUnwrap(phases[phase.rawValue]))
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
-        event.timestamp = UInt64(time * 1_000_000_000)
+        if let screenPoint, let primary = NSScreen.screens.first {
+            event.location = CGPoint(x: screenPoint.x, y: primary.frame.maxY - screenPoint.y)
+        }
+        if let time { event.timestamp = UInt64(time * 1_000_000_000) }
         XCTAssertEqual(NSEvent(cgEvent: event)?.phase, phase)
         return try XCTUnwrap(NSEvent(cgEvent: event))
+    }
+
+    private func makeWindow<Content: View>(_ content: Content) -> NSWindow {
+        let host = NSHostingController(rootView: content)
+        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = host
+        window.setContentSize(NSSize(width: 1000, height: 600))
+        BackgroundUIMode.show(window)
+        return window
+    }
+
+    func testScrollViewReceivesGestureTailWithoutTheMonitorAndPreservesVerticalMomentum() async throws {
+        for overDots in [false, true] {
+            let profiles = BrowserProfiles(testing: true)
+            defer { profiles.shutdown() }
+            profiles.profileSwipePreference = .on
+            profiles.controller.sidebar.setPreference(false)
+            let target = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+            if !overDots {
+                for _ in 0..<28 { profiles.controller.session.addTab(select: false, load: false) }
+            }
+            let window = makeWindow(
+                BrowserSidebar(controller: profiles.controller, profiles: profiles)
+                    .frame(width: MacBrowserLayout.sidebarWidth, height: 560)
+                    .overlay { ProfileSidebarOverlayHost(profiles: profiles) }
+            )
+            defer { window.close() }
+            let content = try XCTUnwrap(window.contentView)
+            func scrollView() -> ProfileSidebarScrollView? {
+                content.layoutSubtreeIfNeeded()
+                return descendants(content).compactMap { $0 as? ProfileSidebarScrollView }
+                    .first { ($0 is SidebarTabScrollView) != overDots && !$0.bounds.isEmpty }
+            }
+            func center(of scroll: NSView) -> NSPoint {
+                scroll.convert(NSPoint(x: scroll.bounds.midX, y: scroll.bounds.midY), to: nil)
+            }
+            try await eventually("sidebar scroll view laid out (dots: \(overDots))") {
+                guard let scroll = scrollView(), scroll.window === window,
+                      overDots || (scroll.documentView?.frame.height ?? 0) > scroll.contentView.bounds.height else { return false }
+                let views = descendants(content)
+                return views.contains {
+                    guard let anchor = $0 as? ProfileSidebarAnchor.Anchor else { return false }
+                    return anchor.window === window && anchor.controller === profiles.controller && !anchor.bounds.isEmpty
+                } && views.contains {
+                    guard let region = $0 as? ProfileSidebarSwipeRegion.Region, region.kind == .sidebar else { return false }
+                    return region.window === window && region.controller === profiles.controller &&
+                        region.convert(region.bounds, to: nil).contains(center(of: scroll))
+                }
+            }
+            let scroll = try XCTUnwrap(scrollView())
+            let host = try XCTUnwrap(descendants(content).compactMap { $0 as? ProfileSidebarOverlayHost.Host }.first)
+            XCTAssertFalse(type(of: scroll).isCompatibleWithResponsiveScrolling)
+            let windowPoint = center(of: scroll)
+            let point = window.convertPoint(toScreen: windowPoint)
+            var time = ProcessInfo.processInfo.systemUptime
+            func event(_ phase: NSEvent.Phase, x: Int32 = 0, y: Int32 = 0, momentum: Int64 = 0) throws -> NSEvent {
+                time += 0.02
+                return try wheel(phase, x: x, y: y, momentum: momentum, time: time, screenPoint: point)
+            }
+
+            if !overDots {
+                let vertical: [(NSEvent.Phase, Int32, Int64)] = [
+                    (.began, -5, 0), (.changed, -50, 0), (.ended, 0, 0),
+                    ([], -25, 1), ([], -25, 2), ([], 0, 3),
+                ]
+                for (phase, delta, momentum) in vertical {
+                    let verticalEvent = try wheel(phase, y: delta, momentum: momentum, screenPoint: point)
+                    scroll.scrollWheel(with: verticalEvent)
+                    XCTAssertFalse(host.routeScrollWheel(verticalEvent), "Vertical gesture phases must pass through to AppKit")
+                }
+                XCTAssertFalse(profiles.sidebarSwitch.isCovering)
+                XCTAssertEqual(profiles.active.id, BrowserProfile.personalID)
+            }
+
+            // CGEvent-to-NSEvent conversion does not attach the offscreen
+            // window. Enter at the host's callback after its window filter.
+            let began = try event(.began, x: -4)
+            let eventPoint = window.convertPoint(fromScreen: began.locationInWindow)
+            XCTAssertEqual(eventPoint.x, windowPoint.x, accuracy: 1)
+            XCTAssertEqual(eventPoint.y, windowPoint.y, accuracy: 1)
+            XCTAssertFalse(host.routeScrollWheel(began))
+            scroll.scrollWheel(with: began)
+            let changed = try event(.changed, x: -7)
+            XCTAssertFalse(host.routeScrollWheel(changed))
+            scroll.scrollWheel(with: changed)
+            XCTAssertFalse(profiles.sidebarSwitch.isCovering, "The shared event must only contribute its delta once")
+
+            // Deliver the remaining events straight to the responder.
+            scroll.scrollWheel(with: try event(.changed, x: -150))
+            XCTAssertTrue(profiles.sidebarSwitch.isCovering)
+            scroll.scrollWheel(with: try event(.cancelled))
+            XCTAssertEqual(profiles.active.id, BrowserProfile.personalID)
+            XCTAssertFalse(host.routeScrollWheel(try event(.began, x: -5)))
+            scroll.scrollWheel(with: try event(.changed, x: -150))
+            scroll.scrollWheel(with: try event(.ended))
+            XCTAssertEqual(profiles.active.id, target.id)
+            let momentum = try event([], x: -50, momentum: 1)
+            scroll.scrollWheel(with: momentum)
+            XCTAssertTrue(host.routeScrollWheel(momentum), "Horizontal momentum remains claimed after selection")
+        }
     }
 
     func testSyntheticWindowRoutingKeepsGesturesInTheirStartingRegion() async throws {
@@ -160,18 +277,13 @@ final class ProfileSwipeTests: XCTestCase {
             profiles.profileSwipePreference = .on
             let source = profiles.controller
             let target = try profiles.create(name: "Work", color: .ocean, symbol: .work)
-            let host = NSHostingController(rootView: Fixture(profiles: profiles)
+            let window = makeWindow(Fixture(profiles: profiles)
                 .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight))
-            let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600),
-                styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.contentViewController = host
-            window.setContentSize(NSSize(width: 1000, height: 600))
-            BackgroundUIMode.show(window)
             defer { window.close() }
+            let content = try XCTUnwrap(window.contentView)
             func point(_ identifier: String) -> NSPoint? {
                 window.contentView?.layoutSubtreeIfNeeded()
-                return descendants(host.view).first {
+                return descendants(content).first {
                     $0.identifier?.rawValue == identifier && !$0.bounds.isEmpty && $0.window === window
                 }.map { $0.convert(NSPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: nil) }
             }
@@ -237,7 +349,7 @@ final class ProfileSwipeTests: XCTestCase {
 
             try await eventually("destination anchor reattached") {
                 window.contentView?.layoutSubtreeIfNeeded()
-                return self.descendants(host.view).contains {
+                return self.descendants(content).contains {
                     guard let anchor = $0 as? ProfileSidebarAnchor.Anchor else { return false }
                     return anchor.window === window && anchor.controller === profiles.controller && anchor.bounds.width > 0
                 }

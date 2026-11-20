@@ -111,7 +111,7 @@ struct BrowserSidebar: View {
                 if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
                     Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 14)
                 }
-                NativeSidebarTabs(controller: controller, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
+                NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
                                   searching: !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { id, right in
                     closeToRight = right
                     closeOthers = id
@@ -255,39 +255,32 @@ struct BrowserSidebar: View {
 
     private func profileDots(_ profiles: BrowserProfiles) -> some View {
         let available = profiles.available
-        let focusID = utilityFocus.flatMap(UUID.init(uuidString:))
-        return ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
-                HStack(spacing: 0) {
-                    ForEach(Array(available.enumerated()), id: \.element.id) { index, profile in
-                        let selected = profile.id == profiles.active.id
-                        Button {
-                            profiles.switchFromSidebar(profile.id, source: controller)
-                        } label: {
-                            Circle()
-                                .fill(selected ? theme.accent : theme.secondaryText.opacity(contrast == .increased ? 1 : 0.60))
-                                .overlay {
-                                    if contrast == .increased { Circle().strokeBorder(theme.text, lineWidth: 1) }
-                                }
-                                .frame(width: selected ? 8 : 6, height: selected ? 8 : 6)
-                                .frame(width: 24, height: 20)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain).focusable().focused($utilityFocus, equals: profile.id.uuidString)
-                        .help(profile.name)
-                        .accessibilityLabel("Profile \(index + 1) of \(available.count): \(profile.name)")
-                        .accessibilityAddTraits(selected ? [.isSelected] : [])
-                        .browserGeometryMarker("sidebarProfileDot-\(index)")
+        let centeredID = utilityFocus.flatMap(UUID.init(uuidString:)) ?? profiles.active.id
+        let indexToCenter = available.firstIndex { $0.id == centeredID } ?? 0
+        return ProfileDotsScroll(profiles: profiles, count: available.count, indexToCenter: indexToCenter) {
+            HStack(spacing: 0) {
+                ForEach(Array(available.enumerated()), id: \.element.id) { index, profile in
+                    let selected = profile.id == profiles.active.id
+                    Button {
+                        profiles.switchFromSidebar(profile.id, source: controller)
+                    } label: {
+                        Circle()
+                            .fill(selected ? theme.accent : theme.secondaryText.opacity(contrast == .increased ? 1 : 0.60))
+                            .overlay {
+                                if contrast == .increased { Circle().strokeBorder(theme.text, lineWidth: 1) }
+                            }
+                            .frame(width: selected ? 8 : 6, height: selected ? 8 : 6)
+                            .frame(width: ProfileDotsScrollMetrics.itemWidth, height: 20)
+                            .contentShape(Rectangle())
                     }
-                }.frame(maxWidth: .infinity)
-            }
-            .onAppear { proxy.scrollTo(profiles.active.id, anchor: .center) }
-            .onChange(of: focusID) { _, id in
-                if let id { proxy.scrollTo(id, anchor: .center) }
-            }
+                    .buttonStyle(.plain).focusable().focused($utilityFocus, equals: profile.id.uuidString)
+                    .help(profile.name)
+                    .accessibilityLabel("Profile \(index + 1) of \(available.count): \(profile.name)")
+                    .accessibilityAddTraits(selected ? [.isSelected] : [])
+                    .browserGeometryMarker("sidebarProfileDot-\(index)")
+                }
+            }.frame(maxWidth: .infinity)
         }
-        .scrollIndicators(.hidden)
-        .defaultScrollAnchor(.center, for: .alignment)
         .frame(height: 20)
         .browserGeometryMarker("sidebarProfileDotsGeometry")
     }
@@ -331,6 +324,70 @@ struct BrowserSidebar: View {
             .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText).accessibilityLabel("Settings").help("Settings (⌘,)")
             .focused($utilityFocus, equals: "settings")
             .browserGeometryMarker("sidebarFooter-Settings")
+    }
+}
+
+private enum ProfileDotsScrollMetrics {
+    static let itemWidth: CGFloat = 24
+}
+
+/// Hosts the existing dot buttons in a scroll view with the same gesture
+/// delivery as the tab list, while keeping horizontal overflow scrollable.
+private struct ProfileDotsScroll<Content: View>: NSViewRepresentable {
+    let profiles: BrowserProfiles
+    let count: Int
+    let indexToCenter: Int
+    @ViewBuilder let content: Content
+
+    func makeNSView(context: Context) -> DotScrollView {
+        let scroll = DotScrollView()
+        scroll.drawsBackground = false
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.verticalScrollElasticity = .none
+        let hosted = NSHostingView(rootView: AnyView(content.environment(\.self, context.environment)))
+        hosted.sizingOptions = []
+        scroll.documentView = hosted
+        return scroll
+    }
+
+    func updateNSView(_ scroll: DotScrollView, context: Context) {
+        scroll.profiles = profiles
+        let hosted = scroll.documentView as? NSHostingView<AnyView>
+        hosted?.rootView = AnyView(content.environment(\.self, context.environment))
+        let visualIndex = context.environment.layoutDirection == .rightToLeft ? count - 1 - indexToCenter : indexToCenter
+        scroll.configure(count: count, visualIndex: visualIndex)
+    }
+
+    final class DotScrollView: ProfileSidebarScrollView {
+        private var count = 0
+        private var visualIndex = 0
+        private var viewportWidth: CGFloat = 0
+        private var recenter = true
+
+        func configure(count: Int, visualIndex: Int) {
+            guard self.count != count || self.visualIndex != visualIndex else { return }
+            self.count = count
+            self.visualIndex = visualIndex
+            recenter = true
+            needsLayout = true
+        }
+
+        override func layout() {
+            super.layout()
+            let visible = contentView.bounds.size
+            guard visible.width > 0, let documentView else { return }
+            let itemWidth = ProfileDotsScrollMetrics.itemWidth
+            let width = max(visible.width, CGFloat(count) * itemWidth)
+            documentView.setFrameSize(NSSize(width: width, height: visible.height))
+            if recenter || viewportWidth != visible.width {
+                recenter = false
+                viewportWidth = visible.width
+                let center = (CGFloat(visualIndex) + 0.5) * itemWidth
+                let offset = min(max(0, center - visible.width / 2), width - visible.width)
+                contentView.scroll(to: NSPoint(x: offset, y: 0))
+                reflectScrolledClipView(contentView)
+            }
+        }
     }
 }
 

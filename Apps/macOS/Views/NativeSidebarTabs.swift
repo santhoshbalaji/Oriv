@@ -17,6 +17,7 @@ import SwiftUI
 
 struct NativeSidebarTabs: NSViewRepresentable {
     let controller: BrowserController
+    var profiles: BrowserProfiles? = nil
     let handle: SidebarListHandle
     let tabs: [BrowserTab]
     let duplicateTitles: Set<String>
@@ -27,7 +28,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
 
     func makeCoordinator() -> SidebarCollectionData { SidebarCollectionData() }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> SidebarTabScrollView {
         let list = SidebarTabCollection()
         list.collectionViewLayout = SidebarTabLayout()
         list.dataSource = context.coordinator
@@ -59,8 +60,9 @@ struct NativeSidebarTabs: NSViewRepresentable {
         return scroll
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
+    func updateNSView(_ scroll: SidebarTabScrollView, context: Context) {
         guard let list = context.coordinator.list else { return }
+        scroll.profiles = profiles?.controller === controller ? profiles : nil
         // Legacy scrollbars reserve space even when idle. In the rail,
         // wheel/trackpad and keyboard scrolling use the entire rail viewport.
         let direction: NSUserInterfaceLayoutDirection = context.environment.layoutDirection == .rightToLeft ? .rightToLeft : .leftToRight
@@ -74,7 +76,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
         scroll.tile()
     }
 
-    static func dismantleNSView(_ view: NSScrollView, coordinator: SidebarCollectionData) {
+    static func dismantleNSView(_ view: SidebarTabScrollView, coordinator: SidebarCollectionData) {
         coordinator.detach()
     }
 }
@@ -159,7 +161,7 @@ private final class SidebarTabClipView: NSClipView {
     }
 }
 
-private final class SidebarTabScrollView: NSScrollView {
+final class SidebarTabScrollView: ProfileSidebarScrollView {
     private var viewportWidth: CGFloat = 0
     override func tile() {
         super.tile()

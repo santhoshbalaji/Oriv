@@ -101,10 +101,14 @@ struct ProfileSidebarOverlayHost: NSViewRepresentable {
             guard window != nil else { return }
             profiles?.sidebarSwitch.attachHost(self)
             monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                guard let window = self?.window, event.window === window, let profiles = self?.profiles else { return event }
-                return profiles.sidebarSwitch.route(event, window: window, profiles: profiles,
-                                                   source: profiles.controller) ? nil : event
+                guard let self, let window = self.window, event.window === window else { return event }
+                return self.routeScrollWheel(event) ? nil : event
             }
+        }
+
+        func routeScrollWheel(_ event: NSEvent) -> Bool {
+            guard let window, let profiles else { return false }
+            return profiles.sidebarSwitch.routeScrollWheel(event, in: window, profiles: profiles, input: .monitor)
         }
 
         func removeMonitor() {
@@ -114,9 +118,25 @@ struct ProfileSidebarOverlayHost: NSViewRepresentable {
     }
 }
 
+/// Keep phased events on the responder path, including those AppKit delivers
+/// directly to the scroll view. Unclaimed events use native scrolling.
+class ProfileSidebarScrollView: NSScrollView {
+    weak var profiles: BrowserProfiles?
+
+    override class var isCompatibleWithResponsiveScrolling: Bool { false }
+
+    override func scrollWheel(with event: NSEvent) {
+        if let window, let profiles,
+           profiles.sidebarSwitch.routeScrollWheel(event, in: window, profiles: profiles, input: .scrollView) { return }
+        super.scrollWheel(with: event)
+    }
+}
+
 /// Owned by the profile manager so the overlay and scroll phase survive the
 /// keyed BrowserWindow rebuild. Only the covering flag changes SwiftUI state.
 @MainActor @Observable final class ProfileSidebarSwitch {
+    enum Input: String { case monitor, scrollView }
+
     private(set) var isCovering = false
     @ObservationIgnored private weak var host: ProfileSidebarOverlayHost.Host?
     @ObservationIgnored private weak var anchor: ProfileSidebarAnchor.Anchor?
@@ -131,6 +151,8 @@ struct ProfileSidebarOverlayHost: NSViewRepresentable {
     @ObservationIgnored private var waitingForProfile: UUID?
     @ObservationIgnored private var gestureWidth: CGFloat = 0
     @ObservationIgnored private var gestureMirror: CGFloat = 1
+    @ObservationIgnored private let routedEvents = NSMapTable<NSEvent, NSNumber>(
+        keyOptions: [.weakMemory, .objectPointerPersonality], valueOptions: .strongMemory)
 
     func cancel(in window: NSWindow, includingSettle: Bool = true) {
         guard overlay?.window === window, includingSettle || overlay?.isSettling == false else { return }
@@ -190,8 +212,19 @@ struct ProfileSidebarOverlayHost: NSViewRepresentable {
         }
     }
 
+    func routeScrollWheel(_ event: NSEvent, in window: NSWindow, profiles: BrowserProfiles, input: Input) -> Bool {
+        guard host?.window === window, event.window == nil || event.window === window else { return false }
+        // A passed event can visit both the monitor and the responder. Cache
+        // by object identity for its lifetime, including across reentrant dispatch.
+        if let handled = routedEvents.object(forKey: event) { return handled.boolValue }
+        let point = event.window == nil ? window.convertPoint(fromScreen: event.locationInWindow) : event.locationInWindow
+        let handled = route(event, window: window, profiles: profiles, source: profiles.controller, location: point, input: input)
+        routedEvents.setObject(NSNumber(value: handled), forKey: event)
+        return handled
+    }
+
     func route(_ event: NSEvent, window: NSWindow, profiles: BrowserProfiles, source: BrowserController,
-               location: NSPoint? = nil) -> Bool {
+               location: NSPoint? = nil, input: Input = .monitor) -> Bool {
         let phase: ProfileSwipe.Phase
         if !event.momentumPhase.isEmpty {
             phase = event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) ? .momentumEnded : .momentum
@@ -241,6 +274,9 @@ struct ProfileSidebarOverlayHost: NSViewRepresentable {
         }
         let reason = blocker()
         if phase == .began {
+            // If the prior horizontal gesture lost its terminal event, bring
+            // its artwork home even when this new gesture locks vertically.
+            if swipe.axis == .horizontal, overlay?.isSettling == false { settle(step: 0) }
             gestureWidth = anchor?.bounds.width ?? 0
             gestureMirror = anchor?.environment.layoutDirection == .rightToLeft ? -1 : 1
         }
@@ -252,7 +288,7 @@ struct ProfileSidebarOverlayHost: NSViewRepresentable {
                                   previous: previous != nil, next: next != nil,
                                   presentationOffset: overlay?.offset(relativeTo: profiles.active.id) ?? 0)
         if UserDefaults.standard.bool(forKey: "ProfileSwipeDiagnostics") {
-            Self.diagnostics.notice("phase=\(event.phase.rawValue) routed=\(String(describing: phase), privacy: .public) momentumPhase=\(event.momentumPhase.rawValue) dx=\(Double(event.scrollingDeltaX)) dy=\(Double(event.scrollingDeltaY)) precise=\(event.hasPreciseScrollingDeltas) system=\(systemEnabled) eligibility=\(reason ?? "eligible", privacy: .public) axis=\(String(describing: axisBefore), privacy: .public)->\(String(describing: self.swipe.axis), privacy: .public) settling=\(self.overlay?.isSettling ?? false) result=\(String(describing: result), privacy: .public)")
+            Self.diagnostics.notice("source=\(input.rawValue, privacy: .public) phase=\(event.phase.rawValue) routed=\(String(describing: phase), privacy: .public) momentumPhase=\(event.momentumPhase.rawValue) dx=\(Double(event.scrollingDeltaX)) dy=\(Double(event.scrollingDeltaY)) precise=\(event.hasPreciseScrollingDeltas) system=\(systemEnabled) eligibility=\(reason ?? "eligible", privacy: .public) axis=\(String(describing: axisBefore), privacy: .public)->\(String(describing: self.swipe.axis), privacy: .public) settling=\(self.overlay?.isSettling ?? false) result=\(String(describing: result), privacy: .public)")
         }
         switch result {
         case .pass: return false
