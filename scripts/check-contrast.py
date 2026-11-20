@@ -89,21 +89,25 @@ for mode in ("light", "dark"):
 sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
 assert "content.background(theme.surface" in sidebar_source
 assert "reduceTransparency || captureReduceTransparency || contrast == .increased" in sidebar_source
-assert "content.background(theme.surface.opacity(Self.backingOpacity)" in sidebar_source
+assert "content.background(theme.surface.opacity(effectiveOpacity.backingOpacity)" in sidebar_source
 assert "selected ? theme.selection" in sidebar_source
 sidebar_palette = adaptive_tokens(block("static let sidebar = Theme(", "static func editorial", mac_theme))
 
 def composite(front, back, opacity):
     return "".join(f"{round(int(front[i:i+2], 16) * opacity + int(back[i:i+2], 16) * (1-opacity)):02X}" for i in (0, 2, 4))
 
-sidebar_opacity = float(re.search(r"static let backingOpacity = ([0-9.]+)", sidebar_source).group(1))
+sidebar_opacities = dict((name, float(value)) for name, value in re.findall(
+    r"case \.(\w+): ([0-9.]+)", sidebar_source.split("enum SidebarGlassOpacity:", 1)[1].split("struct MacSidebarGlass:", 1)[0]))
+assert sidebar_opacities.keys() == {"balanced", "high", "solid"}
+assert sidebar_opacities["balanced"] == 0.83
 focused_field_opacity, field_opacity = map(float, re.search(
     r"background\(theme.field.opacity\(searchFocused \? ([0-9.]+) : ([0-9.]+)\)", sidebar_source).groups())
 button_source = mac_theme[mac_theme.index("struct ContentButtonStyle"):]
 press_opacity = float(re.search(r"isPressed \? ([0-9.]+)", button_source).group(1))
 sidebar_negative = "--negative-sidebar-test" in sys.argv
-if sidebar_negative:
-    sidebar_opacity = 0  # Original bug: uncontrolled glass behind fixed theme text.
+sidebar_variants = [(f"glass {step}", 0 if sidebar_negative else opacity)
+                    for step, opacity in sidebar_opacities.items()]
+sidebar_variants += [("reduce transparency", 1), ("increase contrast", 1)]
 sidebar_checks_start = len(checks)
 for mode in ("light", "dark"):
     tokens = {name: values[0 if mode == "light" else 1] for name, values in sidebar_palette.items()}
@@ -112,8 +116,8 @@ for mode in ("light", "dark"):
     # Black/white bound every channel of any sampled/tinted glass pixel. Include
     # the requested purple explicitly and mid-grey from the reported failure.
     for page in ("FFFFFF", "000000", "6000D9", "888888", "00D4C8", "FF8C24"):
-        for accessibility in ("glass", "reduce transparency", "increase contrast"):
-            panel = composite(surface, page, sidebar_opacity if accessibility == "glass" else 1)
+        for accessibility, opacity in sidebar_variants:
+            panel = composite(surface, page, opacity)
             backgrounds = {"panel": panel, "selection / rail": tokens["selection"],
                            "hover": tokens["thread"],
                            "pinned tile": composite(field, panel, 0.6),

@@ -9,6 +9,7 @@ enum SettingsPane: String, CaseIterable, Hashable {
 struct AppearanceSettings: View {
     @Environment(\.browserTheme) private var theme
     @Binding var appearance: BrowserAppearance
+    @AppStorage(SidebarGlassOpacity.preferenceKey) private var sidebarGlassOpacity: SidebarGlassOpacity = .balanced
     let controller: BrowserController
     var profiles: BrowserProfiles? = nil
     private var adBlocker: AdBlocker { controller.session.adBlocker }
@@ -96,6 +97,12 @@ struct AppearanceSettings: View {
                 .font(.callout).foregroundStyle(theme.secondaryText).lineSpacing(3)
             GroupBox("Sidebar") {
                 VStack(alignment: .leading, spacing: 8) {
+                    Picker("Glass opacity", selection: $sidebarGlassOpacity) {
+                        ForEach(SidebarGlassOpacity.allCases, id: \.self) { choice in
+                            Text(choice.rawValue).tag(choice)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                     Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
                     Text("Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.")
                         .font(.caption).foregroundStyle(theme.secondaryText)

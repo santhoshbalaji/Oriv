@@ -446,13 +446,38 @@ extension EnvironmentValues {
     }
 }
 
+enum SidebarGlassOpacity: String, CaseIterable {
+    case balanced = "Balanced"
+    case high = "High"
+    case solid = "Solid"
+
+    static let preferenceKey = "SidebarGlassOpacity"
+
+    var backingOpacity: Double {
+        switch self {
+        case .balanced: 0.83
+        case .high: 0.92
+        case .solid: 1.0
+        }
+    }
+}
+
 /// A single system glass surface, never one effect per tab. A contrast backing
 /// above the glass bounds even its brightest/darkest sampled pixels, so theme
 /// text cannot become white-on-light-grey when the page and system differ.
 /// check-contrast.py reads these constants to test the composited backgrounds.
 struct MacSidebarGlass: ViewModifier {
-    // Bounds the sampled glass behind fixed sidebar text in both appearances.
-    static let backingOpacity = 0.83
+    @AppStorage(SidebarGlassOpacity.preferenceKey) private var opacity: SidebarGlassOpacity = .balanced
+    #if DEBUG
+    @Environment(\.sidebarCaptureOpacity) private var captureOpacity
+    #endif
+    private var effectiveOpacity: SidebarGlassOpacity {
+        #if DEBUG
+        captureOpacity ?? opacity
+        #else
+        opacity
+        #endif
+    }
     private let theme = Theme.sidebar
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
@@ -461,10 +486,10 @@ struct MacSidebarGlass: ViewModifier {
     @Environment(\.sidebarCaptureBackdrop) private var captureBackdrop
     #endif
     func body(content: Content) -> some View {
-        if reduceTransparency || captureReduceTransparency || contrast == .increased {
+        if reduceTransparency || captureReduceTransparency || contrast == .increased || effectiveOpacity == .solid {
             edge(content.background(theme.surface))
         } else {
-            edge(glass(content.background(theme.surface.opacity(Self.backingOpacity))))
+            edge(glass(content.background(theme.surface.opacity(effectiveOpacity.backingOpacity))))
         }
     }
     private func edge<Surface: View>(_ content: Surface) -> some View {
@@ -485,3 +510,9 @@ struct MacSidebarGlass: ViewModifier {
         #endif
     }
 }
+
+#if DEBUG
+extension EnvironmentValues {
+    @Entry var sidebarCaptureOpacity: SidebarGlassOpacity? = nil
+}
+#endif

@@ -152,8 +152,12 @@ checks text at 4.5:1 and icons/indicators at 3:1, including nested fields,
 selection, hover, pressed utility buttons and opaque accessibility variants.
 The dedicated sidebar palette also applies inside T3 profiles. `--negative-sidebar-test` removes the backing
 in the model and must catch the original fixed-foreground/glass mismatch.
-The 83% direction B slate/lilac backing bounds glass luminance while retaining
-the system glass edge. Selection and hover use the mock's opaque palette fills.
+Appearance → Sidebar sets the backing live for all Mac windows. Balanced
+(83%) is the default, High is 92%, and Solid omits the glass. Reduce Transparency
+and Increase Contrast force the opaque backing at every step. To capture all
+three steps and the settings control off-screen, run
+`ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=sidebar-opacity ./scripts/capture-mac-visuals.sh --glass build/sidebar-opacity`.
+The captures use a synthetic glass input. Selection and hover use the mock's opaque palette fills.
 The filled Mac address capsule follows the page colour with a guarded 10% dark
 lift / 6% light shade;
 plain header glyphs use the page's explicit contrasting foreground. It avoids colour-scheme flips

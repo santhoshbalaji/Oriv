@@ -53,7 +53,7 @@ import WebKit
         }
         BackgroundUIMode.installAtLaunch()
         if BackgroundUIMode.isEnabled {
-            if ["sidebar-contrast", "p2"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
+            if ["sidebar-contrast", "p2", "sidebar-opacity"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("All windows stay off every display. Contrast matrix uses the real sidebar with a known white/black/purple glass input and labelled page swatch; the header is a layout spacer. It renders the production contrast backing and controls; reduced/increased variants use the opaque accessibility path. These are synthetic compositing/layout images, not live Liquid Glass acceptance.")
             } else {
                 manifest.limitations.append("All windows stay off every display. Sidebar/glass fallback fixtures use the app's opaque Reduce Transparency variant; they cannot verify Liquid Glass.")
@@ -65,6 +65,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "p3-github" { await renderGitHubFavicon(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-rtl" { await renderRightToLeft(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p2" { await renderP2Scenes(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" { await renderSidebarOpacity(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-attached" { await renderAttachedSidebarScenes(into: directory, activate: activate) }
@@ -382,6 +383,41 @@ import WebKit
                         .environment(\.sidebarCaptureBackdrop, backdrop)
                         .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
                         .environment(\.sidebarCaptureContrast, variant == "increased" ? .increased : .standard)
+                }
+            }
+        }
+    }
+
+    private static func renderSidebarOpacity(into directory: URL) async {
+        let profiles = BrowserProfiles(rootDirectory: directory.appendingPathComponent("opacity-fixture"), testing: true)
+        defer { profiles.shutdown() }
+        let controller = profiles.controller
+        for title in ["Maps", "Reading List", "Weather"] {
+            _ = controller.session.addTab(url: URL(string: "https://example.test/\(title.replacingOccurrences(of: " ", with: "-"))"),
+                                          select: false, load: false)
+        }
+        await capture("mac-glass-sidebar-contrast-opacity-settings", directory, CGSize(width: 672, height: 612),
+                      key: false, appearance: .light) {
+            AppearanceSettings(appearance: .constant(.light), controller: controller, initialPane: .appearance)
+        }
+        let backdrop = Color(red: 96.0 / 255, green: 0, blue: 217.0 / 255)
+        for appearance in [BrowserAppearance.light, .dark] {
+            for choice in SidebarGlassOpacity.allCases {
+                let name = "mac-glass-sidebar-contrast-opacity-\(appearance.rawValue.lowercased())-\(choice.rawValue.lowercased())"
+                await capture(name, directory, CGSize(width: 780, height: 560), key: false, appearance: appearance) {
+                    HStack(spacing: 0) {
+                        BrowserSidebar(controller: controller, profiles: profiles)
+                            .padding(.horizontal, 10)
+                            .frame(width: MacBrowserLayout.sidebarWidth)
+                            .background { Color.clear.modifier(MacSidebarGlass()) }
+                        backdrop.overlay(alignment: .topLeading) {
+                            Text("Synthetic glass input").font(.title).foregroundStyle(.white).padding(32)
+                        }
+                    }
+                    .background(backdrop)
+                    .environment(\.sidebarCaptureBackdrop, backdrop)
+                    .environment(\.sidebarCaptureOpacity, choice)
+                    .environment(\.siteIcons, controller.session.siteIcons)
                 }
             }
         }
