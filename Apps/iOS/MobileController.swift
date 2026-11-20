@@ -46,27 +46,20 @@ import WebKit
         #else
         let liveCapture = false
         #endif
-        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1" || ChromeVisualFixture.mode != nil || liveCapture
+        let testing = SessionFactory.isTesting || ChromeVisualFixture.mode != nil || liveCapture
         profileID = profile?.id
-        let root = profile?.directory(in: URL.applicationSupportDirectory.appendingPathComponent("Oriv", isDirectory: true))
-        let defaults: UserDefaults? = testing || profile == nil ? nil : profile!.isPersonal ? .standard : UserDefaults(suiteName: profile!.defaultsName(bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile")!)
+        let factory = SessionFactory(profile: profile, testing: testing, bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile")
+        let defaults = factory.defaults
         profileDefaults = defaults
         appearance = defaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:)) ?? .t3Code
-        session = BrowserSession(store: testing || root == nil ? nil : SessionFileStore(fileURL: root!.appendingPathComponent("session.json")),
-            dataStore: testing || profile == nil ? .nonPersistent() : profile!.isPersonal ? .default() : WKWebsiteDataStore(forIdentifier: profile!.id),
-            adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil,
-            faviconDirectory: !testing ? root?.appendingPathComponent("Favicons", isDirectory: true) : nil)
+        session = factory.session
         tabSwipe.topChrome = topChrome
         tabSwipe.chromeForTab = { [weak self] id in
             guard let self, let tab = session.tabs.first(where:{ $0.id == id }) else { return (ChromeColor(0,0,0),1) }
             let chrome = chrome(for:tab)
             return (MobileTopChrome.rgb(UIColor(chrome.color)),chrome.showsContentUnderChrome ? 0 : 1)
         }
-        if !testing, let root {
-            bookmarkMigration = Task { [weak session] in
-                await session?.importLegacyBookmarks(from: root.appendingPathComponent("workspace.sqlite"))
-            }
-        }
+        bookmarkMigration = factory.importLegacyBookmarks()
         memoryObserver = MobileMemoryObserver { [weak self] in
             self?.session.tabSnapshots.removeAll()
             self?.tabPresentation.releaseCachedSnapshots()
@@ -91,15 +84,12 @@ import WebKit
                 self?.chromes[id]?.observe(nil)
                 self?.delegates.removeValue(forKey:id)?.invalidate()
             }
-            delegates[tab.id] = adapter; view.uiDelegate = adapter
+            delegates[tab.id] = adapter
+            SessionFactory.attach(adapter, to: view, tab: tab)
             // Mobile downloads own their progress/delegate lifetime. Protect all
             // tabs while that owner reports an active transfer.
             tab.hasActiveDownloads = { [weak self] in (self?.downloads.activeCount ?? 0) > 0 }
             adapter.installContextTracking(on: view)
-            tab.onAuthentication = { [weak adapter] challenge, completion in
-                guard let adapter else { completion(.cancelAuthenticationChallenge, nil); return }
-                adapter.authenticate(challenge, completion: completion)
-            }
         }
         session.didCloseTab = { [weak self] id in self?.delegates.removeValue(forKey: id)?.invalidate(); self?.tabPresentation.remove(id); self?.chromes.removeValue(forKey:id)?.observe(nil) }
         session.handleDownload = { [weak self] download in self?.downloads.begin(download) }

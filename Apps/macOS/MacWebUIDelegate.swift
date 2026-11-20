@@ -4,7 +4,7 @@ import BrowserEngine
 import WebKit
 
 /// AppKit adapters stay in the Mac target. iPhone supplies UIKit dialogs and its own web-view wrapper.
-@MainActor final class MacWebUIDelegate: NSObject, WKUIDelegate {
+@MainActor final class MacWebUIDelegate: NSObject, SessionWebUIDelegate {
     private weak var session: BrowserSession?
     private weak var tab: BrowserTab?
 

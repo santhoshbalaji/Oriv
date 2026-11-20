@@ -4,7 +4,7 @@ import UIKit
 import WebKit
 import Observation
 
-@MainActor final class MobileWebDelegate: NSObject, WKUIDelegate {
+@MainActor final class MobileWebDelegate: NSObject, SessionWebUIDelegate {
     weak var session: BrowserSession?
     weak var tab: BrowserTab?
     var contextCancellation: MobileGestureCancellation?

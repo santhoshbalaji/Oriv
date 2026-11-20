@@ -50,6 +50,16 @@ private final class CountingSessionStore: BrowserSessionStore {
 }
 
 @MainActor final class BrowserEngineeringTests: XCTestCase {
+    func testPlatformSessionStorageRootKeepsItsExistingName() {
+        #if os(macOS)
+        let component = "PersonalBrowser"
+        #else
+        let component = "Oriv"
+        #endif
+        let expected = URL.applicationSupportDirectory.appendingPathComponent(component, isDirectory: true)
+        XCTAssertEqual(SessionFactory.storageRoot, expected)
+    }
+
     private var root: URL!
     override func setUp() async throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("OrivEngineering-\(UUID())")

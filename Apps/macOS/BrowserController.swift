@@ -74,26 +74,16 @@ final class BrowserController {
 
     init(profile: BrowserProfile? = .personal, rootDirectory: URL? = nil, testing: Bool? = nil, websiteStore: WKWebsiteDataStore? = nil) {
         self.profile = profile
-        let isTesting = testing ?? (ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1")
-        let root = rootDirectory ?? URL.applicationSupportDirectory.appendingPathComponent("PersonalBrowser", isDirectory: true)
-        let applicationSupport = profile?.directory(in: root) ?? root
-        let bundleID = Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac"
-        let defaults: UserDefaults? = isTesting || profile == nil ? nil : profile!.isPersonal ? .standard : UserDefaults(suiteName: profile!.defaultsName(bundleID: bundleID)!)
+        let factory = SessionFactory(profile: profile, rootOverride: rootDirectory,
+            testing: testing ?? SessionFactory.isTesting,
+            bundleID: Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac", websiteStore: websiteStore)
+        let defaults = factory.defaults
         profileDefaults = defaults
         sidebar.preferredRail = defaults?.bool(forKey: "compactSidebar") ?? false
         sidebar.hoverEnabled = defaults?.bool(forKey: "hoverSidebar") ?? false
         appearance = defaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:)) ?? .t3Code
-        let persistent = profile != nil && (!isTesting || rootDirectory != nil)
-        session = BrowserSession(store: persistent ? SessionFileStore(fileURL: applicationSupport.appendingPathComponent("session.json")) : nil,
-                                 dataStore: websiteStore ?? (isTesting || profile == nil ? .nonPersistent() : profile!.isPersonal ? .default() : WKWebsiteDataStore(forIdentifier: profile!.id)),
-                                 adBlocker: AdBlocker(defaults: defaults), settings: BrowserSettings(defaults: defaults), externalPrivate: profile == nil,
-                                 faviconDirectory: persistent ? applicationSupport.appendingPathComponent("Favicons", isDirectory: true) : nil)
-        if persistent {
-            bookmarkMigration = Task { [weak session] in
-                await session?.importLegacyBookmarks(from: applicationSupport.appendingPathComponent("workspace.sqlite"))
-            }
-        }
+        session = factory.session
+        bookmarkMigration = factory.importLegacyBookmarks()
         session.configureWebView = { [weak self] view, tab in
             #if DEBUG
             ChromeTiming.install(on: view)
@@ -102,7 +92,7 @@ final class BrowserController {
             guard let self else { return }
             let adapter = MacWebUIDelegate(session: self.session, tab: tab)
             self.adapters[tab.id] = adapter
-            view.uiDelegate = adapter
+            SessionFactory.attach(adapter, to: view, tab: tab)
             self.privacyMenus.removeValue(forKey: tab.id)?.invalidate()
             self.privacyMenus[tab.id] = MacPrivacyLinkMenu(tab: tab, session: self.session, view: view)
             let id = tab.id
@@ -113,10 +103,6 @@ final class BrowserController {
             tab.hasActiveDownloads = { [weak self, weak view] in
                 guard let view else { return false }
                 return self?.downloads.items.contains { $0.sourceView === view && (!$0.isFinished || $0.isPaused || $0.isCancelling) } == true
-            }
-            tab.onAuthentication = { [weak adapter] challenge, completion in
-                guard let adapter else { completion(.cancelAuthenticationChallenge, nil); return }
-                adapter.authenticate(challenge, completion: completion)
             }
         }
         session.didCloseTab = { [weak self] id in self?.adapters.removeValue(forKey: id); self?.privacyMenus.removeValue(forKey: id)?.invalidate() }
