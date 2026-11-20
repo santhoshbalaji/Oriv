@@ -67,6 +67,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "p2" { await renderP2Scenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" { await renderSidebarOpacity(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-width" { await renderSidebarWidthScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-attached" { await renderAttachedSidebarScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar" { await renderSidebarScenes(into: directory, activate: activate) }
@@ -493,6 +494,59 @@ import WebKit
 
     /// Same real-window fixture before and after the sidebar change. Sleeping tabs
     /// are metadata only; generated local icons go through the production cache.
+    private static func renderSidebarWidthScenes(into directory: URL) async {
+        let root = directory.appendingPathComponent("sidebar-fixture")
+        let home = TabRecord()
+        let pins = (1...8).map { TabRecord(url: URL(string: "https://pin\($0).example"), isPinned: true) }
+        let long = TabRecord(title: "A field guide to quieter interfaces and more considered everyday browsing",
+                             url: URL(string: "https://field-guide.example"))
+        let duplicates = ["docs", "help"].map {
+            TabRecord(title: "Project notes", url: URL(string: "https://\($0).research-and-development.example"))
+        }
+        do {
+            try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: pins + [home, long] + duplicates, selectedTabID: home.id))
+        } catch { manifest.failures.append("Sidebar width fixture: \(error)"); return }
+
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let controller = profiles.controller
+        controller.session.addTab(isPrivate: true, select: false, load: false)
+        let privateID = profiles.createPrivateWindow()
+        guard let privateController = profiles.privateWindows[privateID] else {
+            manifest.failures.append("Dedicated private window fixture missing"); return
+        }
+        privateController.session.addTab(isPrivate: true, select: false, load: false)
+
+        for (mode, appearance) in [("light", BrowserAppearance.light), ("dark", .dark), ("rtl", .light), ("private", .dark)] {
+            let name = "mac-glass-sidebar-width-\(mode)"
+            let isPrivate = mode == "private"
+            await capture(name, directory, CGSize(width: 1000, height: 680), key: false, appearance: appearance,
+                          prepare: { window in
+                              writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+                          }) {
+                BrowserWindow(controller: isPrivate ? privateController : controller, profiles: isPrivate ? nil : profiles)
+                    .environment(\.layoutDirection, mode == "rtl" ? .rightToLeft : .leftToRight)
+                    .environment(\.chromeReduceTransparencyOverride, true)
+                    .environment(\.sidebarCaptureState, SidebarCaptureState(hover: long.id))
+            }
+        }
+
+        guard let file = NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu else {
+            manifest.failures.append("AppKit File menu missing"); return
+        }
+        let modifiers: [(NSEvent.ModifierFlags, String)] = [(.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
+        let items = file.items.map { item in
+            let keys = modifiers.filter { item.keyEquivalentModifierMask.contains($0.0) }.map(\.1).joined()
+            return ["title": item.title, "keyEquivalent": item.keyEquivalent,
+                    "shortcut": item.keyEquivalent.isEmpty ? "" : keys + item.keyEquivalent.uppercased()]
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: items, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: directory.appendingPathComponent("file-menu.json"))
+        } catch { manifest.failures.append("File menu inventory: \(error)") }
+    }
+
     private static func renderSidebarBScenes(into directory: URL, activate: Bool) async {
         manifest.limitations.append("Benchmark matrix: 12/50/100 metadata tabs, nine pins, duplicate site icons, private tabs and long titles. Hover/focus and audio/loading visuals use Debug-only presentation inputs; native timing, focus, status labels and cancellation have separate tests. These images do not simulate real pointer movement or compositor motion.")
         let titles = ["Atlas Maps", "Postbox", "Orbit Code", "Paper Library", "Design resources", "Weekend in the mountains",

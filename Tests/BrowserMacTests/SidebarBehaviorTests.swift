@@ -160,14 +160,14 @@ import XCTest
     }
     func testNarrowHysteresisPreservesExplicitPreference() {
         let s = SidebarPresentation()
-        s.resize(availableWidth: MacBrowserLayout.sidebarWidth + 500)
+        s.resize(availableWidth: 796)
         XCTAssertFalse(s.rail)
-        s.resize(availableWidth: MacBrowserLayout.sidebarWidth + 499)
+        s.resize(availableWidth: 795)
         XCTAssertTrue(s.rail); XCTAssertFalse(s.preferredRail)
-        for page: CGFloat in [500, 539, 510, 500] {
-            s.resize(availableWidth: MacBrowserLayout.sidebarWidth + page); XCTAssertTrue(s.rail)
+        for width: CGFloat in [796, 835, 806, 796] {
+            s.resize(availableWidth: width); XCTAssertTrue(s.rail)
         }
-        s.resize(availableWidth: MacBrowserLayout.sidebarWidth + 540)
+        s.resize(availableWidth: 836)
         XCTAssertFalse(s.rail); XCTAssertFalse(s.preferredRail)
         s.setPreference(true); s.resize(availableWidth: 1400)
         XCTAssertTrue(s.rail); XCTAssertTrue(s.preferredRail)
@@ -260,11 +260,35 @@ import XCTest
         for _ in 0..<9 { let tab = c.session.addTab(select: false, load: false); c.session.togglePinned(tab.id) }
         let w = host(c); defer { w.close() }; try await pause(350)
         let pins = c.session.orderedTabs.filter(\.isPinned)
-        let all = views(try XCTUnwrap(w.contentView))
-        for (index, tab) in pins.enumerated() {
-            let marker = try XCTUnwrap(all.first { $0.identifier?.rawValue == "sidebarItem-\(tab.id)" })
-            XCTAssertEqual(marker.bounds.height, index < 8 ? 48 : 36, accuracy: 1)
-            if index < 8 { XCTAssertEqual(marker.bounds.width, 56, accuracy: 1) }
+        let content = try XCTUnwrap(w.contentView)
+        let collection = try XCTUnwrap(views(content).compactMap { $0 as? SidebarTabCollection }.first)
+        let scroll = try XCTUnwrap(collection.enclosingScrollView)
+        scroll.autohidesScrollers = false
+        for style: NSScroller.Style in [.overlay, .legacy] {
+            scroll.scrollerStyle = style
+            scroll.tile()
+            try await pause(150)
+            let all = views(content)
+            let frames = try pins.map { tab in
+                let marker = try XCTUnwrap(all.first { $0.identifier?.rawValue == "sidebarItem-\(tab.id)" })
+                return marker.convert(marker.bounds, to: nil)
+            }
+            let surface = try XCTUnwrap(all.first { $0.identifier?.rawValue == "sidebarSurfaceGeometry" })
+            XCTAssertEqual(surface.bounds.width, 256, accuracy: 0.5)
+            if style == .legacy { XCTAssertLessThan(scroll.contentView.bounds.width, scroll.bounds.width) }
+            for (index, frame) in frames.enumerated() {
+                XCTAssertEqual(frame.height, index < 8 ? 48 : 36, accuracy: 1)
+                if index < 8 { XCTAssertGreaterThanOrEqual(frame.width, 44) }
+            }
+            for offset in [0, 4] {
+                let row = frames[offset..<(offset + 4)]
+                XCTAssertEqual(frames[offset].minX, frames[8].minX + 8, accuracy: 0.5)
+                XCTAssertEqual(frames[offset + 3].maxX, frames[8].maxX - 8, accuracy: 0.5)
+                for (left, right) in zip(row, row.dropFirst()) {
+                    XCTAssertEqual(right.minX - left.maxX, 8, accuracy: 0.5)
+                    XCTAssertEqual(left.midY, right.midY, accuracy: 0.5)
+                }
+            }
         }
         XCTAssertEqual(SidebarTabs.gridLimit, 8)
         XCTAssertFalse(pins.contains(where: \.isInstantiated))

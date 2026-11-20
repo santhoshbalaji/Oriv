@@ -95,6 +95,10 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
         let rowWidth = data.isRail ? MacBrowserLayout.railItemWidth : max(0, width - 2 * edge)
         let rowHeight = data.rowHeight
         let spacing: CGFloat = icons ? 6 : 1
+        let gridColumns = 4
+        let gridInset = MacBrowserLayout.sidebarRowInset
+        let gridGap: CGFloat = 8
+        let tileWidth = max(0, (width - 2 * gridInset - CGFloat(gridColumns - 1) * gridGap) / CGFloat(gridColumns))
         var y: CGFloat = 0
         for (section, group) in data.sections.enumerated() {
             if group.headerHeight > 0 {
@@ -110,16 +114,15 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
                 let path = IndexPath(item: index, section: section)
                 let item = NSCollectionViewLayoutAttributes(forItemWith: path)
                 if group.grid {
-                    let offset = max(0, (width - 248) / 2)
-                    let x = offset + CGFloat(index % 4) * 64
-                    let origin = list.userInterfaceLayoutDirection == .rightToLeft ? width - x - 56 : x
-                    item.frame = NSRect(x: origin, y: y + CGFloat(index / 4) * 57, width: 56, height: 48)
+                    let x = gridInset + CGFloat(index % gridColumns) * (tileWidth + gridGap)
+                    let origin = list.userInterfaceLayoutDirection == .rightToLeft ? width - x - tileWidth : x
+                    item.frame = NSRect(x: origin, y: y + CGFloat(index / gridColumns) * 57, width: tileWidth, height: 48)
                 } else {
                     item.frame = NSRect(x: edge, y: y + CGFloat(index) * (rowHeight + spacing), width: rowWidth, height: rowHeight)
                 }
                 items[path] = item
             }
-            if group.grid { y += CGFloat((group.tabs.count + 3) / 4) * 57 - 4 }
+            if group.grid { y += CGFloat((group.tabs.count + gridColumns - 1) / gridColumns) * 57 - 4 }
             else if !group.tabs.isEmpty { y += CGFloat(group.tabs.count) * (rowHeight + spacing) - (icons ? spacing : 0) }
         }
         contentSize = NSSize(width: width, height: y + (icons ? 0 : 9))

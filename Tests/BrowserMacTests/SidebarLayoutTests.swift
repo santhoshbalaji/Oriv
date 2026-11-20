@@ -111,6 +111,16 @@ import XCTest
             XCTAssertEqual(icon.minX - row.minX, 8, accuracy: 0.5)
             XCTAssertEqual(try frame("sidebarSection-Tabs", in: window).minX, icon.minX, accuracy: 0.5)
             let footer = try frame("sidebarFooterGeometry", in: window)
+            let footerTitles = LibrarySection.allCases.map(\.rawValue) + ["Settings"]
+            let footerButtons = try footerTitles.map { try frame("sidebarFooter-\($0)", in: window) }
+            for (title, button) in zip(footerTitles, footerButtons) {
+                XCTAssertTrue(footer.contains(button), title)
+                XCTAssertEqual(button.width, 32, accuracy: 0.5, title)
+                XCTAssertEqual(button.height, 32, accuracy: 0.5, title)
+            }
+            for (left, right) in zip(footerButtons, footerButtons.dropFirst()) {
+                XCTAssertLessThanOrEqual(left.maxX, right.minX)
+            }
             XCTAssertEqual(footer.minY - surface.minY, 8, accuracy: 0.5)
             XCTAssertEqual(try frame("sidebarNewTabGeometry", in: window).minY - footer.maxY, 5, accuracy: 0.5)
             XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 0.5)
@@ -268,7 +278,7 @@ import XCTest
             for name in ["browserPrivacyGeometry", "browserOverviewGeometry", "browserPageMenuGeometry"] {
                 XCTAssertTrue(toolbar.contains(try frame(name, in: window)))
             }
-            XCTAssertGreaterThan(try frame("browserAddressGeometry", in: window).width, rail ? 600 : 530)
+            XCTAssertGreaterThan(try frame("browserAddressGeometry", in: window).width, rail ? 600 : 570)
         }
     }
 

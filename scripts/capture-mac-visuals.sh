@@ -11,6 +11,7 @@
 #   --active   legacy alias for --key; activation additionally needs ORIV_FOREGROUND_UI=1.
 #   ORIV_BACKGROUND_UI=1 is the default. Foreground UI requires orchestrator approval.
 #   ORIV_GLASS_SCENE=sidebar captures the fixed-sidebar acceptance matrix.
+#   ORIV_GLASS_SCENE=sidebar-width captures the expanded sidebar and inventories the File menu.
 #   The default PID-validated PNG bridge captures only the app's own window IDs.
 #   ORIV_CAPTURE_RENDERER=inprocess opts into ScreenCaptureKit instead.
 #   The output directory must not exist or must be empty. Default: build/visual-runs/<timestamp>-mac
@@ -112,6 +113,7 @@ cp -p "$SRC"/manifest.json "$OUT"/
 for snapshot in "$SRC"/*.png(N); do cp -p "$snapshot" "$OUT"/; done
 if [[ "$GLASS" == 1 ]]; then
   for evidence in "$SRC"/*-geometry.json(N) "$SRC"/*-timing.json(N) "$SRC"/*-fullscreen.json(N) "$SRC"/*-scroll.json(N); do cp -p "$evidence" "$OUT"/; done
+  if [[ "${ORIV_GLASS_SCENE:-}" == sidebar-width ]]; then cp -p "$SRC/file-menu.json" "$OUT/"; fi
 fi
 
 python3 -I - "$OUT" "$RUN_ID" "$STATUS" "$GLASS" <<'PY'
@@ -137,6 +139,12 @@ if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":
     expected = {"mac-glass-" + mode for mode in ("menu", "menu-dark", "menu-private", "menu-narrow")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
     expected = {"mac-glass-sidebar-" + mode for mode in ("light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest", "covered")}
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-width":
+    expected = {"mac-glass-sidebar-width-" + mode for mode in ("light", "dark", "rtl", "private")}
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = {name + "-opaque-fallback" for name in expected} - evidence
+        if missing: problems.append(f"missing sidebar width evidence: {sorted(missing)}")
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-b":
     expected = {f"mac-glass-sidebar-b-{count}-{mode}-{width}-{state}" for count in (12, 50, 100) for mode in ("light", "dark") for width in (820, 1280) for state in ("expanded", "rail")}
     expected |= {f"mac-glass-sidebar-b-12-{mode}-1280-{state}-{variant}"

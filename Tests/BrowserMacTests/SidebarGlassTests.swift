@@ -261,8 +261,8 @@ import XCTest
         let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let home = TabRecord()
-        let first = TabRecord(title: "Project", url: URL(string: "https://alpha.example"))
-        let second = TabRecord(title: "Project", url: URL(string: "https://beta.example"))
+        let first = TabRecord(title: "Project", url: URL(string: "https://alpha.research-and-development.example"))
+        let second = TabRecord(title: "Project", url: URL(string: "https://beta.research-and-development.example"))
         let unique = TabRecord(title: "Reference", url: URL(string: "https://reference.example"))
         try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
             .save(BrowserSnapshot(tabs: [home, first, second, unique], selectedTabID: home.id, legacyBookmarksImported: true))
@@ -280,9 +280,19 @@ import XCTest
             let row = try XCTUnwrap(marker("sidebarItem", record.id))
             XCTAssertEqual(row.bounds.height, 36, accuracy: 0.5)
             XCTAssertEqual(row.accessibilityLabel()?.contains(record.url!.host!), true)
+            if record.id != unique.id {
+                let host = try XCTUnwrap(marker("sidebarHost", record.id))
+                let close = try XCTUnwrap(marker("sidebarClose", record.id))
+                let hostFrame = host.convert(host.bounds, to: row)
+                let closeFrame = close.convert(close.bounds, to: row)
+                XCTAssertGreaterThan(hostFrame.width, 100)
+                XCTAssertTrue(row.bounds.contains(hostFrame))
+                XCTAssertTrue(row.bounds.contains(closeFrame))
+                XCTAssertLessThanOrEqual(hostFrame.maxX, closeFrame.minX)
+            }
         }
         let list = try XCTUnwrap(w.contentView.flatMap { views($0).compactMap { $0 as? SidebarTabCollection }.first })
-        c.tabSearch = "beta.example"
+        c.tabSearch = "beta.research"
         try await waitUntil("The native list contains only the matching result") {
             list.sidebar?.path(for: first.id) == nil && list.sidebar?.path(for: second.id) != nil
         }
@@ -290,7 +300,7 @@ import XCTest
         list.sidebar?.revealItem(at: path)
         try await waitUntil("A single remaining match drops the subtitle") {
             guard let row = list.item(at: path)?.view else { return false }
-            return row.accessibilityLabel()?.contains("beta.example") == true &&
+            return row.accessibilityLabel()?.contains("beta.research") == true &&
                 !self.views(row).contains { $0.identifier?.rawValue == "sidebarHost-\(second.id)" }
         }
     }

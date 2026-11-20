@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Shared geometry for the content header and the real AppKit window controls.
 enum MacBrowserLayout {
-    static let sidebarWidth: CGFloat = 296
+    static let sidebarWidth: CGFloat = 256
     // A centered 54 pt group has 9 pt of breathing room on each side.
     static let railWidth: CGFloat = 72
     static let headerHeight: CGFloat = 60

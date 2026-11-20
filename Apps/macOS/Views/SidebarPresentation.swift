@@ -30,9 +30,10 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
     var held: Bool { pointerInside || panelInside || focusInside || menuOpen || searchOpen || dragging }
 
     func resize(availableWidth: CGFloat) {
-        let page = availableWidth - MacBrowserLayout.sidebarWidth
-        if page < 500 { automaticRail = true }
-        else if page >= 540 { automaticRail = false; narrowOverlay = false }
+        // Keep the rail reachable at the 760 pt minimum window width and leave
+        // a 40 pt band between collapsing and reopening the attached sidebar.
+        if availableWidth < 796 { automaticRail = true }
+        else if availableWidth >= 836 { automaticRail = false; narrowOverlay = false }
     }
     func setPreference(_ rail: Bool) {
         preferredRail = rail
