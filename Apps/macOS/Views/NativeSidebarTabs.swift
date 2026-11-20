@@ -452,7 +452,13 @@ private struct SidebarSection {
         add("Duplicate Tab", .duplicate)
         add("Move Up", .moveUp)
         add("Move Down", .moveDown)
-        if tab.url != nil { add(tab.mediaSuspended ? "Resume Media Playback" : "Pause and Block Media Playback", .media) }
+        if tab.url != nil {
+            menu.addItem(.separator())
+            add("Reload", .reload)
+            add("Copy Link", .copyLink)
+            add(SidebarTabs.muteLabel(tab), .mute)
+            add(tab.mediaSuspended ? "Resume Media Playback" : "Pause and Block Media Playback", .media)
+        }
         menu.addItem(.separator())
         add("Close Tab", .close)
         for (label, right) in [("Close Other Tabs", false), ("Close Tabs to the Right", true)] {
@@ -741,7 +747,11 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
         let trailing = view.bounds.maxX - point.x - MacBrowserLayout.sidebarRowInset
         guard trailing >= 0, abs(point.y - view.bounds.midY) <= 12 else { return false }
         if trailing < 24, hovered || active || isSelected { command?(.close); return true }
-        if trailing < 48, tab.isPlayingAudio || tab.mediaSuspended { command?(.media); return true }
+        if trailing < 48 {
+            if tab.mediaSuspended { command?(.media); return true }
+            if tab.isAudioMuted { command?(.mute); return true }
+            if tab.isPlayingAudio { command?(.media); return true }
+        }
         return false
     }
 }
@@ -779,6 +789,11 @@ private final class SidebarAccessibleRow: NSView {
         if !tab.isPrivate {
             actions.append(NSAccessibilityCustomAction(name: tab.isPinned ? "Unpin Tab" : "Pin Tab") { [weak item] in
                 item?.command?(.pin); return item != nil
+            })
+        }
+        if tab.isPlayingAudio || tab.isAudioMuted {
+            actions.append(NSAccessibilityCustomAction(name: SidebarTabs.muteLabel(tab)) { [weak item] in
+                item?.command?(.mute); return item != nil
             })
         }
         if tab.isPlayingAudio || tab.mediaSuspended {

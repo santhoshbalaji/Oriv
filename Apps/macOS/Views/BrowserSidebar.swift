@@ -9,7 +9,7 @@ struct SidebarTabTransfer: Codable {
 }
 
 enum SidebarDropTarget { case tab(UUID), pinned(Bool) }
-enum SidebarTabCommand { case pin, duplicate, moveUp, moveDown, media, close, newPrivate }
+enum SidebarTabCommand { case pin, duplicate, moveUp, moveDown, reload, copyLink, mute, media, close, newPrivate }
 
 /// SwiftUI focus can use a window-sized AppKit responder. Publish ownership
 /// separately so collapse can hand focus to its surviving toggle in this window.
@@ -30,6 +30,9 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
         case .duplicate: controller.session.duplicateTab(tab.id)
         case .moveUp: controller.session.moveTab(tab.id, offset: -1)
         case .moveDown: controller.session.moveTab(tab.id, offset: 1)
+        case .reload: tab.reload()
+        case .copyLink: if let url = tab.url { PrivacyPasteboard.copy(url) }
+        case .mute: tab.toggleAudioMute()
         case .media: tab.toggleMediaSuspension()
         case .close: controller.requestCloseTab(tab.id)
         case .newPrivate: controller.newTab(isPrivate: true)
@@ -48,10 +51,13 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
         return duplicates
     }
 
+    static func muteLabel(_ tab: BrowserTab) -> String { tab.isAudioMuted ? "Unmute Tab" : "Mute Tab" }
+
     static func label(_ tab: BrowserTab, selected: Bool) -> String {
         ([tab.displayTitle, tab.hostname] + (selected ? ["Selected"] : []) +
          (tab.isPinned ? ["Pinned"] : []) + (tab.isPrivate ? ["Private"] : []) +
-         (tab.isLoading ? ["Loading"] : []) + (tab.mediaSuspended ? ["Media paused"] : (tab.isPlayingAudio ? ["Playing audio"] : [])))
+         (tab.isLoading ? ["Loading"] : []) + (tab.isAudioMuted ? ["Muted"] : []) +
+         (tab.mediaSuspended ? ["Media paused"] : (tab.isPlayingAudio && !tab.isAudioMuted ? ["Playing audio"] : [])))
             .joined(separator: ", ")
     }
     static func canDrop(_ item: SidebarTabTransfer, on target: SidebarDropTarget, controller: BrowserController) -> Bool {
@@ -312,12 +318,18 @@ struct SidebarTabArtwork: View {
         #endif
     }
 
+    private var mediaSymbol: String? {
+        if tab.mediaSuspended { return "pause.circle" }
+        if tab.isAudioMuted { return "speaker.slash.fill" }
+        return audio ? "speaker.wave.2.fill" : nil
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             if rail {
                 favicon.frame(width: 42, height: 36)
                     .overlay(alignment: .bottomTrailing) {
-                        if tab.mediaSuspended || audio { badge(tab.mediaSuspended ? "pause.fill" : "speaker.wave.2.fill") }
+                        if let mediaSymbol { badge(mediaSymbol) }
                     }
                     .overlay(alignment: .topTrailing) { if tab.isPrivate { badge("eyeglasses") } }
                 if peek { Text(tab.displayTitle).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
@@ -336,8 +348,8 @@ struct SidebarTabArtwork: View {
                                 .browserGeometryMarker("sidebarHost-\(tab.id)")
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                    if tab.mediaSuspended || audio {
-                        Image(systemName: tab.mediaSuspended ? "pause.circle" : "speaker.wave.2.fill")
+                    if let mediaSymbol {
+                        Image(systemName: mediaSymbol)
                             .font(.system(size: 11)).foregroundStyle(theme.accentText)
                             .frame(width: 24, height: 24).padding(.leading, -8)
                             .browserGeometryMarker("sidebarMedia-\(tab.id)")

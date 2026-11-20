@@ -46,7 +46,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     /// Mac sidebar metadata, updated by media events without a row polling loop.
     public private(set) var isPlayingAudio = false
     #if os(macOS)
+    public private(set) var isAudioMuted = false
     @ObservationIgnored private var audibleFrames: Set<String> = []
+    @ObservationIgnored private var mediaFrames: [String: WKFrameInfo] = [:]
     #endif
     public private(set) var isProfileActive = true
     public private(set) var isCapturingCamera = false
@@ -187,15 +189,38 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         let audioScript = WKUserScript(source: """
             (() => {
                 const frame = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
-                let previous = false;
-                const report = () => {
-                    const audible = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
+                let previous;
+                let muted = false;
+                const mutedByTab = new WeakSet();
+                const media = () => document.querySelectorAll('audio,video');
+                const applyMute = element => {
+                    if (!element.muted) { mutedByTab.add(element); element.muted = true; }
+                };
+                const restoreMute = element => {
+                    if (mutedByTab.delete(element)) element.muted = false;
+                };
+                globalThis.orivSetTabMute = (id, value) => {
+                    if (id !== frame) return;
+                    muted = value;
+                    media().forEach(muted ? applyMute : restoreMute);
+                };
+                const report = event => {
+                    if (event?.target instanceof HTMLMediaElement) {
+                        (muted ? applyMute : restoreMute)(event.target);
+                    }
+                    const elements = [...media()];
+                    if (!elements.length && previous === undefined) return;
+                    const audible = elements.some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
                     if (audible === previous) return;
                     previous = audible;
                     window.webkit.messageHandlers.tabAudio.postMessage({frame, audible});
                 };
                 ['play','playing','pause','ended','volumechange','emptied'].forEach(e => document.addEventListener(e, report, true));
-                window.addEventListener('pagehide', () => { previous = false; window.webkit.messageHandlers.tabAudio.postMessage({frame, audible:false}); });
+                window.addEventListener('pagehide', () => {
+                    if (previous === undefined) return;
+                    previous = undefined;
+                    window.webkit.messageHandlers.tabAudio.postMessage({frame, audible:false, hidden:true});
+                });
                 window.addEventListener('pageshow', report);
             })();
             """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world)
@@ -531,13 +556,35 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func clearFind() { findResult = nil }
     public func toggleMediaSuspension() { mediaSuspended.toggle(); backingWebView?.setAllMediaPlaybackSuspended(mediaSuspended || !isProfileActive, completionHandler: nil) }
     #if os(macOS)
+    public func toggleAudioMute() {
+        guard !isClosed, url != nil else { return }
+        isAudioMuted.toggle()
+        for (id, frame) in mediaFrames { applyAudioMute(id: id, frame: frame) }
+    }
+
+    private func applyAudioMute(id: String, frame: WKFrameInfo) {
+        backingWebView?.callAsyncJavaScript("globalThis.orivSetTabMute?.(id, muted)",
+            arguments: ["id": id, "muted": isAudioMuted], in: frame, in: .world(name: "OrivTabState"),
+            completionHandler: nil)
+    }
+
+    fileprivate func updateMediaFrame(_ id: String, frame: WKFrameInfo, hidden: Bool) {
+        guard !isClosed, id.count <= 80 else { return }
+        if hidden { mediaFrames[id] = nil }
+        else if mediaFrames[id] == nil && mediaFrames.count < 256 {
+            mediaFrames[id] = frame
+            // A restored or newly navigated frame may have a stale local mute.
+            applyAudioMute(id: id, frame: frame)
+        }
+    }
+
     func recordAudio(frame: String, audible: Bool) {
         guard !isClosed, frame.count <= 80 else { return }
         if audible { if audibleFrames.count < 256 { audibleFrames.insert(frame) } }
         else { audibleFrames.remove(frame) }
         isPlayingAudio = !audibleFrames.isEmpty
     }
-    private func resetAudio() { audibleFrames.removeAll(); isPlayingAudio = false }
+    private func resetAudio() { audibleFrames.removeAll(); mediaFrames.removeAll(); isPlayingAudio = false }
     #endif
     public func setProfileActive(_ active: Bool) {
         isProfileActive = active
@@ -1106,6 +1153,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let frame = body["frame"] as? String,
               let audible = body["audible"] as? Bool else { return }
+        tab?.updateMediaFrame(frame, frame: message.frameInfo, hidden: body["hidden"] as? Bool == true)
         tab?.recordAudio(frame: frame, audible: audible)
     }
 }

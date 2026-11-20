@@ -316,6 +316,62 @@ import XCTest
         SidebarTabs.perform(.close, tab: first, controller: c)
         XCTAssertFalse(c.session.tabs.contains { $0.id == first.id })
     }
+    func testNativePageMenuReloadAndMuteTargetTheClickedTab() async throws {
+        let c = BrowserController(testing: true)
+        let home = try XCTUnwrap(c.session.selectedTab)
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:8768/quality"))
+        let tab = c.session.addTab(url: url, select: false, load: false)
+        tab.activate()
+        let w = window(c, solid: true)
+        defer { w.contentView = nil; w.close(); c.shutdown() }
+        try await waitUntil("The fixture finishes loading") {
+            tab.webView.url == url && !tab.isLoading &&
+                w.contentView.map { self.views($0).contains { $0 is SidebarTabCollection } } == true
+        }
+        let list = try XCTUnwrap(w.contentView.flatMap { views($0).compactMap { $0 as? SidebarTabCollection }.first })
+        let data = try XCTUnwrap(list.sidebar)
+        func invoke(_ title: String) throws {
+            let menu = data.menu(for: tab)
+            let item = try XCTUnwrap(menu.item(withTitle: title))
+            menu.performActionForItem(at: menu.index(of: item))
+        }
+        for title in ["Reload", "Copy Link", "Mute Tab"] {
+            XCTAssertNil(data.menu(for: home).item(withTitle: title))
+            XCTAssertNotNil(data.menu(for: tab).item(withTitle: title))
+        }
+        let revision = tab.documentRevision
+        try invoke("Reload")
+        try await waitUntil("Reload starts a new navigation on the clicked tab") {
+            tab.documentRevision > revision && !tab.isLoading
+        }
+        _ = try await tab.webView.evaluateJavaScript("""
+            for (const [id, muted] of [['normalMedia', false], ['siteMuted', true]]) {
+                const video = document.createElement('video');
+                video.id = id; video.muted = muted;
+                document.body.append(video); video.dispatchEvent(new Event('volumechange'));
+            }
+            """)
+        func expectMute(_ expected: Bool) async throws {
+            let deadline = ContinuousClock.now + .seconds(5)
+            repeat {
+                let result = try await tab.webView.evaluateJavaScript(
+                    "document.getElementById('normalMedia').muted === \(expected) && document.getElementById('siteMuted').muted"
+                )
+                if result as? Bool == true { return }
+                try await Task.sleep(for: .milliseconds(10))
+            } while ContinuousClock.now < deadline
+            XCTFail("Media state did not follow the clicked tab’s mute command")
+        }
+        try invoke("Mute Tab")
+        XCTAssertTrue(tab.isAudioMuted)
+        try await expectMute(true)
+        XCTAssertTrue(SidebarTabs.label(tab, selected: false).contains("Muted"))
+        XCTAssertFalse(tab.mediaSuspended)
+        try invoke("Unmute Tab")
+        try await expectMute(false)
+        XCTAssertEqual(c.session.selectedTabID, home.id)
+    }
+
     func testAccessibilityLabelsIncludeTitleHostSelectionPrivacyPinAndAudio() throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let tab = c.session.addTab(url: URL(string: "https://audio.example"), select: false, load: false)
