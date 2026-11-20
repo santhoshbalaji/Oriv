@@ -409,7 +409,9 @@ private struct SidebarSection {
         #endif
         item.hovered = hovered
         let active = item.active
-        let subtitle = configuration.duplicateTitles.contains(tab.displayTitle) ? tab.url?.host : nil
+        // A host subtitle only helps when it says something the title doesn't.
+        let subtitle = configuration.duplicateTitles.contains(tab.displayTitle)
+            ? tab.url?.host.flatMap { $0.caseInsensitiveCompare(tab.displayTitle) == .orderedSame ? nil : $0 } : nil
         item.artwork = { selected in
             let content = SidebarTabArtwork(tab: tab, selected: selected, active: active,
                                             tile: grid, rail: configuration.rail || configuration.peek, peek: configuration.peek,
