@@ -14,6 +14,7 @@ import Observation
     var notice: String?
     var showManager = false
     var pendingSelection: UUID?
+    private(set) var privateWindows: [UUID: BrowserController] = [:]
     private(set) var externalPrivate: BrowserController?
     private(set) var externalPresentationRequest = 0
     var externalSourceName: String?
@@ -34,7 +35,9 @@ import Observation
     var active: BrowserProfile { registry.profiles.first { $0.id == registry.activeID } ?? .personal }
     var available: [BrowserProfile] { registry.profiles.filter { $0.archivedAt == nil } }
     var archived: [BrowserProfile] { registry.profiles.filter { $0.archivedAt != nil } }
-    var allControllers: [BrowserController] { Array(controllers.values) + (externalPrivate.map { [$0] } ?? []) }
+    var allControllers: [BrowserController] {
+        Array(controllers.values) + Array(privateWindows.values) + (externalPrivate.map { [$0] } ?? [])
+    }
 
     init(rootDirectory: URL? = nil, testing: Bool? = nil) {
         let isTesting = testing ?? (ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1")
@@ -182,6 +185,18 @@ import Observation
             }
         }
     }
+    func createPrivateWindow() -> UUID {
+        let id = UUID()
+        let context = BrowserController(profile: nil, testing: testing, privateTabIsolation: privateTabIsolation)
+        context.appearance = controller.appearance
+        privateWindows[id] = context
+        return id
+    }
+
+    func endPrivateWindow(_ id: UUID) {
+        privateWindows.removeValue(forKey: id)?.shutdown()
+    }
+
     func handleIncomingURL(_ url: URL, sourceName: String? = nil) {
         guard ExternalLinkRouting.accepts(url) else { return }
         guard openExternalLinksPrivately else { controller.openExternal(url); return }

@@ -10,7 +10,7 @@ Oriv is developed and maintained by [Santhosh Balaji S](https://github.com/santh
 
 ## Browser scope
 
-- Regular/private tabs, browsing profiles, pinned tabs, session recovery and local history.
+- Regular and private tabs, Mac private windows, browsing profiles, pinned tabs, session recovery and local history.
 - Local bookmarks and HTML bookmark import/export on Mac.
 - Address/search input with selectable search engine, inline host completion and ranked local suggestions.
 - WebKit content blocking, per-site exceptions, site permissions and browsing-data controls.

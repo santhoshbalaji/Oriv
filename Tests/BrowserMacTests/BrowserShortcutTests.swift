@@ -79,6 +79,55 @@ import XCTest
         try key(48, flags: [.control, .shift], characters: "\u{19}", window: sheet)
         XCTAssertEqual(session.selectedTabID, second)
     }
+    func testFileMenuPrivateShortcutsAndTabShortcutsAreUnique() throws {
+        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
+        let menu = try XCTUnwrap(NSApp.mainMenu)
+        let file = try XCTUnwrap(menu.items.first { $0.title == "File" }?.submenu)
+        let modifiers: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
+        let bindings: [(String, String, NSEvent.ModifierFlags)] = [
+            ("New Tab", "t", [.command]),
+            ("Reopen Closed Tab", "t", [.command, .shift]),
+            ("New Private Window", "n", [.command, .shift]),
+            ("New Private Tab", "n", [.command, .shift, .option])
+        ]
+        for (title, key, expected) in bindings {
+            let matches = items(menu).filter {
+                $0.keyEquivalent.lowercased() == key && $0.keyEquivalentModifierMask.intersection(modifiers) == expected
+            }
+            XCTAssertEqual(matches.map(\.title), [title])
+            XCTAssertTrue(file.items.contains { $0 === matches.first })
+        }
+    }
+
+    func testPrivateWindowContextsKeepTheirOwnTabsAndDiscardOnClose() throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let regular = profiles.controller
+        regular.session.settings.privateTabIsolation.isEnabled = false
+        let first = profiles.createPrivateWindow(), second = profiles.createPrivateWindow()
+        let firstWindow = try XCTUnwrap(profiles.privateWindows[first])
+        let secondWindow = try XCTUnwrap(profiles.privateWindows[second])
+        let original = try XCTUnwrap(firstWindow.session.selectedTab)
+        let store = try XCTUnwrap(original.websiteDataStore)
+        firstWindow.newTab() // Same action as the focused window’s Command-T menu item.
+        XCTAssertEqual(firstWindow.session.tabs.count, 2)
+        XCTAssertTrue(firstWindow.session.tabs.allSatisfy { $0.isPrivate && $0.websiteDataStore === store })
+        XCTAssertEqual(secondWindow.session.tabs.count, 1)
+        XCTAssertFalse(secondWindow.session.selectedTab?.websiteDataStore === store)
+        XCTAssertTrue(regular.session.tabs.allSatisfy { !$0.isPrivate })
+        XCTAssertNil(profiles.externalPrivate)
+
+        profiles.endPrivateWindow(first)
+        XCTAssertNil(profiles.privateWindows[first])
+        XCTAssertNil(original.websiteDataStore)
+        XCTAssertTrue(firstWindow.session.tabs.isEmpty)
+        XCTAssertNil(firstWindow.session.selectedTabID)
+        XCTAssertTrue(firstWindow.session.snapshot().tabs.isEmpty)
+        XCTAssertFalse(firstWindow.session.canReopenTab)
+        XCTAssertTrue(profiles.privateWindows[second] === secondWindow)
+        XCTAssertEqual(secondWindow.session.tabs.count, 1)
+    }
+
     func testReloadMenuEquivalentsAreUniqueAndReaderIsUnbound() throws {
         func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
         let all = items(try XCTUnwrap(NSApp.mainMenu))

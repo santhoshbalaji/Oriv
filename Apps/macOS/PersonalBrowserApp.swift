@@ -6,6 +6,7 @@ import SwiftUI
 struct PersonalBrowserApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var phase
+    @Environment(\.dismissWindow) private var dismissWindow
     @State private var profiles: BrowserProfiles
     private var controller: BrowserController { profiles.controller }
     private var appearance: BrowserAppearance { controller.appearance }
@@ -48,19 +49,43 @@ struct PersonalBrowserApp: App {
         Window("Oriv — Private", id: "external-private") {
             Group {
                 if let context = profiles.externalPrivate {
-                    BrowserWindow(controller: context, profiles: profiles)
-                        .frame(minWidth: 760, minHeight: 520).browserAppearance(context.appearance)
-                        .onDisappear { profiles.endExternalPrivate() }
+                    privateWindow(context, externalProfiles: profiles, dismiss: { dismissWindow(id: "external-private") }) {
+                        if profiles.externalPrivate === context { profiles.endExternalPrivate() }
+                    }
                 }
             }
         }.defaultSize(width: 1100, height: 760).windowStyle(.hiddenTitleBar).windowToolbarStyle(.unified)
         .defaultLaunchBehavior(.suppressed).restorationBehavior(.disabled)
+
+        WindowGroup("Oriv — Private", id: "private-browser", for: UUID.self) { $id in
+            if let id, let context = profiles.privateWindows[id] {
+                privateWindow(context, dismiss: { dismissWindow(id: "private-browser", value: id) }) {
+                    profiles.endPrivateWindow(id)
+                }
+            }
+        }
+        .defaultSize(width: 1100, height: 760)
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
 
         Settings {
             AppearanceSettings(appearance: Binding(get: { controller.appearance }, set: { controller.appearance = $0 }), controller: controller, profiles: profiles)
                 .id(profiles.active.id)
                 .browserAppearance(appearance)
         }
+    }
+
+    private func privateWindow(_ context: BrowserController, externalProfiles: BrowserProfiles? = nil,
+                               dismiss: @escaping () -> Void, endSession: @escaping () -> Void) -> some View {
+        BrowserWindow(controller: context, profiles: externalProfiles)
+            .frame(minWidth: 760, minHeight: 520)
+            .browserAppearance(context.appearance)
+            .onChange(of: context.session.tabs.isEmpty) { _, empty in
+                if empty { dismiss() }
+            }
+            .onDisappear(perform: endSession)
     }
 }
 

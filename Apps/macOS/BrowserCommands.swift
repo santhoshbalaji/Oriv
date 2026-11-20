@@ -10,7 +10,14 @@ struct BrowserCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Tab") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.newTab() }.keyboardShortcut("t")
-            Button("New Private Tab") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.newTab(isPrivate: true) }.keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("New Private Window") {
+                guard let profiles else { return }
+                openWindow(id: "private-browser", value: profiles.createPrivateWindow())
+            }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(profiles == nil)
+            Button("New Private Tab") {
+                if !controller.session.isExternalPrivate { openWindow(id: "browser") }
+                controller.newTab(isPrivate: true)
+            }.keyboardShortcut("n", modifiers: [.command, .shift, .option])
             Button("Close") { controller.closeTabOrPanel() }.keyboardShortcut("w")
             Button("Reopen Closed Tab") { controller.session.reopenClosedTab() }
                 .keyboardShortcut("t", modifiers: [.command, .shift]).disabled(!controller.session.canReopenTab)

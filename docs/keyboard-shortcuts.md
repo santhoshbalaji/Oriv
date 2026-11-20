@@ -2,11 +2,19 @@
 
 | Action | Mac shortcut |
 | --- | --- |
+| New Tab | ⌘T |
+| New Private Window | ⌘⇧N |
+| New Private Tab in the current window | ⌥⌘⇧N |
+| Reopen Closed Tab | ⌘⇧T |
 | Next / previous tab in sidebar order, wrapping | Ctrl+Tab / Ctrl+Shift+Tab |
 | Next / previous tab (existing alternatives) | ⌘⇧] / ⌘⇧[ |
 | Reload | ⌘R |
 | Reload from origin, bypassing cache | ⌘⇧R or ⌥⌘R |
 | Open Location | ⌘L |
+
+Each **New Private Window** opens a separate window with its own sidebar and private
+tabs. Use ⌘T there to open another private tab. Closing the window discards its
+tabs and their browsing data. External private links keep their own window.
 
 Ctrl+Tab works in web content and the address field. In Tab Overview it moves
 the selected item and keeps the sheet open. The router is window scoped; other

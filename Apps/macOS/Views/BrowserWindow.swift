@@ -74,9 +74,6 @@ struct BrowserWindow: View {
     private var windowLifecycle: some View {
         sceneContent
             .onAppear(perform: prepareWindow)
-            .onChange(of: session.tabs.count) { _, count in
-                if session.isExternalPrivate && count == 0 { dismissWindow(id: "external-private"); profiles?.endExternalPrivate() }
-            }
             .task(id: "\(address)-\(addressFocused)-\(session.selectedTabID?.uuidString ?? "")") {
                 await addressMatches.update(addressFocused ? address : "", session: session, isPrivate: tab?.isPrivate == true)
             }

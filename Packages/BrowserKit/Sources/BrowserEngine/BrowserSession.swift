@@ -210,6 +210,10 @@ public final class BrowserSession {
         tabReclamationTask?.cancel(); tabReclamationTask = nil
         #endif
         tabs.forEach { $0.close() }
+        if isExternalPrivate {
+            tabs.removeAll()
+            selectedTabID = nil
+        }
         privateDataStore = nil
         adBlocker.endPrivateSession()
         settings.endPrivateSession()
