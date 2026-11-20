@@ -95,7 +95,7 @@ struct AppearanceSettings: View {
             }
             Text("T3 Code uses black surfaces and blue accents. System follows your Mac. Websites keep their own colors.")
                 .font(.callout).foregroundStyle(theme.secondaryText).lineSpacing(3)
-            GroupBox("Sidebar") {
+            GroupBox("All profiles") {
                 VStack(alignment: .leading, spacing: 8) {
                     Picker("Glass opacity", selection: $sidebarGlassOpacity) {
                         ForEach(SidebarGlassOpacity.allCases, id: \.self) { choice in
