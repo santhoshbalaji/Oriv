@@ -4,6 +4,8 @@ cd "$(dirname "$0")/.."
 export ORIV_BACKGROUND_UI=1
 export TEST_RUNNER_CI="${CI:-false}"
 export TEST_RUNNER_GITHUB_ACTIONS="${GITHUB_ACTIONS:-false}"
+# xcodebuild strips the prefix when forwarding this value to the test host.
+export TEST_RUNNER_ORIV_CI_TIMEOUT_SCALE="${ORIV_CI_TIMEOUT_SCALE:-1}"
 
 mkdir -p build
 output=$(mktemp -d "$PWD/build/iphone-quality.XXXXXX")

@@ -35,6 +35,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Run iPhone Simulator tests
+        env:
+          ORIV_CI_TIMEOUT_SCALE: "3"
         run: ./scripts/check-iphone.sh
       - name: Keep iPhone test evidence
         if: always()

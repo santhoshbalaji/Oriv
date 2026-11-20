@@ -33,9 +33,7 @@ import XCTest
     }
 
     private func waitUntil(_ ready: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
-        let deadline = ContinuousClock.now + .seconds(30)
-        while !ready() && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(ready(), "Expected navigation or download did not complete", file: file, line: line)
+        try await waitForWebCondition("data navigation or download", timeout: 30, file: file, line: line, ready)
     }
 
     func testContentCannotReplaceTopFrameWithDataDocument() async throws {
@@ -117,6 +115,8 @@ import XCTest
             session.openSavedPage(saved.url, inNewTab: true)
             let reopened = try XCTUnwrap(session.selectedTab)
             XCTAssertNotEqual(reopened.id, tab.id)
+            let detach = try mountWebFixture(reopened)
+            defer { detach() }
             try await waitUntil { reopened.title == "Data destination" && !reopened.isLoading }
         }
     }

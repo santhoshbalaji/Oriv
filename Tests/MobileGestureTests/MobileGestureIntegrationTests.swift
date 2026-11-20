@@ -76,9 +76,12 @@ import WebKit
     func testImageTransferUsesWebKitAndReturnsOriginalPNGBytes() async throws {
         let s = session(); defer { s.shutdown() }
         let tab = try XCTUnwrap(s.selectedTab), transfer = MobileImageTransfer()
-        let result: Data = try await withCheckedThrowingContinuation { continuation in
-            transfer.run(url: URL(string: "http://127.0.0.1:8768/gesture-image.png")!, in: tab.webView) { continuation.resume(with: $0) }
-        }
+        let detach = try mountWebFixture(tab)
+        defer { detach(); transfer.cancel() }
+        var completion: Result<Data, Error>?
+        transfer.run(url: URL(string: "http://127.0.0.1:8768/gesture-image.png")!, in: tab.webView) { completion = $0 }
+        try await waitForWebCondition("the WebKit image download", timeout: 20) { completion != nil }
+        let result = try XCTUnwrap(completion).get()
         XCTAssertEqual(Array(result.prefix(8)), [137,80,78,71,13,10,26,10])
         XCTAssertNotNil(UIImage(data: result))
         XCTAssertFalse(FileManager.default.fileExists(atPath: URL.temporaryDirectory.appendingPathComponent("OrivImage-\(transfer.id.uuidString)").path))
@@ -132,10 +135,8 @@ import WebKit
         tab.webView.frame = webHost.bounds
         var findVisible = false
         webHost.onFindVisibilityChange = { findVisible = $0 }
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
-        let previous = scene.windows.first(where: \.isKeyWindow)
-        let window = UIWindow(windowScene: scene); window.frame = tab.webView.frame; window.rootViewController = host; window.makeKeyAndVisible()
-        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        let detach = try mountFixtureController(host)
+        defer { detach() }
         tab.webView.loadHTMLString("<meta name='viewport' content='width=device-width'><title>Find Integration</title><p>Alpha alpha alphabet Alpha</p>", baseURL: URL(string: "https://example.test"))
         try await wait { tab.title == "Find Integration" && !tab.isLoading }
         XCTAssertTrue(tab.webView.isFindInteractionEnabled)
@@ -311,9 +312,7 @@ import WebKit
     }
 
     private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
-        let end = Date.now.addingTimeInterval(10)
-        while !condition() && Date.now < end { try await Task.sleep(for: .milliseconds(50)) }
-        XCTAssertTrue(condition(), file: file, line: line)
+        try await waitForWebCondition("the UIKit WebView fixture", timeout: 10, file: file, line: line, condition)
     }
 }
 

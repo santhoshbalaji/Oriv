@@ -11,11 +11,9 @@ import WebKit
     }
     private func load(_ tab: BrowserTab, run: String = "") async throws {
         tab.navigate(to: URL(string: "http://127.0.0.1:18768/favicon-page?run=\(run)")!)
-        for _ in 0..<300 {
-            if tab.webView.title == "Favicon fixture", !tab.webView.isLoading { return }
-            try await Task.sleep(for: .milliseconds(25))
+        try await waitForWebCondition("the favicon fixture", timeout: 7.5) {
+            tab.webView.title == "Favicon fixture" && !tab.webView.isLoading
         }
-        XCTFail("Local favicon fixture did not finish")
     }
     func testSiteOwnedSVGUsesAnonymousBrowserIdentityAndPersistsRegularOnly() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("OrivIcons-\(UUID())")
@@ -24,6 +22,8 @@ import WebKit
         let tab = try XCTUnwrap(session.selectedTab)
         let run = UUID().uuidString
         tab.webView.customUserAgent = "Oriv-QA-Favicon-UA/1.0"
+        let detachTab = try mountWebFixture(tab)
+        defer { detachTab() }
         try await load(tab, run: run)
         let cookie = try await tab.webView.evaluateJavaScript("document.cookie") as? String
         XCTAssertTrue(cookie?.contains("oriv-icon=allowed") == true)
@@ -51,6 +51,8 @@ import WebKit
         await restored.load(url, isPrivate: false)
         XCTAssertNotNil(restored.icon(for: url, isPrivate: false), "Disk cache needs no speculative page load")
         let privateTab = session.addTab(isPrivate: true)
+        let detachPrivate = try mountWebFixture(privateTab)
+        defer { detachPrivate() }
         try await load(privateTab)
         await session.siteIcons.load(url, isPrivate: true)
         XCTAssertNotNil(session.siteIcons.icon(for: url, isPrivate: true))
@@ -94,6 +96,8 @@ import WebKit
         await session.siteIcons.load(sleepingURL, isPrivate: false)
         XCTAssertFalse(sleeping.isInstantiated)
         let tab = session.addTab(isPrivate: true)
+        let detachTab = try mountWebFixture(tab)
+        defer { detachTab() }
         try await load(tab)
         await session.siteIcons.load(try XCTUnwrap(tab.url), isPrivate: true)
         XCTAssertNotNil(session.siteIcons.icon(for: tab.url, isPrivate: true))
@@ -124,7 +128,11 @@ import WebKit
         tab.webView.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
         let presentation = NSObject()
         tab.switchPresentation = presentation
-        try await load(tab)
+        do {
+            let detach = try mountWebFixture(tab)
+            defer { detach() }
+            try await load(tab)
+        }
         let url = try XCTUnwrap(tab.url)
         XCTAssertNil(session.siteIcons.document?(url, false))
         await session.siteIcons.load(url, isPrivate: false)
@@ -136,21 +144,19 @@ import WebKit
         XCTAssertTrue(discarded)
         XCTAssertNil(session.siteIcons.document?(url, false))
         session.selectTab(tab.id)
+        let detachRestored = try mountWebFixture(tab)
+        defer { detachRestored() }
         XCTAssertTrue(tab.isRestoringWebView)
         XCTAssertNil(session.siteIcons.document?(url, false))
         await session.siteIcons.load(url, isPrivate: false)
         XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: false))
-        for _ in 0..<300 {
-            if !tab.isRestoringWebView && !tab.isLoading && tab.hasRenderedContent { break }
-            try await Task.sleep(for: .milliseconds(25))
+        try await waitForWebCondition("favicon document restoration", timeout: 7.5) {
+            !tab.isRestoringWebView && !tab.isLoading && tab.hasRenderedContent
         }
-        XCTAssertFalse(tab.isRestoringWebView)
         XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: false), "Restoration finishing must not discover under the destination cover")
         tab.switchPresentation = nil
-        for _ in 0..<200 {
-            if session.siteIcons.icon(for: url, isPrivate: false) != nil { break }
-            try await Task.sleep(for: .milliseconds(25))
+        try await waitForWebCondition("favicon discovery after the handoff", timeout: 5) {
+            session.siteIcons.icon(for: url, isPrivate: false) != nil
         }
-        XCTAssertNotNil(session.siteIcons.icon(for: url, isPrivate: false), "Blocked discovery must retry immediately after the handoff")
     }
 }

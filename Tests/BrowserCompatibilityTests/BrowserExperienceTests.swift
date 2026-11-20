@@ -10,19 +10,6 @@ import UIKit
     private func session(store: SessionFileStore? = nil, recordFixture: Bool = false) -> BrowserSession {
         BrowserSession(store: store, dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil), recordsQAFixtureHistory: recordFixture)
     }
-    private func attachFixture(_ tab: BrowserTab) throws -> () -> Void {
-        #if os(iOS)
-        // Attaching keeps the fixture live on iOS 27 without replacing the key window.
-        let window = try XCTUnwrap(UIApplication.shared.connectedScenes
-            .compactMap { ($0 as? UIWindowScene)?.keyWindow }.first)
-        let view = tab.webView
-        view.frame = window.bounds
-        window.addSubview(view)
-        return { view.removeFromSuperview() }
-        #else
-        return {}
-        #endif
-    }
     func testSuggestionsDeduplicateAndNeverCrossPrivacyOrProfileBoundaries() throws {
         let session = session(), otherProfile = self.session()
         defer { session.shutdown(); otherProfile.shutdown() }
@@ -84,8 +71,7 @@ import UIKit
         let detach = try mountWebFixture(tab)
         defer { detach() }
         let draft = URL(string: "https://fixture.invalid/draft")!
-        // Hosted runners can spend the first 20 seconds starting WebContent.
-        try await waitForWebFixture(tab, at: draft, timeout: 75) {
+        try await waitForWebFixture(tab, at: draft) {
             tab.webView.loadHTMLString("<title>Draft document</title><input aria-label='Draft'>", baseURL: draft)
         }
         XCTAssertFalse(session.requiresCloseConfirmation(tab.id))
@@ -101,7 +87,7 @@ import UIKit
     func testLateDocumentTitleKVOUpdatesExistingHistoryVisit() async throws {
         let session = session(recordFixture: true); defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
-        let detach = try attachFixture(tab)
+        let detach = try mountWebFixture(tab)
         defer { detach() }
         tab.navigate(to: URL(string: "http://127.0.0.1:8768/quality")!)
         try await wait { !tab.isLoading && session.history.first?.title == "Browser quality fixture" }
@@ -116,7 +102,7 @@ import UIKit
         let enabled = session(recordFixture: true), disabled = session()
         defer { enabled.shutdown(); disabled.shutdown() }
         let tab = try XCTUnwrap(enabled.selectedTab)
-        let detach = try attachFixture(tab)
+        let detach = try mountWebFixture(tab)
         defer { detach() }
         tab.navigate(to: base.appendingPathComponent("quality"))
         try await wait("the initial route to finish and record a visit") { !tab.isLoading && enabled.historyCount == 1 }
@@ -141,14 +127,14 @@ import UIKit
         XCTAssertEqual(enabled.continuitySnapshot().history.map(\.url.path), ["/quality"])
 
         let privateTab = enabled.addTab(isPrivate: true, load: false)
-        let detachPrivate = try attachFixture(privateTab)
+        let detachPrivate = try mountWebFixture(privateTab)
         defer { detachPrivate() }
         privateTab.navigate(to: base.appendingPathComponent("one"))
         try await wait("the private fixture to finish") { !privateTab.isLoading && privateTab.title == "Browser foundation" }
         _ = try await privateTab.webView.evaluateJavaScript("history.pushState({}, '', '/private-route'); true")
         try await wait { privateTab.url?.path == "/private-route" }
         let fixture = try XCTUnwrap(disabled.selectedTab)
-        let detachDefault = try attachFixture(fixture)
+        let detachDefault = try mountWebFixture(fixture)
         defer { detachDefault() }
         fixture.navigate(to: base.appendingPathComponent("one"))
         try await wait("the default fixture to finish") { !fixture.isLoading && fixture.title == "Browser foundation" }
@@ -163,20 +149,24 @@ import UIKit
         defer { session.shutdown() }
         let base = URL(string: "http://127.0.0.1:8768")!
         let tab = try XCTUnwrap(session.selectedTab)
-        let detach = try attachFixture(tab)
+        let detach = try mountWebFixture(tab)
         defer { detach() }
-        try session.navigate(base.appendingPathComponent("history-redirect").absoluteString)
-        try await wait { !tab.isLoading && session.history.first?.url.path == "/quality" }
-        XCTAssertEqual(session.historyCount, 1)
+        try await waitForWebFixture(tab, at: base.appendingPathComponent("quality")) {
+            try session.navigate(base.appendingPathComponent("history-redirect").absoluteString)
+        }
+        let expectedPaths = ["/quality"]
+        XCTAssertEqual(session.history.map(\.url.path), expectedPaths)
         XCTAssertEqual(session.history.first?.typedCount, 1)
-        tab.navigate(to: base.appendingPathComponent("history-error"))
-        try await wait { tab.title == "Missing history fixture" && !tab.isLoading }
-        XCTAssertEqual(session.historyCount, 1)
+        try await waitForWebFixture(tab, at: base.appendingPathComponent("history-error")) {
+            tab.navigate(to: base.appendingPathComponent("history-error"))
+        }
+        try await wait("the HTTP error document title") { tab.title == "Missing history fixture" }
+        XCTAssertEqual(session.history.map(\.url.path), expectedPaths)
         var downloaded = false
         session.handleDownload = { download in downloaded = true; download.cancel { _ in } }
         tab.navigate(to: base.appendingPathComponent("download"))
-        try await wait { downloaded }
-        XCTAssertEqual(session.historyCount, 1)
+        try await wait("the download callback") { downloaded }
+        XCTAssertEqual(session.history.map(\.url.path), expectedPaths)
     }
 
     func testLegacyHistorySurvivesMigrationAndCannotResurrectAfterClear() async throws {
@@ -211,37 +201,77 @@ import UIKit
     }
     private func wait(_ condition: String = "the fixture condition", file: StaticString = #filePath, line: UInt = #line,
                       _ predicate: () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let end = clock.now + .seconds(20)
-        while !predicate() && clock.now < end { try await Task.sleep(for: .milliseconds(40)) }
-        _ = try XCTUnwrap(predicate() ? true : nil, "Timed out waiting for \(condition)", file: file, line: line)
+        try await waitForWebCondition(condition, timeout: 20, file: file, line: line, predicate)
     }
 }
 
 @MainActor func mountWebFixture(_ tab: BrowserTab) throws -> () -> Void {
     #if os(iOS)
-    // UIKit must present the fixture as part of the XCTest host scene.
+    let controller = UIViewController()
+    controller.view = tab.webView
+    return try mountFixtureController(controller)
+    #else
+    return {}
+    #endif
+}
+
+#if os(iOS)
+@MainActor func mountFixtureController(_ controller: UIViewController) throws -> () -> Void {
     let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
     let scene = try XCTUnwrap(scenes.first { $0.activationState == .foregroundActive }
         ?? scenes.first { $0.keyWindow != nil }, "Expected a window scene in the simulator test host")
     let previousWindow = scene.keyWindow
     let window = UIWindow(windowScene: scene)
     window.frame = scene.coordinateSpace.bounds
-    let controller = UIViewController()
-    let view = tab.webView
-    controller.view = view
     window.rootViewController = controller
     window.makeKeyAndVisible()
     window.layoutIfNeeded()
     return {
         window.isHidden = true
-        view.removeFromSuperview()
         window.rootViewController = nil
         if previousWindow?.isHidden == false { previousWindow?.makeKey() }
     }
-    #else
-    return {}
+}
+#endif
+
+private let webFixtureTimeoutScale: Double = {
+    #if os(iOS)
+    if let value = ProcessInfo.processInfo.environment["ORIV_CI_TIMEOUT_SCALE"],
+       let scale = Double(value), (1...4).contains(scale) {
+        return scale
+    }
     #endif
+    return 1
+}()
+
+func webFixtureTimeout(_ seconds: TimeInterval) -> TimeInterval {
+    // Any callback can be the first one to reach a cold WebContent process.
+    webFixtureTimeoutScale > 1 ? max(20, seconds) * webFixtureTimeoutScale : seconds
+}
+
+private func logSlowWebWait(_ description: String, started: ContinuousClock.Instant,
+                            timeout: TimeInterval, file: StaticString, line: UInt) {
+    let elapsed = started.duration(to: .now)
+    if webFixtureTimeoutScale > 1, elapsed > .seconds(timeout) {
+        print("ORIV_SLOW_WEB_WAIT \(URL(fileURLWithPath: String(describing: file)).lastPathComponent):\(line) \(description) took \(elapsed) (local limit \(timeout)s)")
+    }
+}
+
+@MainActor func waitForWebCondition(_ description: String, timeout: TimeInterval,
+                                    file: StaticString = #filePath, line: UInt = #line,
+                                    _ predicate: () async throws -> Bool) async throws {
+    let started = ContinuousClock.now
+    let deadline = started + .seconds(webFixtureTimeout(timeout))
+    while true {
+        if try await predicate() {
+            logSlowWebWait(description, started: started, timeout: timeout, file: file, line: line)
+            return
+        }
+        guard ContinuousClock.now < deadline else { break }
+        try await Task.sleep(for: .milliseconds(40))
+    }
+    _ = try XCTUnwrap(nil as Bool?, "Timed out waiting for \(description) after \(webFixtureTimeout(timeout))s",
+                      file: file, line: line)
 }
 
 @MainActor func waitForWebFixture(_ tab: BrowserTab, at url: URL, timeout: TimeInterval = 20,
@@ -258,8 +288,12 @@ import UIKit
         ready.fulfill()
     }
     defer { tab.onDocumentReady = previous }
+    let started = ContinuousClock.now
     try navigate()
-    let result = await XCTWaiter.fulfillment(of: [ready], timeout: timeout)
+    let result = await XCTWaiter.fulfillment(of: [ready], timeout: webFixtureTimeout(timeout))
+    if result == .completed {
+        logSlowWebWait(ready.description, started: started, timeout: timeout, file: file, line: line)
+    }
     let state = "revision \(tab.documentRevision), loading \(tab.isLoading), browser error \(tab.errorMessage ?? "none")"
     _ = try XCTUnwrap(result == .completed ? true : nil,
                       "\(ready.description). Current state: \(state)",

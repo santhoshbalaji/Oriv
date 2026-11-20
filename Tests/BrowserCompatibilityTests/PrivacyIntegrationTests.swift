@@ -62,7 +62,7 @@ import UIKit
         XCTAssertEqual(audit.onscreenWindowViolations, 0)
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, ProcessInfo.processInfo.processIdentifier)
     }
-    private func hostInBackground(_ tab: BrowserTab) {
+    private func hostFixture(_ tab: BrowserTab) throws {
         guard fixtureWindows[tab.id] == nil else { return }
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = tab.webView
@@ -70,15 +70,24 @@ import UIKit
         BackgroundUIMode.show(window, key: false)
     }
     #else
-    private func hostInBackground(_ tab: BrowserTab) {}
+    private var fixtureDetachers: [() -> Void] = []
+    private var hostedTabs: Set<UUID> = []
+    override func tearDown() async throws {
+        for detach in fixtureDetachers.reversed() { detach() }
+        fixtureDetachers.removeAll()
+        hostedTabs.removeAll()
+    }
+    private func hostFixture(_ tab: BrowserTab) throws {
+        guard !hostedTabs.contains(tab.id) else { return }
+        fixtureDetachers.append(try mountWebFixture(tab))
+        hostedTabs.insert(tab.id)
+    }
     #endif
-    private func wait(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(40)
-        while !condition() && Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
-        XCTAssertTrue(condition(), "Privacy fixture timed out")
+    private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
+        try await waitForWebCondition("the privacy fixture", timeout: 40, file: file, line: line, condition)
     }
     private func load(_ tab: BrowserTab, _ path: String = "/privacy") async throws {
-        hostInBackground(tab)
+        try hostFixture(tab)
         tab.navigate(to: URL(string: path, relativeTo: base)!.absoluteURL)
         try await wait { tab.title == "Privacy fixture" && !tab.isLoading || tab.errorMessage != nil }
         XCTAssertNil(tab.errorMessage)
@@ -137,7 +146,7 @@ import UIKit
         settings.privacy.setEnabled(true, .cookieBanners)
         for mode in [AdBlockingMode.balanced, .strict, .off] {
             blocker.setMode(mode)
-            let frames = try await loadAdBlockFrames(tab)
+            let frames = try await loadAdBlockFrames(tab, expecting: mode == .off ? ["shipped"] : [])
             let expectedAd = mode == .off ? "block" : "none"
             let main = try await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('.ad-slot')).display") as? String
             XCTAssertEqual(main, expectedAd, "\(mode)")
@@ -173,33 +182,39 @@ import UIKit
         let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: blocker)
         defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
-        let filtered = try await loadAdBlockFrames(tab)
+        let filtered = try await loadAdBlockFrames(tab, expecting: ["allowed"])
         XCTAssertNil(filtered["blocked"])
         XCTAssertNotNil(filtered["allowed"])
         for id in ["same", "cross"] {
             XCTAssertEqual(filtered[id]?["scoped"], "none", id)
             XCTAssertEqual(filtered[id]?["excepted"], "block", id)
         }
-        let otherHost = try await loadAdBlockFrames(tab, from: URL(string: "http://localhost:18768")!)
+        let otherHost = try await loadAdBlockFrames(tab, from: URL(string: "http://localhost:18768")!, expecting: ["allowed"])
         for id in ["same", "cross"] {
             XCTAssertEqual(otherHost[id]?["scoped"], "block", id)
             XCTAssertEqual(otherHost[id]?["excepted"], "none", id)
         }
         blocker.setMode(.off)
-        let unfiltered = try await loadAdBlockFrames(tab)
+        let unfiltered = try await loadAdBlockFrames(tab, expecting: ["blocked", "allowed"])
         XCTAssertNotNil(unfiltered["blocked"])
         XCTAssertEqual(unfiltered["cross"]?["scoped"], "block")
     }
 
-    private func loadAdBlockFrames(_ tab: BrowserTab, from origin: URL? = nil) async throws -> [String: [String: String]] {
-        hostInBackground(tab)
+    private func loadAdBlockFrames(_ tab: BrowserTab, from origin: URL? = nil, expecting additionalFrames: [String]) async throws -> [String: [String: String]] {
+        try hostFixture(tab)
         let url = (origin ?? base).appendingPathComponent("adblock-frames")
-        tab.navigate(to: url)
-        try await wait { tab.title == "Ad blocking frames" && !tab.isLoading || tab.errorMessage != nil }
+        try await waitForWebFixture(tab, at: url, timeout: 40) { tab.navigate(to: url) }
         XCTAssertNil(tab.errorMessage)
         XCTAssertEqual(tab.webView.url, url)
-        let results = try await tab.webView.evaluateJavaScript("window.frameResults") as? [String: [String: String]]
-        return try XCTUnwrap(results)
+        let expectedFrames = ["same", "cross"] + additionalFrames
+        var results: [String: [String: String]] = [:]
+        // A finished top-level navigation can precede delivery of child-frame messages.
+        try await waitForWebCondition("frame reports for \(expectedFrames.joined(separator: ", "))", timeout: 20) {
+            let reports = try await tab.webView.evaluateJavaScript("window.frameResults") as? [String: [String: String]]
+            results = try XCTUnwrap(reports)
+            return expectedFrames.allSatisfy { results[$0] != nil }
+        }
+        return results
     }
     func testFixtureTrackerBlockingAndPrivateHistory() async throws {
         let rules = #"[{"trigger":{"url-filter":"/ad-banner\\.js"},"action":{"type":"block"}}]"#
@@ -207,7 +222,7 @@ import UIKit
         let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: blocker, settings: BrowserSettings(defaults: nil), externalPrivate: true)
         defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
-        hostInBackground(tab)
+        try hostFixture(tab)
         tab.navigate(to: base.appendingPathComponent("adblock"))
         try await wait { tab.title.hasPrefix("Adblock checked") && !tab.isLoading }
         let first = try await tab.webView.evaluateJavaScript("window.probeResults[0]") as? String
@@ -322,7 +337,7 @@ import UIKit
         let session = BrowserSession(dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
         defer { session.shutdown() }
         let tab = try XCTUnwrap(session.selectedTab)
-        hostInBackground(tab)
+        try hostFixture(tab)
         let url = URL(string: "/privacy-checkout?token=synthetic&utm_source=retained&order=123", relativeTo: base)!.absoluteURL
         tab.navigate(to: url)
         try await wait { tab.title == "Checkout fixture" && !tab.isLoading }
@@ -352,11 +367,11 @@ import UIKit
         XCTAssertTrue(tab.webView.backForwardList.currentItem === current)
         XCTAssertEqual(tab.url,current?.url); XCTAssertNil(tab.httpWarningURL)
     }
-    func testHTTPPromptRequiresFailedGETAndExactDestinationConsent() {
+    func testHTTPPromptRequiresFailedGETAndExactDestinationConsent() throws {
         let settings = BrowserSettings(defaults:nil)
         let tab = BrowserTab(isPrivate:true,dataStore:.nonPersistent(),settings:settings)
         defer { tab.close() }
-        hostInBackground(tab)
+        try hostFixture(tab)
         let original = URL(string:"http://public.example/path?keep=1")!
         let upgraded = URL(string:"https://public.example/path?keep=1")!
         let request = URLRequest(url:original)
@@ -418,7 +433,7 @@ import UIKit
     func testHTTPUpgradeConsentRejectsReplacedAndStaleNavigationObjects() throws {
         let tab = BrowserTab(dataStore:.nonPersistent(),settings:BrowserSettings(defaults:nil))
         defer { tab.close() }
-        hostInBackground(tab)
+        try hostFixture(tab)
         let original = URL(string:"http://public.example/unfinished-upgrade")!
         let upgraded = URL(string:"https://public.example/unfinished-upgrade")!
         let first = try XCTUnwrap(tab.webView.loadHTMLString("<p>First</p>",baseURL:nil))
@@ -444,7 +459,7 @@ import UIKit
         defer { session.shutdown() }
         try await blocker.prepare()
         let tab = try XCTUnwrap(session.selectedTab)
-        hostInBackground(tab)
+        try hostFixture(tab)
         let sites = ["https://www.joinef.com", "https://news.ycombinator.com", "https://www.apple.com", "https://github.com", "https://stripe.com", "https://linear.app", "https://vercel.com", "https://en.wikipedia.org", "https://www.nytimes.com", "https://www.theverge.com", "https://www.youtube.com", "https://www.reddit.com", "https://www.bbc.com", "https://www.figma.com", "https://www.notion.so", "https://www.airbnb.com", "https://open.spotify.com", "https://duckduckgo.com", "https://www.google.com", "https://medium.com", "https://github.com/login", "http://example.com", "http://neverssl.com"]
         #if os(macOS)
         tab.webView.frame = CGRect(x: 0, y: 0, width: 1200, height: 800)
@@ -496,7 +511,9 @@ import UIKit
             let before = try await destinationRequests(run)
             let target = base.appendingPathComponent("privacy-destination").appending(queryItems: [URLQueryItem(name: "run", value: run)])
             let preview = MobileLinkPreview(url: target, title: "Fixture link", source: source, session: session)
-            preview.loadViewIfNeeded(); XCTAssertNil(preview.preview)
+            let detach = try mountFixtureController(preview)
+            defer { detach() }
+            XCTAssertNil(preview.preview)
             try await Task.sleep(for: .milliseconds(250)); XCTAssertNil(preview.preview)
             let metadataRequests = try await destinationRequests(run)
             XCTAssertEqual(metadataRequests, before)

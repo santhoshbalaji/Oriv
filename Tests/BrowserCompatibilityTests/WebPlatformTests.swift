@@ -6,18 +6,13 @@ import WebKit
 /// App-shell regression coverage, not a replacement for the Web Platform Tests suite.
 @MainActor final class WebPlatformTests: XCTestCase {
     private let base = URL(string: "http://127.0.0.1:8768")!
-    private func wait(_ message: String, until predicate: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(25)
-        while !predicate() && Date.now < deadline { try await Task.sleep(for: .milliseconds(40)) }
-        XCTAssertTrue(predicate(), message)
-    }
     func testDOMLayoutHistoryStorageAndCrossOriginPolicies() async throws {
         let tab = BrowserTab(dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
         defer { tab.close() }
         let detach = try mountWebFixture(tab)
         defer { detach() }
         tab.navigate(to: base.appendingPathComponent("standards"))
-        try await wait("Standards fixture completed") { tab.title == "Web platform complete" }
+        try await waitForWebCondition("standards fixture completion", timeout: 25) { tab.title == "Web platform complete" }
         let results = try await tab.webView.evaluateJavaScript("window.orivStandardsResults") as? [String: Any]
         XCTAssertEqual(results?.count, 14)
         for (name, result) in results ?? [:] { XCTAssertEqual(result as? Bool, true, "\(name): \(result)") }
@@ -50,7 +45,7 @@ import WebKit
             try {
               return await new Promise((resolve, reject) => {
                 const channel = new MessageChannel();
-                const timer = setTimeout(() => reject(new Error('Worker reply timed out')), 8000);
+                const timer = setTimeout(() => reject(new Error('Worker reply timed out')), \(Int(webFixtureTimeout(8) * 1_000)));
                 channel.port1.onmessage = event => { clearTimeout(timer); resolve(event.data); };
                 registration.active.postMessage('check', [channel.port2]);
               });
