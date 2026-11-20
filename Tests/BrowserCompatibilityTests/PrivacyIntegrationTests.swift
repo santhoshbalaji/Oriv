@@ -199,12 +199,12 @@ import UIKit
     func testPrivacySettingsCapture() throws {
         let session = BrowserSession(dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
         defer { session.shutdown() }
+        #if os(macOS)
         let content = VStack(alignment: .leading, spacing: 12) {
             Text("Privacy").font(.title2)
             PrivacySettingsControls(session: session)
         }.padding(20).background(.background).environment(\.colorScheme, .light)
         let renderer = ImageRenderer(content: content)
-        #if os(macOS)
         renderer.proposedSize = ProposedViewSize(width: 560, height: nil)
         renderer.scale = 2
         let image = try XCTUnwrap(renderer.cgImage)
@@ -212,9 +212,19 @@ import UIKit
         let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
         attachment.name = "mac-privacy-settings"
         #else
-        renderer.proposedSize = ProposedViewSize(width: 390, height: nil)
-        renderer.scale = 3
-        let image = try XCTUnwrap(renderer.uiImage)
+        let host = UIHostingController(rootView: NavigationStack {
+            Form { Section { PrivacySettingsControls(session: session) } }
+                .navigationTitle("Privacy")
+                .navigationBarTitleDisplayMode(.inline)
+        }.preferredColorScheme(.light))
+        let detach = try mountFixtureController(host)
+        defer { detach() }
+        let bounds = host.view.bounds
+        var drewHierarchy = false
+        let image = UIGraphicsImageRenderer(bounds: bounds).image { _ in
+            drewHierarchy = host.view.drawHierarchy(in: bounds, afterScreenUpdates: true)
+        }
+        XCTAssertTrue(drewHierarchy)
         let attachment = XCTAttachment(image: image)
         attachment.name = "iphone-privacy-settings"
         #endif
