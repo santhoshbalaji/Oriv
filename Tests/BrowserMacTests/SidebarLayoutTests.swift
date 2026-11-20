@@ -226,6 +226,29 @@ import XCTest
         let audit = BackgroundUIMode.audit()
         XCTAssertEqual(audit.onscreenWindowViolations, 0)
     }
+    func testSidebarKeepsNewTabAndToolbarReclaimsItsWidth() async throws {
+        let controller = BrowserController(testing: true)
+        let window = makeWindow(controller, width: 1050, largestText: false)
+        defer { window.close(); controller.shutdown() }
+        for rail in [false, true] {
+            controller.compactSidebar = rail
+            try await wait {
+                self.marker("browserOverviewGeometry", in: window) != nil &&
+                    (self.marker("sidebarSurfaceGeometry", in: window)?.bounds.width ?? 0) ==
+                        (rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
+            }
+            let sidebar = try frame("sidebarSurfaceGeometry", in: window)
+            let newTab = try frame("sidebarNewTabGeometry", in: window)
+            let toolbar = try frame("browserTopBarGeometry", in: window)
+            XCTAssertTrue(sidebar.contains(newTab))
+            XCTAssertFalse(toolbar.intersects(newTab))
+            for name in ["browserPrivacyGeometry", "browserOverviewGeometry", "browserPageMenuGeometry"] {
+                XCTAssertTrue(toolbar.contains(try frame(name, in: window)))
+            }
+            XCTAssertGreaterThan(try frame("browserAddressGeometry", in: window).width, rail ? 600 : 530)
+        }
+    }
+
     func testPrivacyShieldOpensRealPopover() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles, width: 1250); defer { window.close() }

@@ -45,8 +45,9 @@ struct BrowserWindow: View {
     private var compact: Bool { controller.sidebar.rail }
     private var pageRail: Bool { controller.sidebar.reservesRail }
     private var showsToolbarDownloads: Bool { controller.downloads.hasActiveDownloads && (pageRail || windowWidth >= 800) }
+    private var showsExpandedToolbarActions: Bool { pageRail || windowWidth >= 1000 }
     private var addressWidth: CGFloat {
-        let actions = windowWidth < 1000 && !pageRail ? 28 : 30 * CGFloat(3 + (tab?.url == nil ? 0 : 1) + (showsToolbarDownloads ? 1 : 0))
+        let actions = showsExpandedToolbarActions ? 30 * CGFloat(2 + (tab?.url == nil ? 0 : 1) + (showsToolbarDownloads ? 1 : 0)) : 28
         let reserved = (pageRail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) + 24 + 58 + 36 + 20 + actions
         return min(640, max(230, windowWidth - reserved))
     }
@@ -382,30 +383,29 @@ struct BrowserWindow: View {
 
     // Site privacy shares the content header's glass and adaptive foreground.
     private var toolbarActions: some View {
-                HStack(spacing: 2) {
-                if showsToolbarDownloads && (pageRail || windowWidth >= 1000) {
-                    Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
-                        .labelStyle(.iconOnly).help("View downloads in progress")
-                }
-                Button { showProtection.toggle() } label: {
-                    Image(systemName: "shield.lefthalf.filled").frame(width: 28, height: 28).foregroundStyle(chromeForeground)
-                }
-                .help("Site Privacy").accessibilityLabel("Site Privacy")
-                .accessibilityIdentifier("sitePrivacyButton")
-                .browserGeometryMarker("browserPrivacyGeometry")
-                .popover(isPresented: $showProtection) { AdBlockingPopover(session: session) }
-                if let url = tab?.url, pageRail || windowWidth >= 1000 {
+        HStack(spacing: 2) {
+            if showsToolbarDownloads && showsExpandedToolbarActions {
+                Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
+                    .labelStyle(.iconOnly).help("View downloads in progress")
+            }
+            Button { showProtection.toggle() } label: {
+                Image(systemName: "shield.lefthalf.filled").frame(width: 28, height: 28).foregroundStyle(chromeForeground)
+            }
+            .help("Site Privacy").accessibilityLabel("Site Privacy")
+            .accessibilityIdentifier("sitePrivacyButton")
+            .browserGeometryMarker("browserPrivacyGeometry")
+            .popover(isPresented: $showProtection) { AdBlockingPopover(session: session) }
+            if showsExpandedToolbarActions {
+                if let url = tab?.url {
                     ShareLink(item: URLCleaner.clean(url)) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                         .help("Share Page").accessibilityLabel("Share Page")
                 }
-                if pageRail || windowWidth >= 1000 {
-                Button { controller.newTab() } label: { Image(systemName: "plus").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
-                    .help("New Tab (⌘T)").accessibilityLabel("New Tab")
                 Button { showTabs = true } label: { Image(systemName: "square.on.square").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                     .help("Tab Overview").accessibilityLabel("Tab Overview")
-                }
-                }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
-                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+                    .browserGeometryMarker("browserOverviewGeometry")
+            }
+        }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
+            .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
     }
 
     private var toolbarMenu: some View {
