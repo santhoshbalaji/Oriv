@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 import BrowserCore
 import BrowserEngine
@@ -442,5 +443,113 @@ extension MobileGestureIntegrationTests {
             XCTAssertEqual(c.session.tabs.map(\.id), ids); XCTAssertEqual(tab.url, url)
             NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
         }
+    }
+}
+
+extension MobileGestureIntegrationTests {
+    func testInactiveProfileSuppressesExternalPromptAndDownload() async throws {
+        let profiles = MobileProfiles(forceEphemeral: true)
+        let old = profiles.current
+        let presenter = try XCTUnwrap(MobileWebDelegate.presenter)
+        let tab = try XCTUnwrap(old.session.selectedTab)
+        let view = tab.webView
+        profiles.select(BrowserProfile(name: "Work"))
+        XCTAssertFalse(old.session.isProfileActive)
+        let downloadHandler = try XCTUnwrap(old.session.handleDownload)
+        let request = URLRequest(url: URL(string: "http://127.0.0.1:8768/download")!)
+        var delivered = false
+        view.startDownload(using: request) { download in
+            downloadHandler(download)
+            XCTAssertNil(download.delegate)
+            delivered = true
+        }
+        old.session.handleExternalURL?(URL(string: "oriv-fixture://open")!)
+        try await waitForFixtureCondition("inactive profile download delivered to the guard", timeout: 25) { delivered }
+        XCTAssertTrue(old.downloads.entries.isEmpty)
+        XCTAssertNil(presenter.presentedViewController)
+        profiles.current.shutdown(); old.shutdown()
+    }
+
+    func testArchivingInactiveProfileRefusesUnfinishedWorkAndReleasesController() throws {
+        let profiles = MobileProfiles(forceEphemeral: true)
+        let work = BrowserProfile(name: "Work")
+        profiles.select(work)
+        let tab = try XCTUnwrap(profiles.current.session.selectedTab)
+        _ = tab.webView
+        weak var loaded = profiles.current
+        profiles.select(.personal)
+        let entry = MobileDownloads.Entry(id: UUID(), name: "Fixture", status: "Downloading")
+        loaded?.downloads.entries.append(entry)
+        profiles.archive(work.id)
+        XCTAssertNotNil(loaded)
+        XCTAssertNil(profiles.profiles.first { $0.id == work.id }?.archivedAt)
+        loaded?.downloads.entries.removeAll()
+        profiles.archive(work.id)
+        XCTAssertNotNil(profiles.profiles.first { $0.id == work.id }?.archivedAt)
+        XCTAssertNil(loaded)
+        XCTAssertFalse(tab.isInstantiated)
+        profiles.restore(work.id)
+        profiles.select(try XCTUnwrap(profiles.profiles.first { $0.id == work.id }))
+        XCTAssertEqual(profiles.current.profileID, work.id)
+        profiles.current.shutdown()
+    }
+
+    func testSwitchTrimsInactiveProfileToSelectedPage() async throws {
+        let profiles = MobileProfiles(forceEphemeral: true)
+        let original = profiles.current
+        defer { original.shutdown(); profiles.current.shutdown() }
+        let url = URL(string: "http://127.0.0.1:8768/one")!
+        for _ in 0..<3 {
+            let tab = original.session.addTab(load: false)
+            tab.navigate(to: url)
+            try await waitForFixtureCondition("inactive-profile trim fixture page", timeout: 25) {
+                tab.title == "Browser foundation" && !tab.isLoading
+            }
+        }
+        let selected = original.session.selectedTabID
+        XCTAssertEqual(original.session.tabs.filter(\.isInstantiated).count, 3)
+        profiles.select(BrowserProfile(name: "Work"))
+        try await waitForFixtureCondition("inactive profile safe pages discarded", timeout: 25) {
+            original.session.tabs.filter(\.isInstantiated).map(\.id) == [selected].compactMap { $0 }
+        }
+    }
+
+    func testExternalPrivateInheritsPreferencesAtCreationAndCanDeleteInactiveProfile() async throws {
+        let profiles = MobileProfiles(forceEphemeral: true)
+        let personal = profiles.current
+        let work = BrowserProfile(name: "Work")
+        profiles.select(work)
+        let source = profiles.current
+        source.session.settings.searchEngine = .brave
+        source.session.adBlocker.setMode(.off)
+        source.session.settings.privacy.setEnabled(false, .linkCleaning)
+        source.appearance = .light
+        profiles.route(URL(string: "http://127.0.0.1:8768/one")!)
+        let context = profiles.current
+        defer { personal.shutdown(); source.shutdown(); context.shutdown() }
+        XCTAssertNil(context.profileID)
+        XCTAssertEqual(context.session.settings.searchEngine, .brave)
+        XCTAssertEqual(context.session.adBlocker.mode, .off)
+        XCTAssertFalse(context.session.settings.privacy.isEnabled(.linkCleaning))
+        XCTAssertEqual(context.appearance, .light)
+        XCTAssertFalse(context.session.selectedTab!.webView.configuration.websiteDataStore.isPersistent)
+        profiles.select(.personal)
+        try await profiles.delete(work)
+        XCTAssertFalse(profiles.profiles.contains { $0.id == work.id })
+        XCTAssertTrue(profiles.continuity.state.isProfileDeleted(work.id))
+        do { try await profiles.delete(.personal); XCTFail("Deleted Personal") }
+        catch ProfileError.protectedProfile {}
+    }
+
+    func testDeleteProfileConfirmationCapture() throws {
+        let renderer = ImageRenderer(content: DeleteProfileConfirmation(profile: BrowserProfile(name: "Work"), confirm: {})
+            .background(Color(uiColor: .systemBackground)).environment(\.colorScheme, .light))
+        renderer.proposedSize = ProposedViewSize(width: 390, height: nil)
+        renderer.scale = 3
+        let image = try XCTUnwrap(renderer.uiImage)
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "iphone-delete-profile-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }

@@ -1,8 +1,9 @@
 import AppKit
 import BrowserCore
-import BrowserEngine
+@testable import BrowserEngine
 import WebKit
 import XCTest
+import SwiftUI
 @testable import PersonalBrowser
 
 @MainActor final class ProfileIntegrationTests: BackgroundUITestCase {
@@ -94,6 +95,171 @@ import XCTest
         XCTAssertTrue(second.rules.isEmpty)
         XCTAssertEqual(BrowserSettings(defaults: ad).searchEngine, .google)
         XCTAssertEqual(BrowserSettings(defaults: ad).defaultZoom, 1.5)
+    }
+
+    func testDeleteProfileRemovesLocalDataAndKeepsPersonal() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        try profiles.select(work.id)
+        let tab = try XCTUnwrap(profiles.controller.session.selectedTab)
+        _ = tab.webView
+        profiles.controller.session.importBookmarks([Bookmark(title: "Work", url: URL(string: "https://work.example")!)])
+        try profiles.select(BrowserProfile.personalID)
+        let directory = work.directory(in: root)
+        let icons = directory.appendingPathComponent("Favicons")
+        try FileManager.default.createDirectory(at: icons, withIntermediateDirectories: true)
+        try Data("synthetic".utf8).write(to: icons.appendingPathComponent("cached-icon"))
+        try await profiles.delete(work)
+        XCTAssertFalse(tab.isInstantiated)
+        XCTAssertNil(profiles.loadedController(work.id))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        XCTAssertTrue(profiles.continuity.state.isProfileDeleted(work.id))
+        let registry = try ProfileRegistryStore(fileURL: root.appendingPathComponent("profiles.json")).load().registry
+        XCTAssertEqual(registry.profiles.map(\.id), [BrowserProfile.personalID])
+        do { try await profiles.delete(.personal); XCTFail("Deleted Personal") }
+        catch ProfileError.protectedProfile {}
+    }
+
+    func testDeleteRemovesNamedWebKitStoreAndDefaults() async throws {
+        let profile = BrowserProfile(name: "Disposable")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let bundleID = "local.oriv.profile-test"
+        let suite = try XCTUnwrap(profile.defaultsName(bundleID: bundleID))
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [.domain: "profiles.example.test", .path: "/", .name: "login", .value: "synthetic"]))
+        do {
+            let store = WKWebsiteDataStore(forIdentifier: profile.id)
+            await store.httpCookieStore.setCookie(cookie)
+        }
+        defaults.set("fixture", forKey: "example")
+        try await SessionFactory.removeProfileData(profile, rootOverride: root, bundleID: bundleID, testing: false)
+        try await SessionFactory.removeProfileData(profile, rootOverride: root, bundleID: bundleID, testing: false)
+        let identifiers = await WKWebsiteDataStore.allDataStoreIdentifiers
+        XCTAssertFalse(identifiers.contains(profile.id))
+        XCTAssertNil(defaults.object(forKey: "example"))
+    }
+
+    func testPrivateContextsCopyPreferencesWithoutSiteState() throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let source = profiles.controller.session
+        let url = URL(string: "https://fixture.example")!
+        source.adBlocker.setMode(.strict)
+        source.adBlocker.setException(true, for: url, isPrivate: false)
+        source.settings.searchEngine = .brave
+        source.settings.privacy.setEnabled(true, .cookieBanners)
+        source.importBookmarks([Bookmark(title: "Fixture", url: url)])
+        profiles.controller.appearance = .light
+        let id = profiles.createPrivateWindow()
+        let context = try XCTUnwrap(profiles.privateWindows[id])
+        profiles.handleIncomingURL(url)
+        let external = try XCTUnwrap(profiles.externalPrivate)
+        source.settings.searchEngine = .google
+        for copy in [context, external] {
+            XCTAssertEqual(copy.session.settings.searchEngine, .brave)
+            XCTAssertEqual(copy.session.adBlocker.mode, .strict)
+            XCTAssertTrue(copy.session.adBlocker.cookieBannersEnabled)
+            XCTAssertTrue(copy.session.adBlocker.regularExceptions.isEmpty)
+            XCTAssertTrue(copy.session.bookmarks.isEmpty)
+            XCTAssertTrue(copy.session.history.isEmpty)
+            XCTAssertFalse(copy.session.selectedTab!.webView.configuration.websiteDataStore.isPersistent)
+            XCTAssertEqual(copy.appearance, .light)
+        }
+    }
+
+    func testBasicAuthenticationChallengesAgainInAnotherProfile() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        let url = URL(string: "http://127.0.0.1:8768/basic-auth")!
+        for profile in [BrowserProfile.personal, work] {
+            try profiles.select(profile.id)
+            let tab = try XCTUnwrap(profiles.controller.session.selectedTab)
+            _ = tab.webView
+            var challenges = 0
+            tab.onAuthentication = { challenge, completion in
+                XCTAssertEqual(challenge.protectionSpace.authenticationMethod, NSURLAuthenticationMethodHTTPBasic)
+                challenges += 1
+                completion(.useCredential, URLCredential(user: "test", password: "pass", persistence: .forSession))
+            }
+            tab.navigate(to: url)
+            try await waitForFixtureCondition("authenticated fixture", timeout: 20) { tab.title == "Authenticated fixture" && !tab.isLoading }
+            XCTAssertEqual(challenges, 1)
+        }
+    }
+
+    func testSwitchSuspendsMediaUntilReturningToProfile() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        let config = WKWebViewConfiguration()
+        config.mediaTypesRequiringUserActionForPlayback = []
+        let tab = profiles.controller.session.addTab(configuration: config, load: false)
+        let view = tab.webView
+        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        BackgroundUIMode.show(window, key: false)
+        defer { window.contentView = nil; window.close() }
+        tab.navigate(to: URL(string: "http://127.0.0.1:8768/one")!)
+        try await waitForFixtureCondition("profile media fixture page", timeout: 20) { tab.title == "Browser foundation" && !tab.isLoading }
+        _ = try await view.evaluateJavaScript("""
+            window.fixtureAudio = new Audio('/media-files/tone.wav');
+            fixtureAudio.loop = true;
+            fixtureAudio.volume = 0;
+            document.body.append(fixtureAudio);
+            fixtureAudio.play().catch(error => window.fixtureMediaError = String(error));
+            true;
+            """)
+        func playback() async -> WKMediaPlaybackState {
+            await withCheckedContinuation { reply in view.requestMediaPlaybackState { reply.resume(returning: $0) } }
+        }
+        try await waitForFixtureCondition("media playing in Personal", timeout: 15) { await playback() == .playing }
+        try profiles.select(work.id)
+        try await waitForFixtureCondition("media suspended in inactive Personal", timeout: 15) { await playback() == .suspended }
+        try profiles.select(BrowserProfile.personalID)
+        try await waitForFixtureCondition("media resumes on returning to Personal", timeout: 15) { await playback() == .playing }
+    }
+
+    func testInactiveMacSelectionCanBeReclaimedAfterFiveIdleMinutes() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let personal = profiles.controller
+        let tab = try XCTUnwrap(personal.session.selectedTab)
+        let view = tab.webView
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        tab.navigate(to: URL(string: "http://127.0.0.1:8768/one")!)
+        try await waitForFixtureCondition("discardable profile fixture", timeout: 20) { tab.title == "Browser foundation" && !tab.isLoading }
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        try profiles.select(work.id)
+        var now = 1000.0
+        tab.recoveryClock = { now }
+        tab.lastSelectedTime = now - 299
+        let before = await personal.session.reclaimBackgroundTabs()
+        XCTAssertEqual(before, 0)
+        XCTAssertTrue(tab.isInstantiated)
+        now += 2
+        let after = await personal.session.reclaimBackgroundTabs()
+        XCTAssertEqual(after, 1)
+        XCTAssertFalse(tab.isInstantiated)
+        XCTAssertEqual(personal.session.selectedTabID, tab.id)
+    }
+
+    func testDeleteProfileConfirmationCapture() throws {
+        let renderer = ImageRenderer(content: DeleteProfileConfirmation(profile: BrowserProfile(name: "Work"), confirm: {})
+            .background(Color(nsColor: .windowBackgroundColor)).environment(\.colorScheme, .light))
+        renderer.proposedSize = ProposedViewSize(width: 420, height: nil)
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.cgImage)
+        let png = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        attachment.name = "mac-delete-profile-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     func testNamedProfileDoesNotReadPersonalDefaults() throws {
