@@ -96,9 +96,8 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
         let rowHeight = data.rowHeight
         let spacing: CGFloat = icons ? 6 : 1
         let gridColumns = 4
-        let gridInset = MacBrowserLayout.sidebarRowInset
         let gridGap: CGFloat = 8
-        let tileWidth = max(0, (width - 2 * gridInset - CGFloat(gridColumns - 1) * gridGap) / CGFloat(gridColumns))
+        let tileWidth = max(0, (rowWidth - CGFloat(gridColumns - 1) * gridGap) / CGFloat(gridColumns))
         var y: CGFloat = 0
         for (section, group) in data.sections.enumerated() {
             if group.headerHeight > 0 {
@@ -114,7 +113,7 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
                 let path = IndexPath(item: index, section: section)
                 let item = NSCollectionViewLayoutAttributes(forItemWith: path)
                 if group.grid {
-                    let x = gridInset + CGFloat(index % gridColumns) * (tileWidth + gridGap)
+                    let x = edge + CGFloat(index % gridColumns) * (tileWidth + gridGap)
                     let origin = list.userInterfaceLayoutDirection == .rightToLeft ? width - x - tileWidth : x
                     item.frame = NSRect(x: origin, y: y + CGFloat(index / gridColumns) * 57, width: tileWidth, height: 48)
                 } else {

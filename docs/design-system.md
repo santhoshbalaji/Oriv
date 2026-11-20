@@ -72,9 +72,9 @@ and recency; an actor maintains normalized prefix and trigram indexes off-main.
 
 ## Mac sidebar: Safari-like glass (B)
 
-The Mac sidebar is a single inset system Liquid Glass panel with 20 pt corners
-and a 10 pt window inset. The expanded panel is 276 pt wide (296 pt including
-insets); the icon rail is 64 pt (84 pt including insets). The existing toggle and
+The Mac sidebar is a single system Liquid Glass panel flush with the window edge.
+The expanded panel is 256 pt wide with an 8 pt horizontal content inset. The icon
+rail is 72 pt wide. The existing toggle and
 ⌥⌘S animate between them, respecting Reduce Motion. The address editor and page
 host retain their identity. The iPhone interface is unchanged.
 
@@ -88,7 +88,7 @@ into the titlebar or force a dark sidebar in a light window.
 
 The profile picker uses a primary-colour stacked-tabs glyph, bold name, tab count
 and chevron, followed by persistent Search tabs. Empty Pinned is hidden; a compact
-pin target appears during a local tab drag. Section counts omit zero. Pinned favicons occupy at most two rows of four; additional pins
+pin target appears during a local tab drag. Section counts omit zero. Pinned tiles align with tab rows and occupy at most two rows of four; additional pins
 appear as a labelled lazy list. Tabs and Private have independent headings and
 counts. New Tab and the Library/Settings footer stay fixed while the tab
 collection scrolls. The rail uses centred 42 × 36 pt icon targets, a 15 pt selection marker and no
