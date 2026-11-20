@@ -133,12 +133,13 @@ import BrowserEngine
             select(BrowserProfile(name: name))
         }
     }
-    func archive(_ id: UUID) {
-        guard id != lastRegularProfileID, !continuity.state.isProfileDeleted(id), let index = storedProfiles.firstIndex(where: { $0.id == id }), !storedProfiles[index].isPersonal else { return }
+    func archive(_ id: UUID) throws {
+        guard id != lastRegularProfileID, id != BrowserProfile.personalID else { throw ProfileError.protectedProfile }
+        guard !continuity.state.isProfileDeleted(id),
+              let index = storedProfiles.firstIndex(where: { $0.id == id && $0.archivedAt == nil }) else { throw ProfileError.missing }
         if let loaded = controllers[id],
            loaded.downloads.activeCount > 0 || loaded.session.tabs.contains(where: \.hasEditedFields) || loaded.pendingTabClose != nil {
-            current.message = "Finish or cancel this profile’s downloads and edited forms before archiving it."
-            return
+            throw MobileProfileError.unfinishedWork
         }
         storedProfiles[index].archivedAt = .now
         persist()
@@ -222,6 +223,11 @@ import BrowserEngine
 }
 
 private enum MobileProfileError: LocalizedError {
-    case activeDownloads
-    var errorDescription: String? { "Finish or cancel this profile’s downloads before deleting it." }
+    case activeDownloads, unfinishedWork
+    var errorDescription: String? {
+        switch self {
+        case .activeDownloads: "Finish or cancel this profile’s downloads before deleting it."
+        case .unfinishedWork: "Finish or cancel this profile’s downloads and edited forms before archiving it."
+        }
+    }
 }

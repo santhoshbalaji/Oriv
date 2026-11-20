@@ -264,8 +264,10 @@ private struct MobileProfileChooser: View {
             }
             .confirmationDialog("Archive profile?", isPresented: Binding(get: { archiving != nil }, set: { if !$0 { archiving = nil } }), titleVisibility: .visible) {
                 Button("Archive") {
-                    if let profile = archiving { profiles.archive(profile.id) }
+                    guard let profile = archiving else { return }
                     archiving = nil
+                    do { try profiles.archive(profile.id); error = nil }
+                    catch { self.error = error.localizedDescription }
                 }
             } message: { Text("Private tabs close and any unsaved edits in them are lost. Regular tabs and saved data remain available when you restore this profile.") }
     }
