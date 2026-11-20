@@ -68,6 +68,23 @@ import WebKit
         XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: false))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
     }
+    func testGitHubStyleHeadUsesAlternatePNGWhenPrimarySVGHasNoPaint() async throws {
+        let session = session(); defer { session.shutdown() }
+        let tab = try XCTUnwrap(session.selectedTab)
+        let detach = try mountWebFixture(tab); defer { detach() }
+        let url = URL(string: "http://127.0.0.1:18768/github-favicon")!
+        try await waitForWebFixture(tab, at: url) { tab.navigate(to: url) }
+        try await waitForFixtureCondition("the GitHub-style alternate icon", timeout: 10) {
+            await session.siteIcons.load(url, isPrivate: false)
+            return session.siteIcons.icon(for: url, isPrivate: false) != nil
+        }
+        let icon = try XCTUnwrap(session.siteIcons.icon(for: url, isPrivate: false))
+        let fallback = try XCTUnwrap(URL(string: "/github-favicon.png", relativeTo: url)?.absoluteURL)
+        let (data, _) = try await URLSession.shared.data(from: fallback)
+        let expected = await SiteIconDiskCache(directory: nil).decode(data)
+        XCTAssertEqual(icon.png, try XCTUnwrap(expected).png)
+    }
+
     func testIconMissCacheEvictsOldestInsertionAndRenewsExpiredMisses() {
         var misses = SiteIconMissCache()
         let start = Date(timeIntervalSinceReferenceDate: 1)

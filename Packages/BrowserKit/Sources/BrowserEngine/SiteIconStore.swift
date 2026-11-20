@@ -22,7 +22,7 @@ public struct SiteIcon: @unchecked Sendable {
     }
 
     /// Bounded decode-time analysis, never pixel work in a scrolling row.
-    fileprivate init(image: CGImage, png: Data) {
+    fileprivate init?(image: CGImage, png: Data) {
         self.image = image; self.png = png
         let side = 32
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
@@ -32,11 +32,12 @@ public struct SiteIcon: @unchecked Sendable {
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side)); return true
         }
-        var transparent = 0, histogram = [Double](repeating: 0, count: 16)
+        var visible = false, transparent = 0, histogram = [Double](repeating: 0, count: 16)
         var totals = [Double](repeating: 0, count: 16)
         if rendered {
             for offset in stride(from: 0, to: pixels.count, by: 4) {
                 let alpha = Double(pixels[offset + 3]) / 255
+                if alpha > 0 { visible = true }
                 if alpha < 0.98 { transparent += 1 }
                 guard alpha > 0.25 else { continue }
                 let rgb = (0..<3).map { min(1, Double(pixels[offset + $0]) / 255 / alpha) }
@@ -46,6 +47,7 @@ public struct SiteIcon: @unchecked Sendable {
                 histogram[bin] += alpha; totals[bin] += value * alpha
             }
         }
+        guard visible else { return nil }
         hasTransparency = transparent > side * side / 8
         let dominant = histogram.indices.max { histogram[$0] < histogram[$1] } ?? 0
         glyphLuminance = histogram[dominant] > 0 ? totals[dominant] / histogram[dominant] : 0.5
@@ -232,10 +234,19 @@ struct SiteIconMissCache {
         guard canDiscover(in: view, pageURL: pageURL, isPrivate: isPrivate) else { return nil }
         // The site's own DOM supplies candidates. No history URL is probed.
         guard let metadata = (try? await view.callAsyncJavaScript("""
-            const links = Array.from(document.querySelectorAll('link[rel]')).filter(l =>
-              /^(icon|shortcut icon|apple-touch-icon|apple-touch-icon-precomposed)$/i.test(l.rel.trim()))
-              .slice(0, 8).map(l => l.href);
-            return [navigator.userAgent, ...links];
+            const icons = [];
+            for (const link of document.querySelectorAll('link[rel][href]')) {
+                const rel = link.rel.toLowerCase().trim().split(/\\s+/);
+                if (link.media && !matchMedia(link.media).matches) continue;
+                let rank;
+                if (rel.includes('icon')) rank = rel.includes('alternate') ? 2 : 0;
+                else if (rel.includes('apple-touch-icon') || rel.includes('apple-touch-icon-precomposed')) rank = 4;
+                else if (rel.includes('mask-icon')) rank = 6;
+                else continue;
+                icons.push({url:link.href, rank:rank + (link.media ? 0 : 1)});
+            }
+            icons.sort((a,b) => a.rank - b.rank);
+            return [navigator.userAgent, ...new Set(icons.map(icon => icon.url))].slice(0, 9);
             """, arguments: [:], in: nil, contentWorld: .world(name: "OrivSiteIcon"))) as? [String],
               let userAgent = metadata.first, !userAgent.isEmpty,
               canDiscover(in: view, pageURL: pageURL, isPrivate: isPrivate) else { return nil }

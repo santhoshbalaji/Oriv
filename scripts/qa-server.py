@@ -24,6 +24,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/github-favicon':
+            self.send_bytes((FIXTURES / 'github-favicon.html').read_bytes(), 'text/html; charset=utf-8', no_store=True)
+            return
+        if path == '/github-favicon.png':
+            artwork = ROOT / 'Apps/Shared/Resources/Assets.xcassets/OrivMark.imageset/OrivMark.png'
+            self.send_bytes(artwork.read_bytes(), 'image/png')
+            return
+        if path in ('/github-favicon.svg', '/github-favicon-dark.svg', '/github-mask.svg'):
+            # The preferred SVG contains no paint. The other candidates have
+            # visible black artwork, distinguishable from the PNG fallback.
+            paint = b'' if path == '/github-favicon.svg' else b'<rect width="32" height="32" fill="black"/>'
+            svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">' + paint + b'</svg>'
+            self.send_bytes(svg, 'image/svg+xml')
+            return
         if path == '/favicon-page':
             run = parse_qs(urlsplit(self.path).query).get('run', [''])[0]
             icon = '/favicon-redirect?run=' + quote(run, safe='')

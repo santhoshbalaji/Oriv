@@ -62,6 +62,7 @@ import WebKit
         if environment["ORIV_BATCH_VISUALS"] == "1" { await renderBatchScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-live" { await renderLiveSidebar(into: directory, activate: activate) }
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "p3-github" { await renderGitHubFavicon(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-rtl" { await renderRightToLeft(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p2" { await renderP2Scenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
@@ -225,6 +226,34 @@ import WebKit
         *{box-sizing:border-box}body{margin:0;background:\(color);color:\(ink);font-family:Georgia,serif}header{height:66px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff50;font:600 12px -apple-system,sans-serif}header strong{font-size:25px;color:\(heading);letter-spacing:-1px}.hero{padding:32px max(30px,14vw) 60px;min-height:530px}h1{font-size:48px;font-weight:500;line-height:1.05;color:\(heading);letter-spacing:-2px;margin:0 0 38px}h1 span{display:block;margin-left:80px}.copy{margin-left:80px;max-width:780px;font-size:29px;line-height:1.12;letter-spacing:-1px}.copy p{margin:0 0 32px}.story{background:#e0ebed;color:#35134d;padding:26px max(30px,14vw) 80px;min-height:1400px}.story blockquote{margin:0;border-top:1px solid #958ca5;border-bottom:1px solid #958ca5;padding:24px 0;font-size:28px}.story h2{font:700 28px -apple-system,sans-serif;margin-top:56px}.story p{font-size:30px;line-height:1.3}@media(max-width:700px){header strong{font-size:17px}.hero{padding:32px 30px 50px}h1{font-size:42px}.copy{font-size:25px;margin-left:28px}h1 span{margin-left:28px}}
         </style></head><body><header><span>[START]</span><strong>ENTREPRENEURS FIRST</strong><span>[MENU]</span></header><section class="hero"><h1>FOUND,<span>↳DON’T FOLLOW</span></h1><div class="copy"><p>We turn exceptional individuals into funded founders. We back you first, then give you a bridge to Silicon Valley.</p><p>You might have an early idea, or be testing a cofounder. You might have nothing. What we’re most interested in is you and your potential.</p></div></section><section class="story"><blockquote>“Joining EF was a life-changing decision.”</blockquote><h2>WE BUILD COFOUNDING TEAMS FROM SCRATCH.</h2><p>Your potential is the starting point.</p><p>Meet people with the ambition to build something new. Explore ideas, share what you know and find your next collaborator.</p></section></body></html>
         """
+    }
+
+    private static func renderGitHubFavicon(into directory: URL, activate: Bool) async {
+        let controller = BrowserController(testing: true)
+        defer { controller.shutdown() }
+        let session = controller.session
+        guard let home = session.selectedTab else { return }
+        let url = URL(string: "https://github.com/")!
+        let tab = session.addTab()
+        tab.navigate(to: url)
+        let name = "mac-glass-github-favicon"
+        await capture(name, directory, CGSize(width: 1150, height: 720), key: activate,
+                      appearance: .light, prepare: { window in
+            let deadline = ContinuousClock.now + .seconds(30)
+            while (tab.isLoading || session.siteIcons.icon(for: url, isPrivate: false) == nil) && ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard session.siteIcons.icon(for: url, isPrivate: false) != nil else {
+                manifest.failures.append("GitHub favicon discovery did not produce visible artwork")
+                return
+            }
+            session.toggleBookmark()
+            session.selectTab(home.id)
+            try? await Task.sleep(for: .milliseconds(350))
+            writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+        }) {
+            BrowserWindow(controller: controller).environment(\.chromeReduceTransparencyOverride, true)
+        }
     }
 
     private static func renderRightToLeft(into directory: URL, activate: Bool) async {
