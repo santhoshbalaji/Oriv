@@ -183,8 +183,12 @@ all issues from `performAccessibilityAudit` and stores its result bundle under
 iPhone gates and CI. The audited app launches with disposable browser state.
 
 For the 30-private-tab grid timing workload, run
-`ORIV_GRID_TIMING_ONLY=1 ./scripts/check-iphone.sh` headlessly. The test mounts
-two inline WebKit pages and records actual display-link callback delivery across
-three cycles of opening the grid, closing it, and selecting a card. It reports
-the maximum gap by phase and asserts a local bound. Hosted CI or a scaled WebKit
-deadline records timings without asserting frame delivery.
+`ORIV_GRID_TIMING_ONLY=1 ./scripts/check-iphone.sh` headlessly. The original
+workload measures callback gaps over three open, close and select cycles. The
+opening matrix tests 30 private tabs with isolated and shared stores, with and
+without thumbnail capture. Each configuration uses a fresh grid with two
+mounted-in-turn WebKit fixtures and 28 lazy tabs. It records the first open
+and three warm reopens. `ORIV_GRID_OPEN` rows report actual callback gaps,
+main run-loop wake-to-wait duration, first observed motion and settlement.
+The matrix has signposts and records timing without a hard threshold.
+These simulator scheduling measurements do not measure physical frame delivery.

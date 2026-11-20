@@ -1,4 +1,5 @@
 import XCTest
+import os
 import SwiftUI
 import WebKit
 import BrowserCore
@@ -14,6 +15,55 @@ import BrowserEngine
     func testMeasureOnePrivateTab() async throws { try await measure(count:1,privateTab:true) }
     func testMeasureTenTabsWithPrivateSelection() async throws { try await measure(count:10,privateTab:true) }
     func testMeasureThirtyTabsWithPrivateSelection() async throws { try await measure(count:30,privateTab:true) }
+    func testPrivateGridOpeningMatrix() async throws {
+        for isolated in [true, false] {
+            for snapshots in [false, true] {
+                try await measurePrivateOpens(isolated: isolated, snapshots: snapshots)
+            }
+        }
+    }
+
+    private func measurePrivateOpens(isolated: Bool, snapshots: Bool) async throws {
+        let f = try MorphFixture(count: 30, privateTab: true, isolated: isolated, snapshots: snapshots)
+        defer { f.dispose() }
+        try await f.ready(inline: true, snapshots: snapshots)
+        let shared = f.source.webView.configuration.websiteDataStore === f.destination.webView.configuration.websiteDataStore
+        XCTAssertEqual(shared, !isolated)
+        XCTAssertEqual(f.controller.session.tabs.count, 30)
+        XCTAssertEqual(f.controller.tabPresentation.images.count, snapshots ? 2 : 0)
+
+        let probe = GridOpeningProbe(controller: f.controller)
+        probe.start()
+        defer { probe.stop() }
+        let signposter = OSSignposter(subsystem: "Oriv", category: "PrivateGridOpening")
+        for iteration in 0..<4 {
+            try await eventually("idle display link") { probe.lastCallback != nil }
+            let label = "\(isolated ? "isolated" : "shared") \(snapshots ? "snapshots" : "no-snapshots") \(iteration == 0 ? "cold" : "warm-\(iteration)")"
+            let interval = signposter.beginInterval("Open 30 Private Tabs", id: signposter.makeSignpostID(), "\(label)")
+            probe.begin()
+            let started = CACurrentMediaTime()
+            f.controller.sheet = .tabs
+            try await eventually("grid settles", timeout: 12) {
+                f.controller.tabPresentation.activeID == nil && f.controller.gridMorph.progress >= 1
+            }
+            let settled = (CACurrentMediaTime() - started) * 1000
+            signposter.endInterval("Open 30 Private Tabs", interval)
+            let result = probe.end()
+            let firstMotion = (try XCTUnwrap(result.firstMotion) - started) * 1000
+            XCTAssertGreaterThan(result.callbacks, 5)
+            XCTAssertEqual(f.controller.tabPresentation.images.isEmpty, !snapshots)
+            print("ORIV_GRID_OPEN \(label) max_gap_ms=\(result.worstGap) busy_turn_ms=\(result.worstTurn) first_motion_ms=\(firstMotion) settled_ms=\(settled) callbacks=\(result.callbacks)")
+
+            f.controller.sheet = nil
+            try await eventually("grid closes", timeout: 12) {
+                f.controller.tabPresentation.activeID == nil && f.controller.gridMorph.progress == 0
+            }
+            // Establish a fresh callback after closing before opening again.
+            let last = probe.lastCallback
+            try await eventually("close callback drains") { probe.lastCallback != last }
+        }
+    }
+
     func testPixelsOneTab() async throws { try await measure(count:1,privateTab:false,raster:true) }
     func testPixelsTenTabs() async throws { try await measure(count:10,privateTab:false,raster:true) }
     func testPixelsThirtyTabs() async throws { try await measure(count:30,privateTab:false,raster:true) }
@@ -431,8 +481,10 @@ import BrowserEngine
     let window:UIWindow
     private weak var previous:UIWindow?
     private var disposed = false
-    init(count:Int,privateTab:Bool,reduce:Bool = false) throws {
+    init(count:Int,privateTab:Bool,reduce:Bool = false,isolated:Bool = true,snapshots:Bool = true) throws {
         let c = profiles.current
+        c.session.settings.privateTabIsolation.isEnabled = isolated
+        c.tabPresentation.capturesEnabled = snapshots
         let initial = try XCTUnwrap(c.session.selectedTab)
         if privateTab {
             source = c.session.addTab(isPrivate:true,load:false)
@@ -450,12 +502,12 @@ import BrowserEngine
             .browserAppearance(c.appearance,followsPage:true).environment(\.scenePhase,.active))
         window.makeKeyAndVisible()
     }
-    func ready(inline: Bool = false) async throws {
+    func ready(inline: Bool = false, snapshots: Bool = true) async throws {
         // Prepare each snapshot while its tab is mounted. iOS 27 can suspend
         // an unattached WebKit view before the fixture or snapshot completes.
-        try await prepare(source, path: "two", inline: inline)
+        try await prepare(source, path: "two", inline: inline, snapshots: snapshots)
         if destination !== source {
-            try await prepare(destination, path: "chrome-paint", inline: inline)
+            try await prepare(destination, path: "chrome-paint", inline: inline, snapshots: snapshots)
             controller.session.selectTab(source.id)
             try await wait(label: "source reattached") { self.source.webView.window === self.window }
         }
@@ -469,7 +521,7 @@ import BrowserEngine
         if let grid = parent as? MobileTabGridController { return grid }
         return parent.children.lazy.compactMap { self.preparedGrid(in: $0) }.first
     }
-    private func prepare(_ tab: BrowserTab, path: String, inline: Bool) async throws {
+    private func prepare(_ tab: BrowserTab, path: String, inline: Bool, snapshots: Bool) async throws {
         controller.session.selectTab(tab.id)
         let url = URL(string: "http://127.0.0.1:8768/\(path)")!
         if inline {
@@ -483,8 +535,12 @@ import BrowserEngine
         try await wait(label: "\(path) loaded and attached", timeout: 30) {
             !tab.isLoading && tab.hasLoaded && tab.webView.window === self.window
         }
-        controller.tabPresentation.capture(tab, refresh: true)
-        try await wait(label: "\(path) snapshot") { self.controller.tabPresentation.images[tab.id] != nil }
+        if snapshots {
+            controller.tabPresentation.capture(tab, refresh: true)
+            try await waitForFixtureCondition("\(path) snapshot", timeout: 15) {
+                self.controller.tabPresentation.images[tab.id] != nil
+            }
+        }
     }
     func setAnimationSpeed(_ speed: Float) {
         let layer = window.layer
@@ -516,6 +572,71 @@ private struct MorphTimeout: Error {
     let condition: String
     let sheet: String
     let nativeProgress: CGFloat
+}
+
+/// Measures actual callback delivery and main run-loop wake-to-wait time.
+@MainActor private final class GridOpeningProbe: NSObject {
+    private let controller: MobileController
+    private var link: CADisplayLink?
+    private var observer: CFRunLoopObserver?
+    private var wokeAt: CFTimeInterval?
+    private var measuring = false
+    private var worstGap = 0.0
+    private var worstTurn = 0.0
+    private var callbacks = 0
+    private var firstMotion: CFTimeInterval?
+    private(set) var lastCallback: CFTimeInterval?
+
+    init(controller: MobileController) { self.controller = controller }
+
+    func start() {
+        let link = CADisplayLink(target: self, selector: #selector(frame))
+        self.link = link
+        link.add(to: .main, forMode: .common)
+        let activities = CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
+        observer = CFRunLoopObserverCreateWithHandler(nil, activities, true, 0) { [weak self] _, activity in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = CACurrentMediaTime()
+                if activity == .afterWaiting { self.wokeAt = now }
+                else {
+                    if self.measuring, let start = self.wokeAt { self.worstTurn = max(self.worstTurn, (now - start) * 1000) }
+                    self.wokeAt = nil
+                }
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    func begin() {
+        worstGap = 0
+        worstTurn = 0
+        callbacks = 0
+        firstMotion = nil
+        measuring = true
+    }
+
+    func end() -> (worstGap: Double, worstTurn: Double, callbacks: Int, firstMotion: CFTimeInterval?) {
+        measuring = false
+        return (worstGap, worstTurn, callbacks, firstMotion)
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+        if let observer { CFRunLoopObserverInvalidate(observer) }
+        observer = nil
+    }
+
+    @objc private func frame() {
+        let now = CACurrentMediaTime()
+        if measuring, let lastCallback {
+            worstGap = max(worstGap, (now - lastCallback) * 1000)
+            callbacks += 1
+            if firstMotion == nil && controller.gridMorph.progress > 0 { firstMotion = now }
+        }
+        lastCallback = now
+    }
 }
 
 @MainActor private final class MorphFrames:NSObject {

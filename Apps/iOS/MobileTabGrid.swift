@@ -637,7 +637,14 @@ struct MobileGridCard: View {
     }
     func resume() { if suspended { suspended = false; generation += 1 } }
 
+    #if DEBUG
+    @ObservationIgnored var capturesEnabled = true
+    #endif
+
     func capture(_ tab: BrowserTab, refresh: Bool = false) {
+        #if DEBUG
+        guard capturesEnabled else { return }
+        #endif
         guard !suspended, activeID == nil, captures[tab.id] == nil, tab.hasLoaded, tab.isInstantiated,
               refresh || revisions[tab.id] != tab.documentRevision || images[tab.id] == nil else { return }
         let id = tab.id, revision = tab.documentRevision, request = generation
@@ -721,6 +728,7 @@ struct MobileGridCard: View {
     func settleInGrid(_ tab:BrowserTab?) {
         #if DEBUG
         MobileTransitionMetrics.stop()
+        guard capturesEnabled else { finish(); return }
         #endif
         guard let tab, activeID == tab.id, tab.isInstantiated else { finish(); return }
         let request = generation, revision = tab.documentRevision, settlement = settlementRevision
