@@ -102,15 +102,35 @@ public actor SiteIconDiskCache {
     }
 }
 
+/// A failed discovery suppresses retries briefly. Retrying an expired miss
+/// moves it to the end; cache hits do not extend its retry deadline.
+struct SiteIconMissCache {
+    private var entries: [(key: String, recordedAt: Date)] = []
+
+    func contains(_ key: String, now: Date = Date()) -> Bool {
+        entries.contains { $0.key == key && now.timeIntervalSince($0.recordedAt) < 30 }
+    }
+
+    mutating func record(_ key: String, now: Date = Date()) {
+        entries.removeAll { $0.key == key }
+        entries.append((key, now))
+        if entries.count > SiteIconStore.memoryLimit { entries.removeFirst() }
+    }
+
+    mutating func remove(isPrivate: Bool) {
+        entries.removeAll { $0.key.hasPrefix("private:") == isPrivate }
+    }
+}
+
 @MainActor @Observable public final class SiteIconStore {
-    public static let memoryLimit = 128
+    public nonisolated static let memoryLimit = 128
     public private(set) var revision = 0
     @ObservationIgnored private var icons: [String: SiteIcon] = [:]
     @ObservationIgnored private var order: [String] = []
     @ObservationIgnored private var requests: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var requestTokens: [String: UUID] = [:]
     @ObservationIgnored private var cacheGeneration = 0
-    @ObservationIgnored private var misses: [String: Date] = [:]
+    @ObservationIgnored private var misses = SiteIconMissCache()
     @ObservationIgnored private var privateGeneration = 0
     @ObservationIgnored private let disk: SiteIconDiskCache
     /// Returns only an already instantiated, loaded page. Looking up an icon
@@ -130,7 +150,7 @@ public actor SiteIconDiskCache {
         guard let key = Self.key(url, isPrivate: isPrivate) else { return }
         if icons[key] != nil { touch(key); return }
         if let request = requests[key] { await request.value; return }
-        if let miss = misses[key], Date().timeIntervalSince(miss) < 30 { return }
+        if misses.contains(key) { return }
         guard requests.count < 16 else { return }
         let generation = privateGeneration
         let cacheGeneration = self.cacheGeneration
@@ -156,8 +176,7 @@ public actor SiteIconDiskCache {
                 if !isPrivate && !cacheHit { await disk.write(icon, key: key) }
             } else if attempted, let view = attemptedView,
                       canDiscover(in: view, pageURL: url, isPrivate: isPrivate) {
-                misses[key] = Date()
-                if misses.count > Self.memoryLimit { misses.removeValue(forKey: misses.keys.sorted().first!) }
+                misses.record(key)
             }
         }
         requestTokens[key] = token
@@ -184,14 +203,14 @@ public actor SiteIconDiskCache {
         privateGeneration += 1
         for key in Array(requests.keys) where key.hasPrefix("private:") { requests.removeValue(forKey: key)?.cancel(); requestTokens[key] = nil }
         icons = icons.filter { !$0.key.hasPrefix("private:") }
-        misses = misses.filter { !$0.key.hasPrefix("private:") }
+        misses.remove(isPrivate: true)
         order.removeAll { $0.hasPrefix("private:") }; revision += 1
     }
     public func shutdown() { cacheGeneration += 1; requests.values.forEach { $0.cancel() }; requests = [:]; requestTokens = [:]; document = nil; endPrivateSession() }
     public func clear() async {
         cacheGeneration += 1
         requests.values.forEach { $0.cancel() }; requests = [:]; requestTokens = [:]; endPrivateSession()
-        icons = [:]; order = []; misses = [:]; revision += 1
+        icons = [:]; order = []; misses = SiteIconMissCache(); revision += 1
         await disk.clear()
     }
     func clearRegular() async {
@@ -201,7 +220,7 @@ public actor SiteIconDiskCache {
             requestTokens[key] = nil
         }
         icons = icons.filter { $0.key.hasPrefix("private:") }
-        misses = misses.filter { $0.key.hasPrefix("private:") }
+        misses.remove(isPrivate: false)
         order.removeAll { !$0.hasPrefix("private:") }
         revision += 1
         await disk.clear()

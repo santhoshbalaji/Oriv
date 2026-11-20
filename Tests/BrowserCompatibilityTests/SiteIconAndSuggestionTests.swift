@@ -68,6 +68,49 @@ import WebKit
         XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: false))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
     }
+    func testIconMissCacheEvictsOldestInsertionAndRenewsExpiredMisses() {
+        var misses = SiteIconMissCache()
+        let start = Date(timeIntervalSinceReferenceDate: 1)
+        misses.record("regular:z-oldest", now: start)
+        for index in 1..<SiteIconStore.memoryLimit {
+            misses.record("regular:a-\(index)", now: start)
+        }
+        misses.record("private:new", now: start)
+        XCTAssertFalse(misses.contains("regular:z-oldest", now: start))
+        XCTAssertTrue(misses.contains("regular:a-1", now: start))
+        let expired = start.addingTimeInterval(30)
+        XCTAssertFalse(misses.contains("regular:a-1", now: expired))
+        misses.record("regular:a-1", now: expired)
+        misses.record("regular:new", now: expired)
+        XCTAssertTrue(misses.contains("regular:a-1", now: expired))
+        XCTAssertFalse(misses.contains("regular:a-2", now: expired))
+        XCTAssertFalse(misses.contains("regular:a-2", now: start))
+        misses.remove(isPrivate: true)
+        XCTAssertFalse(misses.contains("private:new", now: start))
+        XCTAssertTrue(misses.contains("regular:new", now: expired))
+        misses.remove(isPrivate: false)
+        XCTAssertFalse(misses.contains("regular:new", now: expired))
+    }
+
+    #if os(macOS)
+    func testClosingTabUnregistersAudioHandler() async throws {
+        let session = session(); defer { session.shutdown() }
+        let tab = try XCTUnwrap(session.selectedTab)
+        let detachTab = try mountWebFixture(tab); defer { detachTab() }
+        try await load(tab)
+        let view = tab.webView
+        func hasHandler() async throws -> Bool? {
+            try await view.callAsyncJavaScript("return !!window.webkit?.messageHandlers?.tabAudio",
+                arguments: [:], in: nil, contentWorld: .world(name: "OrivTabState")) as? Bool
+        }
+        let before = try await hasHandler()
+        XCTAssertEqual(before, true)
+        tab.close()
+        let after = try await hasHandler()
+        XCTAssertEqual(after, false)
+    }
+    #endif
+
     func testRegularDiskAndMemoryCachesRemainBounded() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("OrivIconBounds-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

@@ -752,6 +752,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         configuration.userContentController.removeScriptMessageHandler(forName: "editedField", contentWorld: .world(name: "OrivTabState"))
         configuration.userContentController.removeScriptMessageHandler(forName: "tabPaint", contentWorld: .world(name: "OrivTabState"))
         #if os(macOS)
+        configuration.userContentController.removeScriptMessageHandler(forName: "tabAudio", contentWorld: .world(name: "OrivTabState"))
         configuration.userContentController.removeScriptMessageHandler(forName: "displayCaptureRequested", contentWorld: .page)
         #endif
         hasActiveDownloads = nil
