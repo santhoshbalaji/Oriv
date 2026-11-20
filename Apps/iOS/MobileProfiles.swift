@@ -58,7 +58,7 @@ import BrowserEngine
     }
     private func obtain(_ profile: BrowserProfile) -> MobileController {
         if let existing = controllers[profile.id] { return existing }
-        let created = MobileController(profile: profile, privateTabIsolation: privateTabIsolation); created.session.setProfileActive(false)
+        let created = MobileController(profile: profile, privateTabIsolation: privateTabIsolation, forceEphemeral: isEphemeral); created.session.setProfileActive(false)
         created.profiles = self
         controllers[profile.id] = created; return created
     }
@@ -97,14 +97,14 @@ import BrowserEngine
     }
     func archive(_ id: UUID) {
         guard id != lastRegularProfileID, let index = profiles.firstIndex(where: { $0.id == id }), !profiles[index].isPersonal else { return }
-        let finish = { [weak self] in
-            guard let self, let index = self.profiles.firstIndex(where: { $0.id == id }) else { return }
-            self.controllers[id]?.background()
-            self.profiles[index].archivedAt = .now; self.persist()
+        if let loaded = controllers[id],
+           loaded.downloads.activeCount > 0 || loaded.session.tabs.contains(where: \.hasEditedFields) || loaded.pendingTabClose != nil {
+            current.message = "Finish or cancel this profile’s downloads and edited forms before archiving it."
+            return
         }
-        if let controller = controllers[id] {
-            controller.close(controller.session.tabs.filter(\.isPrivate).map(\.id), completion: finish)
-        } else { finish() }
+        profiles[index].archivedAt = .now
+        persist()
+        controllers.removeValue(forKey: id)?.shutdown()
     }
     func restore(_ id: UUID) {
         guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }

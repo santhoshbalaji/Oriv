@@ -181,6 +181,18 @@ import WebKit
         guard AddressResolver.isWebURL(url) else { return }
         session.addTab(url: url); sheet = nil
     }
+    func shutdown() {
+        trimTask?.cancel()
+        bookmarkMigration?.cancel()
+        protectionWarmup?.cancel()
+        memoryObserver = nil
+        tabPresentation.discard()
+        session.shutdown()
+        delegates.values.forEach { $0.invalidate() }
+        delegates.removeAll()
+        chromes.values.forEach { $0.observe(nil) }
+        chromes.removeAll()
+    }
     func foreground() { tabPresentation.resume(); session.setProfileActive(true); session.activateSelectedTab(); trimBackgroundTabs() }
     func background() { tabPresentation.discard(); session.saveNow(); session.setProfileActive(false) }
 }
