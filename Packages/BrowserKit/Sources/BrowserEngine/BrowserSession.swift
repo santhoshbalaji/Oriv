@@ -195,6 +195,16 @@ public final class BrowserSession {
         }
     }
 
+    /// Profile-less sessions receive settings by value and keep their own site state.
+    public func inheritPrivatePreferences(from source: BrowserSession) {
+        guard isExternalPrivate else { return }
+        settings.searchEngine = source.settings.searchEngine
+        adBlocker.setMode(source.adBlocker.mode)
+        for layer in PrivacyLayer.allCases {
+            settings.privacy.setEnabled(source.settings.privacy.isEnabled(layer), layer)
+        }
+    }
+
     public func setProfileActive(_ active: Bool) {
         if !active { saveNow(); flushPersistence() }
         isProfileActive = active

@@ -125,7 +125,8 @@ import BrowserEngine
         }
         current.sheet = nil; current.background()
         if externalPrivate == nil {
-            let context = MobileController(profile: nil, privateTabIsolation: privateTabIsolation)
+            let context = MobileController(profile: nil, privateTabIsolation: privateTabIsolation,
+                                           forceEphemeral: isEphemeral, inheriting: controllers[lastRegularProfileID])
             let initial = context.session.selectedTabID
             context.session.addTab(url: url, isPrivate: true, load: false)
             if let initial { context.session.closeTab(initial) }

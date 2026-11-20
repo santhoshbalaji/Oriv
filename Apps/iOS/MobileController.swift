@@ -40,7 +40,7 @@ import WebKit
     @ObservationIgnored private var bookmarkMigration: Task<Void, Never>?
     @ObservationIgnored private var delegates: [UUID: MobileWebDelegate] = [:]
 
-    init(profile: BrowserProfile? = .personal, privateTabIsolation: PrivateTabIsolation? = nil, forceEphemeral: Bool = false) {
+    init(profile: BrowserProfile? = .personal, privateTabIsolation: PrivateTabIsolation? = nil, forceEphemeral: Bool = false, inheriting source: MobileController? = nil) {
         #if DEBUG && targetEnvironment(simulator)
         let liveCapture = ChromeVisualFixture.liveURL != nil
         #else
@@ -106,6 +106,10 @@ import WebKit
                 UIApplication.shared.open(url)
             })
             MobileWebDelegate.presenter?.present(alert, animated: true)
+        }
+        if profile == nil, let source {
+            appearance = source.appearance
+            session.inheritPrivatePreferences(from: source.session)
         }
         if !testing { warmProtection() }
     }

@@ -189,6 +189,7 @@ import Observation
         let id = UUID()
         let context = BrowserController(profile: nil, testing: testing, privateTabIsolation: privateTabIsolation)
         context.appearance = controller.appearance
+        context.session.inheritPrivatePreferences(from: controller.session)
         privateWindows[id] = context
         return id
     }
@@ -202,6 +203,8 @@ import Observation
         guard openExternalLinksPrivately else { controller.openExternal(url); return }
         if externalPrivate == nil {
             let context = BrowserController(profile: nil, testing: testing, privateTabIsolation: privateTabIsolation)
+            context.appearance = controller.appearance
+            context.session.inheritPrivatePreferences(from: controller.session)
             // The private-only session starts with an empty private tab. Replace it on first arrival.
             let initial = context.session.selectedTabID
             context.session.addTab(url: url, isPrivate: true)

@@ -8,7 +8,7 @@ On iPhone, Settings → Choose profile creates/selects local browser profiles. T
 
 External links default to a separate profile-less private window or iPhone tab group, with non-persistent website data and no profile data. The “Opened privately” banner can move only the current HTTP(S) URL to a chosen regular profile; it copies no cookies or form state. Settings → Browsing can restore regular-profile external opening. See [browser continuity](browser-continuity.md#links-from-other-apps) for the controls and lifetime.
 
-On Mac, File → New Private Window opens a dedicated private session, separate from profile tabs, the external-private window and any other private windows. File → New Private Tab puts a tab in the current window.
+On Mac, File → New Private Window opens a dedicated private session, separate from profile tabs, the external-private window and any other private windows. File → New Private Tab puts a tab in the current window. New private windows and external-private contexts copy the active profile’s blocker mode, search engine, privacy-layer switches and appearance at creation. Site exceptions, site rules, cookies and history stay in the originating profile.
 
 One-shot **Open on [Device]** requests use the same profile UUID matching as remote tabs. Missing profiles wait for synced metadata; archived profiles stay archived until explicitly restored, and requests expire after seven days. Each delivered page opens as a new regular tab in its matching profile.
 
