@@ -813,41 +813,51 @@ struct MobileBrowserView: View {
     }
     private var pageMenu: some View {
             Menu {
-                Menu("Back History", systemImage: "clock.arrow.circlepath") { MobileHistoryMenu(tab: tab, forward: false) }.disabled(tab?.canGoBack != true)
-                if tab?.canGoForward == true { Menu("Forward History") { MobileHistoryMenu(tab: tab, forward: true) } }
-                Button("Tabs (\(controller.session.tabs.count))", systemImage: "square.on.square") { controller.sheet = .tabs }
-                Button("Bookmarks", systemImage: "bookmark") { controller.sheet = .bookmarks }
-                Button(controller.downloads.hasActivity ? "Library, Downloads Available" : "Library", systemImage: "book") { controller.sheet = .library }
-                Button("Site Privacy & Settings", systemImage: "slider.horizontal.3") { controller.sheet = .site }.disabled(tab?.url == nil)
-                Button(controller.session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: controller.session.isBookmarked(tab?.url) ? "bookmark.fill" : "bookmark") { controller.session.toggleBookmark() }.disabled(tab?.url == nil || tab?.isPrivate == true)
-                if let tab { MobileMoveTabMenu(controller: controller, profiles: profiles, tab: tab); MobileSendTabMenu(controller: controller, profiles: profiles, tab: tab) }
-                if let url = tab?.url {
-                    Button("Copy Link", systemImage: "doc.on.doc") { PrivacyPasteboard.copy(url) }
-                    Button("Copy Original Link") { PrivacyPasteboard.copy(url, original: true) }
-                }
-                Button("Share", systemImage: "square.and.arrow.up") { controller.sheet = .share }.disabled(tab?.url == nil)
-                Button("Find on Page", systemImage: "magnifyingglass") { tab?.showFind() }.disabled(tab?.url == nil)
-                Button("Images on This Page", systemImage: "photo") { controller.showPageImages() }.disabled(tab?.url == nil)
-                if let tab, tab.url != nil {
-                    ControlGroup {
-                        Button("Zoom Out", systemImage: "minus.magnifyingglass") { tab.zoomOut() }
-                        Button("Zoom In", systemImage: "plus.magnifyingglass") { tab.zoomIn() }
+                Section {
+                    Button(controller.session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: controller.session.isBookmarked(tab?.url) ? "bookmark.fill" : "bookmark") { controller.session.toggleBookmark() }.disabled(tab?.url == nil || tab?.isPrivate == true)
+                    if let url = tab?.url {
+                        Button("Copy Link", systemImage: "doc.on.doc") { PrivacyPasteboard.copy(url) }
+                        Button("Copy Original Link", systemImage: "link") { PrivacyPasteboard.copy(url, original: true) }
                     }
-                    // Native menus use the actual title for VoiceOver, ignoring a custom label
-                    // on a ControlGroup segment. Give reset its own full-width menu item.
-                    Button("Reset Page Zoom (\(Int(tab.pageZoom * 100))%)") { tab.resetZoom() }
+                    Button("Find on Page", systemImage: "magnifyingglass") { tab?.showFind() }.disabled(tab?.url == nil)
+                    Button("Share", systemImage: "square.and.arrow.up") { controller.sheet = .share }.disabled(tab?.url == nil)
+                }
+                if let tab, tab.url != nil {
+                    Section {
+                        ControlGroup {
+                            Button("Zoom In", systemImage: "plus.magnifyingglass") { tab.zoomIn() }
+                            Button("Zoom Out", systemImage: "minus.magnifyingglass") { tab.zoomOut() }
+                        }
+                        // VoiceOver uses the actual native menu title.
+                        Button("Reset Page Zoom (\(Int(tab.pageZoom * 100))%)") { tab.resetZoom() }
+                    }
                 }
                 Section {
                     Button("New Tab", systemImage: "plus") { controller.newTab() }
                     Button("New Private Tab", systemImage: "eyeglasses") { controller.newTab(isPrivate: true) }
                     if controller.session.canReopenTab { Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { controller.session.reopenClosedTab() } }
+                    Button("Tabs (\(controller.session.tabs.count))", systemImage: "square.on.square") { controller.sheet = .tabs }
+                    Button("Bookmarks", systemImage: "bookmark") { controller.sheet = .bookmarks }
+                    Button(controller.downloads.hasActivity ? "Library, Downloads Available" : "Library", systemImage: "book") { controller.sheet = .library }
                 }
-                if controller.session.isExternalPrivate {
-                    Button("Return to Profile", systemImage: "person.crop.circle") {
-                        if let profile = profiles.profiles.first(where: { $0.id == profiles.lastRegularProfileID }) { profiles.select(profile) }
+                Section {
+                    if let tab {
+                        MobileSendTabMenu(controller: controller, profiles: profiles, tab: tab)
+                        MobileMoveTabMenu(controller: controller, profiles: profiles, tab: tab)
                     }
-                } else if profiles.externalPrivate != nil {
-                    Button("External Private Tabs", systemImage: "eyeglasses") { profiles.showExternalPrivate() }
+                    Button("Site Privacy & Settings", systemImage: "slider.horizontal.3") { controller.sheet = .site }.disabled(tab?.url == nil)
+                    Menu("More Page Actions", systemImage: "ellipsis.circle") {
+                        Menu("Back History", systemImage: "clock.arrow.circlepath") { MobileHistoryMenu(tab: tab, forward: false) }.disabled(tab?.canGoBack != true)
+                        if tab?.canGoForward == true { Menu("Forward History") { MobileHistoryMenu(tab: tab, forward: true) } }
+                        Button("Images on This Page", systemImage: "photo") { controller.showPageImages() }.disabled(tab?.url == nil)
+                    }
+                    if controller.session.isExternalPrivate {
+                        Button("Return to Profile", systemImage: "person.crop.circle") {
+                            if let profile = profiles.profiles.first(where: { $0.id == profiles.lastRegularProfileID }) { profiles.select(profile) }
+                        }
+                    } else if profiles.externalPrivate != nil {
+                        Button("External Private Tabs", systemImage: "eyeglasses") { profiles.showExternalPrivate() }
+                    }
                 }
                 Section { Button("Settings", systemImage: "gearshape") { controller.sheet = .settings } }
             } label: { Label("Page Menu", systemImage: tab?.isPrivate == true ? "eyeglasses" : "slider.horizontal.3").labelStyle(.iconOnly).font(.system(size: 20)).frame(width: 44, height: 48).contentShape(Rectangle()) }.accessibilityIdentifier("browserPageMenu").menuOrder(.fixed).tint(.primary)

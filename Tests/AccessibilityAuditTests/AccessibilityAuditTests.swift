@@ -35,12 +35,27 @@ import XCTest
         let menu = app.buttons["browserPageMenu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
         menu.tap()
-        app.buttons["Library"].tap()
+        func menuItem(_ title: String) -> XCUIElement {
+            let cell = app.cells[title].firstMatch
+            if cell.exists { return cell }
+            return app.buttons[title].firstMatch
+        }
+        let newTab = menuItem("New Tab")
+        let bookmarks = menuItem("Bookmarks")
+        let library = menuItem("Library")
+        XCTAssertTrue(newTab.waitForExistence(timeout: 5))
+        XCTAssertTrue(bookmarks.waitForExistence(timeout: 5))
+        XCTAssertTrue(library.waitForExistence(timeout: 5))
+        XCTAssertLessThan(newTab.frame.minY, bookmarks.frame.minY)
+        XCTAssertLessThan(bookmarks.frame.minY, library.frame.minY)
+        library.tap()
         XCTAssertTrue(app.navigationBars["Library"].waitForExistence(timeout: 5))
         try audit(app, screen: "Library")
         app.buttons["Done"].firstMatch.tap()
         menu.tap()
-        app.buttons["Settings"].tap()
+        let settings = menuItem("Settings")
+        if !settings.isHittable { app.collectionViews.firstMatch.swipeUp() }
+        menuItem("Settings").tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         try audit(app, screen: "Settings")
         #endif
