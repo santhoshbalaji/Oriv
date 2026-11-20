@@ -199,7 +199,12 @@ import WebKit
         chromes.removeAll()
     }
     func foreground() { tabPresentation.resume(); session.setProfileActive(true); session.activateSelectedTab(); trimBackgroundTabs() }
-    func background() { tabPresentation.discard(); session.saveNow(); session.setProfileActive(false); trimBackgroundTabs(limit: 1) }
+    func background(leavingProfile: Bool = false) {
+        tabPresentation.discard()
+        session.saveNow()
+        session.setProfileActive(false)
+        if leavingProfile { trimBackgroundTabs(limit: 1) }
+    }
 }
 
 enum MobileSheet: String, Identifiable {

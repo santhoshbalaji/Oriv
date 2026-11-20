@@ -112,7 +112,7 @@ import BrowserEngine
     }
     func select(_ profile: BrowserProfile) {
         guard profile.archivedAt == nil, !continuity.state.isProfileDeleted(profile.id) else { return }
-        current.background()
+        current.background(leavingProfile: current.profileID != profile.id)
         if !profiles.contains(where: { $0.id == profile.id }) { storedProfiles.append(profile) }
         let next = obtain(profile)
         controllers[profile.id] = next; current = next
@@ -164,7 +164,7 @@ import BrowserEngine
             if current.profileID == nil, let profile = profiles.first(where: { $0.id == lastRegularProfileID }) { select(profile) }
             current.route(url); return
         }
-        current.sheet = nil; current.background()
+        current.sheet = nil; current.background(leavingProfile: current.profileID != nil)
         if externalPrivate == nil {
             let context = MobileController(profile: nil, privateTabIsolation: privateTabIsolation,
                                            forceEphemeral: isEphemeral, inheriting: controllers[lastRegularProfileID])
@@ -178,7 +178,7 @@ import BrowserEngine
     }
     func showExternalPrivate() {
         guard let externalPrivate else { return }
-        current.sheet = nil; current.background(); current = externalPrivate; current.foreground()
+        current.sheet = nil; current.background(leavingProfile: current !== externalPrivate); current = externalPrivate; current.foreground()
     }
     func moveExternalTab() {
         guard let context = externalPrivate, let tab = context.session.selectedTab,
