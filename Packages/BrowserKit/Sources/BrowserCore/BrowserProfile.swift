@@ -79,10 +79,11 @@ public struct ProfileRegistryStore: Sendable {
             throw ProfileError.invalidRegistry
         }
     }
-    public func save(_ registry: ProfileRegistry) throws {
+    public func save(_ registry: ProfileRegistry, preservingPrevious: Bool = true) throws {
         _ = try registry.validated()
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let old = try? read(fileURL) { try write(old, to: backupURL) }
+        if !preservingPrevious { try write(registry, to: backupURL) }
+        else if let old = try? read(fileURL) { try write(old, to: backupURL) }
         try write(registry, to: fileURL)
     }
     private func read(_ url: URL) throws -> ProfileRegistry {

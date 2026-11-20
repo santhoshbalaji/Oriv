@@ -91,7 +91,8 @@ struct ProfilesView: View {
     @State private var symbol: ProfileSymbol = .person
     @State private var message: String?
     @State private var archiveID: UUID?
-    private var selected: BrowserProfile? { profiles.registry.profiles.first { $0.id == selectedID } }
+    @State private var deleting: BrowserProfile?
+    private var selected: BrowserProfile? { (profiles.available + profiles.archived).first { $0.id == selectedID } }
     var body: some View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 12) {
@@ -146,6 +147,9 @@ struct ProfilesView: View {
                     if let selected, selected.archivedAt == nil, selected.id != profiles.active.id, !selected.isPersonal {
                         Button("Archive Profile…", role: .destructive) { archiveID = selected.id }.disabled(!profiles.canModify)
                     }
+                    if let selected, !selected.isPersonal && selected.id != profiles.active.id {
+                        Button("Delete Profile…", role: .destructive) { deleting = selected }.disabled(!profiles.canModify)
+                    }
                     Divider()
                     Text("Profiles organize your browsing; they aren’t locked accounts. Anyone using this Mac account can switch profiles. Apple Passwords and files you explicitly save use the same macOS account.")
                         .font(.caption).foregroundStyle(theme.secondaryText)
@@ -155,6 +159,14 @@ struct ProfilesView: View {
             }
         }
         .onAppear { if selectedID == nil && !creating { choose(profiles.active) } }
+        .sheet(item: $deleting) { profile in
+            DeleteProfileConfirmation(profile: profile) {
+                Task { @MainActor in
+                    do { try await profiles.delete(profile); choose(profiles.active) }
+                    catch { message = error.localizedDescription }
+                }
+            }
+        }
         .confirmationDialog("Archive this profile?", isPresented: Binding(get: { archiveID != nil }, set: { if !$0 { archiveID = nil } })) {
             Button("Archive Profile") { if let archiveID { perform { try profiles.archive(archiveID) } }; archiveID = nil }
         } message: { Text("Regular tabs and data are saved. Private tabs close. You can restore the profile from this screen. This does not delete its files.") }

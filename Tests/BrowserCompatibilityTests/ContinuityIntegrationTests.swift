@@ -90,6 +90,49 @@ import WebKit
         await first.syncNow()
         XCTAssertEqual(first.state.tabs(for: BrowserProfile.personalID, device: second.state.deviceID).map(\.id), [editedTab.id])
     }
+    func testDeletedProfileRedactsLateOfflineRecordsAndSurvivesJournalReload() async throws {
+        let transport = MemoryContinuityTransport(), local = session()
+        let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root); local.shutdown() }
+        let sync = continuity(transport, session: local, root: root)
+        defer { sync.shutdown() }
+        let profile = BrowserProfile(name: "Work")
+        let url = URL(string: "https://work.example/synthetic")!
+        let saved = Bookmark(title: "Work", url: url)
+        var offline = ContinuityReplica(deviceName: "Offline fixture")
+        let tab = TabRecord(title: "Work", url: url)
+        try offline.capture(profile: profile, bookmarks: [saved], history: [HistoryEntry(title: "Work", url: url, visitedAt: .now)],
+                            regularTabs: [tab], preferences: ["searchEngine": "Brave"])
+        let request = ContinuityOpenRequest(targetDeviceID: sync.state.deviceID, sourceDeviceID: offline.deviceID,
+                                            sourceDeviceName: "Offline fixture", url: url, title: "Work", profileID: profile.id)
+        try offline.put(ContinuityRecord.openRequestKey(request.id), .openRequest(request))
+        let oldRecords = Array(offline.records.values)
+        sync.setEnabled(true)
+        await sync.syncNow()
+        sync.setEnabled(false)
+        try sync.deleteProfile(profile.id)
+        let journal = ContinuityStore(url: root.appendingPathComponent("continuity/replica.json"))
+        let savedReplica = try XCTUnwrap(journal.load())
+        XCTAssertTrue(savedReplica.isProfileDeleted(profile.id))
+        XCTAssertFalse(savedReplica.dirtyRecords.isEmpty)
+        for record in oldRecords { transport.records[record.id] = record }
+        sync.setEnabled(true)
+        await sync.syncNow()
+        XCTAssertTrue(sync.state.isProfileDeleted(profile.id))
+        XCTAssertNotNil(transport.records[ContinuityRecord.profileKey(BrowserProfile.personalID)]?.payload)
+        for record in oldRecords {
+            XCTAssertNotNil(transport.records[record.id])
+            XCTAssertNil(transport.records[record.id]?.payload)
+        }
+        var edited = profile; edited.name = "Offline rename"
+        let staleProfile = ContinuityRecord(id: ContinuityRecord.profileKey(profile.id), counter: offline.counter + 100,
+                                           writer: offline.deviceID, payload: .profile(ContinuityProfile(edited)))
+        transport.records[staleProfile.id] = staleProfile
+        await sync.syncNow()
+        XCTAssertTrue(sync.state.isProfileDeleted(profile.id))
+        XCTAssertNil(transport.records[staleProfile.id]?.payload)
+    }
+
     func testAccountSwitchBeforeUploadAndOfflineFailureRetainLocalChanges() async throws {
         let transport = MemoryContinuityTransport(), session = session()
         let sync = continuity(transport, session: session)

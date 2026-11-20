@@ -92,6 +92,8 @@ import Observation
         var bytesReceived: Int64 = 0
         var totalBytes: Int64 = 0
     }
+    private let stagingDirectory: URL
+    init(stagingDirectory: URL = SessionFactory.downloadStagingDirectory(for: nil)) { self.stagingDirectory = stagingDirectory }
     var entries: [Entry] = []
     var activeCount: Int { entries.filter(\.isActive).count }
     var hasActivity: Bool { !entries.isEmpty }
@@ -112,7 +114,7 @@ import Observation
                   suggestedFilename: String, completionHandler: @escaping @MainActor (URL?) -> Void) {
         guard let entry = active[ObjectIdentifier(download)] else { completionHandler(nil); return }
         let name = String(URL(fileURLWithPath: suggestedFilename).lastPathComponent.prefix(160))
-        let directory = URL.temporaryDirectory.appendingPathComponent("OrivDownloads/" + entry.1.uuidString)
+        let directory = stagingDirectory.appendingPathComponent(entry.1.uuidString, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent(name.isEmpty || name == "." || name == ".." ? "download" : name)

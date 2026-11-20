@@ -6,7 +6,7 @@ import WebKit
 
 @MainActor @Observable final class MobileController {
     let session: BrowserSession
-    let downloads = MobileDownloads()
+    let downloads: MobileDownloads
     let profileID: UUID?
     @ObservationIgnored private let profileDefaults: UserDefaults?
     var appearance: BrowserAppearance { didSet { profileDefaults?.set(appearance.rawValue, forKey: "browserAppearance") } }
@@ -48,6 +48,7 @@ import WebKit
         #endif
         let testing = forceEphemeral || SessionFactory.isTesting || ChromeVisualFixture.mode != nil || liveCapture
         profileID = profile?.id
+        downloads = MobileDownloads(stagingDirectory: SessionFactory.downloadStagingDirectory(for: profile?.id))
         let factory = SessionFactory(profile: profile, testing: testing, bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile",
                                      privateTabIsolation: privateTabIsolation)
         let defaults = factory.defaults

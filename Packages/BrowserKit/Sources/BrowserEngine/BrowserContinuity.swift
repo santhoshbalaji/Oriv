@@ -171,6 +171,7 @@ import Observation
     public var otherDevices: [ContinuityDevice] { state.devices.filter { $0.id != state.deviceID } }
     public var canSendPage: Bool { state.enabled && isConfigured && canSave && accountVerified && !otherDevices.isEmpty }
     @discardableResult public func sendPage(_ page: ContinuityPage, to deviceID: UUID) -> Bool {
+        guard !state.isProfileDeleted(page.profile.id) else { return false }
         guard canSendPage, getProfiles().contains(where: { $0.id == page.profile.id }),
               let device = otherDevices.first(where: { $0.id == deviceID }) else { return false }
         do {
@@ -203,6 +204,33 @@ import Observation
             await self.syncNow()
         }
     }
+    public func deleteProfile(_ id: UUID) throws {
+        guard canSave else { throw ContinuityError.invalidData }
+        let previous = state
+        do {
+            try state.deleteProfile(id)
+            try persistPrivacyChange()
+        } catch {
+            state = previous
+            throw error
+        }
+        detachSource(id)
+        requestSync(immediate: true)
+    }
+
+    private func detachSource(_ id: UUID) {
+        if let source = sources.removeValue(forKey: id) {
+            source.session.onContinuitySnapshotChange = nil
+            source.session.onContinuityChange = nil
+            source.session.onContinuityHistoryRemoved = nil
+            source.session.onContinuityHistoryCleared = nil
+        }
+        pendingProfiles.remove(id)
+        observedSources.remove(id)
+        captured.removeValue(forKey: id)
+        capturedPreferences.removeValue(forKey: id)
+    }
+
     public func profilesChanged() {
         guard !applying, canSave, state.enabled || state.accountID != nil else { return }
         perform { try prepareSources() }
@@ -225,13 +253,7 @@ import Observation
         let profiles = getProfiles()
         let active = Set(profiles.map(\.id))
         for id in Array(sources.keys) where !active.contains(id) {
-            if let source = sources.removeValue(forKey: id) {
-                source.session.onContinuitySnapshotChange = nil
-                source.session.onContinuityChange = nil
-                source.session.onContinuityHistoryRemoved = nil
-                source.session.onContinuityHistoryCleared = nil
-            }
-            pendingProfiles.remove(id); observedSources.remove(id); captured.removeValue(forKey: id); capturedPreferences.removeValue(forKey: id)
+            detachSource(id)
             let keys = state.records.values.compactMap { record -> String? in
                 if case .tab(let profile, let device, _, _) = record.payload, profile == id, device == state.deviceID { return record.id }
                 return nil
@@ -423,6 +445,7 @@ import Observation
     private func applyIncoming(allowOpenRequests: Bool = false) throws {
         guard !applying else { return }
         applying = true; defer { applying = false }
+        for id in Array(sources.keys) where state.isProfileDeleted(id) { detachSource(id) }
         try importProfiles(state.profiles)
         for profile in getProfiles() {
             if sources[profile.id] == nil, let source = try obtainSource(profile) { sources[profile.id] = source }

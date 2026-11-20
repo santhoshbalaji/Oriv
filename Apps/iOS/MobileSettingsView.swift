@@ -215,6 +215,7 @@ private struct MobileProfileChooser: View {
     @State private var editingID: UUID?
     @State private var name = ""
     @State private var archiving: BrowserProfile?
+    @State private var deleting: BrowserProfile?
     var body: some View {
         List {
             Section("On this device") {
@@ -225,15 +226,23 @@ private struct MobileProfileChooser: View {
                     }.accessibilityAddTraits(profile.id == controller.profileID ? [.isSelected] : [])
                         .contextMenu {
                             if !profile.isPersonal { Button("Rename") { editingID = profile.id; name = profile.name; editing = true } }
-                            if !profile.isPersonal && profile.id != controller.profileID { Button("Archive…") { archiving = profile } }
+                            if !profile.isPersonal && profile.id != profiles.lastRegularProfileID {
+                                Button("Archive…") { archiving = profile }
+                                Button("Delete Profile…", role: .destructive) { deleting = profile }
+                            }
                         }
                 }
             }
             if profiles.profiles.contains(where: { $0.archivedAt != nil }) {
-                Section("Archived") { ForEach(profiles.profiles.filter { $0.archivedAt != nil }) { profile in Button("Restore \(profile.name)") { profiles.restore(profile.id) } } }
+                Section("Archived") {
+                    ForEach(profiles.profiles.filter { $0.archivedAt != nil }) { profile in
+                        Button("Restore \(profile.name)") { profiles.restore(profile.id) }
+                            .contextMenu { Button("Delete Profile…", role: .destructive) { deleting = profile } }
+                    }
+                }
             }
             Section {
-                Text("Each profile keeps tabs, history, bookmarks, settings and website logins separate on this device. Profiles are not locked accounts. Touch and hold a profile to rename or archive it.").font(.callout).foregroundStyle(theme.secondaryText)
+                Text("Each profile keeps tabs, history, bookmarks, settings and website logins separate on this device. Profiles are not locked accounts. Touch and hold a profile to manage it.").font(.callout).foregroundStyle(theme.secondaryText)
             }
             if let error { Text(error).foregroundStyle(.red) }
         }.scrollContentBackground(.hidden).background(theme.canvas).navigationTitle("Profiles")
@@ -245,8 +254,19 @@ private struct MobileProfileChooser: View {
                     catch { self.error = error.localizedDescription }
                 }
             } message: { Text("Names must be unique and contain 1–40 characters.") }
+            .sheet(item: $deleting) { profile in
+                DeleteProfileConfirmation(profile: profile) {
+                    Task { @MainActor in
+                        do { try await profiles.delete(profile); error = nil }
+                        catch { self.error = error.localizedDescription }
+                    }
+                }
+            }
             .confirmationDialog("Archive profile?", isPresented: Binding(get: { archiving != nil }, set: { if !$0 { archiving = nil } }), titleVisibility: .visible) {
-                Button("Archive") { if let profile = archiving { profiles.archive(profile.id) }; archiving = nil }
+                Button("Archive") {
+                    if let profile = archiving { profiles.archive(profile.id) }
+                    archiving = nil
+                }
             } message: { Text("Private tabs close and any unsaved edits in them are lost. Regular tabs and saved data remain available when you restore this profile.") }
     }
 }

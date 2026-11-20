@@ -58,6 +58,37 @@ import WebKit
         )
     }
 
+    /// Remove only the named profile's data. The legacy Personal paths also
+    /// contain the registry and continuity journal, so they are protected.
+    public static func removeProfileData(_ profile: BrowserProfile, rootOverride: URL? = nil,
+                                         bundleID: String, testing: Bool) async throws {
+        guard let suite = profile.defaultsName(bundleID: bundleID) else { throw ProfileError.protectedProfile }
+        if !testing {
+            if await WKWebsiteDataStore.allDataStoreIdentifiers.contains(profile.id) {
+                try await WKWebsiteDataStore.remove(forIdentifier: profile.id)
+            }
+            #if os(iOS)
+            try removeDirectory(downloadStagingDirectory(for: profile.id))
+            #endif
+            UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+        }
+        if !testing || rootOverride != nil {
+            try removeDirectory(profile.directory(in: rootOverride ?? storageRoot))
+        }
+    }
+
+    private static func removeDirectory(_ url: URL) throws {
+        do { try FileManager.default.removeItem(at: url) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile {}
+    }
+
+    #if os(iOS)
+    public static func downloadStagingDirectory(for profileID: UUID?) -> URL {
+        URL.temporaryDirectory.appendingPathComponent("OrivDownloads", isDirectory: true)
+            .appendingPathComponent(profileID?.uuidString ?? "Private", isDirectory: true)
+    }
+    #endif
+
     public func importLegacyBookmarks() -> Task<Void, Never>? {
         guard let database = profileDirectory?.appendingPathComponent("workspace.sqlite") else { return nil }
         return Task { [weak session] in

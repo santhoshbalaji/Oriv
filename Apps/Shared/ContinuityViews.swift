@@ -190,3 +190,29 @@ struct ContinuityNotice: View {
             .accessibilityElement(children: .combine).accessibilityAddTraits(.updatesFrequently)
     }
 }
+
+struct DeleteProfileConfirmation: View {
+    @Environment(\.dismiss) private var dismiss
+    let profile: BrowserProfile
+    let confirm: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Delete \(profile.name)?").font(.title2.bold())
+            Text("This permanently deletes this profile’s tabs, history, bookmarks, website data, and synced records. Deletion reaches other devices when they sync.")
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Delete Profile", role: .destructive) { dismiss(); confirm() }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(24)
+        .frame(idealWidth: 380, maxWidth: 420)
+        #if os(iOS)
+        .presentationDetents([.medium, .large])
+        #endif
+    }
+}

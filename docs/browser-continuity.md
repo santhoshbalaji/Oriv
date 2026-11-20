@@ -18,6 +18,8 @@ Website cookies/login sessions, private tabs, form values, downloads, selected p
 
 Archiving a profile hides it on the current device and withdraws that device’s tab list. Its synced bookmarks/history remain associated with the profile; another device may continue using it. Restore the profile before opening one of its remote tabs on the device where it is archived.
 
+Deleting an additional profile writes a permanent profile tombstone using the existing encrypted record format. The same sync cycle replaces its known synced data with payload-free tombstones, including open requests. Older offline edits are redacted when they arrive. The shared zone still holds other profiles and device records. Updated devices remove their local copies after receiving the tombstone. An offline or paused device applies it after it reconnects and syncs. Upgrade every synced device before relying on profile deletion across devices.
+
 ## Controls and delivery
 
 Mac: Settings → Continuity. iPhone: Settings → Mac & iPhone → Continuity. Both expose opt-in, status, last successful sync, Sync now, a device name and Handoff. Library → Other devices shows last-seen timestamps. Pausing sync keeps existing local and cloud copies; resuming merges locally journaled edits. A cloud request already submitted when paused may finish, but subsequent upload batches are cancelled.

@@ -6,7 +6,9 @@ import BrowserEngine
 @MainActor @Observable final class MobileProfiles {
     let continuity: BrowserContinuity
     private(set) var current: MobileController
-    private(set) var profiles: [BrowserProfile]
+    private var storedProfiles: [BrowserProfile]
+    var profiles: [BrowserProfile] { storedProfiles.filter { !continuity.state.isProfileDeleted($0.id) } }
+    @ObservationIgnored private var deleting: Set<UUID> = []
     private(set) var externalPrivate: MobileController?
     private(set) var lastRegularProfileID: UUID
     var externalBannerVisible = true
@@ -37,8 +39,9 @@ import BrowserEngine
         let personal = saved.first { $0.isPersonal } ?? .personal
         let known: [BrowserProfile] = [personal] + saved.filter { ProfileRegistry.validName($0.name) && seen.insert($0.id).inserted }
         let selected = (testing ? nil : (UserDefaults.standard.string(forKey: "BrowserProfileID") ?? UserDefaults.standard.string(forKey: "WorkspaceProfileID"))).flatMap(UUID.init(uuidString:))
-        profiles = ChromeVisualFixture.mode != nil ? [.personal, BrowserProfile(name: "Work")] : known
-        let initialProfile = known.first { $0.id == selected && $0.archivedAt == nil } ?? .personal
+        storedProfiles = ChromeVisualFixture.mode != nil ? [.personal, BrowserProfile(name: "Work")] : known
+        let replica = continuity.state
+        let initialProfile = known.first { $0.id == selected && $0.archivedAt == nil && !replica.isProfileDeleted($0.id) } ?? .personal
         lastRegularProfileID = initialProfile.id
         current = MobileController(profile: initialProfile, privateTabIsolation: privateTabIsolation, forceEphemeral: forceEphemeral)
         controllers[current.profileID!] = current
@@ -48,14 +51,48 @@ import BrowserEngine
             return self.obtain(profile).continuitySource
         }, importProfiles: { [weak self] incoming in
             guard let self else { return }
-            var registry = ProfileRegistry(); registry.profiles = self.profiles; registry.activeID = self.lastRegularProfileID
-            self.profiles = try registry.importingContinuity(incoming).profiles; self.persist()
+            self.finishDeletedProfiles()
+            let registry = ProfileRegistry(profiles: self.storedProfiles, activeID: self.lastRegularProfileID)
+            let updated = try registry.importingContinuity(incoming).profiles
+            if updated != self.storedProfiles { self.storedProfiles = updated; self.persist() }
         })
         continuity.didOpenRequest = { [weak self] profileID, tabID in
             guard let self, self.continuity.isForeground, let profile = self.profiles.first(where: { $0.id == profileID }) else { return }
             self.current.sheet = nil; self.select(profile); self.current.session.selectTab(tabID)
         }
+        finishDeletedProfiles()
     }
+    private func finishDeletedProfiles() {
+        if continuity.state.isProfileDeleted(lastRegularProfileID) { select(.personal) }
+        for profile in storedProfiles where continuity.state.isProfileDeleted(profile.id) {
+            controllers.removeValue(forKey: profile.id)?.shutdown()
+            Task { [weak self] in
+                guard let self else { return }
+                do { try await self.eraseProfileData(profile) }
+                catch { self.current.message = error.localizedDescription }
+            }
+        }
+    }
+
+    func delete(_ profile: BrowserProfile) async throws {
+        guard !profile.isPersonal, profile.id != lastRegularProfileID,
+              storedProfiles.contains(where: { $0.id == profile.id }) else { throw ProfileError.protectedProfile }
+        guard (controllers[profile.id]?.downloads.activeCount ?? 0) == 0 else {
+            throw MobileProfileError.activeDownloads
+        }
+        try continuity.deleteProfile(profile.id)
+        controllers.removeValue(forKey: profile.id)?.shutdown()
+        try await eraseProfileData(profile)
+    }
+
+    private func eraseProfileData(_ profile: BrowserProfile) async throws {
+        guard deleting.insert(profile.id).inserted else { return }
+        defer { deleting.remove(profile.id) }
+        try await SessionFactory.removeProfileData(profile, bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile", testing: isEphemeral)
+        storedProfiles.removeAll { $0.id == profile.id }
+        persist()
+    }
+
     private func obtain(_ profile: BrowserProfile) -> MobileController {
         if let existing = controllers[profile.id] { return existing }
         let created = MobileController(profile: profile, privateTabIsolation: privateTabIsolation, forceEphemeral: isEphemeral); created.session.setProfileActive(false)
@@ -64,18 +101,19 @@ import BrowserEngine
     }
     func openContinuityPage(_ page: ContinuityPage) {
         current.perform {
+            guard !continuity.state.isProfileDeleted(page.profile.id) else { throw ProfileError.missing }
             if !profiles.contains(where: { $0.id == page.profile.id }) {
-                var registry = ProfileRegistry(); registry.profiles = profiles; registry.activeID = lastRegularProfileID
-                profiles = try registry.importingContinuity([page.profile]).profiles; persist()
+                var registry = ProfileRegistry(); registry.profiles = storedProfiles; registry.activeID = lastRegularProfileID
+                storedProfiles = try registry.importingContinuity([page.profile]).profiles; persist()
             }
             guard let profile = profiles.first(where: { $0.id == page.profile.id }), profile.archivedAt == nil else { throw ProfileError.protectedProfile }
             current.sheet = nil; select(profile); current.session.addTab(url: page.url)
         }
     }
     func select(_ profile: BrowserProfile) {
-        guard profile.archivedAt == nil else { return }
+        guard profile.archivedAt == nil, !continuity.state.isProfileDeleted(profile.id) else { return }
         current.background()
-        if !profiles.contains(where: { $0.id == profile.id }) { profiles.append(profile) }
+        if !profiles.contains(where: { $0.id == profile.id }) { storedProfiles.append(profile) }
         let next = obtain(profile)
         controllers[profile.id] = next; current = next
         lastRegularProfileID = profile.id
@@ -88,31 +126,34 @@ import BrowserEngine
         guard ProfileRegistry.validName(name) else { throw ProfileError.invalidName }
         guard !profiles.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) else { throw ProfileError.duplicateName }
         if let id {
-            guard let index = profiles.firstIndex(where: { $0.id == id }), !profiles[index].isPersonal else { throw ProfileError.protectedProfile }
-            profiles[index].name = name; persist()
+            guard let index = storedProfiles.firstIndex(where: { $0.id == id }), !storedProfiles[index].isPersonal else { throw ProfileError.protectedProfile }
+            storedProfiles[index].name = name; persist()
         } else {
             guard profiles.count < 100 else { throw ProfileError.invalidRegistry }
             select(BrowserProfile(name: name))
         }
     }
     func archive(_ id: UUID) {
-        guard id != lastRegularProfileID, let index = profiles.firstIndex(where: { $0.id == id }), !profiles[index].isPersonal else { return }
+        guard id != lastRegularProfileID, !continuity.state.isProfileDeleted(id), let index = storedProfiles.firstIndex(where: { $0.id == id }), !storedProfiles[index].isPersonal else { return }
         if let loaded = controllers[id],
            loaded.downloads.activeCount > 0 || loaded.session.tabs.contains(where: \.hasEditedFields) || loaded.pendingTabClose != nil {
             current.message = "Finish or cancel this profile’s downloads and edited forms before archiving it."
             return
         }
-        profiles[index].archivedAt = .now
+        storedProfiles[index].archivedAt = .now
         persist()
         controllers.removeValue(forKey: id)?.shutdown()
     }
     func restore(_ id: UUID) {
-        guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
-        profiles[index].archivedAt = nil; persist()
+        guard !continuity.state.isProfileDeleted(id), let index = storedProfiles.firstIndex(where: { $0.id == id }) else { return }
+        storedProfiles[index].archivedAt = nil; persist()
     }
     private func persist() {
         guard !isEphemeral else { return }
-        if let data = try? JSONEncoder().encode(profiles) { UserDefaults.standard.set(data, forKey: "OrivMobileProfiles") }
+        if let data = try? JSONEncoder().encode(storedProfiles) {
+            UserDefaults.standard.set(data, forKey: "OrivMobileProfiles")
+            UserDefaults.standard.removeObject(forKey: "OrivMobileLibraries")
+        }
         continuity.profilesChanged()
     }
     func foreground() { current.foreground(); continuity.setForeground(true) }
@@ -144,7 +185,7 @@ import BrowserEngine
               let url = ExternalLinkRouting.movableURL(tab.url),
               let profile = profiles.first(where: { $0.id == externalMoveProfileID && $0.archivedAt == nil }) else { return }
         context.close([tab.id],completion:{ [weak self,weak context] in
-            guard let self else { return }
+            guard let self, self.profiles.contains(where: { $0.id == profile.id && $0.archivedAt == nil }) else { return }
             self.select(profile); self.current.session.addTab(url:url)
             if context?.session.tabs.isEmpty == true { context?.session.shutdown(); self.externalPrivate = nil }
         })
@@ -153,6 +194,7 @@ import BrowserEngine
     /// Cookies, history and private data stores stay with their profile.
     func move(_ tab: BrowserTab, from source: MobileController, to profile: BrowserProfile) {
         guard source.profileID != profile.id, profile.archivedAt == nil,
+              !continuity.state.isProfileDeleted(profile.id),
               (!tab.isPrivate || !source.session.tabs.contains { $0.id == tab.id }),
               let url = tab.url, ExternalLinkRouting.movableURL(url) != nil else { return }
         let target = obtain(profile)
@@ -165,7 +207,8 @@ import BrowserEngine
         select(profile)
     }
     func open(_ url: URL, in profile: BrowserProfile, isPrivate: Bool) {
-        guard ExternalLinkRouting.movableURL(url) != nil, profile.archivedAt == nil else { return }
+        guard ExternalLinkRouting.movableURL(url) != nil, profile.archivedAt == nil,
+              !continuity.state.isProfileDeleted(profile.id) else { return }
         current.sheet = nil
         let target = obtain(profile)
         target.session.addTab(url: url, isPrivate: isPrivate, load: false)
@@ -176,4 +219,9 @@ import BrowserEngine
         if let profile = profiles.first(where: { $0.id == lastRegularProfileID }) { select(profile) }
         context.session.shutdown(); externalPrivate = nil
     }
+}
+
+private enum MobileProfileError: LocalizedError {
+    case activeDownloads
+    var errorDescription: String? { "Finish or cancel this profile’s downloads before deleting it." }
 }

@@ -66,9 +66,20 @@ public struct ContinuityRecord: Codable, Equatable, Sendable, Identifiable {
     }
     /// Logical clocks preserve causal ordering without depending on device wall-clock agreement.
     public func supersedes(_ other: Self) -> Bool {
+        // Profile deletion is permanent, even against a newer offline rename.
+        if isProfileDeletion != other.isProfileDeletion { return isProfileDeletion }
         if counter != other.counter { return counter > other.counter }
         if (payload == nil) != (other.payload == nil) { return payload == nil }
         return writer.uuidString > other.writer.uuidString
+    }
+    public var isProfileDeletion: Bool {
+        payload == nil && id.hasPrefix("profile.") && profileID != BrowserProfile.personalID
+    }
+    var profileID: UUID? {
+        if case .openRequest(let request) = payload { return request.profileID }
+        let parts = id.split(separator: ".")
+        guard parts.count >= 2, parts[0] != "open", parts[0] != "device" else { return nil }
+        return UUID(uuidString: String(parts[1]))
     }
     public func validated() throws -> Self {
         guard version == 1 else { throw ContinuityError.newerFormat }
@@ -173,7 +184,25 @@ public struct ContinuityReplica: Codable, Sendable {
     // Optional so a version-1 local replica from an older build safely retries all records once.
     private var dirtyRecordKeys: Set<String>? = []
     public var dirtyKeys: Set<String> { dirtyRecordKeys ?? Set(records.keys) }
-    public var dirtyRecords: [ContinuityRecord] { dirtyKeys.compactMap { records[$0] } }
+    public var dirtyRecords: [ContinuityRecord] {
+        let dirty = dirtyKeys.compactMap { records[$0] }
+        return dirty.filter(\.isProfileDeletion) + dirty.filter { !$0.isProfileDeletion }
+    }
+    public func isProfileDeleted(_ id: UUID) -> Bool {
+        records[ContinuityRecord.profileKey(id)]?.isProfileDeletion == true
+    }
+    public mutating func deleteProfile(_ id: UUID) throws {
+        guard id != BrowserProfile.personalID else { throw ProfileError.protectedProfile }
+        try put(ContinuityRecord.profileKey(id), nil)
+        try redactDeletedProfiles([id])
+    }
+    private mutating func redactDeletedProfiles(_ ids: Set<UUID>) throws {
+        guard !ids.isEmpty else { return }
+        for record in records.values where record.payload != nil && record.profileID.map(ids.contains) == true {
+            try put(record.id, nil)
+        }
+        for id in ids { observedBookmarks.removeValue(forKey: id) }
+    }
     public mutating func acknowledge(_ uploaded: [ContinuityRecord]) {
         if dirtyRecordKeys == nil { dirtyRecordKeys = Set(records.keys) }
         for record in uploaded where records[record.id] == record { dirtyRecordKeys?.remove(record.id) }
@@ -203,16 +232,19 @@ public struct ContinuityReplica: Codable, Sendable {
         if dirtyRecordKeys == nil { dirtyRecordKeys = Set(records.keys) }
         for record in valid {
             counter = max(counter, record.counter)
-            if seedKeys.remove(record.id) != nil || records[record.id].map({ record.supersedes($0) }) ?? true {
+            if (seedKeys.remove(record.id) != nil && records[record.id]?.isProfileDeletion != true) || records[record.id].map({ record.supersedes($0) }) ?? true {
                 records[record.id] = record; dirtyRecordKeys?.remove(record.id)
             } else if records[record.id] == record { dirtyRecordKeys?.remove(record.id) }
             else { dirtyRecordKeys?.insert(record.id) }
         }
+        let deleted = Set(valid.compactMap(\.profileID).filter(isProfileDeleted))
+        try redactDeletedProfiles(deleted)
         try redactClearedHistory(); try pruneHistory()
     }
     public mutating func capture(profile: BrowserProfile, bookmarks: [Bookmark], history: [HistoryEntry], regularTabs: [TabRecord],
                                  preferences: [String: String], previous: BrowserSnapshot? = nil,
                                  previousPreferences: [String: String]? = nil) throws {
+        guard !isProfileDeleted(profile.id) else { return }
         try put(ContinuityRecord.profileKey(profile.id), .profile(ContinuityProfile(profile)), seed: true)
         if previous?.bookmarks != bookmarks {
             let present = Set(bookmarks.map(\.id))

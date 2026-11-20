@@ -32,9 +32,10 @@ import Observation
     @ObservationIgnored private let store: ProfileRegistryStore?
     @ObservationIgnored private let root: URL?
     @ObservationIgnored private let testing: Bool
+    @ObservationIgnored private var deleting: Set<UUID> = []
     var active: BrowserProfile { registry.profiles.first { $0.id == registry.activeID } ?? .personal }
-    var available: [BrowserProfile] { registry.profiles.filter { $0.archivedAt == nil } }
-    var archived: [BrowserProfile] { registry.profiles.filter { $0.archivedAt != nil } }
+    var available: [BrowserProfile] { registry.profiles.filter { $0.archivedAt == nil && !continuity.state.isProfileDeleted($0.id) } }
+    var archived: [BrowserProfile] { registry.profiles.filter { $0.archivedAt != nil && !continuity.state.isProfileDeleted($0.id) } }
     var allControllers: [BrowserController] {
         Array(controllers.values) + Array(privateWindows.values) + (externalPrivate.map { [$0] } ?? [])
     }
@@ -53,6 +54,7 @@ import Observation
         do { if let store { let result = try store.load(); loaded = result.registry; recovered = result.recovered } }
         catch { loadError = error.localizedDescription }
         registry = loaded
+        if continuity.state.isProfileDeleted(loaded.activeID) { loaded.activeID = BrowserProfile.personalID; registry = loaded }
         let selected = loaded.profiles.first { $0.id == loaded.activeID } ?? .personal
         controller = BrowserController(profile: selected, rootDirectory: root, testing: isTesting, privateTabIsolation: privateTabIsolation)
         controllers[selected.id] = controller
@@ -62,7 +64,9 @@ import Observation
             try self?.obtain(profile.id).continuitySource
         }, importProfiles: { [weak self] incoming in
             guard let self else { return }
-            try self.commit(self.registry.importingContinuity(incoming))
+            self.finishDeletedProfiles()
+            let updated = try self.registry.importingContinuity(incoming)
+            if updated != self.registry { try self.commit(updated) }
         })
         continuity.didOpenRequest = { [weak self] profileID, tabID in
             guard let self, self.continuity.isForeground else { return }
@@ -72,6 +76,50 @@ import Observation
                 BackgroundUIMode.showBrowserWindow(NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }))
             }
         }
+        finishDeletedProfiles()
+    }
+
+    private func finishDeletedProfiles() {
+        if continuity.state.isProfileDeleted(active.id) {
+            let old = controller
+            registry.activeID = BrowserProfile.personalID
+            if let personal = try? obtain(BrowserProfile.personalID) {
+                controller = personal
+                personal.session.setProfileActive(true)
+            }
+            old.session.setProfileActive(false)
+        }
+        for profile in registry.profiles where continuity.state.isProfileDeleted(profile.id) {
+            controllers.removeValue(forKey: profile.id)?.shutdown()
+            Task { [weak self] in
+                guard let self else { return }
+                do { try await self.eraseProfileData(profile) }
+                catch { self.error = error.localizedDescription }
+            }
+        }
+    }
+
+    func delete(_ profile: BrowserProfile) async throws {
+        guard canModify, !profile.isPersonal, profile.id != active.id,
+              registry.profiles.contains(where: { $0.id == profile.id }) else { throw ProfileError.protectedProfile }
+        if let loaded = controllers[profile.id],
+           loaded.downloads.items.contains(where: { !$0.isFinished || $0.isPaused || $0.isCancelling }) {
+            throw BrowserProfileOperationError.unavailable("Finish or cancel this profile’s downloads before deleting it.")
+        }
+        try continuity.deleteProfile(profile.id)
+        controllers.removeValue(forKey: profile.id)?.shutdown()
+        try await eraseProfileData(profile)
+    }
+
+    private func eraseProfileData(_ profile: BrowserProfile) async throws {
+        guard canModify, deleting.insert(profile.id).inserted else { return }
+        defer { deleting.remove(profile.id) }
+        try await SessionFactory.removeProfileData(profile, rootOverride: root,
+            bundleID: Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac", testing: testing)
+        var next = registry
+        next.profiles.removeAll { $0.id == profile.id }
+        try store?.save(next, preservingPrevious: false)
+        registry = next
     }
 
     private func commit(_ next: ProfileRegistry) throws {
@@ -118,7 +166,7 @@ import Observation
         }
     }
     private func obtain(_ id: UUID) throws -> BrowserController {
-        guard let profile = registry.profiles.first(where: { $0.id == id && $0.archivedAt == nil }) else { throw ProfileError.missing }
+        guard let profile = available.first(where: { $0.id == id }) else { throw ProfileError.missing }
         if let existing = controllers[id] { return existing }
         let created = BrowserController(profile: profile, rootDirectory: root, testing: testing, privateTabIsolation: privateTabIsolation)
         created.session.setProfileActive(false)
@@ -148,7 +196,7 @@ import Observation
         target.focusAddress()
     }
     func archive(_ id: UUID) throws {
-        guard id != BrowserProfile.personalID, id != active.id else { throw ProfileError.protectedProfile }
+        guard id != BrowserProfile.personalID, id != active.id, !continuity.state.isProfileDeleted(id) else { throw ProfileError.protectedProfile }
         if let loaded = controllers[id], loaded.downloads.items.contains(where: { !$0.isFinished || $0.isPaused }) || loaded.session.tabs.contains(where: \.hasEditedFields) {
             throw BrowserProfileOperationError.unavailable("Finish or cancel this profile’s downloads and edited forms before archiving it.")
         }
@@ -158,6 +206,7 @@ import Observation
         if let old = controllers.removeValue(forKey: id) { old.shutdown() }
     }
     func restore(_ id: UUID) throws {
+        guard !continuity.state.isProfileDeleted(id) else { throw ProfileError.missing }
         var next = registry
         guard let index = next.profiles.firstIndex(where: { $0.id == id }) else { throw ProfileError.missing }
         next.profiles[index].archivedAt = nil; try commit(next)
@@ -177,6 +226,7 @@ import Observation
                 try? await Task.sleep(for: .milliseconds(50))
             }
             perform {
+                guard !continuity.state.isProfileDeleted(page.profile.id) else { throw ProfileError.missing }
                 if !registry.profiles.contains(where: { $0.id == page.profile.id }) { try commit(registry.importingContinuity([page.profile])) }
                 if registry.profiles.first(where: { $0.id == page.profile.id })?.archivedAt != nil { throw BrowserProfileOperationError.unavailable("Restore this profile before opening its tabs.") }
                 try select(page.profile.id)
