@@ -230,15 +230,16 @@ public final class BrowserSession {
         guard !isShutDown, !isReclaimingTabs else { return 0 }
         isReclaimingTabs = true
         defer { isReclaimingTabs = false }
-        let minimumIdle = underMemoryPressure ? TabDiscardPolicy.recentUseInterval : TabDiscardPolicy.idleInterval
         let candidates = tabs.filter(\.isInstantiated).sorted { $0.lastSelectedTime < $1.lastSelectedTime }
         var reclaimed = 0
         for tab in candidates {
             guard !isShutDown, !Task.isCancelled else { break }
             // Recompute after each IPC: selection may have changed while the
             // previous candidate was being checked. Pressure may use the reserve.
-            if !underMemoryPressure && recentLiveTabIDs.contains(tab.id) { continue }
-            guard TabDiscardPolicy.isOldEnough(lastUsed: tab.lastSelectedTime, now: tab.recoveryClock(), underMemoryPressure: underMemoryPressure) else { continue }
+            let isInactiveSelection = !isProfileActive && tab.id == selectedTabID
+            if !underMemoryPressure && !isInactiveSelection && recentLiveTabIDs.contains(tab.id) { continue }
+            let minimumIdle = isInactiveSelection ? (underMemoryPressure ? 0 : 5 * 60)
+                : (underMemoryPressure ? TabDiscardPolicy.recentUseInterval : TabDiscardPolicy.idleInterval)
             let discarded = await withCheckedContinuation { continuation in
                 tab.discardBackgroundWebView(minimumIdle: minimumIdle) { continuation.resume(returning: $0) }
             }

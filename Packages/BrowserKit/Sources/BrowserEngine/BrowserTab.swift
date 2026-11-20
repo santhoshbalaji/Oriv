@@ -440,7 +440,12 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
 
     private func canDiscard(_ view:WKWebView, minimumIdle: TimeInterval) -> Bool {
-        let policy = TabDiscardPolicy(isSelected: isSelected, isPinned: isPinned, isPrivate: isPrivate,
+        #if os(macOS)
+        let protectsSelection = isSelected && isProfileActive
+        #else
+        let protectsSelection = isSelected
+        #endif
+        let policy = TabDiscardPolicy(isSelected: protectsSelection, isPinned: isPinned, isPrivate: isPrivate,
             hasEditedFields: hasEditedFields, isLoading: isLoading || view.isLoading || isRestoringWebView,
             isCapturing: isCapturingCamera || isCapturingMicrophone || hasRequestedDisplayCapture ||
                 view.cameraCaptureState != .none || view.microphoneCaptureState != .none,
@@ -708,6 +713,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     private func resetAudio() { audibleFrames.removeAll(); mediaFrames.removeAll(); isPlayingAudio = false }
     #endif
     public func setProfileActive(_ active: Bool) {
+        #if os(macOS)
+        if isProfileActive && !active && isSelected { lastSelectedTime = recoveryClock() }
+        #endif
         isProfileActive = active
         if !active { stopCapture() }
         backingWebView?.setAllMediaPlaybackSuspended(mediaSuspended || !active, completionHandler: nil)

@@ -127,7 +127,7 @@ import WebKit
             // Retry one transient native IPC failure; each request still has
             // its own deadline and cannot act after expiring.
             for _ in 0..<2 {
-                guard !Task.isCancelled, self != nil, self?.tabPresentation.activeID == nil, self?.sheet != .tabs,
+                guard !Task.isCancelled, self != nil, self?.tabPresentation.activeID == nil, (self?.session.isProfileActive == false || self?.sheet != .tabs),
                       let live = self?.session.tabs.filter(\.isInstantiated).sorted(by:{
                           (self?.lastUsed[$0.id,default:0] ?? 0) < (self?.lastUsed[$1.id,default:0] ?? 0)
                       }) else { return }
@@ -135,7 +135,7 @@ import WebKit
                 // retain the controller across an await. Each wave is bounded by the known excess.
                 var remaining = live.count, index = 0
                 while remaining > limit && index < live.count {
-                    guard !Task.isCancelled, self != nil, self?.tabPresentation.activeID == nil, self?.sheet != .tabs else { return }
+                    guard !Task.isCancelled, self != nil, self?.tabPresentation.activeID == nil, (self?.session.isProfileActive == false || self?.sheet != .tabs) else { return }
                     let count = min(4,min(remaining-limit,live.count-index))
                     let wave = Array(live[index..<(index+count)]); index += count
                     let reclaimed:Int = await withCheckedContinuation { continuation in
@@ -194,7 +194,7 @@ import WebKit
         chromes.removeAll()
     }
     func foreground() { tabPresentation.resume(); session.setProfileActive(true); session.activateSelectedTab(); trimBackgroundTabs() }
-    func background() { tabPresentation.discard(); session.saveNow(); session.setProfileActive(false) }
+    func background() { tabPresentation.discard(); session.saveNow(); session.setProfileActive(false); trimBackgroundTabs(limit: 1) }
 }
 
 enum MobileSheet: String, Identifiable {
