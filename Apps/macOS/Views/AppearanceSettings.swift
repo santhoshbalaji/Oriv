@@ -103,6 +103,10 @@ struct AppearanceSettings: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }.padding(8)
+            }
+            GroupBox("Sidebar for this profile") {
+                VStack(alignment: .leading, spacing: 8) {
                     Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
                     Text("Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.")
                         .font(.caption).foregroundStyle(theme.secondaryText)
