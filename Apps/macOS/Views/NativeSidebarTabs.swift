@@ -62,6 +62,9 @@ struct NativeSidebarTabs: NSViewRepresentable {
         guard let list = context.coordinator.list else { return }
         // Legacy scrollbars reserve space even when idle. In the rail,
         // wheel/trackpad and keyboard scrolling use the entire rail viewport.
+        let direction: NSUserInterfaceLayoutDirection = context.environment.layoutDirection == .rightToLeft ? .rightToLeft : .leftToRight
+        scroll.userInterfaceLayoutDirection = direction
+        list.userInterfaceLayoutDirection = direction
         let iconLayout = rail || peek
         scroll.scrollerStyle = iconLayout ? .overlay : NSScroller.preferredScrollerStyle
         scroll.hasVerticalScroller = !iconLayout
@@ -108,7 +111,9 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
                 let item = NSCollectionViewLayoutAttributes(forItemWith: path)
                 if group.grid {
                     let offset = max(0, (width - 248) / 2)
-                    item.frame = NSRect(x: offset + CGFloat(index % 4) * 64, y: y + CGFloat(index / 4) * 57, width: 56, height: 48)
+                    let x = offset + CGFloat(index % 4) * 64
+                    let origin = list.userInterfaceLayoutDirection == .rightToLeft ? width - x - 56 : x
+                    item.frame = NSRect(x: origin, y: y + CGFloat(index / 4) * 57, width: 56, height: 48)
                 } else {
                     item.frame = NSRect(x: edge, y: y + CGFloat(index) * (rowHeight + spacing), width: rowWidth, height: rowHeight)
                 }
@@ -244,6 +249,7 @@ private struct SidebarSection {
         let old = configuration
         let changesLayout = old?.rail != value.rail || old?.peek != value.peek || old?.searching != value.searching
         let oldSize = self.environment.dynamicTypeSize
+        let directionChanged = self.environment.layoutDirection != environment.layoutDirection
         let oldShown = selectedID
         let newSections = makeSections(value)
         let changesContent = sections.map(\.kind) != newSections.map(\.kind) ||
@@ -259,7 +265,7 @@ private struct SidebarSection {
             setHovered(nil)
             list.reloadData()
         }
-        if changesLayout || changesContent || oldSize != environment.dynamicTypeSize {
+        if changesLayout || changesContent || oldSize != environment.dynamicTypeSize || directionChanged {
             list.collectionViewLayout?.invalidateLayout()
         }
         if changesLayout || changesActive {
@@ -744,7 +750,8 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
 
     func performClick(at point: NSPoint) -> Bool {
         guard !iconOnly, let tab else { return false }
-        let trailing = view.bounds.maxX - point.x - MacBrowserLayout.sidebarRowInset
+        let rtl = collectionView?.userInterfaceLayoutDirection == .rightToLeft
+        let trailing = (rtl ? point.x - view.bounds.minX : view.bounds.maxX - point.x) - MacBrowserLayout.sidebarRowInset
         guard trailing >= 0, abs(point.y - view.bounds.midY) <= 12 else { return false }
         if trailing < 24, hovered || active || isSelected { command?(.close); return true }
         if trailing < 48 {

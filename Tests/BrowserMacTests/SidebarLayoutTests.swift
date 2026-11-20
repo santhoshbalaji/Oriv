@@ -398,14 +398,47 @@ import XCTest
         controller.focusAddress()
         try await eventually("sidebar fixture state") { field.currentEditor()?.string == url }
     }
-    func testRightToLeftLargestTextRetainsPhysicalLeftSidebar() async throws {
+    func testRightToLeftMirrorsSidebarRailRowsAndNativeLights() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
-        let window = makeWindow(profiles.controller, profiles: profiles, width: 760, rtl: true); defer { window.close() }
-        try await Task.sleep(for: .milliseconds(350))
-        try checkGeometry(window, collapsed: true)
-        let field = try XCTUnwrap(address(in: window))
-        XCTAssertGreaterThan(field.bounds.width, 40)
-        XCTAssertTrue(window.contentView!.bounds.contains(field.convert(field.bounds, to: window.contentView)))
+        let controller = profiles.controller
+        let window = makeWindow(controller, profiles: profiles, width: 1040, rtl: true); defer { window.close() }
+        let tab = try XCTUnwrap(controller.session.selectedTab)
+        for rail in [false, true] {
+            controller.compactSidebar = rail
+            let width = rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth
+            try await eventually("RTL sidebar and toolbar positions") {
+                window.contentView?.layoutSubtreeIfNeeded()
+                return abs((self.geometry("sidebarSurfaceGeometry", in: window)?.minX ?? 0) - (1040 - width)) < 1
+                    && abs((self.geometry("browserTopBarGeometry", in: window)?.maxX ?? 0) - (1040 - width)) < 1
+                    && self.marker("sidebarFavicon-\(tab.id)", in: window) != nil
+            }
+            let sidebar = try frame("sidebarSurfaceGeometry", in: window)
+            let row = try frame("sidebarItem-\(tab.id)", in: window)
+            let icon = try frame("sidebarFavicon-\(tab.id)", in: window)
+            let field = try XCTUnwrap(address(in: window))
+            XCTAssertTrue(sidebar.contains(row))
+            XCTAssertTrue(row.contains(icon))
+            XCTAssertTrue((try frame("browserTopBarGeometry", in: window)).contains(field.convert(field.bounds, to: nil)))
+            if rail {
+                XCTAssertEqual(icon.midX, row.midX, accuracy: 1)
+            } else {
+                XCTAssertEqual(row.maxX - icon.maxX, MacBrowserLayout.sidebarRowInset, accuracy: 1)
+            }
+            for (index, button) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+                let view = try XCTUnwrap(window.standardWindowButton(button))
+                let rect = view.convert(view.bounds, to: nil)
+                XCTAssertEqual(sidebar.maxX - rect.maxX,
+                    (rail ? MacBrowserLayout.railLightsInset : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing,
+                    accuracy: 1)
+            }
+        }
+        tab.webView.loadHTMLString("<body>Page direction fixture</body>",
+            baseURL: URL(string: "http://127.0.0.1:18768/rtl-page"))
+        try await eventually("LTR document displayed in RTL chrome") {
+            tab.hasRenderedContent && tab.webView.window === window && !tab.isLoading
+        }
+        let result = try await tab.webView.evaluateJavaScript("getComputedStyle(document.documentElement).direction")
+        XCTAssertEqual(result as? String, "ltr")
     }
     func testFullscreenOpenCollapsedAndReturnedGeometry() async throws {
         try XCTSkipUnless(BackgroundUIMode.foregroundAllowed, BackgroundUIMode.foregroundOnlyReason)

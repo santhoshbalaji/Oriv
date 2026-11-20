@@ -147,11 +147,13 @@ struct SidebarHitTarget: NSViewRepresentable {
 struct SidebarWindowEvents: NSViewRepresentable {
     let controller: BrowserController
     let tabList: SidebarListHandle
+    let layoutDirection: LayoutDirection
     var dismiss: () -> Void
     func makeNSView(context: Context) -> EventView { EventView() }
     func updateNSView(_ view: EventView, context: Context) {
         view.controller = controller
         view.tabList = tabList
+        view.layoutDirection = layoutDirection
         view.dismiss = dismiss
         if let window = view.window { controller.sidebarWindow = window }
     }
@@ -160,6 +162,7 @@ struct SidebarWindowEvents: NSViewRepresentable {
         weak var controller: BrowserController?
         weak var tabList: SidebarListHandle?
         var dismiss: (() -> Void)?
+        var layoutDirection: LayoutDirection = .leftToRight
         private var monitor: Any?
         private var observers: [NSObjectProtocol] = []
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -185,7 +188,11 @@ struct SidebarWindowEvents: NSViewRepresentable {
                     if controller.tabSearchPanel, let content = self.window?.contentView {
                         let insidePanel = self.target(at: event.locationInWindow, in: content) { $0 == .searchPanel } != nil
                         if !insidePanel { self.dismiss?() }
-                    } else if event.locationInWindow.x > controller.sidebar.width, controller.sidebar.overlay { self.dismiss?() }
+                    } else if controller.sidebar.overlay, let width = self.window?.contentView?.bounds.width {
+                        let x = event.locationInWindow.x
+                        let leading = self.layoutDirection == .rightToLeft ? width - x : x
+                        if leading > controller.sidebar.width { self.dismiss?() }
+                    }
                 }
                 if event.type == .otherMouseUp, event.buttonNumber == 2,
                    self.requestCloseTab(at: event.locationInWindow) { return nil }

@@ -133,7 +133,7 @@ struct BrowserWindow: View {
                     .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
                     .allowsHitTesting(!controller.sidebar.webpageFullscreen)
                     .accessibilityHidden(controller.sidebar.webpageFullscreen)
-                page.environment(\.layoutDirection, layoutDirection)
+                page
             }
             .padding(.leading, controller.sidebar.reservation)
             // The page receives one final viewport update, never interpolated widths.
@@ -141,12 +141,11 @@ struct BrowserWindow: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             sidebarPanel
                 .frame(width: sidebarClipWidth, alignment: .leading).contentShape(Rectangle()).clipped()
-                .shadow(color: .black.opacity(controller.sidebar.overlay ? 0.12 : 0), radius: 8, x: 4)
+                .shadow(color: .black.opacity(controller.sidebar.overlay ? 0.12 : 0), radius: 8, x: layoutDirection == .rightToLeft ? -4 : 4)
                 .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
                 .allowsHitTesting(!controller.sidebar.webpageFullscreen)
                 .accessibilityHidden(controller.sidebar.webpageFullscreen)
         }
-        .environment(\.layoutDirection, .leftToRight)
         .ignoresSafeArea(.container, edges: .top)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
             windowWidth = $0
@@ -169,7 +168,7 @@ struct BrowserWindow: View {
             if !open { restoreSearchFocus() }
         }
         .onDisappear { controller.sidebar.cancel(); controller.sidebarTooltip.dismiss() }
-        .background(SidebarWindowEvents(controller: controller, tabList: sidebarTabs, dismiss: dismissSidebarOverlay))
+        .background(SidebarWindowEvents(controller: controller, tabList: sidebarTabs, layoutDirection: layoutDirection, dismiss: dismissSidebarOverlay))
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
@@ -185,8 +184,9 @@ struct BrowserWindow: View {
                                          maximumHeight: min(180, geometry.size.height - 32))
                     .browserGeometryMarker("sidebarTooltipGeometry")
                     .onHover { controller.sidebarTooltip.hold($0) }
-                    .offset(x: min(controller.sidebar.width - 10 + 8, geometry.size.width - width - 8),
-                            y: min(max(16, geometry.size.height - rect.maxY), max(16, geometry.size.height - 196)))
+                    .padding(.leading, max(0, min(controller.sidebar.width - 2, geometry.size.width - width - 8)))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .offset(y: min(max(16, geometry.size.height - rect.maxY), max(16, geometry.size.height - 196)))
                     .accessibilityHidden(true)
                 }
             }
@@ -202,8 +202,11 @@ struct BrowserWindow: View {
             GeometryReader { geometry in
                 if let anchor, addressFocused && !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     let rect = geometry[anchor]
+                    let leading = layoutDirection == .rightToLeft ? geometry.size.width - rect.maxX : rect.minX
                     addressSuggestions.frame(width: rect.width)
-                        .offset(x: rect.minX, y: rect.maxY + OrivSpacing.xs)
+                        .padding(.leading, max(0, leading))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .offset(y: rect.maxY + OrivSpacing.xs)
                 }
             }
         }
@@ -214,7 +217,6 @@ struct BrowserWindow: View {
             sidebarHeader
             BrowserSidebar(controller: controller, profiles: profiles, tabList: sidebarTabs,
                            profileTrailingInset: fullscreen ? 38 : 0)
-                .environment(\.layoutDirection, layoutDirection)
                 .onPreferenceChange(SidebarKeyboardFocusKey.self) {
                     sidebarContainsKeyboardFocus = $0; controller.sidebar.focusInside = $0 || sidebarHeaderToggleFocused
                 }
@@ -266,7 +268,7 @@ struct BrowserWindow: View {
 
     private var sidebarToggle: some View {
         Button(action: toggleSidebar) {
-            Image(systemName: "sidebar.left").font(.system(size: 14)).frame(width: railHeader ? 42 : 30, height: railHeader ? 36 : 30).contentShape(Rectangle())
+            Image(systemName: layoutDirection == .rightToLeft ? "sidebar.right" : "sidebar.left").font(.system(size: 14)).frame(width: railHeader ? 42 : 30, height: railHeader ? 36 : 30).contentShape(Rectangle())
         }
         .buttonStyle(.plain).focusable().focused($sidebarHeaderToggleFocused)
         .keyboardShortcut("s", modifiers: [.command, .option])
@@ -312,10 +314,10 @@ struct BrowserWindow: View {
 
     private var navigationControls: some View {
                 HStack(spacing: 2) {
-                Button { tab?.goBack() } label: { Image(systemName: "chevron.left").frame(width: 28, height: 28) }
+                Button { tab?.goBack() } label: { Image(systemName: "chevron.backward").frame(width: 28, height: 28) }
                     .disabled(tab?.canGoBack != true).help("Back (⌘[)").accessibilityLabel("Back")
                     .foregroundStyle(chromeForeground)
-                Button { tab?.goForward() } label: { Image(systemName: "chevron.right").frame(width: 28, height: 28) }
+                Button { tab?.goForward() } label: { Image(systemName: "chevron.forward").frame(width: 28, height: 28) }
                     .disabled(tab?.canGoForward != true).help("Forward (⌘])").accessibilityLabel("Forward")
                     .foregroundStyle(chromeForeground)
                 }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)

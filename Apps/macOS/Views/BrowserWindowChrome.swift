@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 
 /// Shared geometry for the content header and the real AppKit window controls.
-/// The sidebar stays on the physical left, including in right-to-left locales.
 enum MacBrowserLayout {
     static let sidebarWidth: CGFloat = 296
     // A centered 54 pt group has 9 pt of breathing room on each side.
@@ -25,6 +24,7 @@ enum MacBrowserLayout {
 /// sidebar controls. A post-layout bridge runs too late to recover that focus.
 @MainActor final class MacBrowserWindowContext {
     weak var window: NSWindow?
+    var layoutDirection: LayoutDirection = .leftToRight
     var sidebarContainsFocus: Bool {
         guard let window, let content = window.contentView else { return false }
         var candidates: [NSRect] = []
@@ -37,7 +37,11 @@ enum MacBrowserLayout {
                 candidates.append(field.convert(field.bounds, to: nil))
             }
         }
-        return candidates.contains { $0.width > 0 && $0.minX >= 0 && $0.maxX <= MacBrowserLayout.sidebarWidth + 1 }
+        let width = content.bounds.width
+        return candidates.contains { rect in
+            let leading = layoutDirection == .rightToLeft ? width - rect.maxX : rect.minX
+            return rect.width > 0 && leading >= 0 && leading + rect.width <= MacBrowserLayout.sidebarWidth + 1
+        }
     }
 }
 
@@ -57,6 +61,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         view.compact = compact
         view.stateChanged = stateChanged
         view.contentWidthChanged = contentWidthChanged
+        windowContext.layoutDirection = context.environment.layoutDirection
         view.windowContext = windowContext
         view.externalPresentationRequest = externalPresentationRequest
         view.configure()
@@ -159,7 +164,10 @@ struct BrowserWindowChrome: NSViewRepresentable {
                     // Only position controls in this window. During fullscreen
                     // AppKit moves them to its auto-revealing titlebar host.
                     guard button.window === window else { continue }
-                    let target = parent.convert(NSPoint(x: (compact ? MacBrowserLayout.railLightsInset : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing,
+                    let inset = (compact ? MacBrowserLayout.railLightsInset : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing
+                    let rtl = windowContext?.layoutDirection == .rightToLeft
+                    let x = rtl ? window.frame.width - inset - button.frame.width : inset
+                    let target = parent.convert(NSPoint(x: x,
                         y: window.frame.height - MacBrowserLayout.sidebarTitlebarHeight / 2), from: nil)
                     button.setFrameOrigin(NSPoint(x: target.x, y: target.y - button.frame.height / 2))
                 }

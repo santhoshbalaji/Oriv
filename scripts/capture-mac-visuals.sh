@@ -64,9 +64,13 @@ CLEANUP
 trap cleanup EXIT
 
 if [[ "$GLASS" == 1 ]]; then
+  launch_args=()
+  if [[ "${ORIV_GLASS_SCENE:-}" == p3-rtl ]]; then
+    launch_args=(--args -AppleTextDirection YES -NSForceRightToLeftWritingDirection YES)
+  fi
   /usr/bin/open -g -n -W --env ORIV_BACKGROUND_UI="$ORIV_BACKGROUND_UI" --env ORIV_FOREGROUND_UI="${ORIV_FOREGROUND_UI:-}" --env BROWSER_TESTING=1 --env ORIV_VISUAL_SNAPSHOTS=1 \
     --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_CAPTURE_RENDERER="${ORIV_CAPTURE_RENDERER:-}" --env ORIV_SIDEBAR_COLLAPSED="${ORIV_SIDEBAR_COLLAPSED:-}" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_CHROME_TIMING="${ORIV_CHROME_TIMING:-}" --env ORIV_FULLSCREEN_EVIDENCE="${ORIV_FULLSCREEN_EVIDENCE:-}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
-    "$APP" > "$DERIVED.run.log" 2>&1 &
+    "$APP" "${launch_args[@]}" > "$DERIVED.run.log" 2>&1 &
 else
   ORIV_BACKGROUND_UI="$ORIV_BACKGROUND_UI" ORIV_FOREGROUND_UI="${ORIV_FOREGROUND_UI:-}" BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" ORIV_BATCH_VISUALS="${ORIV_BATCH_VISUALS:-}" \
     "$APP/Contents/MacOS/Oriv-Snapshots" > "$DERIVED.run.log" 2>&1 &
@@ -151,6 +155,11 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-synthetic-composite" for name in expected} - evidence
         if missing: problems.append(f"missing sidebar contrast composites: {sorted(missing)}")
+if os.environ.get("ORIV_GLASS_SCENE") == "p3-rtl":
+    expected = {f"mac-glass-rtl-{appearance}-{layout}" for appearance in ("light", "dark")
+                for layout in ("expanded", "rail")}
+if os.environ.get("ORIV_GLASS_SCENE") == "p3-github":
+    expected = {"mac-glass-github-favicon"}
 if os.environ.get("ORIV_GLASS_SCENE") == "p2":
     layout = {f"mac-glass-p2-{mode}-{state}" for mode in ("light", "dark")
               for state in ("expanded", "rail", "no-history")} | {"mac-glass-p2-private"}
