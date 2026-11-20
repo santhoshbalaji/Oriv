@@ -10,12 +10,15 @@ for relative in ('Apps', 'Packages/BrowserKit/Sources'):
     for path in (root / relative).rglob('*.swift'):
         text = path.read_text()
         transport = path.relative_to(root).as_posix() == 'Packages/BrowserKit/Sources/BrowserEngine/ContinuityCloudTransport.swift'
-        if re.search(r'^(?:@preconcurrency )?import (ProductivityKit|AssistantKit|EventKit)\b', text, re.M) or (not transport and re.search(r'^(?:@preconcurrency )?import CloudKit\b', text, re.M)):
+        timing_probe = (path.relative_to(root).as_posix() == 'Apps/Shared/SyncTimingProbe.swift'
+                        and text.startswith('#if DEBUG\n') and text.rstrip().endswith('#endif'))
+        cloud_allowed = transport or timing_probe
+        if re.search(r'^(?:@preconcurrency )?import (ProductivityKit|AssistantKit|EventKit)\b', text, re.M) or (not cloud_allowed and re.search(r'^(?:@preconcurrency )?import CloudKit\b', text, re.M)):
             failures.append(f'{path.relative_to(root)} imports a retired service')
         favicon = path.relative_to(root).as_posix() == 'Packages/BrowserKit/Sources/BrowserEngine/SiteIconStore.swift'
         if favicon and ('URLSessionConfiguration.ephemeral' not in text or 'configuration.urlCache = nil' not in text or 'URLSession.shared' in text):
             failures.append('Site icons must use an ephemeral, uncached page-derived transport')
-        if (not favicon and re.search(r'URLSession\.(shared|configuration)|URLSession\(configuration:', text)) or re.search(r'EKEventStore\(|SecItem(Add|CopyMatching|Update|Delete)\(', text) or (not transport and re.search(r'CKContainer\(', text)):
+        if (not favicon and re.search(r'URLSession\.(shared|configuration)|URLSession\(configuration:', text)) or re.search(r'EKEventStore\(|SecItem(Add|CopyMatching|Update|Delete)\(', text) or (not cloud_allowed and re.search(r'CKContainer\(', text)):
             failures.append(f'{path.relative_to(root)} adds an app-owned service client or credential access requiring review')
 for relative in ('project.yml', 'Packages/BrowserKit/Package.swift'):
     text = (root / relative).read_text()

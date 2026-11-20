@@ -18,6 +18,8 @@ struct PersonalBrowserApp: App {
         BackgroundUIMode.installAtLaunch()
         #if ORIV_BENCH
         let initial = BrowserProfiles(rootDirectory: SpeedometerBenchmark.profileDirectory, testing: false)
+        #elseif DEBUG
+        let initial = BrowserProfiles(testing: SyncTimingProbe.requested ? true : nil)
         #else
         let initial = BrowserProfiles()
         #endif
@@ -103,6 +105,20 @@ struct PersonalBrowserApp: App {
     weak var profiles: BrowserProfiles?
     func applicationWillFinishLaunching(_ notification: Notification) { BackgroundUIMode.installAtLaunch() }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        if SyncTimingProbe.requested {
+            Task {
+                do {
+                    try await SyncTimingProbe.run(SyncTimingProbe.Configuration()) { print($0) }
+                    exit(EXIT_SUCCESS)
+                } catch {
+                    print(SyncTimingProbe.failure(error))
+                    exit(EXIT_FAILURE)
+                }
+            }
+            return
+        }
+        #endif
         #if ORIV_BENCH
         if let profiles, SpeedometerBenchmark.configured {
             Task { await SpeedometerBenchmark.run(profiles: profiles) }

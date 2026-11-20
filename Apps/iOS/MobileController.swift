@@ -40,13 +40,13 @@ import WebKit
     @ObservationIgnored private var bookmarkMigration: Task<Void, Never>?
     @ObservationIgnored private var delegates: [UUID: MobileWebDelegate] = [:]
 
-    init(profile: BrowserProfile? = .personal, privateTabIsolation: PrivateTabIsolation? = nil) {
+    init(profile: BrowserProfile? = .personal, privateTabIsolation: PrivateTabIsolation? = nil, forceEphemeral: Bool = false) {
         #if DEBUG && targetEnvironment(simulator)
         let liveCapture = ChromeVisualFixture.liveURL != nil
         #else
         let liveCapture = false
         #endif
-        let testing = SessionFactory.isTesting || ChromeVisualFixture.mode != nil || liveCapture
+        let testing = forceEphemeral || SessionFactory.isTesting || ChromeVisualFixture.mode != nil || liveCapture
         profileID = profile?.id
         let factory = SessionFactory(profile: profile, testing: testing, bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile",
                                      privateTabIsolation: privateTabIsolation)

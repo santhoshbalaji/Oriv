@@ -17,13 +17,13 @@ import BrowserEngine
     @ObservationIgnored private let isEphemeral: Bool
     private let privateTabIsolation: PrivateTabIsolation
     @ObservationIgnored private var controllers: [UUID: MobileController] = [:]
-    init() {
+    init(forceEphemeral: Bool = false) {
         #if DEBUG && targetEnvironment(simulator)
         let liveCapture = ChromeVisualFixture.liveURL != nil
         #else
         let liveCapture = false
         #endif
-        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1" || ChromeVisualFixture.mode != nil || liveCapture
+        let testing = forceEphemeral || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || ProcessInfo.processInfo.environment["BROWSER_TESTING"] == "1" || ChromeVisualFixture.mode != nil || liveCapture
         isEphemeral = testing
         privateTabIsolation = PrivateTabIsolation(defaults: testing ? nil : .standard)
         openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: testing ? nil : .standard)
@@ -40,7 +40,7 @@ import BrowserEngine
         profiles = ChromeVisualFixture.mode != nil ? [.personal, BrowserProfile(name: "Work")] : known
         let initialProfile = known.first { $0.id == selected && $0.archivedAt == nil } ?? .personal
         lastRegularProfileID = initialProfile.id
-        current = MobileController(profile: initialProfile, privateTabIsolation: privateTabIsolation)
+        current = MobileController(profile: initialProfile, privateTabIsolation: privateTabIsolation, forceEphemeral: forceEphemeral)
         controllers[current.profileID!] = current
         current.profiles = self
         continuity.configure(profiles: { [weak self] in self?.profiles.filter { $0.archivedAt == nil } ?? [] }, source: { [weak self] profile in

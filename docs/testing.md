@@ -192,3 +192,70 @@ and three warm reopens. `ORIV_GRID_OPEN` rows report actual callback gaps,
 main run-loop wake-to-wait duration, first observed motion and settlement.
 The matrix has signposts and records timing without a hard threshold.
 These simulator scheduling measurements do not measure physical frame delivery.
+
+## CloudKit timing on Mac and iPhone
+
+The DEBUG timing probe uses the ContinuityDevelopment CloudKit environment and
+a private zone named `OrivSyncTiming-<run UUID>`. Its `OrivSyncTimingV1`
+records contain only a synthetic trial number. The two apps alternate writes,
+waiting for the counterpart's record before moving to the next trial. The
+Mac deletes the run's zone and all its records after trial 20 or a handled
+failure. Leave regular continuity disabled and keep the timing app in the
+foreground on iPhone. The Mac starts with its window suppressed.
+
+Run only in a separately authorized owner session, with both devices signed
+into the same iCloud account and automatic date and time enabled. Use the
+development signing configuration in [Contributing](../CONTRIBUTING.md).
+CloudKit Development must permit creation of the synthetic record type.
+Keep the run UUID, logs and local signing configuration under ignored
+`build/`. No push subscription is used. Report these numbers as write-to-poll
+latency with a one-second nominal poll interval, request time, possible CloudKit
+backoff and cross-device clock uncertainty. A shared-account cross-device
+latency is distinct from the regular browser's APNs delivery or reconciliation.
+
+1. Generate a new run UUID, then build the signed Mac timing app without installing it.
+
+   ```sh
+   mkdir -p build/sync-timing
+   uuidgen > build/sync-timing/run.txt
+   xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivContinuityMac \
+     -configuration ContinuityDevelopment -destination 'platform=macOS' \
+     -derivedDataPath build/sync-timing/mac -xcconfig Config/Local.xcconfig build
+   ```
+
+2. In Xcode, select `OrivContinuityMobile` and the owner's iPhone. In the Run
+   action, use `ContinuityDevelopment` and the local signing team. Set the
+   environment variable `BROWSER_TESTING=1` and add two launch arguments,
+   `--oriv-sync-timing` and the UUID from `build/sync-timing/run.txt`. Run
+   the development app. Wait for the CloudKit Timing screen.
+3. Start the Mac command and tap **Start 20 Trials** on the iPhone within two
+   minutes. Leave both running to completion.
+
+   ```sh
+   set -o pipefail
+   run_id=$(cat build/sync-timing/run.txt)
+   mac_executable="build/sync-timing/mac/Build/Products/ContinuityDevelopment/Oriv-Continuity-Dev.app/Contents/MacOS/Oriv-Continuity-Dev"
+   ORIV_BACKGROUND_UI=1 BROWSER_TESTING=1 "$mac_executable" \
+     --oriv-sync-timing "$run_id" | tee build/sync-timing/mac.log
+   ```
+
+4. Tap **Export Timing Log** on the iPhone and save the JSONL file. Transfer it
+   locally as `build/sync-timing/iphone.jsonl`, then summarize the two logs.
+
+   ```sh
+   python3 scripts/sync-timing.py "$(cat build/sync-timing/run.txt)" \
+     build/sync-timing/mac.log build/sync-timing/iphone.jsonl
+   ```
+
+   The report requires paired send/receive events for all 20 trials in each
+   direction, matching UUIDs, two completions and the Mac cleanup event. It
+   reports the median and nearest-rank p95. Local parser and statistics tests
+   run with `python3 scripts/test-sync-timing.py` and require no CloudKit access.
+5. If the Mac was interrupted or reports unsuccessful cleanup, stop both runs
+   and use the original UUID and same development account to remove that exact
+   zone. Start any retest with a new UUID.
+
+   ```sh
+   ORIV_BACKGROUND_UI=1 BROWSER_TESTING=1 "$mac_executable" \
+     --oriv-sync-timing "$(cat build/sync-timing/run.txt)" --oriv-sync-timing-cleanup
+   ```
