@@ -36,6 +36,33 @@ import XCTest
         try await waitForFixtureCondition("data navigation or download", timeout: 30, file: file, line: line, ready)
     }
 
+    func testFrequentHomeDestinationsExcludeBookmarksAndPrivateSessions() async throws {
+        let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SessionFileStore(fileURL: root.appendingPathComponent("session.json"))
+        let bookmarked = URL(string: "https://bookmarked.example")!
+        let frequent = URL(string: "https://frequent.example")!
+        try store.save(BrowserSnapshot(bookmarks: [Bookmark(title: "Saved", url: bookmarked)], history: [
+            HistoryEntry(title: "Saved", url: bookmarked, visitCount: 9),
+            HistoryEntry(title: "Frequent", url: frequent, visitCount: 3)
+        ]))
+        let session = BrowserSession(store: store, dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
+        defer { session.shutdown() }
+        let tiles = await session.frequentHistory(excluding: [bookmarked], isPrivate: false)
+        XCTAssertEqual(tiles.map(\.url), [frequent])
+        let privateTiles = await session.frequentHistory(excluding: [], isPrivate: true)
+        XCTAssertTrue(privateTiles.isEmpty)
+        let external = BrowserSession(store: store, dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil), externalPrivate: true)
+        defer { external.shutdown() }
+        let externalTiles = await external.frequentHistory(excluding: [], isPrivate: false)
+        XCTAssertTrue(externalTiles.isEmpty)
+        XCTAssertFalse(session.tabs.contains(where: \.isInstantiated))
+        session.clearHistory()
+        let clearedTiles = await session.frequentHistory(excluding: [], isPrivate: false)
+        XCTAssertTrue(clearedTiles.isEmpty)
+        XCTAssertEqual(session.bookmarks.map(\.url), [bookmarked])
+    }
+
     func testContentCannotReplaceTopFrameWithDataDocument() async throws {
         let attempts = [
             ("script", "location = document.querySelector('#link').href"),

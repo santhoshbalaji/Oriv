@@ -1,4 +1,5 @@
 import AppKit
+import BrowserCore
 import BrowserEngine
 import SwiftUI
 import WebKit
@@ -247,6 +248,27 @@ import XCTest
             }
             XCTAssertGreaterThan(try frame("browserAddressGeometry", in: window).width, rail ? 600 : 530)
         }
+    }
+
+    func testStartPageRendersRegularTilesAndHidesThemInPrivateAndAfterClear() async throws {
+        let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+        let bookmark = Bookmark(title: "Saved fixture", url: URL(string: "https://saved.example")!)
+        let history = HistoryEntry(title: "Frequent fixture", url: URL(string: "https://frequent.example")!, visitCount: 5)
+        try store.save(BrowserSnapshot(bookmarks: [bookmark], history: [history], legacyBookmarksImported: true))
+        let controller = BrowserController(rootDirectory: root, testing: true)
+        let regular = try XCTUnwrap(controller.session.selectedTab)
+        let window = makeWindow(controller, largestText: false)
+        defer { window.close(); controller.shutdown() }
+        try await wait { self.marker("homeBookmarks", in: window) != nil && self.marker("homeFrequent", in: window) != nil }
+        XCTAssertFalse(regular.isInstantiated)
+        controller.newTab(isPrivate: true)
+        try await wait { self.marker("homeBookmarks", in: window) == nil && self.marker("homeFrequent", in: window) == nil }
+        controller.session.selectTab(regular.id)
+        try await wait { self.marker("homeFrequent", in: window) != nil }
+        controller.session.clearHistory()
+        try await wait { self.marker("homeBookmarks", in: window) != nil && self.marker("homeFrequent", in: window) == nil }
     }
 
     func testPrivacyShieldOpensRealPopover() async throws {

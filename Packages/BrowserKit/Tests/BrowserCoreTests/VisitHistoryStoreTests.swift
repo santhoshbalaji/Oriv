@@ -41,6 +41,27 @@ import Testing
         #expect(try store.suggestionDelta().entries.isEmpty)
     }
 
+    @Test func frequentDestinationsAggregateLocalVisitsAndUseNewestTitle() throws {
+        let store = try VisitHistoryStore()
+        let now = Date(timeIntervalSinceReferenceDate: 500)
+        let frequent = URL(string: "https://often.example/guide")!
+        let recent = HistoryEntry(title: "Recent", url: URL(string: "https://recent.example")!, visitedAt: now)
+        let remote = HistoryEntry(title: "Remote", url: URL(string: "https://remote.example")!, visitedAt: now, visitCount: 50)
+        try store.migrate([
+            HistoryEntry(title: "Old title", url: frequent, visitedAt: now.addingTimeInterval(-10), visitCount: 3),
+            HistoryEntry(title: "New title", url: frequent, visitedAt: now.addingTimeInterval(-5)),
+            recent
+        ])
+        try store.applyShared([recent, remote], removedIDs: [], clearRanges: [], saveSession: {})
+        let ranked = try store.frequentDestinations(limit: 2)
+        #expect(ranked.map(\.url) == [frequent, recent.url])
+        #expect(ranked.first?.visitCount == 4)
+        #expect(ranked.first?.title == "New title")
+        #expect(try store.frequentDestinations(limit: 1).map(\.url) == [frequent])
+        try store.clear(since: .distantPast)
+        #expect(try store.frequentDestinations(limit: 6).isEmpty)
+    }
+
     @Test func bulkReplacementDropsErasedVisitsAndRetainsBookmarks() throws {
         let store = try VisitHistoryStore()
         let visits = (0...256).map { number in

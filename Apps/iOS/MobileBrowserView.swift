@@ -261,9 +261,9 @@ struct MobileBrowserView: View {
                     switch sheet {
                     case .tabs: EmptyView()
                     case .library: MobileLibraryView(controller: controller, profiles: profiles)
-                    case .bookmarks:
+                    case .bookmarks, .history:
                         NavigationStack {
-                            MobileSavedPages(controller: controller, history: false)
+                            MobileSavedPages(controller: controller, history: sheet == .history)
                                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { controller.sheet = nil } } }
                         }
                     case .settings: NavigationStack { MobileSettingsView(controller: controller, profiles: profiles) }
@@ -770,11 +770,6 @@ struct MobileBrowserView: View {
         }
     }
     private var otherProfiles: Bool { profiles.profiles.filter { $0.archivedAt == nil }.count > 1 }
-    private var homeBookmarks: [Bookmark] { Array(controller.session.bookmarks.prefix(6)) }
-    private var homeRecent: [HistoryEntry] {
-        let shown = Set(homeBookmarks.map(\.url))
-        return controller.session.recentHistory(excluding: shown)
-    }
     private var home: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
@@ -786,27 +781,13 @@ struct MobileBrowserView: View {
                         Label("Private browsing", systemImage: "eyeglasses").font(.headline).foregroundStyle(theme.privateAccent)
                         Text("Private tabs aren’t saved or added to history. Their cookies and website data are erased when the last private tab closes. Websites and your network can still see your activity.").font(.callout).foregroundStyle(theme.secondaryText)
                     }.padding(.top, 40)
-                } else if homeBookmarks.isEmpty && homeRecent.isEmpty {
-                    BrowserEmptyState("Bookmarks and recent pages appear here.").padding(.top, 56)
                 } else {
-                    let context = URLDisplay.Context(homeBookmarks.map { ($0.title, $0.url) } + homeRecent.map { ($0.title, $0.url) })
-                    if !homeBookmarks.isEmpty { homeSection("Bookmarks", items: homeBookmarks.map { ($0.title, $0.url) }, context: context) }
-                    if !homeRecent.isEmpty { homeSection("Recent", items: homeRecent.map { ($0.title, $0.url) }, context: context) }
+                    StartPageSites(session: controller.session, emptyMessage: "Bookmarks and frequently visited sites appear here.",
+                        open: { controller.open($0) }, showBookmarks: { controller.sheet = .bookmarks },
+                        showHistory: { controller.sheet = .history })
                 }
             }.padding(.horizontal, 20).padding(.vertical, OrivSpacing.xl).frame(maxWidth: 650, alignment: .leading).frame(maxWidth: .infinity)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    private func homeSection(_ title: String, items: [(String, URL)], context: URLDisplay.Context) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.footnote.weight(.medium)).foregroundStyle(theme.secondaryText).accessibilityAddTraits(.isHeader).padding(.bottom, 6)
-            ForEach(items, id: \.1) { item in homeLink(item.0, url: item.1, context: context) }
-        }
-    }
-    private func homeLink(_ title: String, url: URL, context: URLDisplay.Context) -> some View {
-        Button { controller.open(url) } label: {
-            PageRowContent(title: title, url: url, context: context)
-                .frame(minHeight: 48).contentShape(Rectangle())
-        }.buttonStyle(.plain).contextMenu { Button("Open in New Tab") { controller.session.openSavedPage(url, inNewTab: true) } }
     }
     private var suggestions: some View {
         ScrollView {

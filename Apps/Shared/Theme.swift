@@ -246,6 +246,7 @@ struct SiteIdentity: View {
     var isPrivate = false
     var isSelected = false
     var sidebarIcon = false
+    var cachedOnly = false
     @Environment(\.colorScheme) private var colorScheme
 
     /// The site's own name (apple in developer.apple.com), not a subdomain such as en. or www.
@@ -291,12 +292,12 @@ struct SiteIdentity: View {
         }
         .foregroundStyle(isPrivate ? theme.privateAccent : (isSelected ? theme.text : theme.secondaryText))
         .frame(width: size, height: size)
-        .task(id: "\(url?.absoluteString ?? "")-\(isPrivate)-\((!sidebarIcon && url.flatMap { icons?.document?($0, isPrivate) } != nil))") {
-            // Sidebar mode changes and transient peeks are cache-only. The
+        .task(id: "\(url?.absoluteString ?? "")-\(isPrivate)-\((!sidebarIcon && !cachedOnly && url.flatMap { icons?.document?($0, isPrivate) } != nil))") {
+            // Sidebar and start-page tiles are cache-only. The
             // session's completed-document path discovers icons. Sleeping
             // regular rows may hydrate their own profile's disk cache only.
             if let url {
-                if sidebarIcon {
+                if sidebarIcon || cachedOnly {
                     if !isPrivate { await icons?.loadCached(url) }
                 } else { await icons?.load(url, isPrivate: isPrivate) }
             }

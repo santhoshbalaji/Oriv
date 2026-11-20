@@ -136,6 +136,25 @@ public final class VisitHistoryStore: @unchecked Sendable {
         }
     }
 
+    /// Rank destinations by total local visits, with the newest local title.
+    public func frequentDestinations(limit: Int) throws -> [HistoryEntry] {
+        guard limit > 0 else { return [] }
+        return try lock.withLock {
+            try query("""
+                WITH ranked AS (
+                    SELECT url, sum(visits) AS frequency, max(date) AS latestDate
+                    FROM visits WHERE local = 1 GROUP BY url
+                    ORDER BY frequency DESC, latestDate DESC, url LIMIT ?
+                )
+                SELECT latest.id, latest.url, latest.title, latest.date, ranked.frequency, latest.typed
+                FROM ranked JOIN visits AS latest ON latest.id = (
+                    SELECT id FROM visits WHERE url = ranked.url AND local = 1 ORDER BY date DESC, id LIMIT 1
+                )
+                ORDER BY ranked.frequency DESC, ranked.latestDate DESC, ranked.url
+                """, [.int(limit)], row: readEntry)
+        }
+    }
+
     public func sharedHistory() throws -> [HistoryEntry] {
         try lock.withLock {
             try query("SELECT \(columns) FROM visits WHERE shared = 1 ORDER BY date DESC, id", row: readEntry)

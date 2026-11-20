@@ -27,6 +27,16 @@ public final class BrowserSession {
         let recent = (try? historyStore?.recentDistinct(limit: limit + urls.count)) ?? []
         return Array(recent.lazy.filter { !urls.contains($0.url) }.prefix(limit))
     }
+    public func frequentHistory(excluding urls: Set<URL>, isPrivate: Bool) async -> [HistoryEntry] {
+        guard !isPrivate, !isExternalPrivate, let historyStore else { return [] }
+        let revision = historyRevision
+        let limit = 6
+        let ranked = await Task.detached(priority: .utility) {
+            (try? historyStore.frequentDestinations(limit: limit + urls.count)) ?? []
+        }.value
+        guard !Task.isCancelled, !isShutDown, revision == historyRevision else { return [] }
+        return Array(ranked.lazy.filter { !urls.contains($0.url) }.prefix(limit))
+    }
     public private(set) var persistenceNotice: String?
     public private(set) var canPersist = true
     public private(set) var isProfileActive = true

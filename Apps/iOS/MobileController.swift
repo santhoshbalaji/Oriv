@@ -188,7 +188,7 @@ import WebKit
 }
 
 enum MobileSheet: String, Identifiable {
-    case library, bookmarks, tabs, settings, site, share
+    case library, bookmarks, history, tabs, settings, site, share
     var id: String { rawValue }
 }
 
