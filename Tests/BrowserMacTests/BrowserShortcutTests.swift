@@ -87,8 +87,8 @@ import XCTest
         let bindings: [(String, String, NSEvent.ModifierFlags)] = [
             ("New Tab", "t", [.command]),
             ("Reopen Closed Tab", "t", [.command, .shift]),
-            ("New Private Window", "n", [.command, .shift]),
-            ("New Private Tab", "n", [.command, .shift, .option])
+            ("New Private Tab", "n", [.command, .shift]),
+            ("New Private Window", "n", [.command, .shift, .option])
         ]
         for (title, key, expected) in bindings {
             let matches = items(menu).filter {

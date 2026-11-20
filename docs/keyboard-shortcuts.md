@@ -3,8 +3,8 @@
 | Action | Mac shortcut |
 | --- | --- |
 | New Tab | ⌘T |
-| New Private Window | ⌘⇧N |
-| New Private Tab in the current window | ⌥⌘⇧N |
+| New Private Tab in the current window | ⌘⇧N |
+| New Private Window | ⌥⇧⌘N |
 | Reopen Closed Tab | ⌘⇧T |
 | Next / previous tab in sidebar order, wrapping | Ctrl+Tab / Ctrl+Shift+Tab |
 | Next / previous tab (existing alternatives) | ⌘⇧] / ⌘⇧[ |
