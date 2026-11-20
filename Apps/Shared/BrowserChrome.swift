@@ -503,7 +503,7 @@ private typealias PlatformColor = UIColor
         return """
         (() => {
             if (window.__orivChromeStop) { window.__orivChromeSend?.(); return; }
-            let timer, deadline, edgeTimer, frame, forceFrame = false, lastEdge = -Infinity, initial = true;
+            let timer, deadline, frame, forceFrame = false, initial = true;
             let lastPosted, lastScrollBucket;
             // Match both the native hysteresis and initial-paint boundary exactly.
             const scrollBucket = y => y <= \(ChromeScrollState.leaveOffset) ? 0 : y <= \(ChromeScrollState.enterOffset) ? 1 : 2;
@@ -511,7 +511,6 @@ private typealias PlatformColor = UIColor
                 \(Self.edgeScript)
             };
             const sendEdge = (force = false) => {
-                clearTimeout(edgeTimer); edgeTimer = null; lastEdge = performance.now();
                 if (!window.webkit?.messageHandlers?.chromeEdge || !document.documentElement || !document.body) return;
                 const edge = {...readEdge(), documentID:performance.timeOrigin, initialComplete:!initial};
                 window.__orivChromeLatest = edge;
@@ -522,7 +521,7 @@ private typealias PlatformColor = UIColor
                 window.webkit?.messageHandlers?.chromeEdge?.postMessage({edge});
                 lastPosted = key; lastScrollBucket = bucket;
             };
-            const send = () => { clearTimeout(timer); clearTimeout(deadline); timer = deadline = null; sendEdge(); };
+            const send = () => { clearTimeout(timer); clearTimeout(deadline); timer = deadline = null; discover(); sendEdge(); };
             const nextPaint = (force = false) => {
                 forceFrame ||= force;
                 if (!frame) frame = requestAnimationFrame(() => { frame = null; const force = forceFrame; forceFrame = false; sendEdge(force); });
@@ -536,12 +535,72 @@ private typealias PlatformColor = UIColor
                 const y = window.scrollY;
                 if (!Number.isFinite(y) || y < 0) return;
                 const bucket = scrollBucket(y);
+                const crossedEdge = checkStickyEdges();
                 if (bucket !== lastScrollBucket && window.webkit?.messageHandlers?.chromeEdge) {
                     window.webkit.messageHandlers.chromeEdge.postMessage({scrollY:y,scrollTime:performance.timeOrigin + performance.now()});
                     lastScrollBucket = bucket;
+                    sendEdge();
+                } else if (crossedEdge) sendEdge();
+            };
+            // Fixed elements stay put during ordinary scrolling. For sticky
+            // candidates, check only their rects and hit-test when coverage of
+            // the sampled line actually changes, including within a bucket.
+            const candidates = new Set();
+            const sticky = new Map();
+            const pendingRoots = new Set();
+            const hitLine = () => Math.min((visualViewport?.offsetTop || 0) + 1, innerHeight - 1);
+            const coversLine = (el, y) => {
+                const rect = el.getBoundingClientRect();
+                return rect.top <= y && rect.bottom > y;
+            };
+            const checkStickyEdges = () => {
+                if (!sticky.size) return false;
+                const y = hitLine();
+                let crossed = false;
+                for (const [el, previous] of sticky) {
+                    const current = coversLine(el, y);
+                    if (current === previous) continue;
+                    sticky.set(el, current);
+                    crossed = true;
                 }
-                if (performance.now() - lastEdge >= 125) sendEdge();
-                else if (!edgeTimer) edgeTimer = setTimeout(sendEdge, 125 - (performance.now() - lastEdge));
+                return crossed;
+            };
+            const attributes = new MutationObserver(records => {
+                for (const {target} of records) {
+                    if (!candidates.has(target) && (target === document.body || target === document.documentElement ||
+                        Array.from(candidates).some(el => target.contains(el)))) pendingRoots.add(target);
+                }
+                changed();
+            });
+            const discover = () => {
+                const y = hitLine();
+                for (const el of candidates) {
+                    if (!el.isConnected) { sticky.delete(el); candidates.delete(el); continue; }
+                    if (getComputedStyle(el).position === 'sticky') sticky.set(el, coversLine(el, y));
+                    else sticky.delete(el);
+                }
+                // A DOM insertion normally scans only its new subtree. Bound
+                // style work for large documents and bursts of overlapping roots.
+                let budget = 1024;
+                for (const root of pendingRoots) {
+                    if (!root.isConnected || !budget) continue;
+                    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+                    for (let el = root; el && budget; el = walker.nextNode(), --budget) {
+                        if (candidates.has(el)) continue;
+                        const position = getComputedStyle(el).position;
+                        if (position === 'sticky') sticky.set(el, coversLine(el, y));
+                        if (position === 'fixed' || position === 'sticky') candidates.add(el);
+                    }
+                }
+                pendingRoots.clear();
+                attributes.disconnect();
+                const filter = {attributes:true, attributeFilter:['style','class','hidden','open']};
+                const ancestors = new Set([document.documentElement, document.body]);
+                for (const el of candidates) {
+                    for (let parent = el.parentElement; parent; parent = parent.parentElement) ancestors.add(parent);
+                }
+                for (const el of ancestors) if (el && !candidates.has(el)) attributes.observe(el, filter);
+                for (const el of candidates) attributes.observe(el, {...filter, subtree:true});
             };
             const ready = () => { sendEdge(true); nextPaint(true); };
             const painted = () => { sendEdge(true); \(paintSignal) nextPaint(true); };
@@ -549,6 +608,8 @@ private typealias PlatformColor = UIColor
                 // DOM readiness must end the initial phase even when a hidden
                 // window throttles rAF. Send the ready paint before confirmation
                 // becomes active, then mark the phase complete atomically.
+                if (document.body) pendingRoots.add(document.body);
+                discover();
                 sendEdge(true); initial = false; sendEdge(true); nextPaint(true);
             };
             const paintObserver = new PerformanceObserver(list => {
@@ -556,8 +617,25 @@ private typealias PlatformColor = UIColor
             });
             paintObserver.observe({type:'paint', buffered:true});
             const media = matchMedia('(prefers-color-scheme: dark)');
-            const observer = new MutationObserver(changed);
-            observer.observe(document, {subtree:true, childList:true, attributes:true, attributeFilter:['style','class','content','media']});
+            const observer = new MutationObserver(records => {
+                let structuralChange = false;
+                for (const record of records) {
+                    if (record.target.nodeName === 'STYLE') {
+                        if (document.body) pendingRoots.add(document.body);
+                        structuralChange = true;
+                    }
+                    for (const node of record.addedNodes) {
+                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                        pendingRoots.add(node.matches('style,link[rel=stylesheet]') && document.body ? document.body : node);
+                        structuralChange = true;
+                    }
+                    for (const node of record.removedNodes) {
+                        if (node.nodeType === Node.ELEMENT_NODE) structuralChange = true;
+                    }
+                }
+                if (structuralChange) changed();
+            });
+            observer.observe(document, {subtree:true, childList:true});
             window.addEventListener('scroll', scroll, {passive:true, capture:true});
             window.addEventListener('wheel', scroll, {passive:true, capture:true});
             window.addEventListener('resize', ready);
@@ -571,8 +649,8 @@ private typealias PlatformColor = UIColor
             media.addEventListener('change', ready);
             window.__orivChromeSend = ready;
             window.__orivChromeStop = () => {
-                clearTimeout(timer); clearTimeout(deadline); clearTimeout(edgeTimer); cancelAnimationFrame(frame);
-                observer.disconnect(); paintObserver.disconnect();
+                clearTimeout(timer); clearTimeout(deadline); cancelAnimationFrame(frame);
+                observer.disconnect(); attributes.disconnect(); paintObserver.disconnect();
                 window.removeEventListener('scroll', scroll, true); window.removeEventListener('wheel', scroll, true); window.removeEventListener('resize', ready);
                 window.removeEventListener('pageshow', ready); window.removeEventListener('popstate', ready);
                 window.removeEventListener('hashchange', ready); document.removeEventListener('DOMContentLoaded', loaded);

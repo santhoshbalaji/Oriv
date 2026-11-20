@@ -407,6 +407,68 @@ import XCTest
         chrome.observe(nil)
     }
 
+    func testLateStickyHeaderAndClassColourFollowRenderedPaint() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { chrome.observe(nil); window.close() }
+        chrome.observe(web)
+        web.loadHTMLString("""
+            <style>body{margin:0;height:4000px;background:white}
+            .band{position:sticky;top:0;height:80px;background:#6600cc}
+            .band.changed{background:#008844}</style><div style="height:250px"></div>
+            """, baseURL: nil)
+        try await eventually("initial white page") { !web.isLoading && chrome.sampleCount > 0 && !chrome.isDark }
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,100)")
+        try await eventually("scrolled page without a header") { chrome.showsContentUnderChrome }
+        let world = WKContentWorld.world(name: "OrivPageChrome")
+        func latestSampleTime() async throws -> Double {
+            try await web.callAsyncJavaScript("return window.__orivChromeLatest?.sampleTime ?? 0",
+                arguments: [:], in: nil, contentWorld: world) as? Double ?? 0
+        }
+        let beforeInsertion = try await latestSampleTime()
+        _ = try await web.evaluateJavaScript("const band = document.createElement('div'); band.className='band'; document.body.append(band)")
+        try await eventually("late band discovered while still below the edge") {
+            try await latestSampleTime() > beforeInsertion
+        }
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,248)")
+        // Give WebKit two separate scroll frames to distinguish entry into
+        // the old taller strip from reaching the actual hit-test point.
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(chrome.sampledTop)
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,250)")
+        try await eventually("late sticky band reaches the sampled line") {
+            abs((chrome.sampledTop?.red ?? -1) - 0.4) < 0.002
+        }
+        _ = try await web.evaluateJavaScript("document.querySelector('.band').classList.add('changed')")
+        try await eventually("sticky band class colour") {
+            abs((chrome.sampledTop?.green ?? -1) - 136.0 / 255) < 0.002
+        }
+    }
+
+    func testInBucketScrollingAvoidsRepeatedEdgeHitTests() async throws {
+        let web = makeWebView(), chrome = PageChrome()
+        let window = samplingWindow(web); defer { chrome.observe(nil); window.close() }
+        chrome.observe(web)
+        web.loadHTMLString("<style>body{margin:0;height:3200px;background:white}</style><main>Scroll</main>", baseURL: nil)
+        try await eventually("initial scroll fixture paint") { !web.isLoading && chrome.sampleCount > 0 && !chrome.isDark }
+        let world = WKContentWorld.world(name: "OrivPageChrome")
+        _ = try await web.evaluateJavaScript("window.scrollTo(0,100)")
+        try await eventually("scroll bucket entered") { chrome.hasScrolled }
+        _ = try await web.callAsyncJavaScript("""
+            const original = document.elementsFromPoint.bind(document);
+            window.orivHitTests = 0;
+            document.elementsFromPoint = (...args) => { ++window.orivHitTests; return original(...args); };
+            """, arguments: [:], in: nil, contentWorld: world)
+        for offset in stride(from: 120, through: 960, by: 40) {
+            _ = try await web.evaluateJavaScript("window.scrollTo(0,\(offset));window.dispatchEvent(new Event('scroll'))")
+            // Spread the input across the old 125 ms sampling timer.
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let hits = try await web.callAsyncJavaScript("return window.orivHitTests", arguments: [:], in: nil, contentWorld: world)
+        let count = try XCTUnwrap(hits as? Int)
+        print("ORIV_CHROME_SCROLL_HIT_TESTS \(count)")
+        XCTAssertLessThanOrEqual(count, 15, "In-bucket motion can finish startup work without continuously hit-testing")
+    }
+
     func testStickyBecomesPinnedOnlyAfterScroll() async throws {
         let web = makeWebView(), chrome = PageChrome()
         let window = samplingWindow(web); defer { window.close() }
