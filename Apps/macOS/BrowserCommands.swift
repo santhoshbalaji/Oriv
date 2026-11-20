@@ -62,11 +62,28 @@ struct BrowserCommands: Commands {
         }
         CommandMenu("Profiles") {
             if let profiles {
-                ForEach(profiles.available) { profile in
-                    Button(profile.name + (profile.id == profiles.active.id ? " ✓" : "")) { profiles.perform { try profiles.select(profile.id) } }
+                let canSwitch = profiles.canSwitchProfiles(from: controller)
+                ForEach(Array(profiles.available.enumerated()), id: \.element.id) { index, profile in
+                    Button(profile.name + (profile.id == profiles.active.id ? " ✓" : "")) {
+                        profiles.switchFromSidebar(profile.id, source: controller)
+                    }
+                    .keyboardShortcut(index < 9 ? KeyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .control) : nil)
+                    .disabled(!canSwitch)
                 }
                 Divider()
-                Button("Manage Profiles…") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; profiles.showManager = true }
+                Button("Previous Profile") {
+                    if let target = profiles.relativeProfile(-1, wrapping: true) {
+                        profiles.switchFromSidebar(target.id, source: controller)
+                    }
+                }.keyboardShortcut(.leftArrow, modifiers: [.option, .command]).disabled(!canSwitch)
+                Button("Next Profile") {
+                    if let target = profiles.relativeProfile(1, wrapping: true) {
+                        profiles.switchFromSidebar(target.id, source: controller)
+                    }
+                }.keyboardShortcut(.rightArrow, modifiers: [.option, .command]).disabled(!canSwitch)
+                Divider()
+                Button("Manage Profiles…") { openWindow(id: "browser"); profiles.showManager = true }
+                    .disabled(controller.profile == nil || controller.session.isExternalPrivate)
             }
         }
         CommandGroup(after: .toolbar) {

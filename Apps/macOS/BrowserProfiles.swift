@@ -182,7 +182,23 @@ import Observation
         }
         return nil
     }
-    func select(_ id: UUID) throws {
+    func canSwitchProfiles(from source: BrowserController) -> Bool {
+        source === controller && !source.session.isExternalPrivate && source.profile != nil && available.count > 1
+    }
+
+    func relativeProfile(_ step: Int, wrapping: Bool) -> BrowserProfile? {
+        let profiles = available
+        guard profiles.count > 1, let index = profiles.firstIndex(where: { $0.id == active.id }) else { return nil }
+        let next = index + step
+        return wrapping ? profiles[(next + profiles.count) % profiles.count] : (profiles.indices.contains(next) ? profiles[next] : nil)
+    }
+
+    func switchFromSidebar(_ id: UUID, source: BrowserController) {
+        guard canSwitchProfiles(from: source), !source.sidebar.dragging else { return }
+        perform { try select(id, focusLocation: false) }
+    }
+
+    func select(_ id: UUID, focusLocation: Bool = true) throws {
         guard id != active.id else { return }
         if let reason = switchBlocker { throw BrowserProfileOperationError.unavailable(reason) }
         let target = try obtain(id)
@@ -193,7 +209,7 @@ import Observation
         controller.session.setProfileActive(false)
         controller = target
         target.session.setProfileActive(true)
-        target.focusAddress()
+        if focusLocation || target.session.selectedTab?.url == nil { target.focusAddress() }
     }
     func archive(_ id: UUID) throws {
         guard id != BrowserProfile.personalID, id != active.id, !continuity.state.isProfileDeleted(id) else { throw ProfileError.protectedProfile }

@@ -83,6 +83,7 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
 
 struct BrowserSidebar: View {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.colorSchemeContrast) private var contrast
     @Bindable var controller: BrowserController
     var profiles: BrowserProfiles? = nil
     @State var tabList = SidebarListHandle()
@@ -114,6 +115,9 @@ struct BrowserSidebar: View {
                 closeOthers = id
             }
             if !railLayout { newTab.padding(.bottom, MacBrowserLayout.sidebarFooterGap) }
+            if !railLayout, let profiles, profiles.canSwitchProfiles(from: controller) {
+                profileDots(profiles)
+            }
             footer
         }
         .padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarInset)
@@ -224,6 +228,45 @@ struct BrowserSidebar: View {
             .browserGeometryMarker("sidebarNewTabGeometry")
             .focused($utilityFocus, equals: "new-tab")
             .accessibilityLabel("New Tab").accessibilityIdentifier(railLayout ? "railNewTabButton" : "newTabButton").help("New Tab (⌘T)")
+    }
+
+    private func profileDots(_ profiles: BrowserProfiles) -> some View {
+        let available = profiles.available
+        let focusID = utilityFocus.flatMap(UUID.init(uuidString:))
+        return ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+            HStack(spacing: 0) {
+                ForEach(Array(available.enumerated()), id: \.element.id) { index, profile in
+                    let selected = profile.id == profiles.active.id
+                    Button {
+                        profiles.switchFromSidebar(profile.id, source: controller)
+                    } label: {
+                        Circle()
+                            .fill(selected ? theme.accent : theme.secondaryText.opacity(contrast == .increased ? 1 : 0.60))
+                            .overlay {
+                                if contrast == .increased { Circle().strokeBorder(theme.text, lineWidth: 1) }
+                            }
+                            .frame(width: selected ? 8 : 6, height: selected ? 8 : 6)
+                            .frame(width: 24, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).focusable().focused($utilityFocus, equals: profile.id.uuidString)
+                    .help(profile.name)
+                    .accessibilityLabel("Profile \(index + 1) of \(available.count): \(profile.name)")
+                    .accessibilityAddTraits(selected ? [.isSelected] : [])
+                    .browserGeometryMarker("sidebarProfileDot-\(index)")
+                }
+            }.frame(maxWidth: .infinity)
+            }
+            .onAppear { proxy.scrollTo(profiles.active.id, anchor: .center) }
+            .onChange(of: focusID) { _, id in
+                if let id { proxy.scrollTo(id, anchor: .center) }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .defaultScrollAnchor(.center, for: .alignment)
+        .frame(height: 20)
+        .browserGeometryMarker("sidebarProfileDotsGeometry")
     }
 
     @ViewBuilder private var footer: some View {

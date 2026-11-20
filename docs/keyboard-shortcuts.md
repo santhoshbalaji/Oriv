@@ -11,6 +11,8 @@
 | Reload | ⌘R |
 | Reload from origin, bypassing cache | ⌘⇧R or ⌥⌘R |
 | Open Location | ⌘L |
+| Select profile 1–9 in Profiles menu order | ⌃1…9 |
+| Previous / next profile, wrapping | ⌥⌘← / ⌥⌘→ |
 
 Each **New Private Window** opens a separate window with its own sidebar and private
 tabs. Use ⌘T there to open another private tab. Closing the window discards its
@@ -46,3 +48,6 @@ default in Settings → Appearance → Sidebar. Narrow windows retain the saved
 sidebar preference and use the rail; explicit expansion overlays the page. It does not use ⌘F, which continues to find text in the page.
 The context menu provides Pin/Unpin and Move Up/Down as alternatives to dragging.
 Tab/Shift-Tab reach the profile picker, search, tab controls, New Tab and footer.
+
+Profile shortcuts apply in the regular browser window. macOS Mission Control
+shortcuts assigned to Control plus a digit take precedence.
