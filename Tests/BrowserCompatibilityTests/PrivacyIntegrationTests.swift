@@ -196,6 +196,68 @@ import UIKit
         XCTAssertFalse(tab.webView.configuration.userContentController.userScripts.contains { $0.source.hasPrefix("// Oriv cookie consent policy") })
     }
 
+    #if os(iOS)
+    func testThemeSurfaceCaptures() async throws {
+        for appearance in [BrowserAppearance.light, .dark] {
+            try await captureThemeSurfaces(appearance)
+        }
+    }
+
+    private func captureThemeSurfaces(_ appearance: BrowserAppearance) async throws {
+        let profiles = MobileProfiles(forceEphemeral: true)
+        let controller = profiles.current
+        let session = controller.session
+        defer { session.shutdown() }
+        let page = try XCTUnwrap(session.selectedTab)
+        _ = session.addTab(url: URL(string: "https://reading.example"), select: false, load: false)
+        _ = session.addTab(isPrivate: true, select: false, load: false)
+        _ = session.importBookmarks([Bookmark(title: "Field Notes", url: URL(string: "https://field.example")!)])
+
+        controller.appearance = appearance
+        let host = UIHostingController(rootView: MobileBrowserView(controller: controller, profiles: profiles, reduceMotionOverride: true)
+            .browserAppearance(appearance, followsPage: true).environment(\.scenePhase, .active))
+        host.overrideUserInterfaceStyle = appearance == .light ? .light : .dark
+        let detach = try mountFixtureController(host)
+        defer { detach() }
+        let window = try XCTUnwrap(host.view.window)
+        func capture(_ surface: String) async {
+            // Give native hosting, sheet and collection layout time to settle.
+            try? await Task.sleep(for: .milliseconds(650))
+            window.layoutIfNeeded()
+            var drewHierarchy = false
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                drewHierarchy = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            XCTAssertTrue(drewHierarchy)
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "iphone-theme-\(appearance.rawValue.lowercased())-\(surface)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        await capture("start")
+        let url = URL(string: "https://field.example/guide")!
+        try await waitForWebFixture(page, at: url) {
+            page.webView.loadHTMLString("""
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta name="color-scheme" content="light dark">
+                <title>Field Notes</title>
+                <style>body { font: 18px system-ui; margin: 28px; line-height: 1.55; }</style>
+                <h1>Field Notes</h1><p>A short guide to documenting a local walk.</p>
+                <h2>What to record</h2><p>Sketch the route, note the weather and mark places to revisit.</p>
+                """, baseURL: url)
+        }
+        await capture("browsing")
+        controller.sheet = .tabs
+        await capture("tabs")
+        controller.sheet = nil
+        try? await Task.sleep(for: .milliseconds(550))
+        controller.sheet = .settings
+        await capture("settings")
+        controller.sheet = nil
+
+    }
+    #endif
+
     func testPrivacySettingsCapture() throws {
         let session = BrowserSession(dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
         defer { session.shutdown() }

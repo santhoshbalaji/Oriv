@@ -63,6 +63,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-live" { await renderLiveSidebar(into: directory, activate: activate) }
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-github" { await renderGitHubFavicon(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "phase2" { await renderThemeScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-rtl" { await renderRightToLeft(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p2" { await renderP2Scenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" { await renderSidebarOpacity(into: directory) }
@@ -117,6 +118,33 @@ import WebKit
                     .frame(width: 720).padding(20).frame(width: 760, height: 380, alignment: .top)
                     .environment(\.siteIcons, session.siteIcons)
             }
+        }
+    }
+
+    private static func renderThemeScenes(into directory: URL) async {
+        let size = CGSize(width: 1120, height: 760)
+        for appearance in [BrowserAppearance.light, .dark, .t3Code] {
+            let name = "mac-glass-theme-" + (appearance == .t3Code ? "t3-code" : appearance.rawValue.lowercased())
+            let profiles = seededProfiles()
+            let controller = profiles.controller
+            controller.appearance = appearance
+            for (surface, compact) in [("expanded", false), ("rail", true)] {
+                controller.compactSidebar = compact
+                await capture("\(name)-\(surface)", directory, size, key: false, appearance: appearance) {
+                    BrowserWindow(controller: controller, profiles: profiles)
+                }
+            }
+            await capture("\(name)-settings", directory, CGSize(width: 672, height: 612),
+                          key: false, toolbarStyle: .preference, appearance: appearance) {
+                AppearanceSettings(appearance: .constant(appearance), controller: controller, profiles: profiles, initialPane: .appearance)
+            }
+            let privateID = profiles.createPrivateWindow()
+            if let context = profiles.privateWindows[privateID] {
+                await capture("\(name)-private", directory, size, key: false, appearance: appearance) {
+                    BrowserWindow(controller: context)
+                }
+            }
+            profiles.shutdown()
         }
     }
 

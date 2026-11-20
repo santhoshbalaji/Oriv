@@ -163,6 +163,13 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-synthetic-composite" for name in expected} - evidence
         if missing: problems.append(f"missing sidebar contrast composites: {sorted(missing)}")
+if os.environ.get("ORIV_GLASS_SCENE") == "phase2":
+    expected = {f"mac-glass-theme-{appearance}-{surface}" for appearance in ("light", "dark", "t3-code")
+                for surface in ("expanded", "rail", "settings", "private")}
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = {name + "-opaque-fallback" for name in expected} - evidence
+        if missing: problems.append(f"missing theme evidence: {sorted(missing)}")
 if os.environ.get("ORIV_GLASS_SCENE") == "p3-rtl":
     expected = {f"mac-glass-rtl-{appearance}-{layout}" for appearance in ("light", "dark")
                 for layout in ("expanded", "rail")}
