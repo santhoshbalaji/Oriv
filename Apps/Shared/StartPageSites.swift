@@ -21,6 +21,17 @@ struct StartPageSites: View {
     @State private var loadedQuery: Query?
     @State private var frequent: [HistoryEntry] = []
 
+    private var columns: [GridItem] {
+        if typeSize.isAccessibilitySize {
+            return [GridItem(.adaptive(minimum: 240), spacing: OrivSpacing.small)]
+        }
+        #if os(macOS)
+        return Array(repeating: GridItem(.flexible(), spacing: OrivSpacing.small), count: 4)
+        #else
+        return [GridItem(.adaptive(minimum: 100), spacing: OrivSpacing.small)]
+        #endif
+    }
+
     var body: some View {
         let bookmarks = Array(session.bookmarks.prefix(6))
         let query = Query(session: ObjectIdentifier(session), revision: session.historyRevision,
@@ -49,17 +60,18 @@ struct StartPageSites: View {
     private func section(_ title: String, id: String, items: [(String, URL)], showAll: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: OrivSpacing.small) {
             HStack {
-                Text(title).font(OrivType.detail.weight(.semibold)).foregroundStyle(theme.secondaryText)
+                Text(title).font(OrivType.body.weight(.semibold)).foregroundStyle(theme.secondaryText)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button("Show All", action: showAll).font(OrivType.detail)
                     .accessibilityLabel("Show All \(title)")
-                    #if os(iOS)
+                    #if os(macOS)
+                    .buttonStyle(.borderless)
+                    #else
                     .frame(minHeight: 44)
                     #endif
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 240 : 100),
-                                         spacing: OrivSpacing.small)], alignment: .leading, spacing: OrivSpacing.small) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: OrivSpacing.small) {
                 ForEach(items, id: \.1) { title, url in
                     let name = title.isEmpty ? (url.host ?? "Saved page") : title
                     Button { open(url) } label: {
@@ -70,7 +82,6 @@ struct StartPageSites: View {
                         .padding(OrivSpacing.small)
                         .frame(maxWidth: .infinity, minHeight: 84)
                         .foregroundStyle(theme.text)
-                        .background(theme.surface, in: .rect(cornerRadius: OrivRadius.medium))
                         .contentShape(.rect(cornerRadius: OrivRadius.medium))
                     }
                     #if os(macOS)
@@ -78,6 +89,7 @@ struct StartPageSites: View {
                     #else
                     .buttonStyle(.plain)
                     #endif
+                    .background(theme.surface, in: .rect(cornerRadius: OrivRadius.medium))
                     .accessibilityLabel(name)
                     .accessibilityHint(url.host ?? "")
                     .accessibilityIdentifier("\(id)-tile")

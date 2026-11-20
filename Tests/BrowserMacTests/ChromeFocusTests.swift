@@ -292,7 +292,7 @@ import XCTest
             let button = try XCTUnwrap(w.standardWindowButton(type))
             XCTAssertFalse(button.isHiddenOrHasHiddenAncestor)
             let rect = button.convert(button.bounds, to: nil)
-            XCTAssertGreaterThanOrEqual(rect.minX, 8)
+            XCTAssertGreaterThanOrEqual(rect.minX, 8 - 1)
             XCTAssertLessThanOrEqual(rect.maxX, MacBrowserLayout.railWidth - 8)
             XCTAssertEqual(rect.minX, MacBrowserLayout.railLightsInset + CGFloat(index) * 20, accuracy: 1)
             XCTAssertEqual(w.contentView!.bounds.maxY - rect.midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)

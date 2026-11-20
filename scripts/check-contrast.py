@@ -83,7 +83,7 @@ for appearance, mode, palette, sidebar in palettes:
                 colors["secondaryText"] = adaptive_constant("highContrastSecondary", mode)
                 colors["separator"] = adaptive_constant("highContrastSeparator", mode)
         colors["fieldText"] = colors["secondaryText"]
-        surfaces = {role: colors[role] for role in ("canvas", "surface", "chrome", "field", "selection")}
+        surfaces = {role: colors[role] for role in ("canvas", "surface", "row", "chrome", "field", "selection")}
         for token in sorted(text_tokens):
             for surface, background in surfaces.items():
                 checks.append((appearance + " " + accessibility, token, colors[token], surface, background, 4.5))

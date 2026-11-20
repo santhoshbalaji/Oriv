@@ -63,6 +63,7 @@ struct Theme {
     let isT3Code: Bool
     let canvas: Color
     let surface: Color
+    let row: Color
     let field: Color
     let chrome: Color
     var separator: Color
@@ -79,7 +80,6 @@ struct Theme {
     #endif
     var fieldText: Color { secondaryText }
     var page: Color { canvas }
-    var row: Color { surface }
 
     /// Preserve the system hue while meeting the 3:1 requirement on app-drawn selections.
     func markerAccent(on background: Color.Resolved, in environment: EnvironmentValues) -> Color {
@@ -107,7 +107,7 @@ struct Theme {
     let privateAccent = adaptive("Private", light: 0x713692, dark: 0xD5AAF8)
 
     static let t3Code = Theme(isT3Code: true, canvas: hex(0x000000),
-        surface: hex(0x111111), field: hex(0x1E1E1E), chrome: hex(0x0A0A0A), separator: hex(0x191919),
+        surface: hex(0x111111), row: hex(0x111111), field: hex(0x1E1E1E), chrome: hex(0x0A0A0A), separator: hex(0x191919),
         text: hex(0xF5F5F5), secondaryText: hex(0xA3A3A3), selection: hex(0x1C1C1C),
         warning: hex(0xD9A04A),
         sidebar: SidebarPalette(backing: hex(0x0A0A0A), field: hex(0x1E1E1E),
@@ -116,6 +116,7 @@ struct Theme {
     static let graphite = Theme(isT3Code: false,
         canvas: adaptive("Canvas", light: 0xFFFFFF, dark: 0x1C1C1E),
         surface: adaptive("Surface", light: 0xF5F5F7, dark: 0x242426),
+        row: adaptive("Row", light: 0xFFFFFF, dark: 0x2E2E30),
         field: adaptive("Field", light: 0xE6E6EA, dark: 0x323236),
         chrome: adaptive("Chrome", light: 0xF0F0F3, dark: 0x252528),
         separator: adaptive("Separator", light: 0xC9C9CF, dark: 0x48484D),
@@ -182,9 +183,7 @@ private struct BrowserAppearanceModifier: ViewModifier {
         content.environment(\.browserTheme, theme)
             .preferredColorScheme(followsPage ? nil : appearance.colorScheme)
             .tint(theme.accent)
-            #if os(macOS)
-            .background(theme.canvas, ignoresSafeAreaEdges: [])
-            #else
+            #if os(iOS)
             .background(theme.canvas)
             #endif
             .transaction { transaction in
@@ -347,9 +346,9 @@ struct SiteIdentity: View {
 }
 
 extension View {
-    /// Shared list/form chrome: canvas behind, one row surface, no system grouped grey.
+    /// Shared list and form backdrop for app-owned rows.
     func orivListStyle(_ theme: Theme) -> some View {
-        scrollContentBackground(.hidden).background(theme.canvas)
+        scrollContentBackground(.hidden).background(theme.surface)
     }
 }
 

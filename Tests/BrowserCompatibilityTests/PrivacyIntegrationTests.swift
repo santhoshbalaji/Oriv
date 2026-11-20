@@ -205,6 +205,10 @@ import UIKit
         XCTAssertNil(BrowserAppearance.system.colorScheme)
         XCTAssertFalse(BrowserAppearance.system.theme.isT3Code)
         XCTAssertTrue(BrowserAppearance.t3Code.theme.isT3Code)
+        let session = BrowserSession(dataStore: .nonPersistent())
+        defer { session.shutdown() }
+        XCTAssertNil(ContinuityPreferences.snapshot(session: session, appearance: nil)["appearance"])
+        XCTAssertEqual(ContinuityPreferences.snapshot(session: session, appearance: "System")["appearance"], "System")
     }
 
     func testSystemAccentMarkersMeetContrastOnEverySelection() {

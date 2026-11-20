@@ -88,7 +88,7 @@ struct MobileAppearanceSettings: View {
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
-                Text("T3 Code uses black surfaces and blue accents. System follows your device appearance. Websites control their own colors.").font(.callout).foregroundStyle(theme.secondaryText)
+                Text("System follows your device appearance. T3 Code uses black surfaces. Websites keep their own colors.").font(.callout).foregroundStyle(theme.secondaryText)
             }.padding(20)
         }.background(theme.canvas).navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline)
     }
@@ -108,7 +108,7 @@ struct MobileSiteSettings: View {
                 Label(connection.label, systemImage: connection.symbol).foregroundStyle(connection.color(theme))
                 Text(tab.url.flatMap(SiteOrigin.init)?.displayName ?? "No website open").textSelection(.enabled)
                 Text(tab.isSecure ? "HTTPS encrypts this connection. It does not verify the site's identity or claims." : "A fully secure connection has not been confirmed. Check the address before sharing sensitive information.").font(.callout).foregroundStyle(theme.secondaryText)
-            }.listRowBackground(theme.surface)
+            }.listRowBackground(theme.row)
             if let url = tab.url {
                 Section("Protection") {
                     PrivacyShieldControls(session: session, tab: tab)
@@ -124,9 +124,9 @@ struct MobileSiteSettings: View {
                     Button("Reset Site Permissions") { session.settings.setRule(SiteRule(), for: url, isPrivate: tab.isPrivate); tab.stopCapture() }
                     Button("Reload Page") { tab.reload(); dismiss() }
                     if tab.isPrivate { Text("Private permissions and blocking exceptions are forgotten when the last private tab closes.").font(.caption).foregroundStyle(theme.secondaryText) }
-                }.listRowBackground(theme.surface)
+                }.listRowBackground(theme.row)
             }
-        }.scrollContentBackground(.hidden).background(theme.canvas).navigationTitle("Site settings")
+        }.orivListStyle(theme).navigationTitle("Site settings")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("siteSettingsDone") } }
     }
     private func permission(_ title: String, path: WritableKeyPath<SiteRule, SitePermission>, url: URL) -> some View {
@@ -157,14 +157,14 @@ struct MobileClearBrowsingData: View {
                 Toggle("Cached website files", isOn: $cache).tint(theme.accent)
                 Toggle("Cookies and website data", isOn: $sites).tint(theme.accent)
                 Toggle("All saved site permissions", isOn: $permissions).tint(theme.accent)
-            }.listRowBackground(theme.surface)
+            }.listRowBackground(theme.row)
             Section {
                 Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Bookmarks, open tabs and files you saved are retained.").font(.callout).foregroundStyle(theme.secondaryText)
                 Button("Clear Selected Data…", role: .destructive) { confirm = true }.disabled(!history && !cache && !sites && !permissions)
                 if working { ProgressView("Clearing data…") }
                 if completed { Label("Selected browsing data cleared", systemImage: "checkmark.circle").accessibilityAddTraits(.updatesFrequently) }
-            }.listRowBackground(theme.surface)
-        }.scrollContentBackground(.hidden).background(theme.canvas).navigationTitle("Clear browsing data").disabled(working)
+            }.listRowBackground(theme.row)
+        }.orivListStyle(theme).navigationTitle("Clear browsing data").disabled(working)
             .confirmationDialog("Clear selected browsing data?", isPresented: $confirm, titleVisibility: .visible) {
                 Button("Clear Data", role: .destructive) {
                     working = true; completed = false
@@ -198,7 +198,7 @@ struct MobileWebsiteData: View {
                 VStack(alignment: .leading) { Text(record.displayName); Button("Remove…", role: .destructive) { pending = [record]; confirm = true } }
             }
             if !manager.records.isEmpty { Button("Remove All…", role: .destructive) { pending = manager.records; confirm = true } }
-        }.scrollContentBackground(.hidden).background(theme.canvas).navigationTitle("Website data").searchable(text: $query)
+        }.orivListStyle(theme).navigationTitle("Website data").searchable(text: $query)
             .disabled(manager.isWorking).task { await manager.refresh() }
             .confirmationDialog("Remove website data?", isPresented: $confirm, titleVisibility: .visible) {
                 Button("Remove Data", role: .destructive) { let records = pending; pending = []; Task { await manager.remove(records) } }
@@ -245,7 +245,7 @@ private struct MobileProfileChooser: View {
                 Text("Each profile keeps tabs, history, bookmarks, settings and website logins separate on this device. Profiles are not locked accounts. Touch and hold a profile to manage it.").font(.callout).foregroundStyle(theme.secondaryText)
             }
             if let error { Text(error).foregroundStyle(.red) }
-        }.scrollContentBackground(.hidden).background(theme.canvas).navigationTitle("Profiles")
+        }.orivListStyle(theme).navigationTitle("Profiles")
             .alert(editingID == nil ? "New profile" : "Rename profile", isPresented: $editing) {
                 TextField("Name", text: $name)
                 Button("Cancel", role: .cancel) {}

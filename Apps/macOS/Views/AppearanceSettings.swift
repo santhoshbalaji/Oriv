@@ -30,8 +30,9 @@ struct AppearanceSettings: View {
             ScrollView { PasswordsGuide() }.tabItem { Label("Passwords", systemImage: "key") }.tag(SettingsPane.passwords)
             aboutPanel.tabItem { Label("About", systemImage: "info.circle") }.tag(SettingsPane.about)
         }
-        .padding(16).frame(width: 640, height: 580)
-        .background(theme.canvas).navigationTitle("\(AppIdentity.name) Settings")
+        .padding(OrivSpacing.large)
+        .frame(minWidth: 620, idealWidth: 640, minHeight: 460, idealHeight: 580)
+        .navigationTitle("\(AppIdentity.name) Settings")
         .sheet(isPresented: $websiteData) { WebsiteDataView(manager: controller.session.websiteData) }
         .sheet(isPresented: $clearBrowsingData) { ClearBrowsingDataView(session: controller.session) }
     }
@@ -69,7 +70,7 @@ struct AppearanceSettings: View {
                 Text(defaultBrowserStatus.isEmpty ? (isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "macOS will ask you to confirm this change.") : defaultBrowserStatus)
                     .font(.caption).foregroundStyle(theme.secondaryText)
             }
-        }.formStyle(.grouped).scrollContentBackground(.hidden)
+        }.formStyle(.grouped)
     }
     private var isDefaultBrowser: Bool {
         ["http", "https"].allSatisfy { scheme in
@@ -78,43 +79,39 @@ struct AppearanceSettings: View {
     }
 
     private var appearancePanel: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Text("Appearance for the \(controller.profile?.name ?? "Private") profile").font(.system(size: 13)).foregroundStyle(theme.secondaryText)
-            HStack(spacing: 12) {
-                ForEach(BrowserAppearance.allCases) { choice in
-                    Button { appearance = choice } label: {
-                        VStack(spacing: 10) {
-                            AppearancePreview(choice: choice)
-                            Text(choice.rawValue).font(.callout.weight(appearance == choice ? .semibold : .regular))
-                            Image(systemName: appearance == choice ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(appearance == choice ? theme.accent : theme.secondaryText)
-                        }.padding(10).frame(maxWidth: .infinity)
-                    }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Use \(choice.rawValue) appearance")
-                        .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
-                }
-            }
-            Text("T3 Code uses black surfaces and blue accents. System follows your Mac. Websites keep their own colors.")
-                .font(.callout).foregroundStyle(theme.secondaryText).lineSpacing(3)
-            GroupBox("All profiles") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Picker("Glass opacity", selection: $sidebarGlassOpacity) {
-                        ForEach(SidebarGlassOpacity.allCases, id: \.self) { choice in
-                            Text(choice.rawValue).tag(choice)
-                        }
+        Form {
+            Section("Appearance for the \(controller.profile?.name ?? "Private") profile") {
+                HStack(spacing: OrivSpacing.medium) {
+                    ForEach(BrowserAppearance.allCases) { choice in
+                        Button { appearance = choice } label: {
+                            VStack(spacing: OrivSpacing.small) {
+                                AppearancePreview(choice: choice)
+                                Text(choice.rawValue).font(OrivType.body.weight(appearance == choice ? .semibold : .regular))
+                                Image(systemName: appearance == choice ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(appearance == choice ? theme.accent : theme.secondaryText)
+                            }.padding(OrivSpacing.small).frame(maxWidth: .infinity)
+                        }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Use \(choice.rawValue) appearance")
+                            .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
-                    .pickerStyle(.segmented)
-                }.padding(8)
+                }
+                Text("System follows your Mac. T3 Code uses black surfaces. Websites keep their own colors.")
+                    .font(OrivType.detail).foregroundStyle(theme.secondaryText)
             }
-            GroupBox("Sidebar for this profile") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
-                    Text("Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.")
-                        .font(.caption).foregroundStyle(theme.secondaryText)
-                }.padding(8)
+            Section("All profiles") {
+                Picker("Glass opacity", selection: $sidebarGlassOpacity) {
+                    ForEach(SidebarGlassOpacity.allCases, id: \.self) { choice in
+                        Text(choice.rawValue).tag(choice)
+                    }
+                }.pickerStyle(.segmented)
             }
-            Spacer()
-        }.padding(24)
+            Section("Sidebar for this profile") {
+                Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
+                Text("Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.")
+                    .font(OrivType.caption).foregroundStyle(theme.secondaryText)
+            }
+        }.formStyle(.grouped)
     }
+
     private var privacyPanel: some View {
         Form {
             Section("Browsing data") {
@@ -150,7 +147,7 @@ struct AppearanceSettings: View {
             } header: { Text("Protection while you browse") } footer: {
                 Text("Applies to normal and private tabs. Reload open pages to apply changes fully. Private site exceptions are forgotten when the last private tab closes.")
             }
-        }.formStyle(.grouped).scrollContentBackground(.hidden)
+        }.formStyle(.grouped)
     }
     private var aboutPanel: some View {
         VStack(alignment: .leading, spacing: 24) {

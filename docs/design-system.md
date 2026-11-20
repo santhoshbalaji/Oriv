@@ -4,11 +4,11 @@ Oriv is a privacy-first native browser for Mac and iPhone. The active interface 
 
 ## Appearance and typography
 
-The shared palette and components live in `Apps/Shared/Theme.swift` and are compiled into both apps. **T3 Code** is the default for new profiles. System, Light and Dark remain available. The choice belongs to the current profile. When the user enables continuity on their devices in a configured Continuity build, appearance syncs for that same profile across Mac and iPhone. The continuity allowlist includes `appearance`, keyed as `preference.<profile UUID>.appearance`; different profiles retain independent choices. With continuity off, the choice stays local. Website logins, cookies and passwords remain on the device inside the profile and are never synced. See [Appearance](appearance.md) for the exact palette and website-color behavior.
+The shared palette and components live in `Apps/Shared/Theme.swift` and are compiled into both apps. **System** is the default and uses the Graphite palette. Light and Dark set Graphite explicitly. T3 Code keeps its dark canvas. The choice belongs to the current profile. When the user enables continuity on their devices in a configured Continuity build, appearance syncs for that same profile across Mac and iPhone. The continuity allowlist includes `appearance`, keyed as `preference.<profile UUID>.appearance`; different profiles retain independent choices. With continuity off, the choice stays local. Website logins, cookies and passwords remain on the device inside the profile and are never synced. See [Appearance](appearance.md) for the exact palette and website-color behavior.
 
-Use semantic theme roles instead of hardcoded colors. Main text belongs in address fields; secondary text belongs on the canvas or surface. Increased Contrast brightens foreground accents, secondary text and boundaries. Filled primary buttons retain a darker fill so white labels remain readable. Selection also has a checkmark or a leading indicator. Private browsing uses text and glasses, independently of the connection-security icon.
+Use semantic theme roles for colors. Main text belongs in address fields and secondary text is used for hints and supporting text. Increase Contrast strengthens secondary text and boundaries. Native controls inherit the platform accent. Selection includes a checkmark or a 3 pt leading marker whose system-accent hue is preserved when lightness needs adjustment for contrast. Purple glasses and explicit labels identify private browsing independently of the connection-security icon.
 
-Use system text styles for iPhone controls and content so Dynamic Type can reflow. Toolbar glyphs retain compact, labeled targets while text grows. At accessibility text sizes the appearance picker becomes one column and hides decorative previews. Mac controls use native text fields, menu commands and familiar keyboard shortcuts. The new-tab heading uses system serif; controls use the system sans-serif. No downloaded fonts or remote theme assets.
+Use system text styles for iPhone controls and content so Dynamic Type can reflow. Toolbar glyphs retain compact, labeled targets while text grows. At accessibility text sizes the appearance picker becomes one column and hides decorative previews. Mac controls use native text fields, menu commands and familiar keyboard shortcuts. Use system sans-serif throughout. The Mac profile name uses 17 pt semibold and section and sheet titles use 15 pt semibold. The active sidebar row uses 13 pt medium.
 
 ## Shared metrics and content
 
@@ -17,15 +17,15 @@ Use the selective tokens in `Theme.swift`; retain intentional platform geometry 
 | Token | Values / mapping |
 | --- | --- |
 | `OrivSpacing` | `xs` 4, `small` 8, `medium` 12, `large` 16, `xl` 24, `xxl` 32 pt |
-| `OrivRadius` | `compact` 6, `small` 8, `medium` 10, `large` 14 pt; use `Capsule()` for capsules |
-| `OrivType` on Mac | `body` 13, `detail` 12, `caption` 11, `title` 17 pt (semibold) |
+| `OrivRadius` | `compact` 6, `small` 8, `medium` 10, `popover` 12, `large` 14 pt. Use `Capsule()` for capsules |
+| `OrivType` on Mac | `body` 13, `detail` 12, `caption` 11, `title` 15 pt semibold, `profile` 17 pt semibold |
 | `OrivType` on iPhone | `body` → body, `detail` → footnote, `caption` → caption, `title` → headline |
 
 `PageRowContent` shares the site favicon (with local monogram fallback), title, disambiguated address and optional “Already open” badge or selection checkmark. Mac keeps compact inline rows (title only in its tab sidebar); iPhone stacks the address and moves the accessory underneath at accessibility text sizes. Titles may use two lines at accessibility sizes; addresses always use one line with middle truncation so host, port and path tokens never split across lines. Pass each visible list’s `URLDisplay.Context`. Full URLs remain available as accessibility custom content named “Address”; Mac callers keep hover help. Buttons, List/Form selection, close targets, swipe actions and context menus belong to the platform container. Keep the existing 24 pt Mac and 44 pt iPhone minimum control targets.
 
 `BrowserEmptyState` shows one explanatory message and an optional native action. Use it for empty home, saved-page lists, downloads, website data, other-device states and searches with no matches. The message wraps at accessibility sizes; do not add a decorative icon, separate heading or second explanatory paragraph. Page-load failures retain their diagnostic and recovery presentation.
 
-The appearance modifier disables SwiftUI transaction animations under Reduce Motion and forces a solid theme toolbar background under Reduce Transparency. App-owned content already uses solid theme surfaces; native sheets, menus and system transitions also follow OS accessibility preferences. Site monograms use BrowserCore’s small `SiteMonogram` suffix hint, never for security, storage or sync decisions.
+Liquid Glass belongs to the navigation layer: the Mac sidebar, iPhone bars and floating controls. Use system foreground styles where controls sit on glass. Keep start pages, settings and libraries on solid or native grouped surfaces. The appearance modifier disables SwiftUI transaction animations under Reduce Motion. Glass controls use solid accessibility backings under Reduce Transparency or Increase Contrast. Native sheets and menus inherit the system material preferences. Site monograms use BrowserCore’s small `SiteMonogram` suffix hint, never for security, storage or sync decisions.
 
 ## Navigation
 
@@ -70,13 +70,12 @@ Inline completion selects only the host suffix; accepting it is distinct from
 choosing a result. Local ranking uses prefix strength, bookmarks, visit frequency
 and recency; an actor maintains normalized prefix and trigram indexes off-main.
 
-## Mac sidebar: Safari-like glass (B)
+## Mac sidebar and rail
 
 The Mac sidebar is a single system Liquid Glass panel flush with the window edge.
 The expanded panel is 256 pt wide with an 8 pt horizontal content inset. The icon
 rail is 72 pt wide. The existing toggle and
-⌥⌘S animate between them, respecting Reduce Motion. The address editor and page
-host retain their identity. The iPhone interface is unchanged.
+⌥⌘S animate between them, respecting Reduce Motion. The address editor and page host retain their identity.
 
 Use `GlassEffectContainer` and `.glassEffect(.regular)` for the panel on the
 macOS 26 deployment target. Rows and the footer use quiet fills, without extra
@@ -84,7 +83,7 @@ per-row glass effects. Reduce Transparency and Increase Contrast replace the
 panel material with the semantic light/dark surface; increased contrast adds a
 strong boundary and selected/focused row outlines. The observed page colour
 continues behind the panel and transparent titlebar. Do not mirror page text
-into the titlebar or force a dark sidebar in a light window.
+into the titlebar. Sidebar and rail colors follow the selected appearance.
 
 The profile picker uses a primary-colour stacked-tabs glyph, bold name, tab count
 and chevron, followed by persistent Search tabs. Empty Pinned is hidden; a compact
@@ -135,10 +134,16 @@ At narrow expanded widths, Share, New Tab and Overview remain in Browser Actions
 and the fixed sidebar controls, leaving the 230 pt address minimum and privacy
 button reachable. Active downloads also have a sidebar badge.
 
-The Mac sidebar uses direction B's slate/lilac semantic palette, including the
-lifted selection, mulberry marker, 32 pt search field and 42 pt footer pill.
-Its light secondary foreground is darker than the mock to preserve 4.5:1 on the
-selection. The 60 pt page header has plain navigation/action glyphs and a filled,
-borderless address capsule; Browser Actions retains its 36 × 32 pt target.
-Restored pages receive initial native web-content focus, while empty tabs focus
+The sidebar uses Graphite or the equivalent T3 Code colors. The 32 pt search field
+and rows use 8 pt corners. Pinned tiles, rail selections and the 42 pt footer use
+10 pt corners. Selection uses a neutral fill and a leading accent marker. Hover
+uses a quieter solid fill. The 60 pt page header retains monochrome controls and
+the filled address capsule in the page-derived color band. Browser Actions retains
+its 36 × 32 pt target. Suggestions float in a solid 12 pt panel with a quiet shadow.
+Restored pages receive initial native web-content focus and empty tabs focus
 the address editor. Keyboard navigation retains the system focus ring.
+
+The Mac start page centers its 640 pt content column and uses a four-column
+tile grid at standard text sizes. iPhone retains adaptive columns. Both use
+solid tiles and secondary section labels. Mac settings use native grouped
+forms and the system window background. Glass opacity applies to all profiles.

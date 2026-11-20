@@ -17,7 +17,8 @@ struct StartPage: View {
                         showHistory: { controller.library = .history })
                 }
             }
-            .frame(maxWidth: 640, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 640)
             .padding(.horizontal, OrivSpacing.xxl).padding(.vertical, 56)
             .frame(maxWidth: .infinity)
         }
@@ -26,7 +27,11 @@ struct StartPage: View {
 
     private var privateExplanation: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Private browsing", systemImage: "eyeglasses").font(OrivType.body.weight(.semibold)).foregroundStyle(theme.privateAccent)
+            Label {
+                Text("Private browsing").foregroundStyle(theme.text)
+            } icon: {
+                Image(systemName: "eyeglasses").foregroundStyle(theme.privateAccent)
+            }.font(OrivType.title)
             Text("Private tabs aren’t saved or added to history. Cookies and website data are discarded when the last tab sharing them closes. Websites and your network can still see your activity, and downloaded files stay on your Mac.")
                 .font(OrivType.body).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
         }.padding(.top, 80)

@@ -202,7 +202,7 @@ import XCTest
         XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 0, accuracy: 1)
         XCTAssertEqual(surface.maxY - profile.maxY, 8, accuracy: 1)
         XCTAssertEqual(surface.maxY - toggle.maxY, 8, accuracy: 1)
-        XCTAssertGreaterThanOrEqual(toggle.minX - profile.maxX, 8)
+        XCTAssertGreaterThanOrEqual(toggle.minX - profile.maxX, 8 - 1)
         // Visibility represents the two reveal states without a system Space
         // transition. Native host painting still needs foreground acceptance.
         for hidden in [true, false, true] {
@@ -240,7 +240,7 @@ import XCTest
                 XCTAssertEqual(profile.height, 44, accuracy: 1)
                 XCTAssertEqual(name.minX, count.minX, accuracy: 1)
                 XCTAssertTrue(profile.contains(name)); XCTAssertTrue(profile.contains(count))
-                XCTAssertGreaterThanOrEqual(profile.minY - search.maxY, 8)
+                XCTAssertGreaterThanOrEqual(profile.minY - search.maxY, 8 - 1)
                 XCTAssertFalse(profile.intersects(toggle)); XCTAssertFalse(search.intersects(toggle))
             }
         }

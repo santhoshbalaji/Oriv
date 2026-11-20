@@ -22,8 +22,8 @@ struct EditorHeading: View {
     let symbol: String
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: symbol).font(.system(size: 21, weight: .light)).foregroundStyle(theme.accent)
-                .frame(width: 42, height: 42).background(theme.accent.opacity(0.08), in: .rect(cornerRadius: 12))
+            Image(systemName: symbol).font(.system(size: 21, weight: .light)).foregroundStyle(theme.secondaryText)
+                .frame(width: 42, height: 42).background(theme.field, in: .rect(cornerRadius: OrivRadius.popover))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(OrivType.title).foregroundStyle(theme.text).accessibilityAddTraits(.isHeader)

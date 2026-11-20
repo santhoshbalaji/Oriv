@@ -40,7 +40,7 @@ struct MobileBrowserView: View {
     private var solidChrome: Bool { reduceTransparency || contrast == .increased }
     private var extendsTopColor: Bool { solidChrome || !pageChrome.showsContentUnderChrome }
     private var displayDomain: String { tab?.url.flatMap(URLDisplay.site) ?? (tab?.isPrivate == true ? "Private search" : "Search or address") }
-    private var bottomForeground: Color { tab?.isPrivate == true ? theme.text : .primary }
+    private var bottomForeground: Color { .primary }
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     var reduceMotionOverride:Bool? = nil
     private var reduceMotion:Bool { reduceMotionOverride ?? systemReduceMotion }
@@ -144,7 +144,7 @@ struct MobileBrowserView: View {
                     // The real page remains in its card until its one final
                     // thumbnail is ready. Keep the grid's close affordance visible.
                     Image(systemName:"xmark").font(.system(size:12,weight:.semibold)).foregroundStyle(.secondary)
-                        .frame(width:22,height:22).background(.regularMaterial,in:Circle())
+                        .frame(width:22,height:22).modifier(MobileBottomGlass())
                         .position(x:card.maxX-22,y:card.minY+22)
                         .allowsHitTesting(false).accessibilityHidden(true).zIndex(4)
                 }
@@ -350,7 +350,7 @@ struct MobileBrowserView: View {
                 }.padding(.horizontal, typeSize.isAccessibilitySize || tab?.canGoForward == true ? 12 : 24)
             }
         }.padding(.top, 8).foregroundStyle(bottomForeground)
-            .environment(\.colorScheme, tab?.isPrivate == true ? .dark : pageSystemScheme)
+            .environment(\.colorScheme, controller.appearance.colorScheme ?? pageSystemScheme)
     }
 
     private var backButton: some View {
@@ -647,7 +647,7 @@ struct MobileBrowserView: View {
                 if case .tab(let id) = target, let next = controller.session.tabs.first(where: { $0.id == id }) {
                     if next.url == nil {
                         home.safeAreaPadding(.top,windowInsets.top).safeAreaPadding(.bottom,bottomOcclusion+barHeight)
-                            .background(theme.canvas).environment(\.colorScheme,controller.appearance.colorScheme ?? .dark)
+                            .background(theme.canvas).environment(\.colorScheme,controller.appearance.colorScheme ?? pageSystemScheme)
                     } else { MobileTabThumbnail(tab: next, presentation:presentation) }
                 } else if target == .newTab {
                     ZStack { theme.canvas; Label(tab?.isPrivate == true ? "New Private Tab" : "New Tab", systemImage: "plus").foregroundStyle(theme.text) }
@@ -709,7 +709,7 @@ struct MobileBrowserView: View {
             } label: { Image(systemName: "xmark").font(.system(size: 20)).frame(width: 48, height: 48) }
                 .buttonStyle(.plain).browserGlass().accessibilityLabel("Cancel address editing")
         }.foregroundStyle(theme.text).padding(12).background(theme.canvas)
-            .environment(\.colorScheme, .dark)
+            .environment(\.colorScheme, controller.appearance.colorScheme ?? pageSystemScheme)
     }
 
     private func setMinimized(_ value: Bool) {
@@ -733,7 +733,7 @@ struct MobileBrowserView: View {
             if tab.httpWarningURL != nil { HTTPFallbackView(tab: tab).background(theme.canvas) }
             else if let error = tab.errorMessage {
                 ContentUnavailableView { Label("Page could not load", systemImage: "network.slash") } description: { Text(error) } actions: { Button("Try Again") { tab.reload() } }
-                    .background(theme.canvas).environment(\.colorScheme, controller.appearance.colorScheme ?? .dark)
+                    .background(theme.canvas).environment(\.colorScheme, controller.appearance.colorScheme ?? pageSystemScheme)
             } else { Color.clear.allowsHitTesting(false) }
         } else { home.safeAreaPadding(.top, top).safeAreaPadding(.bottom, bottom).safeAreaPadding(.leading,windowInsets.left).safeAreaPadding(.trailing,windowInsets.right) }
     }
@@ -778,7 +778,11 @@ struct MobileBrowserView: View {
                 }
                 if tab?.isPrivate == true {
                     VStack(alignment: .leading, spacing: OrivSpacing.small) {
-                        Label("Private browsing", systemImage: "eyeglasses").font(.headline).foregroundStyle(theme.privateAccent)
+                        Label {
+                            Text("Private browsing").foregroundStyle(theme.text)
+                        } icon: {
+                            Image(systemName: "eyeglasses").foregroundStyle(theme.privateAccent)
+                        }.font(.headline)
                         Text("Private tabs aren’t saved or added to history. Cookies and website data are discarded when the last tab sharing them closes. Websites and your network can still see your activity.").font(.callout).foregroundStyle(theme.secondaryText)
                     }.padding(.top, 40)
                 } else {
@@ -860,7 +864,12 @@ struct MobileBrowserView: View {
                     }
                 }
                 Section { Button("Settings", systemImage: "gearshape") { controller.sheet = .settings } }
-            } label: { Label("Page Menu", systemImage: tab?.isPrivate == true ? "eyeglasses" : "slider.horizontal.3").labelStyle(.iconOnly).font(.system(size: 20)).frame(width: 44, height: 48).contentShape(Rectangle()) }.accessibilityIdentifier("browserPageMenu").menuOrder(.fixed).tint(.primary)
+            } label: {
+                Label("Page Menu", systemImage: tab?.isPrivate == true ? "eyeglasses" : "slider.horizontal.3")
+                    .labelStyle(.iconOnly).font(.system(size: 20))
+                    .foregroundStyle(tab?.isPrivate == true ? theme.privateAccent : .primary)
+                    .frame(width: 44, height: 48).contentShape(Rectangle())
+            }.accessibilityIdentifier("browserPageMenu").menuOrder(.fixed).tint(.primary)
     }
     private func beginAddressEditing() { minimized = false; address = tab?.url?.absoluteString ?? ""; editingAddress = true }
     private func submitAddress() {
@@ -895,14 +904,14 @@ private struct CappedAddressEditor: View {
 }
 
 /// Untinted regular glass owns adaptation; never back it with the page's top colour.
-private struct MobileBottomGlass: ViewModifier {
+struct MobileBottomGlass: ViewModifier {
     @Environment(\.browserTheme) private var theme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
-    let isPrivate: Bool
+    var isPrivate = false
     func body(content: Content) -> some View {
         if reduceTransparency || contrast == .increased {
-            content.background(isPrivate ? theme.field : Color(uiColor: .secondarySystemBackground), in: Capsule())
+            content.background(theme.field, in: Capsule())
                 .overlay { Capsule().strokeBorder(Color.primary.opacity(contrast == .increased ? 0.8 : 0.35), lineWidth: 1) }
         } else if isPrivate {
             content.browserGlass()

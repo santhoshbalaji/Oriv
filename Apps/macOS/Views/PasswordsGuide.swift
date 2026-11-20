@@ -22,13 +22,13 @@ struct PasswordsGuide: View {
                     .font(.caption).foregroundStyle(theme.secondaryText)
             }
             Button("Manage Passwords…", systemImage: "arrow.up.forward.app") { ApplePasswords.open() }
-                .buttonStyle(.glass).help("Open Apple Passwords to manage your vault")
+                .buttonStyle(.bordered).help("Open Apple Passwords to manage your vault")
         }.padding(compact ? 22 : 28).frame(width: compact ? 340 : nil, alignment: .leading)
     }
     private func instruction(_ number: String, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Text(number).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
-                .frame(width: 24, height: 24).background(theme.accent.opacity(0.09), in: .circle)
+                .frame(width: 24, height: 24).background(theme.field, in: .circle)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.callout.weight(.medium))
                 Text(detail).font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)

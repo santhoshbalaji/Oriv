@@ -53,7 +53,7 @@ import WebKit
         }
         BackgroundUIMode.installAtLaunch()
         if BackgroundUIMode.isEnabled {
-            if ["sidebar-contrast", "p2", "sidebar-opacity"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
+            if ["sidebar-contrast", "p2", "sidebar-opacity", "phase2-contrast"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("All windows stay off every display. Contrast matrix uses the real sidebar with a known white/black/purple glass input and labelled page swatch; the header is a layout spacer. It renders the production contrast backing and controls; reduced/increased variants use the opaque accessibility path. These are synthetic compositing/layout images, not live Liquid Glass acceptance.")
             } else {
                 manifest.limitations.append("All windows stay off every display. Sidebar/glass fallback fixtures use the app's opaque Reduce Transparency variant; they cannot verify Liquid Glass.")
@@ -64,6 +64,7 @@ import WebKit
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-github" { await renderGitHubFavicon(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "phase2" { await renderThemeScenes(into: directory) }
+        else if environment["ORIV_GLASS_SCENE"] == "phase2-contrast" { await renderThemeContrast(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-rtl" { await renderRightToLeft(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p2" { await renderP2Scenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" { await renderSidebarOpacity(into: directory) }
@@ -142,6 +143,38 @@ import WebKit
             if let context = profiles.privateWindows[privateID] {
                 await capture("\(name)-private", directory, size, key: false, appearance: appearance) {
                     BrowserWindow(controller: context)
+                }
+            }
+            profiles.shutdown()
+        }
+    }
+
+    private static func renderThemeContrast(into directory: URL) async {
+        for appearance in [BrowserAppearance.light, .dark, .t3Code] {
+            let mode = appearance == .t3Code ? "t3-code" : appearance.rawValue.lowercased()
+            let profiles = seededProfiles()
+            let controller = profiles.controller
+            controller.appearance = appearance
+            let backdrop: Color = appearance == .light ? .black : .white
+            let variants = SidebarGlassOpacity.allCases.map { ($0.rawValue.lowercased(), $0) }
+                + [("reduced", .balanced), ("increased", .balanced)]
+            for (state, compact) in [("expanded", false), ("rail", true)] {
+                controller.compactSidebar = compact
+                for (variant, opacity) in variants {
+                    let name = "mac-glass-sidebar-contrast-theme-\(mode)-\(state)-\(variant)"
+                    await capture(name, directory, CGSize(width: 420, height: 580), key: false, settle: 400, appearance: appearance) {
+                        HStack(spacing: 0) {
+                            BrowserSidebar(controller: controller, profiles: profiles)
+                                .frame(width: compact ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
+                                .modifier(MacSidebarGlass())
+                            backdrop
+                        }
+                        .environment(\.sidebarCaptureBackdrop, backdrop)
+                        .environment(\.sidebarCaptureOpacity, opacity)
+                        .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
+                        .environment(\.sidebarCaptureContrast, variant == "increased" ? .increased : nil)
+                        .environment(\.siteIcons, controller.session.siteIcons)
+                    }
                 }
             }
             profiles.shutdown()

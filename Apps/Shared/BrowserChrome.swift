@@ -813,6 +813,7 @@ extension EnvironmentValues {
 
 private struct BrowserGlass: ViewModifier {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
@@ -832,9 +833,9 @@ private struct BrowserGlass: ViewModifier {
                 content.background(theme.field, in: .rect(cornerRadius: radius))
             } else {
                 content.background(theme.field.opacity(0.96), in: .rect(cornerRadius: radius))
-                    .glassEffect(.regular.tint(theme.chrome.opacity(0.2)), in: .rect(cornerRadius: radius))
+                    .glassEffect(.regular, in: .rect(cornerRadius: radius))
             }
-        }.environment(\.colorScheme, pageTint.map { $0.isDark ? .dark : .light } ?? .dark)
+        }.environment(\.colorScheme, pageTint.map { $0.isDark ? .dark : .light } ?? colorScheme)
     }
 }
 

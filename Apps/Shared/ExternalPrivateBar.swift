@@ -143,8 +143,10 @@ struct ExternalPrivateBar: View {
 #if os(iOS)
 private struct ExternalMoveButtonStyle: ButtonStyle {
     let fill: Color
+    @Environment(\.self) private var environment
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.foregroundStyle(.white)
+        let luminance = Theme.luminance(fill.resolve(in: environment))
+        configuration.label.foregroundStyle(luminance > 0.179 ? Color.black : .white)
             .background(fill, in: .rect(cornerRadius: OrivRadius.small))
             .brightness(configuration.isPressed ? -0.08 : 0)
     }

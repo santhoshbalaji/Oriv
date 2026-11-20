@@ -593,11 +593,15 @@ struct MobileGridCard: View {
                     Button(action: close) {
                         Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.secondary).frame(width: 22, height: 22)
-                            .background(.regularMaterial, in: Circle()).frame(width: 44, height: 44).contentShape(Rectangle())
+                            .modifier(MobileBottomGlass()).frame(width: 44, height: 44).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityLabel("Close \(tab.displayTitle)")
                 }
-            Label(tab.displayTitle, systemImage: tab.isPinned ? "pin.fill" : tab.isPrivate ? "eyeglasses" : "globe")
-                .font(.footnote.weight(.medium)).foregroundStyle(tab.isPrivate ? theme.privateAccent : theme.text)
+            Label {
+                Text(tab.displayTitle).foregroundStyle(theme.text)
+            } icon: {
+                Image(systemName: tab.isPinned ? "pin.fill" : tab.isPrivate ? "eyeglasses" : "globe")
+                    .foregroundStyle(tab.isPrivate ? theme.privateAccent : theme.secondaryText)
+            }.font(.footnote.weight(.medium))
                 .lineLimit(largeText ? 3 : 1).frame(maxWidth: .infinity)
         }
     }
