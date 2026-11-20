@@ -60,6 +60,9 @@ suites=(
   MobileGestureIntegrationTests/testImageContextTrackingAndOwnedLinkMenuHasApprovedCommands
   MobileGestureIntegrationTests/testNormalEditedCloseIsImmediateAndRecoverableButPrivateAndBulkRequireConfirmation
 )
+if [[ "${ORIV_GRID_TIMING_ONLY:-0}" == 1 ]]; then
+  suites=(GridMorphTests/testMeasureThirtyTabsWithPrivateSelection)
+fi
 selection=()
 for suite in "${suites[@]}"; do selection+=("-only-testing:OrivMobileTests/$suite"); done
 

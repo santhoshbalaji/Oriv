@@ -177,3 +177,10 @@ for the iPhone start page, tab grid, Library, and Settings. The runner reports
 all issues from `performAccessibilityAudit` and stores its result bundle under
 `build/accessibility.*/`. Both audit schemes are separate from the browser and
 iPhone gates and CI. The audited app launches with disposable browser state.
+
+For the 30-private-tab grid timing workload, run
+`ORIV_GRID_TIMING_ONLY=1 ./scripts/check-iphone.sh` headlessly. The test mounts
+two inline WebKit pages and records actual display-link callback delivery across
+three cycles of opening the grid, closing it, and selecting a card. It reports
+the maximum gap by phase and asserts a local bound. Hosted CI or a scaled WebKit
+deadline records timings without asserting frame delivery.

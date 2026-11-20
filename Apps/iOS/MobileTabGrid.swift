@@ -27,7 +27,21 @@ struct MobileTabGrid: UIViewControllerRepresentable {
 @MainActor final class MobileTabGridController: UICollectionViewController, UICollectionViewDragDelegate, UICollectionViewDropDelegate, UICollectionViewDelegateFlowLayout {
     var model: MobileTabGrid
     private var sections: [[BrowserTab]] = []
-    private var identity: [String] = []
+    private struct CardContent: Equatable {
+        let id: UUID
+        let pinned: Bool
+        let title: String
+        @MainActor init(_ tab: BrowserTab) {
+            id = tab.id
+            pinned = tab.isPinned
+            title = tab.displayTitle
+        }
+    }
+
+    private var cardContent: [CardContent] = []
+    private var renderedSelection: UUID?
+    private var renderedLargeText: Bool?
+    private var renderedAppearance: BrowserAppearance?
     private(set) var pulling = false
     private(set) var reordering = false
     private var dragGeneration = 0
@@ -53,13 +67,24 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         let wasPresented = self.model.presented
         self.model = model
         guard isViewLoaded else { return }
-        let updated = [model.tabs.filter { !$0.isPrivate }, model.tabs.filter(\.isPrivate)].filter { !$0.isEmpty }
-        let next = model.tabs.map { "\($0.id)-\($0.isPinned)-\($0.displayTitle)-\(model.controller.session.selectedTabID == $0.id)-\(model.largeText)" }
-        let previous = sections
-        (collectionViewLayout as? MobileTabGridLayout)?.reduceMotion = model.reduceMotion
-        collectionView.overrideUserInterfaceStyle = model.controller.appearance.colorScheme.map { $0 == .dark ? .dark : .light } ?? .unspecified
-        if identity != next {
-            identity = next
+        let next = model.tabs.map(CardContent.init)
+        let selected = model.controller.session.selectedTabID
+        let appearance = model.controller.appearance
+        let layout = collectionViewLayout as? MobileTabGridLayout
+        if layout?.reduceMotion != model.reduceMotion { layout?.reduceMotion = model.reduceMotion }
+        synchronizeStyle(appearance)
+        if cardContent != next || renderedSelection != selected || renderedLargeText != model.largeText || renderedAppearance != appearance {
+            let previous = sections
+            let updated = [model.tabs.filter { !$0.isPrivate }, model.tabs.filter(\.isPrivate)].filter { !$0.isEmpty }
+            let previousContent = Dictionary(uniqueKeysWithValues: cardContent.map { ($0.id, $0) })
+            let nextContent = Dictionary(uniqueKeysWithValues: next.map { ($0.id, $0) })
+            let previousSelection = renderedSelection
+            let refreshAll = renderedLargeText != model.largeText || renderedAppearance != appearance
+            cardContent = next
+            renderedSelection = selected
+            renderedLargeText = model.largeText
+            renderedAppearance = appearance
+
             let oldIDs = previous.flatMap { $0.map(\.id) }, newIDs = updated.flatMap { $0.map(\.id) }
             let oldSections = previous.compactMap { $0.first?.isPrivate }
             let newSections = updated.compactMap { $0.first?.isPrivate }
@@ -97,7 +122,12 @@ struct MobileTabGrid: UIViewControllerRepresentable {
                 }
             } else if oldIDs == newIDs {
                 sections = updated
-                collectionView.reconfigureItems(at:collectionView.indexPathsForVisibleItems)
+                let changed = collectionView.indexPathsForVisibleItems.filter { path in
+                    guard updated.indices.contains(path.section), updated[path.section].indices.contains(path.item) else { return false }
+                    let id = updated[path.section][path.item].id
+                    return refreshAll || id == selected || id == previousSelection || previousContent[id] != nextContent[id]
+                }
+                if !changed.isEmpty { collectionView.reconfigureItems(at: changed) }
             } else {
                 sections = updated
                 if canAnimate && !onlyDeletes && !lastReplacement {
@@ -107,17 +137,35 @@ struct MobileTabGrid: UIViewControllerRepresentable {
                 }
                 collectionView.collectionViewLayout.invalidateLayout()
             }
-        } else { sections = updated }
-        collectionView.backgroundView = model.tabs.isEmpty ? UIHostingController(rootView: BrowserEmptyState("No matching tabs")).view : nil
+        }
+        if model.tabs.isEmpty && collectionView.backgroundView == nil {
+            collectionView.backgroundView = UIHostingController(rootView: BrowserEmptyState("No matching tabs")).view
+        } else if !model.tabs.isEmpty && collectionView.backgroundView != nil {
+            collectionView.backgroundView = nil
+        }
         synchronizeVisibility()
         if model.presented && !wasPresented { revealSelected(announce:true) }
     }
+    private func synchronizeStyle(_ appearance: BrowserAppearance) {
+        let style: UIUserInterfaceStyle = appearance.colorScheme.map { $0 == .dark ? .dark : .light } ?? .unspecified
+        if collectionView.overrideUserInterfaceStyle != style { collectionView.overrideUserInterfaceStyle = style }
+    }
+
     private func revealSelected(announce:Bool) {
         collectionView.layoutIfNeeded()
         if let path = sections.enumerated().compactMap({ section, tabs in
             tabs.firstIndex { $0.id == model.controller.session.selectedTabID }.map { IndexPath(item:$0,section:section) }
         }).first {
-            collectionView.scrollToItem(at:path,at:.centeredVertically,animated:false)
+            // An already centered selection needs no new scroll/layout pass.
+            let viewport = collectionView.bounds
+            if let frame = collectionView.layoutAttributesForItem(at: path)?.frame {
+                let insets = collectionView.adjustedContentInset
+                let bottom = max(-insets.top, collectionView.contentSize.height - viewport.height + insets.bottom)
+                let offset = min(bottom, max(-insets.top, frame.midY - viewport.height / 2))
+                if abs(collectionView.contentOffset.y - offset) > 1 {
+                    collectionView.scrollToItem(at:path,at:.centeredVertically,animated:false)
+                }
+            }
             publishFrames()
             if announce { UIAccessibility.post(notification:.screenChanged,argument:collectionView.cellForItem(at:path)) }
         } else if announce { UIAccessibility.post(notification:.screenChanged,argument:collectionView) }
@@ -129,11 +177,15 @@ struct MobileTabGrid: UIViewControllerRepresentable {
     }
     private func synchronizeVisibility() {
         guard isViewLoaded else { return }
-        navigationController?.view.accessibilityViewIsModal = model.presented
-        view.isHidden = !model.visible
-        view.accessibilityElementsHidden = !model.presented
-        navigationController?.view.isHidden = !model.visible
-        navigationController?.view.accessibilityElementsHidden = !model.presented
+        let hidden = !model.visible
+        let accessibilityHidden = !model.presented
+        if view.isHidden != hidden { view.isHidden = hidden }
+        if view.accessibilityElementsHidden != accessibilityHidden { view.accessibilityElementsHidden = accessibilityHidden }
+        if let navigation = navigationController?.view {
+            if navigation.accessibilityViewIsModal != model.presented { navigation.accessibilityViewIsModal = model.presented }
+            if navigation.isHidden != hidden { navigation.isHidden = hidden }
+            if navigation.accessibilityElementsHidden != accessibilityHidden { navigation.accessibilityElementsHidden = accessibilityHidden }
+        }
     }
     override func viewWillTransition(to size:CGSize,with coordinator:any UIViewControllerTransitionCoordinator) {
         cancelGestures()
@@ -191,6 +243,9 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         let tab = sections[indexPath.section][indexPath.item]
         let controller = model.controller
         cell.represent(tab.id)
+        #if DEBUG
+        MobileTransitionMetrics.gridHostingConfigurations += 1
+        #endif
         cell.setCard(UIHostingConfiguration {
             MobileGridCard(tab: tab, presentation: controller.tabPresentation, selected: controller.session.selectedTabID == tab.id, largeText: model.largeText, close: { controller.close([tab.id]) })
                 .browserAppearance(controller.appearance)
@@ -319,7 +374,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         reordered.tabs = model.controller.session.orderedTabs.filter { visibleIDs.contains($0.id) }
         model = reordered
         sections = [reordered.tabs.filter { !$0.isPrivate }, reordered.tabs.filter(\.isPrivate)].filter { !$0.isEmpty }
-        identity = reordered.tabs.map { "\($0.id)-\($0.isPinned)-\($0.displayTitle)-\(reordered.controller.session.selectedTabID == $0.id)-\(reordered.largeText)" }
+        cardContent = reordered.tabs.map(CardContent.init)
         // Reloading during an active UIKit drop restores its old cell layout.
         // Commit the matching collection move with the updated data source.
         collectionView.performBatchUpdates {
@@ -741,6 +796,7 @@ struct MobileGridCard: View {
 @MainActor final class MobileTransitionMetrics: NSObject {
     nonisolated(unsafe) static var gridInterpolations = 0
     static var gridLayouts = 0
+    static var gridHostingConfigurations = 0
     static var webMorphUpdates = 0
     static var snapshotCount = 0
     private static let shared = MobileTransitionMetrics()

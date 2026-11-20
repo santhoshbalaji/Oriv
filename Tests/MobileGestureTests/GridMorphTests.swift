@@ -371,7 +371,7 @@ import BrowserEngine
     private func measure(count:Int,privateTab:Bool,raster:Bool = false) async throws {
         let f = try MorphFixture(count:count,privateTab:privateTab)
         defer { f.dispose() }
-        try await f.ready()
+        try await f.ready(inline: count == 30 && privateTab && !raster)
         let frames = MorphFrames(f,raster:raster)
         frames.start(); defer { frames.stop() }
         try await Task.sleep(for:.milliseconds(50))
@@ -396,6 +396,21 @@ import BrowserEngine
             try await Task.sleep(for:.milliseconds(200))
         }
         frames.stop()
+        if count == 30 && privateTab && !raster {
+            let paired = zip(frames.rows, frames.rows.dropFirst())
+            for prefix in ["open-", "close-", "tap-to-open-"] {
+                let gaps = paired.compactMap { previous, next -> Double? in
+                    guard let phase = next["phase"] as? String, phase.hasPrefix(prefix),
+                          let start = previous["callback"] as? Double, let end = next["callback"] as? Double else { return nil }
+                    return (end - start) * 1000
+                }
+                let maximum = try XCTUnwrap(gaps.max(), prefix)
+                print("ORIV_GRID_CALLBACK \(prefix) max_ms=\(maximum) samples=\(gaps.count)")
+                if webFixtureTimeoutScale == 1 && ProcessInfo.processInfo.environment["CI"] != "true" {
+                    XCTAssertLessThan(maximum, 150, "Long main-thread callback gap during \(prefix)")
+                }
+            }
+        }
         XCTAssertGreaterThan(frames.rows.count,raster ? 25 : 100)
         XCTAssertLessThanOrEqual(f.controller.tabPresentation.snapshotBytes,24*1_024*1_024)
         XCTAssertLessThanOrEqual(f.controller.tabPresentation.images.count,12)
@@ -435,12 +450,12 @@ import BrowserEngine
             .browserAppearance(c.appearance,followsPage:true).environment(\.scenePhase,.active))
         window.makeKeyAndVisible()
     }
-    func ready() async throws {
+    func ready(inline: Bool = false) async throws {
         // Prepare each snapshot while its tab is mounted. iOS 27 can suspend
         // an unattached WebKit view before the fixture or snapshot completes.
-        try await prepare(source, path: "two")
+        try await prepare(source, path: "two", inline: inline)
         if destination !== source {
-            try await prepare(destination, path: "chrome-paint")
+            try await prepare(destination, path: "chrome-paint", inline: inline)
             controller.session.selectTab(source.id)
             try await wait(label: "source reattached") { self.source.webView.window === self.window }
         }
@@ -454,9 +469,17 @@ import BrowserEngine
         if let grid = parent as? MobileTabGridController { return grid }
         return parent.children.lazy.compactMap { self.preparedGrid(in: $0) }.first
     }
-    private func prepare(_ tab: BrowserTab, path: String) async throws {
+    private func prepare(_ tab: BrowserTab, path: String, inline: Bool) async throws {
         controller.session.selectTab(tab.id)
-        tab.navigate(to: URL(string: "http://127.0.0.1:8768/\(path)")!)
+        let url = URL(string: "http://127.0.0.1:8768/\(path)")!
+        if inline {
+            let color = path == "two" ? "white" : "rebeccapurple"
+            try await waitForWebFixture(tab, at: url) {
+                tab.webView.loadHTMLString("<body style='background:\(color);height:2500px'>Grid timing fixture</body>", baseURL: url)
+            }
+        } else {
+            tab.navigate(to: url)
+        }
         try await wait(label: "\(path) loaded and attached", timeout: 30) {
             !tab.isLoading && tab.hasLoaded && tab.webView.window === self.window
         }
@@ -523,6 +546,7 @@ private struct MorphTimeout: Error {
         #if DEBUG
         row["interpolations"] = MobileTransitionMetrics.gridInterpolations
         row["layouts"] = MobileTransitionMetrics.gridLayouts
+        row["hostingConfigurations"] = MobileTransitionMetrics.gridHostingConfigurations
         row["webUpdates"] = MobileTransitionMetrics.webMorphUpdates
         row["driverProgress"] = c.gridMorph.progress
         row["driverAnimating"] = c.gridMorph.isAnimating
