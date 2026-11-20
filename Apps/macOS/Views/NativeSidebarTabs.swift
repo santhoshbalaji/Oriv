@@ -19,6 +19,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
     let controller: BrowserController
     let handle: SidebarListHandle
     let tabs: [BrowserTab]
+    let duplicateTitles: Set<String>
     let rail: Bool
     let peek: Bool
     let searching: Bool
@@ -402,10 +403,11 @@ private struct SidebarSection {
         #endif
         item.hovered = hovered
         let active = item.active
+        let subtitle = configuration.duplicateTitles.contains(tab.displayTitle) ? tab.url?.host : nil
         item.artwork = { selected in
             let content = SidebarTabArtwork(tab: tab, selected: selected, active: active,
                                             tile: grid, rail: configuration.rail || configuration.peek, peek: configuration.peek,
-                                            hovered: hovered)
+                                            hovered: hovered, subtitle: subtitle)
             return AnyView(content.environment(\.self, environment))
         }
         item.refresh()

@@ -39,6 +39,15 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return tabs.filter { query.isEmpty || $0.displayTitle.localizedCaseInsensitiveContains(query) || $0.hostname.localizedCaseInsensitiveContains(query) }
     }
+    static func duplicateTitles(in tabs: [BrowserTab]) -> Set<String> {
+        var seen = Set<String>()
+        var duplicates = Set<String>()
+        for tab in tabs where !seen.insert(tab.displayTitle).inserted {
+            duplicates.insert(tab.displayTitle)
+        }
+        return duplicates
+    }
+
     static func label(_ tab: BrowserTab, selected: Bool) -> String {
         ([tab.displayTitle, tab.hostname] + (selected ? ["Selected"] : []) +
          (tab.isPinned ? ["Pinned"] : []) + (tab.isPrivate ? ["Private"] : []) +
@@ -86,14 +95,15 @@ struct BrowserSidebar: View {
     var body: some View { sidebarContent.environment(\.browserTheme, Theme.sidebar) }
 
     private var sidebarContent: some View {
-        VStack(spacing: railLayout ? 6 : 0) {
+        let tabs = filteredTabs
+        return VStack(spacing: railLayout ? 6 : 0) {
             if !railLayout { profileHeader.focused($utilityFocus, equals: "profile") }
             searchField
             if railLayout { newTab }
             if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
                 Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 14)
             }
-            NativeSidebarTabs(controller: controller, handle: tabList, tabs: filteredTabs, rail: compact, peek: peeking,
+            NativeSidebarTabs(controller: controller, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
                               searching: !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { id, right in
                 closeToRight = right
                 closeOthers = id
@@ -281,6 +291,7 @@ struct SidebarTabArtwork: View {
     let rail: Bool
     let peek: Bool
     let hovered: Bool
+    let subtitle: String?
     #if DEBUG
     @Environment(\.sidebarCaptureState) private var captureState
     #endif
@@ -313,9 +324,18 @@ struct SidebarTabArtwork: View {
             } else {
                 favicon
                 if !tile {
-                    Text(tab.displayTitle)
-                        .font(.system(size: textSize.isAccessibilitySize ? 26 : 13, weight: active ? .medium : .regular))
-                        .rowTitleLines().frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(tab.displayTitle)
+                            .font(.system(size: textSize.isAccessibilitySize ? 26 : 13, weight: active ? .medium : .regular))
+                            .lineLimit(subtitle == nil && textSize.isAccessibilitySize ? 2 : 1)
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(.system(size: textSize.isAccessibilitySize ? 17 : 11))
+                                .foregroundStyle(theme.secondaryText)
+                                .lineLimit(1).truncationMode(.middle)
+                                .browserGeometryMarker("sidebarHost-\(tab.id)")
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                     if tab.mediaSuspended || audio {
                         Image(systemName: tab.mediaSuspended ? "pause.circle" : "speaker.wave.2.fill")
                             .font(.system(size: 11)).foregroundStyle(theme.accentText)

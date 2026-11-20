@@ -257,6 +257,44 @@ import XCTest
         XCTAssertFalse(second.isPinned)
         XCTAssertEqual(s.orderedTabs.map(\.id), [third.id, first.id, second.id, privateTab.id])
     }
+    func testDuplicateTitleRowsShowHostsOnlyWhileBothMatch() async throws {
+        let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = TabRecord()
+        let first = TabRecord(title: "Project", url: URL(string: "https://alpha.example"))
+        let second = TabRecord(title: "Project", url: URL(string: "https://beta.example"))
+        let unique = TabRecord(title: "Reference", url: URL(string: "https://reference.example"))
+        try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+            .save(BrowserSnapshot(tabs: [home, first, second, unique], selectedTabID: home.id, legacyBookmarksImported: true))
+        let c = BrowserController(rootDirectory: root, testing: true)
+        let w = window(c, solid: true)
+        defer { w.contentView = nil; w.close(); c.shutdown() }
+        func marker(_ name: String, _ id: UUID) -> NSView? {
+            w.contentView.flatMap { views($0).first { $0.identifier?.rawValue == "\(name)-\(id)" } }
+        }
+        try await waitUntil("Both duplicate hosts are rendered") {
+            marker("sidebarHost", first.id) != nil && marker("sidebarHost", second.id) != nil
+        }
+        XCTAssertNil(marker("sidebarHost", unique.id))
+        for record in [first, second, unique] {
+            let row = try XCTUnwrap(marker("sidebarItem", record.id))
+            XCTAssertEqual(row.bounds.height, 36, accuracy: 0.5)
+            XCTAssertEqual(row.accessibilityLabel()?.contains(record.url!.host!), true)
+        }
+        let list = try XCTUnwrap(w.contentView.flatMap { views($0).compactMap { $0 as? SidebarTabCollection }.first })
+        c.tabSearch = "beta.example"
+        try await waitUntil("The native list contains only the matching result") {
+            list.sidebar?.path(for: first.id) == nil && list.sidebar?.path(for: second.id) != nil
+        }
+        let path = try XCTUnwrap(list.sidebar?.path(for: second.id))
+        list.sidebar?.revealItem(at: path)
+        try await waitUntil("A single remaining match drops the subtitle") {
+            guard let row = list.item(at: path)?.view else { return false }
+            return row.accessibilityLabel()?.contains("beta.example") == true &&
+                !self.views(row).contains { $0.identifier?.rawValue == "sidebarHost-\(second.id)" }
+        }
+    }
+
     func testContextMenuCommandsUseExistingSessionAndCloseConfirmationPaths() throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let first = try XCTUnwrap(c.session.selectedTab), second = c.session.addTab(load: false)
