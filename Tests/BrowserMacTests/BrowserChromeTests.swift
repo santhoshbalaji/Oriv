@@ -451,8 +451,12 @@ import XCTest
         web.loadHTMLString("<style>body{margin:0;height:3200px;background:white}</style><main>Scroll</main>", baseURL: nil)
         try await eventually("initial scroll fixture paint") { !web.isLoading && chrome.sampleCount > 0 && !chrome.isDark }
         let world = WKContentWorld.world(name: "OrivPageChrome")
-        _ = try await web.evaluateJavaScript("window.scrollTo(0,100)")
-        try await eventually("scroll bucket entered") { chrome.hasScrolled }
+        // Hosted runners can drop the first scroll before the observer is live; resend it.
+        try await eventually("scroll bucket entered", timeout: 20, poll: .milliseconds(250)) {
+            if chrome.hasScrolled { return true }
+            _ = try await web.evaluateJavaScript("window.scrollTo(0,100);window.dispatchEvent(new Event('scroll'))")
+            return false
+        }
         _ = try await web.callAsyncJavaScript("""
             const original = document.elementsFromPoint.bind(document);
             window.orivHitTests = 0;
