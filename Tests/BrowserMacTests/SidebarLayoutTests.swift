@@ -30,12 +30,27 @@ import XCTest
         window.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "addressField" } }
     }
     private func frame(_ name: String, in window: NSWindow) throws -> NSRect {
-        let view = try XCTUnwrap(marker(name, in: window), name)
-        return view.convert(view.bounds, to: nil)
+        try XCTUnwrap(geometry(name, in: window), name)
     }
-    private func wait(_ condition: () -> Bool) async throws {
-        for _ in 0..<100 { if condition() { return }; try await Task.sleep(for: .milliseconds(50)) }
-        XCTFail("Sidebar layout did not settle")
+    private func geometry(_ name: String, in window: NSWindow) -> NSRect? {
+        marker(name, in: window).map { $0.convert($0.bounds, to: nil) }
+    }
+    private func waitForSidebar(_ window: NSWindow, rail: Bool, overlay: Bool = false,
+                                file: StaticString = #filePath, line: UInt = #line) async throws {
+        let reserved = rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth
+        try await eventually("sidebar and toolbar geometry", file: file, line: line) {
+            window.contentView?.layoutSubtreeIfNeeded()
+            guard let surface = self.geometry("sidebarSurfaceGeometry", in: window),
+                  let toolbar = self.geometry("browserTopBarGeometry", in: window) else { return false }
+            return abs(surface.width - (overlay ? MacBrowserLayout.sidebarWidth : reserved)) < 0.5
+                && abs(toolbar.minX - reserved) < 0.5
+        }
+    }
+    private func waitForTitlebar(_ window: NSWindow, height: CGFloat) async throws {
+        try await eventually("sidebar titlebar height \(height)") {
+            window.contentView?.layoutSubtreeIfNeeded()
+            return abs((self.marker("sidebarTitlebarGeometry", in: window)?.bounds.height ?? -1) - height) < 0.5
+        }
     }
     private func checkGeometry(_ window: NSWindow, collapsed: Bool, overlay: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
         window.contentView?.layoutSubtreeIfNeeded()
@@ -59,10 +74,10 @@ import XCTest
     func testAttachedSidebarAndRailAtMinimumAndAfterResize() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles, width: 760); defer { window.close() }
-        try await wait { (self.marker("browserSidebarGeometry", in: window)?.bounds.height ?? 0) > 500 && profiles.controller.sidebar.rail }
+        try await eventually("sidebar fixture state") { (self.marker("browserSidebarGeometry", in: window)?.bounds.height ?? 0) > 500 && profiles.controller.sidebar.rail }
         try checkGeometry(window, collapsed: true)
         window.setContentSize(NSSize(width: 1280, height: 820))
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForSidebar(window, rail: false)
         try checkGeometry(window, collapsed: false)
     }
     func testExpandedAndNarrowOverlayUseEightPointGuttersAndFivePointFooterGap() async throws {
@@ -71,9 +86,11 @@ import XCTest
         let window = makeWindow(controller, profiles: profiles, largestText: false); defer { window.close() }
         for width: CGFloat in [1000, 780] {
             window.setContentSize(NSSize(width: width, height: 600))
-            try await Task.sleep(for: .milliseconds(300))
+            try await eventually("window width updates the sidebar layout") {
+                controller.sidebar.automaticRail == (width == 780)
+            }
             controller.compactSidebar = false
-            try await Task.sleep(for: .milliseconds(300))
+            try await waitForSidebar(window, rail: width == 780, overlay: width == 780)
             XCTAssertEqual(controller.sidebar.narrowOverlay, width == 780)
             let surface = try frame("sidebarSurfaceGeometry", in: window)
             let tab = try XCTUnwrap(controller.session.selectedTabID)
@@ -106,11 +123,17 @@ import XCTest
         let controller = BrowserController(testing: true); defer { controller.shutdown() }
         controller.compactSidebar = true
         let window = makeWindow(controller, largestText: false); defer { window.close() }
-        try await Task.sleep(for: .milliseconds(300))
+        try await eventually("window chrome attachment") {
+            self.marker("browserSidebarGeometry", in: window) != nil
+        }
         let chrome = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first })
         for fullscreen in [false, true] {
             chrome.simulatesFullscreenLayout = fullscreen; chrome.configure()
-            try await Task.sleep(for: .milliseconds(300))
+            try await eventually("rail toggle position") {
+                guard let surface = self.geometry("sidebarSurfaceGeometry", in: window),
+                      let toggle = self.geometry("sidebarToggleGeometry", in: window) else { return false }
+                return abs(surface.maxY - toggle.maxY - (fullscreen ? 0 : 32)) < 0.5
+            }
             let surface = try frame("sidebarSurfaceGeometry", in: window)
             let tab = try XCTUnwrap(controller.session.selectedTabID)
             for name in ["sidebarToggleGeometry", "sidebarSearchGeometry", "sidebarNewTabGeometry", "sidebarItem-\(tab)", "sidebarFooter-Settings"] {
@@ -128,10 +151,12 @@ import XCTest
     func testFullscreenProfileSharesToggleLineWithoutRevealRelayout() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles, largestText: false); defer { window.close() }
-        try await Task.sleep(for: .milliseconds(300))
+        try await eventually("window chrome attachment") {
+            self.marker("browserSidebarGeometry", in: window) != nil
+        }
         let chrome = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first })
         chrome.simulatesFullscreenLayout = true; chrome.configure()
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTitlebar(window, height: 0)
         let surface = try frame("sidebarSurfaceGeometry", in: window)
         let profile = try frame("sidebarProfileGeometry", in: window)
         let toggle = try frame("sidebarToggleGeometry", in: window)
@@ -144,14 +169,14 @@ import XCTest
         for hidden in [true, false, true] {
             for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(type)?.isHidden = hidden }
             chrome.configure()
-            try await Task.sleep(for: .milliseconds(100))
+            window.contentView?.layoutSubtreeIfNeeded()
             XCTAssertEqual(try frame("sidebarProfileGeometry", in: window), profile)
             XCTAssertEqual(try frame("sidebarToggleGeometry", in: window), toggle)
             XCTAssertFalse(window.titlebarAppearsTransparent, "The revealed system titlebar must cover underlying chrome")
             XCTAssertTrue(window.titlebarAccessoryViewControllers.isEmpty, "No extra reveal height is reserved")
         }
         chrome.simulatesFullscreenLayout = false; chrome.configure()
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTitlebar(window, height: 32)
         XCTAssertTrue(window.titlebarAppearsTransparent)
         XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 0.5)
     }
@@ -162,11 +187,11 @@ import XCTest
             for _ in 0..<2 { _ = profiles.controller.session.addTab(select: false, load: false) }
             let window = makeWindow(profiles.controller, profiles: profiles, largestText: false, appearance: appearance)
             defer { window.close() }
-            try await Task.sleep(for: .milliseconds(300))
+            try await waitForTitlebar(window, height: 32)
             let chrome = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first })
             for fullscreen in [false, true] {
                 chrome.simulatesFullscreenLayout = fullscreen; chrome.configure()
-                try await Task.sleep(for: .milliseconds(300))
+                try await waitForTitlebar(window, height: fullscreen ? 0 : 32)
                 let profile = try frame("sidebarProfileGeometry", in: window)
                 let name = try frame("sidebarProfileNameGeometry", in: window)
                 let count = try frame("sidebarProfileCountGeometry", in: window)
@@ -186,11 +211,9 @@ import XCTest
         let controller = profiles.controller, tab = try XCTUnwrap(controller.session.selectedTab)
         let window = makeWindow(controller, profiles: profiles, width: 1250); defer { window.close() }
         controller.navigate("http://127.0.0.1:18768/privacy?utm_source=integration&keep=1")
-        for _ in 0..<800 {
-            if tab.title == "Privacy fixture" && !tab.isLoading { break }
-            try await Task.sleep(for: .milliseconds(50))
+        try await eventually("privacy fixture navigation", timeout: 40) {
+            tab.title == "Privacy fixture" && !tab.isLoading
         }
-        XCTAssertEqual(tab.title, "Privacy fixture")
         XCTAssertEqual(tab.url?.query, "keep=1")
         let trackerBlocked = try await tab.webView.evaluateJavaScript("window.shippingTrackerBlocked === true") as? Bool
         XCTAssertEqual(trackerBlocked, true)
@@ -198,8 +221,9 @@ import XCTest
         for width: CGFloat in [1250, 760, 800] {
             window.setContentSize(NSSize(width: width, height: 600))
             for collapsed in [false, true] {
+                try await eventually("sidebar acknowledges resized window") { controller.sidebar.automaticRail == (width != 1250) }
                 controller.compactSidebar = collapsed
-                try await Task.sleep(for: .milliseconds(400))
+                try await waitForSidebar(window, rail: controller.sidebar.reservesRail, overlay: controller.sidebar.overlay)
                 try checkGeometry(window, collapsed: controller.sidebar.reservesRail, overlay: controller.sidebar.overlay)
                 let header = try XCTUnwrap(marker("browserTopBarGeometry", in: window))
                 let address = try XCTUnwrap(marker("browserAddressGeometry", in: window))
@@ -214,16 +238,14 @@ import XCTest
             }
         }
         controller.compactSidebar = false
-        try await Task.sleep(for: .milliseconds(400))
+        try await waitForSidebar(window, rail: controller.sidebar.reservesRail, overlay: controller.sidebar.overlay)
         controller.session.settings.privacy.setEnabled(true, .cookieBanners)
         tab.reload()
-        var bannerDisplay: String?
-        for _ in 0..<800 {
-            bannerDisplay = try? await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#onetrust-banner-sdk')).display") as? String
-            if !tab.isLoading && bannerDisplay == "none" { break }
-            try await Task.sleep(for: .milliseconds(50))
+        try await eventually("cookie banner protection", timeout: 40) {
+            guard !tab.isLoading else { return false }
+            let display = try? await tab.webView.evaluateJavaScript("getComputedStyle(document.querySelector('#onetrust-banner-sdk')).display") as? String
+            return display == "none"
         }
-        XCTAssertEqual(bannerDisplay, "none")
         let audit = BackgroundUIMode.audit()
         XCTAssertEqual(audit.onscreenWindowViolations, 0)
     }
@@ -233,7 +255,7 @@ import XCTest
         defer { window.close(); controller.shutdown() }
         for rail in [false, true] {
             controller.compactSidebar = rail
-            try await wait {
+            try await eventually("sidebar fixture state") {
                 self.marker("browserOverviewGeometry", in: window) != nil &&
                     (self.marker("sidebarSurfaceGeometry", in: window)?.bounds.width ?? 0) ==
                         (rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
@@ -261,20 +283,20 @@ import XCTest
         let regular = try XCTUnwrap(controller.session.selectedTab)
         let window = makeWindow(controller, largestText: false)
         defer { window.close(); controller.shutdown() }
-        try await wait { self.marker("homeBookmarks", in: window) != nil && self.marker("homeFrequent", in: window) != nil }
+        try await eventually("sidebar fixture state") { self.marker("homeBookmarks", in: window) != nil && self.marker("homeFrequent", in: window) != nil }
         XCTAssertFalse(regular.isInstantiated)
         controller.newTab(isPrivate: true)
-        try await wait { self.marker("homeBookmarks", in: window) == nil && self.marker("homeFrequent", in: window) == nil }
+        try await eventually("sidebar fixture state") { self.marker("homeBookmarks", in: window) == nil && self.marker("homeFrequent", in: window) == nil }
         controller.session.selectTab(regular.id)
-        try await wait { self.marker("homeFrequent", in: window) != nil }
+        try await eventually("sidebar fixture state") { self.marker("homeFrequent", in: window) != nil }
         controller.session.clearHistory()
-        try await wait { self.marker("homeBookmarks", in: window) != nil && self.marker("homeFrequent", in: window) == nil }
+        try await eventually("sidebar fixture state") { self.marker("homeBookmarks", in: window) != nil && self.marker("homeFrequent", in: window) == nil }
     }
 
     func testPrivacyShieldOpensRealPopover() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles, width: 1250); defer { window.close() }
-        try await wait { self.marker("browserPrivacyGeometry", in: window) != nil }
+        try await eventually("sidebar fixture state") { self.marker("browserPrivacyGeometry", in: window) != nil }
         if #unavailable(macOS 27) {
             try XCTSkipIf(BackgroundUIMode.isEnabled && !window.isKeyWindow,
                 "Foreground-dependent popover check on macOS < 27: background/accessory mode is enabled and AppKit refused the key window.")
@@ -287,7 +309,7 @@ import XCTest
                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             window.sendEvent(event)
         }
-        try await wait {
+        try await eventually("sidebar fixture state") {
             NSApp.windows.contains { self.marker("sitePrivacyPanelGeometry", in: $0) != nil }
         }
         XCTAssertTrue(NSApp.windows.contains { window in
@@ -301,12 +323,19 @@ import XCTest
         let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }
         let other = BackgroundUIMode.Window(); other.isReleasedWhenClosed = false; defer { other.close() }
         let otherFrame = other.standardWindowButton(.closeButton)?.frame
-        try await Task.sleep(for: .milliseconds(350))
+        try await waitForSidebar(window, rail: false)
         let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
         let parents = types.map { window.standardWindowButton($0)?.superview }
         for collapsed in [false, true, false] {
             profiles.controller.compactSidebar = collapsed
-            try await Task.sleep(for: .milliseconds(400))
+            try await waitForSidebar(window, rail: collapsed)
+            try await eventually("native traffic-light frames") {
+                types.enumerated().allSatisfy { index, type in
+                    guard let button = window.standardWindowButton(type) else { return false }
+                    let inset = collapsed ? MacBrowserLayout.railLightsInset : MacBrowserLayout.lightsInset
+                    return abs(button.convert(button.bounds, to: nil).minX - inset - CGFloat(index) * MacBrowserLayout.lightsSpacing) < 1
+                }
+            }
             try checkGeometry(window, collapsed: collapsed)
             for (i, type) in types.enumerated() {
                 let button = try XCTUnwrap(window.standardWindowButton(type))
@@ -325,13 +354,13 @@ import XCTest
     func testTogglePreservesSelectedTabAddressAndNativeFieldIdentity() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }
-        try await wait { self.address(in: window) != nil }
+        try await eventually("sidebar fixture state") { self.address(in: window) != nil }
         let field = try XCTUnwrap(address(in: window))
         let id = profiles.controller.session.selectedTabID
         let request = profiles.controller.addressFocusRequest
         for collapsed in [true, false, true] {
             profiles.controller.compactSidebar = collapsed
-            try await Task.sleep(for: .milliseconds(400))
+            try await waitForSidebar(window, rail: collapsed)
             try checkGeometry(window, collapsed: collapsed)
             XCTAssertTrue(address(in: window) === field)
             XCTAssertEqual(profiles.controller.session.selectedTabID, id)
@@ -343,19 +372,19 @@ import XCTest
         let controller = profiles.controller, tab = try XCTUnwrap(profiles.controller.session.selectedTab)
         let url = "https://docs.example.com/full/address?q=sidebar#focus"
         tab.webView.loadHTMLString("<body style='margin:0;background:white;height:4000px'>Focus fixture</body>", baseURL: URL(string: url))
-        try await wait { !tab.webView.isLoading && tab.url != nil }
+        try await eventually("sidebar fixture state") { !tab.webView.isLoading && tab.url != nil }
         let window = makeWindow(controller, profiles: profiles); defer { window.close() }
-        try await wait { self.address(in: window) != nil }
+        try await eventually("sidebar fixture state") { self.address(in: window) != nil }
         let field = try XCTUnwrap(address(in: window))
-        try await wait { abs(tab.webView.obscuredContentInsets.top - MacBrowserLayout.headerHeight) < 1 }
+        try await eventually("sidebar fixture state") { abs(tab.webView.obscuredContentInsets.top - MacBrowserLayout.headerHeight) < 1 }
         XCTAssertEqual(tab.webView.obscuredContentInsets.top, MacBrowserLayout.headerHeight, accuracy: 1)
         window.makeFirstResponder(tab.webView)
-        try await wait { field.currentEditor() == nil }
+        try await eventually("sidebar fixture state") { field.currentEditor() == nil }
         controller.focusAddress()
-        try await wait { field.currentEditor()?.string == url }
+        try await eventually("sidebar fixture state") { field.currentEditor()?.string == url }
         XCTAssertEqual(field.currentEditor()?.selectedRange, NSRange(location: 0, length: (url as NSString).length))
         window.makeFirstResponder(tab.webView)
-        try await wait { field.currentEditor() == nil }
+        try await eventually("sidebar fixture state") { field.currentEditor() == nil }
         for collapsed in [false, true, false] {
             controller.compactSidebar = collapsed
             for y in [100, 0, 400, 0] {
@@ -367,7 +396,7 @@ import XCTest
             }
         }
         controller.focusAddress()
-        try await wait { field.currentEditor()?.string == url }
+        try await eventually("sidebar fixture state") { field.currentEditor()?.string == url }
     }
     func testRightToLeftLargestTextRetainsPhysicalLeftSidebar() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
@@ -385,7 +414,7 @@ import XCTest
         window.collectionBehavior.insert(.fullScreenPrimary)
         try await Task.sleep(for: .milliseconds(400))
         window.toggleFullScreen(nil)
-        try await wait { window.styleMask.contains(.fullScreen) }
+        try await eventually("sidebar fixture state") { window.styleMask.contains(.fullScreen) }
         try await Task.sleep(for: .milliseconds(800))
         XCTAssertNil(window.toolbar, "No separately hosted toolbar may cover the content colour band")
         for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
@@ -397,7 +426,7 @@ import XCTest
         try await Task.sleep(for: .milliseconds(400))
         try checkGeometry(window, collapsed: true)
         window.toggleFullScreen(nil)
-        try await wait { !window.styleMask.contains(.fullScreen) }
+        try await eventually("sidebar fixture state") { !window.styleMask.contains(.fullScreen) }
         try await Task.sleep(for: .milliseconds(800))
         try checkGeometry(window, collapsed: true)
         let button = try XCTUnwrap(window.standardWindowButton(.closeButton))
@@ -408,24 +437,24 @@ import XCTest
         profiles.handleIncomingURL(URL(string: "https://fixture.example/external")!, sourceName: "Example App")
         let controller = try XCTUnwrap(profiles.externalPrivate)
         let window = makeWindow(controller, profiles: profiles, width: 760); defer { window.close() }
-        try await Task.sleep(for: .milliseconds(350))
+        try await waitForSidebar(window, rail: true)
         try checkGeometry(window, collapsed: true)
         controller.compactSidebar = true
-        try await Task.sleep(for: .milliseconds(400))
+        try await waitForSidebar(window, rail: true)
         try checkGeometry(window, collapsed: true)
     }
     func testSidebarToggleKeyboardShortcutUsesOneSurvivingControl() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }
-        try await Task.sleep(for: .milliseconds(400))
+        try await waitForSidebar(window, rail: false)
         for collapsed in [true, false] {
             let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
                 modifierFlags: [.command, .option], timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber, context: nil, characters: "s", charactersIgnoringModifiers: "s",
                 isARepeat: false, keyCode: 1))
             XCTAssertTrue(window.performKeyEquivalent(with: event))
-            try await wait { profiles.controller.compactSidebar == collapsed }
-            try await Task.sleep(for: .milliseconds(400))
+            try await eventually("sidebar fixture state") { profiles.controller.compactSidebar == collapsed }
+            try await waitForSidebar(window, rail: collapsed)
             try checkGeometry(window, collapsed: collapsed)
         }
     }
@@ -433,7 +462,9 @@ import XCTest
     func testWindowAccessibilityOrderStartsWithRealWindowButtons() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }
-        try await Task.sleep(for: .milliseconds(400))
+        try await eventually("native accessibility navigation order") {
+            window.accessibilityChildrenInNavigationOrder()?.count ?? 0 > 3
+        }
         let order = try XCTUnwrap(window.accessibilityChildrenInNavigationOrder())
         let buttons = [window.accessibilityCloseButton(), window.accessibilityMinimizeButton(), window.accessibilityZoomButton()].compactMap { $0 as AnyObject? }
         XCTAssertEqual(order.count, window.accessibilityChildren()?.count)
@@ -446,16 +477,23 @@ import XCTest
         let controller = profiles.controller
         let tab = try XCTUnwrap(controller.session.selectedTab)
         tab.webView.loadHTMLString("<body>Sidebar focus fixture</body>", baseURL: URL(string: "https://fixture.example/sidebar-focus"))
-        try await wait { tab.url != nil && !tab.webView.isLoading }
+        try await eventually("sidebar fixture state") { tab.url != nil && !tab.webView.isLoading }
         for _ in 0..<8 { _ = controller.session.addTab(url: nil, select: false, load: false) }
         let window = makeWindow(controller, profiles: profiles); defer { window.close() }
         try XCTSkipIf(BackgroundUIMode.isEnabled && !window.isKeyWindow,
             "System keyboard-focus handoff needs a key window; inactive accessory mode refused it. ORIV_FOREGROUND_UI=1 requires orchestrator approval.")
-        try await Task.sleep(for: .milliseconds(400))
-        let search = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "tabSearchField" || $0.placeholderString == "Search tabs" } })
+        func searchField() -> NSTextField? {
+            window.contentView.flatMap {
+                descendants($0).compactMap { $0 as? NSTextField }.first {
+                    $0.accessibilityIdentifier() == "tabSearchField" || $0.placeholderString == "Search tabs"
+                }
+            }
+        }
+        try await eventually("native focus fields") { searchField() != nil && self.address(in: window) != nil }
+        let search = try XCTUnwrap(searchField())
         let field = try XCTUnwrap(address(in: window))
         window.makeFirstResponder(search)
-        try await wait { search.currentEditor() != nil }
+        try await eventually("sidebar fixture state") { search.currentEditor() != nil }
         let context = MacBrowserWindowContext(); context.window = window
         XCTAssertTrue(context.sidebarContainsFocus, "Native search focus must be detectable before collapse")
         let request = controller.addressFocusRequest
@@ -464,7 +502,7 @@ import XCTest
             windowNumber: window.windowNumber, context: nil, characters: "s", charactersIgnoringModifiers: "s",
             isARepeat: false, keyCode: 1))
         XCTAssertTrue(window.performKeyEquivalent(with: event))
-        try await Task.sleep(for: .milliseconds(500))
+        try await waitForSidebar(window, rail: true)
         try checkGeometry(window, collapsed: true)
         XCTAssertNil(field.currentEditor(), "Removing sidebar focus must select the surviving toggle, not the address")
         XCTAssertEqual(controller.addressFocusRequest, request)
@@ -474,14 +512,16 @@ import XCTest
     func testFullscreenLayoutGeometryWithoutAWindowServerTransition() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }
-        try await Task.sleep(for: .milliseconds(300))
+        try await eventually("window chrome attachment") {
+            self.marker("browserSidebarGeometry", in: window) != nil
+        }
         let chrome = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first })
         chrome.simulatesFullscreenLayout = true
         chrome.configure()
         for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(type)?.isHidden = true }
         for collapsed in [false, true] {
             profiles.controller.compactSidebar = collapsed
-            try await Task.sleep(for: .milliseconds(400))
+            try await waitForSidebar(window, rail: collapsed)
             try checkGeometry(window, collapsed: collapsed)
             XCTAssertFalse(window.styleMask.contains(.fullScreen), "This is a background geometry fixture, not a system fullscreen transition")
             for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
@@ -492,7 +532,7 @@ import XCTest
         chrome.simulatesFullscreenLayout = false
         for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(type)?.isHidden = false }
         chrome.configure()
-        try await Task.sleep(for: .milliseconds(300))
+        try await eventually("windowed title bar restored") { window.titlebarAppearsTransparent }
         try checkGeometry(window, collapsed: true)
         let returned = try XCTUnwrap(window.standardWindowButton(.closeButton))
         XCTAssertFalse(returned.isHiddenOrHasHiddenAncestor)

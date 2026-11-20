@@ -19,13 +19,13 @@ import XCTest
         BackgroundUIMode.show(w, key: true)
         return w
     }
-    private func waitUntil(_ condition: () throws -> Bool, seconds: TimeInterval = 10) async throws -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if try condition() { return true }
-            try await pause(50)
+    private func waitForSurface(_ width: CGFloat, in window: NSWindow) async throws {
+        try await eventually("sidebar surface with width \(width)") {
+            guard let content = window.contentView else { return false }
+            content.layoutSubtreeIfNeeded()
+            let marker = self.views(content).first { $0.identifier?.rawValue == "sidebarSurfaceGeometry" }
+            return abs((marker?.bounds.width ?? 0) - width) < 0.5
         }
-        return try condition()
     }
     private func sidebarKey(in window: NSWindow) throws {
         let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
@@ -38,7 +38,7 @@ import XCTest
     private func renderedFixtureIcon(_ tab: BrowserTab, in window: NSWindow) throws -> Bool {
         let content = try XCTUnwrap(window.contentView)
         content.layoutSubtreeIfNeeded()
-        let marker = try XCTUnwrap(views(content).first { $0.identifier?.rawValue == "sidebarFavicon-\(tab.id)" })
+        guard let marker = views(content).first(where: { $0.identifier?.rawValue == "sidebarFavicon-\(tab.id)" }) else { return false }
         let rect = marker.convert(marker.bounds, to: content)
         let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: rect))
         content.cacheDisplay(in: rect, to: bitmap)
@@ -59,25 +59,23 @@ import XCTest
         // Mount the loaded-page shell directly: a previously mounted Home
         // history row can incidentally request the icon and hide this bug.
         let w = host(c); defer { w.close() }
-        let loaded = try await waitUntil { tab.title == "Favicon fixture" && !tab.isLoading }
-        XCTAssertTrue(loaded)
-        let row = try await waitUntil { try self.renderedFixtureIcon(tab, in: w) }
-        XCTAssertTrue(row, "A finished page must publish its fetched artwork to the live sidebar row within 10 seconds")
+        try await eventually("favicon fixture navigation", timeout: 10) { tab.title == "Favicon fixture" && !tab.isLoading }
+        try await eventually("fetched icon painted in the sidebar", timeout: 10) { try self.renderedFixtureIcon(tab, in: w) }
         XCTAssertNotNil(c.session.siteIcons.icon(for: tab.url, isPrivate: false))
         try sidebarKey(in: w)
-        try await pause(350)
+        try await waitForSurface(MacBrowserLayout.railWidth, in: w)
         XCTAssertTrue(c.sidebar.rail)
-        let rail = try await waitUntil { try self.renderedFixtureIcon(tab, in: w) }
-        XCTAssertTrue(rail, "The live rail item must paint the fetched icon, not a globe")
+        try await eventually("fetched icon painted in the rail", timeout: 10) { try self.renderedFixtureIcon(tab, in: w) }
     }
     func testNarrowKeyEquivalentKeepsExplicitOverlayOpenWithoutPageReflow() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let w = host(c, width: 780); defer { w.close() }
         let tab = try XCTUnwrap(c.session.selectedTab)
         tab.navigate(to: URL(string: "http://127.0.0.1:18768/favicon-page")!)
-        let loaded = try await waitUntil { tab.title == "Favicon fixture" && !tab.isLoading && tab.webView.bounds.width > 0 }
-        XCTAssertTrue(loaded)
-        try await pause(350)
+        try await eventually("favicon fixture and document viewport", timeout: 10) {
+            tab.title == "Favicon fixture" && !tab.isLoading && tab.webView.bounds.width > 0
+        }
+        try await waitForSurface(MacBrowserLayout.railWidth, in: w)
         XCTAssertTrue(c.sidebar.automaticRail)
         XCTAssertFalse(c.compactSidebar)
         let web = tab.webView, before = web.bounds.width
@@ -93,16 +91,19 @@ import XCTest
         XCTAssertEqual(web.bounds.width, before, accuracy: 1)
         let afterViewport = try await web.evaluateJavaScript("innerWidth") as? Double
         XCTAssertEqual(afterViewport, viewport)
-        try sidebarKey(in: w); try await pause(350)
+        try sidebarKey(in: w)
+        try await waitForSurface(MacBrowserLayout.railWidth, in: w)
         XCTAssertTrue(c.sidebar.rail); XCTAssertFalse(c.sidebar.overlay)
         // The menu sends this request; the toolbar's native button action
         // reaches the same toggle. Both must retain explicit overlay semantics.
-        c.sidebarToggleRequest += 1; try await pause(500)
+        c.sidebarToggleRequest += 1
+        try await waitForSurface(MacBrowserLayout.sidebarWidth, in: w)
         XCTAssertTrue(c.sidebar.narrowOverlay)
         let escape = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
             characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
-        NSApp.sendEvent(escape); try await pause(350)
+        NSApp.sendEvent(escape)
+        try await waitForSurface(MacBrowserLayout.railWidth, in: w)
         XCTAssertTrue(c.sidebar.rail); XCTAssertFalse(c.sidebar.overlay)
         let toggle = try XCTUnwrap(views(w.contentView!).first { $0.identifier?.rawValue == "sidebarToggleGeometry" })
         let point = toggle.convert(NSPoint(x: toggle.bounds.midX, y: toggle.bounds.midY), to: nil)
@@ -112,11 +113,13 @@ import XCTest
                 context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
             w.sendEvent(click)
         }
-        try await pause(500); XCTAssertTrue(c.sidebar.narrowOverlay)
+        try await waitForSurface(MacBrowserLayout.sidebarWidth, in: w)
+        XCTAssertTrue(c.sidebar.narrowOverlay)
         let outside = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 700, y: 400),
             modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber,
             context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-        NSApp.sendEvent(outside); try await pause(350)
+        NSApp.sendEvent(outside)
+        try await waitForSurface(MacBrowserLayout.railWidth, in: w)
         XCTAssertTrue(c.sidebar.rail); XCTAssertFalse(c.sidebar.overlay)
         XCTAssertEqual(web.bounds.width, before, accuracy: 1)
         XCTAssertTrue(tab.webView === web)
@@ -140,10 +143,12 @@ import XCTest
         c.session.siteIcons.document = { _, _ in XCTFail("Sleeping rows may read disk only"); return nil }
         let tab = try XCTUnwrap(c.session.tabs.first { $0.id == sleeping.id })
         let w = host(c); defer { w.close() }
-        let row = try await waitUntil { try self.renderedFixtureIcon(tab, in: w) }
-        XCTAssertTrue(row); XCTAssertFalse(tab.isInstantiated)
-        try sidebarKey(in: w); try await pause(350)
-        XCTAssertTrue(try renderedFixtureIcon(tab, in: w)); XCTAssertFalse(tab.isInstantiated)
+        try await eventually("cached icon painted in the sidebar", timeout: 10) { try self.renderedFixtureIcon(tab, in: w) }
+        XCTAssertFalse(tab.isInstantiated)
+        try sidebarKey(in: w)
+        try await waitForSurface(MacBrowserLayout.railWidth, in: w)
+        try await eventually("cached icon painted in the rail", timeout: 10) { try self.renderedFixtureIcon(tab, in: w) }
+        XCTAssertFalse(tab.isInstantiated)
         let privateTab = c.session.addTab(url: url, isPrivate: true, select: false, load: false)
         try await pause(350)
         XCTAssertNil(c.session.siteIcons.icon(for: url, isPrivate: true))
@@ -197,14 +202,14 @@ import XCTest
     }
     func testPeekGraceHoldRulesAndEscapeCancellation() async throws {
         let s = SidebarPresentation(); s.setPreference(true); s.hoverEnabled = true
-        s.pointer(true); do { let changed = try await waitUntil({ s.peeking }); XCTAssertTrue(changed) }
+        s.pointer(true); try await eventually("sidebar peek") { s.peeking }
         s.pointer(false); try await pause(200); XCTAssertTrue(s.peeking)
         s.menuOpen = true; try await pause(200); XCTAssertTrue(s.peeking)
         s.menuOpen = false; s.searchOpen = true; try await pause(380); XCTAssertTrue(s.peeking)
         s.searchOpen = false; s.focusInside = true; try await pause(380); XCTAssertTrue(s.peeking)
         s.focusInside = false; s.dragging = true; try await pause(380); XCTAssertTrue(s.peeking)
         s.panelInside = true; s.dragging = false; try await pause(380); XCTAssertTrue(s.peeking)
-        s.panelInside = false; do { let changed = try await waitUntil({ !s.peeking }); XCTAssertTrue(changed) }
+        s.panelInside = false; try await eventually("peek dismissed") { !s.peeking }
         s.pointer(true); try await pause(280); s.dismissOverlay(); XCTAssertFalse(s.peeking)
     }
     func testVoiceOverAndWebpageFullscreenSuppressAutomaticPeek() async throws {
@@ -213,14 +218,14 @@ import XCTest
         s.voiceOver = false; s.fullscreen(true); s.pointer(true)
         try await pause(280); XCTAssertFalse(s.peeking); XCTAssertEqual(s.reservation, 0)
         s.fullscreen(false); XCTAssertTrue(s.rail); XCTAssertEqual(s.reservation, MacBrowserLayout.railWidth)
-        s.pointer(true); do { let changed = try await waitUntil({ s.peeking }); XCTAssertTrue(changed) }
+        s.pointer(true); try await eventually("sidebar peek") { s.peeking }
         s.voiceOver = true; XCTAssertFalse(s.peeking); XCTAssertTrue(s.hoverEnabled)
     }
     func testDragDwellCanRevealTitlesWithoutHoverSetting() async throws {
         let s = SidebarPresentation(); s.setPreference(true); s.dragging = true
-        s.pointer(true, drag: true); do { let changed = try await waitUntil({ s.peeking }); XCTAssertTrue(changed) }
+        s.pointer(true, drag: true); try await eventually("sidebar peek") { s.peeking }
         s.pointer(false); try await pause(380); XCTAssertTrue(s.peeking)
-        s.dragging = false; do { let changed = try await waitUntil({ !s.peeking }); XCTAssertTrue(changed) }
+        s.dragging = false; try await eventually("peek dismissed") { !s.peeking }
     }
     func testTooltipStationaryTimingRestartAndDismiss() async throws {
         let tooltip = SidebarTooltip(), first = UUID(), second = UUID()
@@ -297,7 +302,7 @@ import XCTest
         let tab = try XCTUnwrap(c.session.selectedTab)
         c.sidebarTooltip.hover(id: tab.id, text: SidebarTabs.label(tab, selected: true))
         try await pause(650); XCTAssertTrue(w.firstResponder === responder)
-        c.sidebar.pointer(true); do { let changed = try await waitUntil({ c.sidebar.peeking }); XCTAssertTrue(changed) }
+        c.sidebar.pointer(true); try await eventually("sidebar peek") { c.sidebar.peeking }
         c.toggleSidebar(); XCTAssertFalse(c.compactSidebar); XCTAssertFalse(c.sidebar.peeking)
         XCTAssertEqual(c.sidebar.reservation, MacBrowserLayout.sidebarWidth)
     }
@@ -406,8 +411,7 @@ import XCTest
                   let path = list.sidebar?.path(for: tab.id) else { return nil }
             return list.item(at: path)?.view
         }
-        let hasRow = try await waitUntil { row() != nil }
-        XCTAssertTrue(hasRow)
+        try await eventually("native sidebar row") { row() != nil }
         let row = try XCTUnwrap(row())
         row.identifier = nil
         let content = try XCTUnwrap(w.contentView)
@@ -416,8 +420,7 @@ import XCTest
         XCTAssertFalse(c.session.tabs.contains { $0.id == tab.id })
 
         c.searchTabs()
-        let hasPanel = try await waitUntil { target(.searchPanel) != nil }
-        XCTAssertTrue(hasPanel)
+        try await eventually("native rail search panel") { target(.searchPanel) != nil }
         let panel = try XCTUnwrap(target(.searchPanel))
         panel.identifier = nil
         try click(at: center(panel))

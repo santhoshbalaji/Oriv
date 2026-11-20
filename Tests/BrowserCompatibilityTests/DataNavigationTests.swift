@@ -32,7 +32,7 @@ import XCTest
         try await body(session, tab)
     }
 
-    private func waitUntil(_ ready: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+    private func waitUntil(_ ready: @MainActor () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
         try await waitForFixtureCondition("data navigation or download", timeout: 30, file: file, line: line, ready)
     }
 

@@ -18,12 +18,8 @@ import XCTest
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<100 {
-            if condition() { return }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTFail("Private window presentation did not settle")
+    private func waitUntil(_ condition: @MainActor () -> Bool) async throws {
+        try await eventually("private window presentation", timeout: 2, poll: .milliseconds(20), condition)
     }
 
     func testEachRequestPresentsOwnWindowOnNextMainTurnAndDeduplicatesLayout() async {

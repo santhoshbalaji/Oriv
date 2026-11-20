@@ -46,10 +46,8 @@ import SwiftUI
 @MainActor final class TabReclamationIntegrationTests: BackgroundUITestCase {
     private let base = URL(string: "http://127.0.0.1:8768")!
 
-    private func wait(_ condition: () -> Bool) async throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + 20
-        while !condition() && ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(for: .milliseconds(30)) }
-        XCTAssertTrue(condition())
+    private func wait(_ condition: @MainActor () -> Bool) async throws {
+        try await eventually("browser restoration", timeout: 20, poll: .milliseconds(30), condition)
     }
 
     func testDiscardedTabRestoresOnSelectionWithBackForwardAndScroll() async throws {

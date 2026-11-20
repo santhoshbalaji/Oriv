@@ -7,10 +7,8 @@ import XCTest
 
 @MainActor final class BrowserQualityIntegrationTests: BackgroundUITestCase {
     private let base = URL(string: "http://127.0.0.1:8768")!
-    private func wait(_ message: String, until condition: () -> Bool) async throws {
-        let end = Date().addingTimeInterval(20)
-        while !condition() && Date() < end { try await Task.sleep(for: .milliseconds(40)) }
-        XCTAssertTrue(condition(), message)
+    private func wait(_ message: String, until condition: @MainActor () -> Bool) async throws {
+        try await eventually(message, timeout: 20, condition)
     }
     func testSiteRulesPersistByExactOriginAndPrivateRulesNeverPersist() throws {
         let name = "OrivQuality-\(UUID())"

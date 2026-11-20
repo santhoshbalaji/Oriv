@@ -223,6 +223,7 @@ targets:
     sources:
     - Tests/BrowserMacTests
     - Tests/BrowserCompatibilityTests
+    - Tests/Support
     dependencies:
     - target: PersonalBrowser
     - package: BrowserKit
@@ -239,6 +240,7 @@ targets:
     platform: iOS
     sources:
     - Tests/BrowserCompatibilityTests
+    - Tests/Support
     - Tests/MobileGestureTests
     - Packages/BrowserKit/Tests/BrowserEngineTests/TabGestureTests.swift
     dependencies:

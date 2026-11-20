@@ -200,7 +200,7 @@ import UIKit
         final.shutdown()
     }
     private func wait(_ condition: String = "the fixture condition", file: StaticString = #filePath, line: UInt = #line,
-                      _ predicate: () -> Bool) async throws {
+                      _ predicate: @MainActor () -> Bool) async throws {
         try await waitForFixtureCondition(condition, timeout: 20, file: file, line: line, predicate)
     }
 }
@@ -233,46 +233,6 @@ import UIKit
     }
 }
 #endif
-
-private let webFixtureTimeoutScale: Double = {
-    #if os(iOS)
-    if let value = ProcessInfo.processInfo.environment["ORIV_CI_TIMEOUT_SCALE"],
-       let scale = Double(value), (1...4).contains(scale) {
-        return scale
-    }
-    #endif
-    return 1
-}()
-
-func webFixtureTimeout(_ seconds: TimeInterval) -> TimeInterval {
-    // Any callback can be the first one to reach a cold WebContent process.
-    webFixtureTimeoutScale > 1 ? max(20, seconds) * webFixtureTimeoutScale : seconds
-}
-
-private func logSlowWebWait(_ description: String, started: ContinuousClock.Instant,
-                            timeout: TimeInterval, file: StaticString, line: UInt) {
-    let elapsed = started.duration(to: .now)
-    if webFixtureTimeoutScale > 1, elapsed > .seconds(timeout) {
-        print("ORIV_SLOW_WEB_WAIT \(URL(fileURLWithPath: String(describing: file)).lastPathComponent):\(line) \(description) took \(elapsed) (local limit \(timeout)s)")
-    }
-}
-
-@MainActor func waitForFixtureCondition(_ description: String, timeout: TimeInterval,
-                                    file: StaticString = #filePath, line: UInt = #line,
-                                    _ predicate: () async throws -> Bool) async throws {
-    let started = ContinuousClock.now
-    let deadline = started + .seconds(webFixtureTimeout(timeout))
-    while true {
-        if try await predicate() {
-            logSlowWebWait(description, started: started, timeout: timeout, file: file, line: line)
-            return
-        }
-        guard ContinuousClock.now < deadline else { break }
-        try await Task.sleep(for: .milliseconds(40))
-    }
-    _ = try XCTUnwrap(nil as Bool?, "Timed out waiting for \(description) after \(webFixtureTimeout(timeout))s",
-                      file: file, line: line)
-}
 
 @MainActor func waitForWebFixture(_ tab: BrowserTab, at url: URL, timeout: TimeInterval = 20,
                                   file: StaticString = #filePath, line: UInt = #line,

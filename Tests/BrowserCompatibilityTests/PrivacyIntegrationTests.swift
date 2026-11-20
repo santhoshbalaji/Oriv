@@ -83,7 +83,7 @@ import UIKit
         hostedTabs.insert(tab.id)
     }
     #endif
-    private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
+    private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: @MainActor () -> Bool) async throws {
         try await waitForFixtureCondition("the privacy fixture", timeout: 40, file: file, line: line, condition)
     }
     private func load(_ tab: BrowserTab, _ path: String = "/privacy") async throws {

@@ -12,12 +12,7 @@ import XCTest
     ]
 
     private func wait(_ condition: @escaping @MainActor () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(40)
-        while Date() < deadline {
-            if condition() { return }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        throw NSError(domain: "AdBlockingTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture timed out"])
+        try await eventually("ad blocking fixture", timeout: 40, poll: .milliseconds(50), condition)
     }
 
     private func load(_ tab: BrowserTab, host: String = "127.0.0.1") async throws -> [String] {

@@ -20,10 +20,8 @@ import XCTest
         BackgroundUIMode.show(window)
         return window
     }
-    private func wait(_ message: String, condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        _ = try XCTUnwrap(condition() ? true : nil, message)
+    private func wait(_ message: String, condition: @MainActor () -> Bool) async throws {
+        try await eventually(message, poll: .milliseconds(20), condition)
     }
     private func keyEvent(_ code: UInt16, _ text: String, modifiers: NSEvent.ModifierFlags = [], in window: NSWindow? = nil) throws -> NSEvent {
         try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,

@@ -311,7 +311,7 @@ import WebKit
 
     }
 
-    private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
+    private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: @MainActor () -> Bool) async throws {
         try await waitForFixtureCondition("the UIKit WebView fixture", timeout: 10, file: file, line: line, condition)
     }
 }

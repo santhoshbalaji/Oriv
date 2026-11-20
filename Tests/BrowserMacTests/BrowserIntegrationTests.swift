@@ -83,9 +83,7 @@ final class BrowserIntegrationTests: BackgroundUITestCase {
     }
 
     private func waitUntil(_ description: String, _ condition: @escaping @MainActor () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(15)
-        while !condition() && Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
-        XCTAssertTrue(condition(), description)
+        try await eventually(description, timeout: 15, poll: .milliseconds(50), condition)
     }
 
     private func waitForScript(_ expression: String, in view: WKWebView) async throws {
