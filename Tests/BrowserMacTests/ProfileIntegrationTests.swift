@@ -96,6 +96,16 @@ import XCTest
         XCTAssertEqual(BrowserSettings(defaults: ad).defaultZoom, 1.5)
     }
 
+    func testNamedProfileDoesNotReadPersonalDefaults() throws {
+        let suite = "OrivProfileTest-\(UUID())"
+        let key = "OrivTestPersonalOnly-\(UUID())"
+        let named = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { UserDefaults.standard.removeObject(forKey: key); named.removePersistentDomain(forName: suite) }
+        UserDefaults.standard.set("personal", forKey: key)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: key), "personal")
+        XCTAssertNil(named.object(forKey: key))
+    }
+
     func testSwitchIsBlockedDuringPageExportAndDoesNotChangeCurrentProfile() throws {
         let profiles = BrowserProfiles(testing: true)
         defer { profiles.shutdown() }

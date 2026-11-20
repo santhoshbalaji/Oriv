@@ -15,6 +15,10 @@ for relative in ('Apps', 'Packages/BrowserKit/Sources'):
         cloud_allowed = transport or timing_probe
         if re.search(r'^(?:@preconcurrency )?import (ProductivityKit|AssistantKit|EventKit)\b', text, re.M) or (not cloud_allowed and re.search(r'^(?:@preconcurrency )?import CloudKit\b', text, re.M)):
             failures.append(f'{path.relative_to(root)} imports a retired service')
+        # Profile preferences go through SessionFactory's named defaults, never the app domain.
+        for key in re.findall(r'@AppStorage\s*\(\s*([^,)]+)', text):
+            if key.strip() != 'SidebarGlassOpacity.preferenceKey':
+                failures.append(f'{path.relative_to(root)} uses @AppStorage for a key without app-wide scope')
         favicon = path.relative_to(root).as_posix() == 'Packages/BrowserKit/Sources/BrowserEngine/SiteIconStore.swift'
         if favicon and ('URLSessionConfiguration.ephemeral' not in text or 'configuration.urlCache = nil' not in text or 'URLSession.shared' in text):
             failures.append('Site icons must use an ephemeral, uncached page-derived transport')
