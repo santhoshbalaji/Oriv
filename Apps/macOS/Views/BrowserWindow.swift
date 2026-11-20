@@ -339,7 +339,11 @@ struct BrowserWindow: View {
                                 if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
                             }.font(OrivType.detail).foregroundStyle(chromeForeground).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
                         }.buttonStyle(MacChromeButtonStyle()).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
-                            .popover(isPresented: $showSiteInfo) { SiteInformationView(session: session, tab: tab) }
+                            .popover(isPresented: $showSiteInfo) {
+                                SiteInformationView(session: session, tab: tab)
+                                    .preferredColorScheme(colorScheme)
+                                    .environment(\.colorScheme, colorScheme)
+                            }
                     } else {
                         Image(systemName: "magnifyingglass").font(OrivType.detail)
                             .foregroundStyle(chromeForeground).accessibilityHidden(true)
@@ -396,7 +400,11 @@ struct BrowserWindow: View {
             .help("Site Privacy").accessibilityLabel("Site Privacy")
             .accessibilityIdentifier("sitePrivacyButton")
             .browserGeometryMarker("browserPrivacyGeometry")
-            .popover(isPresented: $showProtection) { AdBlockingPopover(session: session) }
+            .popover(isPresented: $showProtection) {
+                AdBlockingPopover(session: session)
+                    .preferredColorScheme(colorScheme)
+                    .environment(\.colorScheme, colorScheme)
+            }
             if showsExpandedToolbarActions {
                 if let url = tab?.url {
                     ShareLink(item: URLCleaner.clean(url)) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
@@ -431,22 +439,7 @@ struct BrowserWindow: View {
     private var panels: some View {
         shell
         .sheet(isPresented: $showTabs) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack { Text("Tabs").font(.title2); Spacer(); Button("Done") { showTabs = false }.keyboardShortcut(.cancelAction) }
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))]) {
-                        ForEach(session.orderedTabs) { item in
-                            Button { session.selectTab(item.id); showTabs = false } label: {
-                                PageRowContent(title: item.displayTitle, url: item.url, isPrivate: item.isPrivate,
-                                               isSelected: item.id == session.selectedTabID,
-                                               accessory: item.id == session.selectedTabID ? .selected : .none)
-                                    .padding(16).frame(maxWidth: .infinity, minHeight: 90)
-                                    .background(item.id == session.selectedTabID ? theme.selection : theme.surface, in: .rect(cornerRadius: 12))
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                }
-            }.padding(24).frame(width: 760, height: 500)
+            MacTabOverview(session: session) { showTabs = false }
         }
         .sheet(item: $controller.library) { section in
             LibraryView(controller: controller, profiles: profiles, section: section)
@@ -520,6 +513,7 @@ struct BrowserWindow: View {
                             .buttonStyle(.borderless).accessibilityLabel("Close find bar")
                     }
                     .padding(10)
+                    .browserGeometryMarker("browserFindBarGeometry")
                     Divider()
                 }
                 if let tab {
@@ -625,6 +619,38 @@ struct MacAddressGlass: ViewModifier {
 
 /// Disabled navigation keeps its disabled action/AX state without reducing the
 /// glyph's contrast against a page of arbitrary colour.
+struct MacTabOverview: View {
+    @Environment(\.browserTheme) private var theme
+    let session: BrowserSession
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Tabs").font(.title2)
+                Spacer()
+                Button("Done", action: dismiss).keyboardShortcut(.cancelAction)
+            }
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))]) {
+                    ForEach(session.orderedTabs) { tab in
+                        let selected = tab.id == session.selectedTabID
+                        Button {
+                            session.selectTab(tab.id)
+                            dismiss()
+                        } label: {
+                            PageRowContent(title: tab.displayTitle, url: tab.url, isPrivate: tab.isPrivate,
+                                           isSelected: selected, accessory: selected ? .selected : .none)
+                                .padding(16).frame(maxWidth: .infinity, minHeight: 90)
+                                .background(selected ? theme.selection : theme.surface, in: .rect(cornerRadius: 12))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+        }.padding(24).frame(width: 760, height: 500)
+    }
+}
+
 struct MacChromeButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         MacChromeButtonFace(label: configuration.label, pressed: configuration.isPressed)

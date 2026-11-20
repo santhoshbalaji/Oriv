@@ -64,6 +64,7 @@ import WebKit
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-github" { await renderGitHubFavicon(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "phase5" { await renderProfileSwipeScenes(into: directory) }
+        else if environment["ORIV_GLASS_SCENE"] == "settings-audit" { await renderSettingsAudit(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "phase2" { await renderThemeScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "phase2-contrast" { await renderThemeContrast(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-rtl" { await renderRightToLeft(into: directory, activate: activate) }
@@ -233,6 +234,88 @@ import WebKit
             }
             profiles.shutdown()
         }
+    }
+
+    private static func renderSettingsAudit(into directory: URL) async {
+        manifest.limitations.append("Sheets and popovers are hosted as content in owned offscreen windows. Browser Actions shows the production toolbar trigger; the native tracking menu requires foreground verification.")
+        for (name, appearance) in [("light", BrowserAppearance.light), ("dark", .dark), ("t3-code", .t3Code)] {
+            let profiles = seededProfiles()
+            defer { profiles.shutdown() }
+            let controller = profiles.controller
+            controller.appearance = appearance
+            let session = controller.session
+            guard let work = try? profiles.create(name: "Work", color: .ocean, symbol: .work) else {
+                manifest.failures.append("Settings audit could not create the fixture profile")
+                return
+            }
+            let prefix = "mac-glass-settings-audit-\(name)"
+            for pane in SettingsPane.allCases {
+                await capture("\(prefix)-\(pane.rawValue)", directory, CGSize(width: 640, height: 580),
+                              key: false, settle: 350, toolbarStyle: .preference, appearance: appearance, applyBrowserAppearance: false) {
+                    AppearanceSettings(appearance: .constant(appearance), controller: controller,
+                                       profiles: profiles, initialPane: pane)
+                }
+            }
+            await capture("\(prefix)-website-data", directory, CGSize(width: 600, height: 520), key: false, settle: 500, appearance: appearance) {
+                WebsiteDataView(manager: session.websiteData)
+            }
+            await capture("\(prefix)-clear-browsing-data", directory, CGSize(width: 520, height: 340), key: false, settle: 350, appearance: appearance) {
+                ClearBrowsingDataView(session: session)
+            }
+            await capture("\(prefix)-profiles-manager", directory, CGSize(width: 700, height: 560), key: false, settle: 350, appearance: appearance) {
+                ProfilesSheet(profiles: profiles)
+            }
+            await capture("\(prefix)-delete-profile", directory, CGSize(width: 420, height: 200), key: false, settle: 350, appearance: appearance) {
+                DeleteProfileConfirmation(profile: work, confirm: {})
+            }
+            await capture("\(prefix)-acknowledgements", directory, CGSize(width: 600, height: 570), key: false, settle: 350, appearance: appearance) {
+                PrivacyAcknowledgements()
+            }
+            await capture("\(prefix)-site-privacy-popover", directory, CGSize(width: 360, height: 620), key: false, settle: 350, appearance: appearance) {
+                AdBlockingPopover(session: session)
+            }
+            await capture("\(prefix)-password-help-popover", directory, CGSize(width: 340, height: 400), key: false, settle: 350, appearance: appearance) {
+                PasswordsGuide(compact: true)
+            }
+            for section in [LibrarySection.bookmarks, .history, .downloads] {
+                await capture("\(prefix)-library-\(section.id.lowercased())", directory, CGSize(width: 760, height: 540),
+                              key: false, settle: 350, appearance: appearance) {
+                    LibraryView(controller: controller, profiles: profiles, section: section)
+                }
+            }
+            await capture("\(prefix)-tab-overview", directory, CGSize(width: 760, height: 500), key: false, settle: 350, appearance: appearance) {
+                MacTabOverview(session: session, dismiss: {})
+            }
+            let browserSize = CGSize(width: 1120, height: 700)
+            await capture("\(prefix)-find-bar-and-browser-actions-trigger", directory, browserSize,
+                          key: false, settle: 350, appearance: appearance, prepare: { window in
+                controller.findRequest += 1
+                let deadline = ContinuousClock.now + .seconds(5)
+                while self.snapshotMarker("browserFindBarGeometry", in: window.contentView) == nil && ContinuousClock.now < deadline {
+                    try? await Task.sleep(for: .milliseconds(40))
+                }
+                for identifier in ["browserFindBarGeometry", "browserPageMenuGeometry"] {
+                    if self.snapshotMarker(identifier, in: window.contentView) == nil {
+                        manifest.failures.append("\(prefix) missing \(identifier)")
+                    }
+                }
+            }) {
+                BrowserWindow(controller: controller, profiles: profiles)
+                    .environment(\.chromeReduceTransparencyOverride, true)
+            }
+            let privateID = profiles.createPrivateWindow()
+            if let context = profiles.privateWindows[privateID] {
+                await capture("\(prefix)-private-window", directory, browserSize, key: false, settle: 350, appearance: appearance) {
+                    BrowserWindow(controller: context).environment(\.chromeReduceTransparencyOverride, true)
+                }
+            }
+        }
+    }
+
+    private static func snapshotMarker(_ identifier: String, in view: NSView?) -> NSView? {
+        guard let view else { return nil }
+        if view.identifier?.rawValue == identifier, !view.bounds.isEmpty { return view }
+        return view.subviews.lazy.compactMap { snapshotMarker(identifier, in: $0) }.first
     }
 
     private static func renderThemeContrast(into directory: URL) async {
@@ -1400,10 +1483,15 @@ import WebKit
                                                compositeWeb webView: WKWebView? = nil, toolbarStyle: NSWindow.ToolbarStyle = .unified,
                                                expectedFields: [String: String] = [:],
                                                appearance: BrowserAppearance = .t3Code,
+                                               applyBrowserAppearance: Bool = true,
                                                covered: Bool = false,
                                                prepare: (NSWindow) async -> Void = { _ in },
                                                @ViewBuilder content: () -> Content) async {
-        let hosting = NSHostingController(rootView: content().browserAppearance(appearance))
+        @ViewBuilder func rootView() -> some View {
+            if applyBrowserAppearance { content().browserAppearance(appearance) }
+            else { content() }
+        }
+        let hosting = NSHostingController(rootView: rootView())
         hosting.sceneBridgingOptions = [.toolbars, .title]
         let liveGlass = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"]?.isEmpty == false || ProcessInfo.processInfo.environment["ORIV_LIVE_SITES"]?.isEmpty == false
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]

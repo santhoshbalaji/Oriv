@@ -7,6 +7,7 @@ struct LibraryView: View {
     let controller: BrowserController
     var profiles: BrowserProfiles? = nil
     @State var section: LibrarySection
+    @FocusState private var focusedSection: LibrarySection?
     @State private var search = ""
     @State private var historyOffset = 0
     @State private var confirmClear = false
@@ -33,13 +34,7 @@ struct LibraryView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            List(selection: $section) {
-                ForEach(LibrarySection.allCases) { item in
-                    Label(item.rawValue, systemImage: item.symbol).padding(.vertical, 3).tag(item)
-                }
-            }.listStyle(.sidebar).tint(theme.accent).accentColor(theme.accent)
-            .scrollContentBackground(.hidden).padding(.top, OrivSpacing.medium)
-            .frame(width: 174).background(theme.canvas)
+            sectionNavigation
             Divider()
             VStack(spacing: 0) {
                 HStack(alignment: .firstTextBaseline) {
@@ -94,6 +89,45 @@ struct LibraryView: View {
         .confirmationDialog("Clear browsing history?", isPresented: $confirmClear) {
             Button("Clear History", role: .destructive) { controller.session.clearHistory() }
         } message: { Text("This removes your history list. Bookmarks and website login data will remain.") }
+    }
+
+    private var sectionNavigation: some View {
+        VStack(spacing: 4) {
+            ForEach(LibrarySection.allCases) { item in
+                Button { section = item } label: {
+                    Label(item.rawValue, systemImage: item.symbol)
+                        .font(OrivType.body.weight(section == item ? .semibold : .regular))
+                        .foregroundStyle(section == item ? theme.text : theme.secondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(section == item ? theme.selection : .clear, in: .rect(cornerRadius: OrivRadius.small))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusable()
+                .focused($focusedSection, equals: item)
+                .accessibilityAddTraits(section == item ? [.isSelected] : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .onMoveCommand { direction in
+            guard let focusedSection, let index = LibrarySection.allCases.firstIndex(of: focusedSection) else { return }
+            let offset: Int
+            switch direction {
+            case .up: offset = -1
+            case .down: offset = 1
+            default: return
+            }
+            let destination = index + offset
+            guard LibrarySection.allCases.indices.contains(destination) else { return }
+            section = LibrarySection.allCases[destination]
+            self.focusedSection = section
+        }
+        .padding(.top, OrivSpacing.medium)
+        .padding(.horizontal, OrivSpacing.small)
+        .frame(width: 174)
+        .background(theme.canvas)
     }
 
     @ViewBuilder private var contents: some View {

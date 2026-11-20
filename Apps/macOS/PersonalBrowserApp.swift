@@ -76,7 +76,6 @@ struct PersonalBrowserApp: App {
         Settings {
             AppearanceSettings(appearance: Binding(get: { controller.appearance }, set: { controller.appearance = $0 }), controller: controller, profiles: profiles)
                 .id(profiles.active.id)
-                .browserAppearance(appearance)
         }
     }
 

@@ -1,13 +1,29 @@
+import AppKit
 import SwiftUI
 import BrowserCore
 import BrowserEngine
 
 enum SettingsPane: String, CaseIterable, Hashable {
     case general, profiles, continuity, appearance, privacy, passwords, about
+
+    var title: String { rawValue.capitalized }
+    var identifier: NSToolbarItem.Identifier { .init(rawValue: rawValue) }
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .profiles: "person.crop.rectangle.stack"
+        case .continuity: "laptopcomputer.and.iphone"
+        case .appearance: "paintpalette"
+        case .privacy: "shield.lefthalf.filled"
+        case .passwords: "key"
+        case .about: "info.circle"
+        }
+    }
 }
 
 struct AppearanceSettings: View {
-    @Environment(\.browserTheme) private var theme
+    @Environment(\.colorSchemeContrast) private var contrast
+    private var theme: Theme { appearance.theme.respecting(contrast) }
     @Binding var appearance: BrowserAppearance
     @AppStorage(SidebarGlassOpacity.preferenceKey) private var sidebarGlassOpacity: SidebarGlassOpacity = .balanced
     let controller: BrowserController
@@ -20,21 +36,39 @@ struct AppearanceSettings: View {
     var initialPane: SettingsPane = .general
     @State private var pane: SettingsPane?
     private let runtime = BrowserRuntime.current
+    private var panes: [SettingsPane] {
+        SettingsPane.allCases.filter { profiles != nil || ($0 != .profiles && $0 != .continuity) }
+    }
+    private var selectedPane: SettingsPane {
+        let selection = pane ?? initialPane
+        return panes.contains(selection) ? selection : .general
+    }
+
     var body: some View {
-        TabView(selection: Binding(get: { pane ?? initialPane }, set: { pane = $0 })) {
-            generalPanel.tabItem { Label("General", systemImage: "gearshape") }.tag(SettingsPane.general)
-            if let profiles { ProfilesView(profiles: profiles, canSwitch: false).padding(8).tabItem { Label("Profiles", systemImage: "person.crop.rectangle.stack") }.tag(SettingsPane.profiles) }
-            if let profiles { ContinuitySettingsView(continuity: profiles.continuity).tabItem { Label("Continuity", systemImage: "laptopcomputer.and.iphone") }.tag(SettingsPane.continuity) }
-            appearancePanel.tabItem { Label("Appearance", systemImage: "paintpalette") }.tag(SettingsPane.appearance)
-            privacyPanel.tabItem { Label("Privacy", systemImage: "shield.lefthalf.filled") }.tag(SettingsPane.privacy)
-            ScrollView { PasswordsGuide() }.tabItem { Label("Passwords", systemImage: "key") }.tag(SettingsPane.passwords)
-            aboutPanel.tabItem { Label("About", systemImage: "info.circle") }.tag(SettingsPane.about)
+        panel
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(OrivSpacing.large)
+            .frame(width: 640, height: 580)
+            .background(theme.canvas)
+            .background {
+                SettingsToolbar(panes: panes, selection: selectedPane) { pane = $0 }
+            }
+            .preferredColorScheme(appearance.colorScheme)
+            .sheet(isPresented: $websiteData) { WebsiteDataView(manager: controller.session.websiteData) }
+            .sheet(isPresented: $clearBrowsingData) { ClearBrowsingDataView(session: controller.session) }
+            .environment(\.browserTheme, theme)
+    }
+
+    @ViewBuilder private var panel: some View {
+        switch selectedPane {
+        case .general: generalPanel
+        case .profiles: if let profiles { ProfilesView(profiles: profiles, canSwitch: false).padding(8) }
+        case .continuity: if let profiles { ContinuitySettingsView(continuity: profiles.continuity) }
+        case .appearance: appearancePanel
+        case .privacy: privacyPanel
+        case .passwords: ScrollView { PasswordsGuide() }
+        case .about: aboutPanel
         }
-        .padding(OrivSpacing.large)
-        .frame(minWidth: 620, idealWidth: 640, minHeight: 460, idealHeight: 580)
-        .navigationTitle("\(AppIdentity.name) Settings")
-        .sheet(isPresented: $websiteData) { WebsiteDataView(manager: controller.session.websiteData) }
-        .sheet(isPresented: $clearBrowsingData) { ClearBrowsingDataView(session: controller.session) }
     }
 
     private var generalPanel: some View {
@@ -80,7 +114,7 @@ struct AppearanceSettings: View {
 
     private var appearancePanel: some View {
         Form {
-            Section("Appearance for the \(controller.profile?.name ?? "Private") profile") {
+            Section {
                 HStack(spacing: OrivSpacing.medium) {
                     ForEach(BrowserAppearance.allCases) { choice in
                         Button { appearance = choice } label: {
@@ -96,6 +130,9 @@ struct AppearanceSettings: View {
                 }
                 Text("System follows your Mac. T3 Code uses black surfaces. Websites keep their own colors.")
                     .font(OrivType.detail).foregroundStyle(theme.secondaryText)
+            } header: {
+                Text("Appearance for the \(controller.profile?.name ?? "Private") profile")
+                    .browserGeometryMarker("settingsAppearanceHeader")
             }
             Section("All profiles") {
                 if let profiles {
@@ -174,5 +211,74 @@ struct AppearanceSettings: View {
                 .font(.callout).foregroundStyle(theme.secondaryText).lineSpacing(3)
             Spacer()
         }.padding(28).frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// AppKit owns the icon, label and accent rendering for each selection item.
+private struct SettingsToolbar: NSViewRepresentable {
+    let panes: [SettingsPane]
+    let selection: SettingsPane
+    let select: (SettingsPane) -> Void
+
+    func makeNSView(context: Context) -> ToolbarHost { ToolbarHost() }
+    func updateNSView(_ view: ToolbarHost, context: Context) {
+        view.panes = panes
+        view.selection = selection
+        view.select = select
+        view.installToolbar()
+    }
+
+    final class ToolbarHost: NSView, NSToolbarDelegate {
+        var panes: [SettingsPane] = []
+        var selection = SettingsPane.general
+        var select: ((SettingsPane) -> Void)?
+        private lazy var settingsToolbar: NSToolbar = {
+            let toolbar = NSToolbar(identifier: "OrivSettings")
+            toolbar.delegate = self
+            toolbar.autosavesConfiguration = false
+            toolbar.allowsUserCustomization = false
+            toolbar.displayMode = .iconAndLabel
+            return toolbar
+        }()
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            installToolbar()
+        }
+
+        func installToolbar() {
+            guard let window, !panes.isEmpty else { return }
+            let identifiers = panes.map(\.identifier)
+            if window.toolbar !== settingsToolbar {
+                window.toolbarStyle = .preference
+                window.styleMask.remove(.fullSizeContentView)
+                window.title = "\(AppIdentity.name) Settings"
+                window.toolbar = settingsToolbar
+            }
+            if settingsToolbar.itemIdentifiers != identifiers { settingsToolbar.itemIdentifiers = identifiers }
+            if settingsToolbar.selectedItemIdentifier != selection.identifier {
+                settingsToolbar.selectedItemIdentifier = selection.identifier
+            }
+        }
+
+        func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { panes.map(\.identifier) }
+        func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { panes.map(\.identifier) }
+        func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { panes.map(\.identifier) }
+
+        func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
+                     willBeInsertedIntoToolbar: Bool) -> NSToolbarItem? {
+            guard let pane = panes.first(where: { $0.identifier == identifier }) else { return nil }
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            item.label = pane.title
+            item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
+            item.target = self
+            item.action = #selector(selectItem(_:))
+            return item
+        }
+
+        @objc private func selectItem(_ item: NSToolbarItem) {
+            if let pane = panes.first(where: { $0.identifier == item.itemIdentifier }) { select?(pane) }
+        }
     }
 }
