@@ -71,7 +71,7 @@ import UIKit
         let detach = try mountWebFixture(tab)
         defer { detach() }
         let draft = URL(string: "https://fixture.invalid/draft")!
-        try await waitForWebFixture(tab, at: draft) {
+        try await waitForWebFixture(tab, at: draft, timeout: webFixtureTimeoutScale > 1 ? 20 : 75) {
             tab.webView.loadHTMLString("<title>Draft document</title><input aria-label='Draft'>", baseURL: draft)
         }
         XCTAssertFalse(session.requiresCloseConfirmation(tab.id))
@@ -201,7 +201,7 @@ import UIKit
     }
     private func wait(_ condition: String = "the fixture condition", file: StaticString = #filePath, line: UInt = #line,
                       _ predicate: () -> Bool) async throws {
-        try await waitForWebCondition(condition, timeout: 20, file: file, line: line, predicate)
+        try await waitForFixtureCondition(condition, timeout: 20, file: file, line: line, predicate)
     }
 }
 
@@ -257,7 +257,7 @@ private func logSlowWebWait(_ description: String, started: ContinuousClock.Inst
     }
 }
 
-@MainActor func waitForWebCondition(_ description: String, timeout: TimeInterval,
+@MainActor func waitForFixtureCondition(_ description: String, timeout: TimeInterval,
                                     file: StaticString = #filePath, line: UInt = #line,
                                     _ predicate: () async throws -> Bool) async throws {
     let started = ContinuousClock.now

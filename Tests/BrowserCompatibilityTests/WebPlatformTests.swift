@@ -12,7 +12,7 @@ import WebKit
         let detach = try mountWebFixture(tab)
         defer { detach() }
         tab.navigate(to: base.appendingPathComponent("standards"))
-        try await waitForWebCondition("standards fixture completion", timeout: 25) { tab.title == "Web platform complete" }
+        try await waitForFixtureCondition("standards fixture completion", timeout: 25) { tab.title == "Web platform complete" }
         let results = try await tab.webView.evaluateJavaScript("window.orivStandardsResults") as? [String: Any]
         XCTAssertEqual(results?.count, 14)
         for (name, result) in results ?? [:] { XCTAssertEqual(result as? Bool, true, "\(name): \(result)") }

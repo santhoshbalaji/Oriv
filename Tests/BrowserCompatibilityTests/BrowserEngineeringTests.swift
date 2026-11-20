@@ -8,8 +8,12 @@ private final class CountingSessionStore: BrowserSessionStore {
     let file: SessionFileStore
     private let lock = NSLock()
     private var attemptCount = 0, writeCount = 0, shouldFail = false
+    private var firstAttempt: ContinuousClock.Instant?
     var attempts: Int { lock.lock(); defer { lock.unlock() }; return attemptCount }
     var writes: Int { lock.lock(); defer { lock.unlock() }; return writeCount }
+    var firstAttemptAt: ContinuousClock.Instant? {
+        lock.lock(); defer { lock.unlock() }; return firstAttempt
+    }
     var fail: Bool {
         get { lock.lock(); defer { lock.unlock() }; return shouldFail }
         set { lock.lock(); shouldFail = newValue; lock.unlock() }
@@ -17,13 +21,19 @@ private final class CountingSessionStore: BrowserSessionStore {
     init(_ root: URL) { file = SessionFileStore(fileURL: root.appendingPathComponent("session.json")) }
     func load() throws -> SessionLoadResult { try file.load() }
     func save(_ snapshot: BrowserSnapshot, discardPrevious: Bool) throws -> Bool {
-        lock.lock(); attemptCount += 1; lock.unlock()
+        lock.lock()
+        if attemptCount == 0 { firstAttempt = .now }
+        attemptCount += 1
+        lock.unlock()
         if fail { throw URLError(.cannotWriteToFile) }
         let wrote = try file.save(snapshot, discardPrevious: discardPrevious)
         if wrote { lock.lock(); writeCount += 1; lock.unlock() }
         return wrote
     }
-    func reset() { lock.lock(); attemptCount = 0; writeCount = 0; lock.unlock() }
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        attemptCount = 0; writeCount = 0; firstAttempt = nil
+    }
 }
 
 /// Real WebKit configuration and delegate paths, with synthetic document state and no network requests.
@@ -105,11 +115,13 @@ private final class CountingSessionStore: BrowserSessionStore {
         var notifications = 0; session.onContinuityChange = { notifications += 1 }
         let tab = try XCTUnwrap(session.selectedTab), view = view(for: tab)
         let changed = URL(string: "https://example.test/changed")!
-        view.pageURL = changed; tab.refresh(from: view)
-        try await Task.sleep(for: .milliseconds(150))
-        XCTAssertEqual(store.writes, 0)
-        let deadline = ContinuousClock.now.advanced(by: .milliseconds(750))
-        while store.writes == 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        view.pageURL = changed
+        let changedAt = ContinuousClock.now
+        tab.refresh(from: view)
+        try await waitForFixtureCondition("the debounced save notification", timeout: 0.9) { notifications > 0 }
+        session.flushPersistence()
+        let firstAttempt = try XCTUnwrap(store.firstAttemptAt)
+        XCTAssertGreaterThanOrEqual(changedAt.duration(to: firstAttempt), .milliseconds(150))
         XCTAssertEqual(store.attempts, 1); XCTAssertEqual(store.writes, 1); XCTAssertEqual(notifications, 1)
         XCTAssertEqual(try store.file.load().snapshot?.tabs.first?.url, changed)
     }

@@ -80,7 +80,7 @@ import WebKit
         defer { detach(); transfer.cancel() }
         var completion: Result<Data, Error>?
         transfer.run(url: URL(string: "http://127.0.0.1:8768/gesture-image.png")!, in: tab.webView) { completion = $0 }
-        try await waitForWebCondition("the WebKit image download", timeout: 20) { completion != nil }
+        try await waitForFixtureCondition("the WebKit image download", timeout: 20) { completion != nil }
         let result = try XCTUnwrap(completion).get()
         XCTAssertEqual(Array(result.prefix(8)), [137,80,78,71,13,10,26,10])
         XCTAssertNotNil(UIImage(data: result))
@@ -312,7 +312,7 @@ import WebKit
     }
 
     private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
-        try await waitForWebCondition("the UIKit WebView fixture", timeout: 10, file: file, line: line, condition)
+        try await waitForFixtureCondition("the UIKit WebView fixture", timeout: 10, file: file, line: line, condition)
     }
 }
 

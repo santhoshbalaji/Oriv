@@ -84,7 +84,7 @@ import UIKit
     }
     #endif
     private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
-        try await waitForWebCondition("the privacy fixture", timeout: 40, file: file, line: line, condition)
+        try await waitForFixtureCondition("the privacy fixture", timeout: 40, file: file, line: line, condition)
     }
     private func load(_ tab: BrowserTab, _ path: String = "/privacy") async throws {
         try hostFixture(tab)
@@ -209,7 +209,7 @@ import UIKit
         let expectedFrames = ["same", "cross"] + additionalFrames
         var results: [String: [String: String]] = [:]
         // A finished top-level navigation can precede delivery of child-frame messages.
-        try await waitForWebCondition("frame reports for \(expectedFrames.joined(separator: ", "))", timeout: 20) {
+        try await waitForFixtureCondition("frame reports for \(expectedFrames.joined(separator: ", "))", timeout: 20) {
             let reports = try await tab.webView.evaluateJavaScript("window.frameResults") as? [String: [String: String]]
             results = try XCTUnwrap(reports)
             return expectedFrames.allSatisfy { results[$0] != nil }

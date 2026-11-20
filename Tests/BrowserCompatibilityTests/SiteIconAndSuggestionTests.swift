@@ -11,7 +11,7 @@ import WebKit
     }
     private func load(_ tab: BrowserTab, run: String = "") async throws {
         tab.navigate(to: URL(string: "http://127.0.0.1:18768/favicon-page?run=\(run)")!)
-        try await waitForWebCondition("the favicon fixture", timeout: 7.5) {
+        try await waitForFixtureCondition("the favicon fixture", timeout: 7.5) {
             tab.webView.title == "Favicon fixture" && !tab.webView.isLoading
         }
     }
@@ -150,12 +150,12 @@ import WebKit
         XCTAssertNil(session.siteIcons.document?(url, false))
         await session.siteIcons.load(url, isPrivate: false)
         XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: false))
-        try await waitForWebCondition("favicon document restoration", timeout: 7.5) {
+        try await waitForFixtureCondition("favicon document restoration", timeout: 7.5) {
             !tab.isRestoringWebView && !tab.isLoading && tab.hasRenderedContent
         }
         XCTAssertNil(session.siteIcons.icon(for: url, isPrivate: false), "Restoration finishing must not discover under the destination cover")
         tab.switchPresentation = nil
-        try await waitForWebCondition("favicon discovery after the handoff", timeout: 5) {
+        try await waitForFixtureCondition("favicon discovery after the handoff", timeout: 5) {
             session.siteIcons.icon(for: url, isPrivate: false) != nil
         }
     }

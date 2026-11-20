@@ -33,7 +33,7 @@ import XCTest
     }
 
     private func waitUntil(_ ready: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
-        try await waitForWebCondition("data navigation or download", timeout: 30, file: file, line: line, ready)
+        try await waitForFixtureCondition("data navigation or download", timeout: 30, file: file, line: line, ready)
     }
 
     func testContentCannotReplaceTopFrameWithDataDocument() async throws {
