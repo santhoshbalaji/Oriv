@@ -110,7 +110,11 @@ struct BrowserWindowChrome: NSViewRepresentable {
                     }
                 })
             }
-            configure()
+            // Never mutate window properties inside SwiftUI's own subview insertion.
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                self.configure()
+            }
         }
         override func layout() { super.layout(); configure() }
         func detach() {
@@ -140,10 +144,13 @@ struct BrowserWindowChrome: NSViewRepresentable {
             if let externalPresentationRequest { externalPresenter.request(externalPresentationRequest, in: window) }
             configuring = true
             defer { configuring = false }
+            // Each setter posts KVO that NSHostingView handles synchronously. Writing
+            // unchanged values while SwiftUI is adding this view crashed the
+            // AttributeGraph during a profile rebuild, so only write real changes.
             if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
-            window.titleVisibility = .hidden
-            window.titlebarSeparatorStyle = .none
-            window.isMovableByWindowBackground = false
+            if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
+            if window.titlebarSeparatorStyle != .none { window.titlebarSeparatorStyle = .none }
+            if window.isMovableByWindowBackground { window.isMovableByWindowBackground = false }
             // There is no NSToolbar to migrate into a separate fullscreen host.
             // The page-colour band and its glass controls stay in the content view
             // through menu reveal and auto-hide, so they share one backing surface.
@@ -157,7 +164,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
             // fixed content. An opaque titlebar prevents the compact profile and
             // toggle showing through the revealed lights. Never derive content
             // spacing from their visibility: revealing them must not move it.
-            window.titlebarAppearsTransparent = !fullscreen
+            if window.titlebarAppearsTransparent == fullscreen { window.titlebarAppearsTransparent = !fullscreen }
             if !fullscreen {
                 for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                     guard let button = window.standardWindowButton(type), let parent = button.superview else { continue }
