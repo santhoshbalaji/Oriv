@@ -166,3 +166,14 @@ The fixtures include populated and cleared history, a private start page, duplic
 titles, native traffic-light geometry and a tab menu command inventory. The colour
 cases use a synthetic glass input and the two opaque accessibility fallbacks in
 both appearances. Native menu tracking and live glass require foreground acceptance.
+
+## Opt-in pre-release accessibility audit
+
+Get the owner's approval before running the foreground XCUITest audit. Run
+`ORIV_A11Y_AUDIT=1 ./scripts/check-accessibility.sh mac` for the Mac start page,
+expanded sidebar, rail, and Settings. Run
+`ORIV_A11Y_AUDIT=1 ORIV_IOS_SIMULATOR_ID=<isolated-simulator-id> ./scripts/check-accessibility.sh iphone`
+for the iPhone start page, tab grid, Library, and Settings. The runner reports
+all issues from `performAccessibilityAudit` and stores its result bundle under
+`build/accessibility.*/`. Both audit schemes are separate from the browser and
+iPhone gates and CI. The audited app launches with disposable browser state.

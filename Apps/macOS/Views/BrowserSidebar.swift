@@ -224,7 +224,7 @@ struct BrowserSidebar: View {
             .padding(.horizontal, peeking ? MacBrowserLayout.railInset : 0)
             .browserGeometryMarker("sidebarNewTabGeometry")
             .focused($utilityFocus, equals: "new-tab")
-            .accessibilityLabel("New Tab").accessibilityIdentifier("newTabButton").help("New Tab (⌘T)")
+            .accessibilityLabel("New Tab").accessibilityIdentifier(railLayout ? "railNewTabButton" : "newTabButton").help("New Tab (⌘T)")
     }
 
     @ViewBuilder private var footer: some View {

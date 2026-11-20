@@ -254,7 +254,49 @@ targets:
         GENERATE_INFOPLIST_FILE: true
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Oriv-Mobile-Dev.app/Oriv-Mobile-Dev"
         BUNDLE_LOADER: "$(TEST_HOST)"
+  OrivAccessibilityMacTests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+    - Tests/AccessibilityAuditTests
+    dependencies:
+    - target: PersonalBrowser
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: PersonalBrowser
+  OrivAccessibilityMobileTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+    - Tests/AccessibilityAuditTests
+    dependencies:
+    - target: OrivMobile
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: OrivMobile
 schemes:
+  OrivAccessibilityMac:
+    build:
+      targets:
+        PersonalBrowser: all
+        OrivAccessibilityMacTests:
+        - test
+    test:
+      config: Debug
+      targets:
+      - OrivAccessibilityMacTests
+  OrivAccessibilityMobile:
+    build:
+      targets:
+        OrivMobile: all
+        OrivAccessibilityMobileTests:
+        - test
+    test:
+      config: Debug
+      targets:
+      - OrivAccessibilityMobileTests
   OrivReleaseMac:
     build:
       targets:

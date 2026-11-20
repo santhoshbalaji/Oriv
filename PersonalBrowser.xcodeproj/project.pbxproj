@@ -94,10 +94,12 @@
 		9A186A7374FDE2C081C4BF3B /* StartPageSites.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1CB1146946ED3C1E2055FC0 /* StartPageSites.swift */; };
 		9C6461D701BCEA947B69CB40 /* SidebarSearchPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D379387B5CB4C2EDCCA550DD /* SidebarSearchPanel.swift */; };
 		9C8A8DE4A4FB4998FBCA8573 /* ExternalPrivateWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E0EC8456692C8BC6A674709 /* ExternalPrivateWindowPresenter.swift */; };
+		9CF8E061ECB412171C1B8EF4 /* AccessibilityAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243D91BF404183996A8BF8A0 /* AccessibilityAuditTests.swift */; };
 		9FFF59A8080C7B6202FF6202 /* ApplePasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442FDE219EF9488DDE1FCC4B /* ApplePasswords.swift */; };
 		A00EDF1C5C477043ACD72BFA /* BrowserEngine in Frameworks */ = {isa = PBXBuildFile; productRef = C375408A17C9A5901B2F1AC9 /* BrowserEngine */; };
 		A3652EF2631DB06537F34BF1 /* BrowserEngine in Frameworks */ = {isa = PBXBuildFile; productRef = BF149061F243B645A72D169D /* BrowserEngine */; };
 		A56BF89B9713036A9A972AB9 /* BrowserCore in Frameworks */ = {isa = PBXBuildFile; productRef = A02C69FDC5057F49DD04C6C1 /* BrowserCore */; };
+		A70453E4355AFCAA2F9224F1 /* AccessibilityAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243D91BF404183996A8BF8A0 /* AccessibilityAuditTests.swift */; };
 		AB90B584BAAC991A9DE7D697 /* MobileGridMorph.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D06EBE2249EBB7DA386317 /* MobileGridMorph.swift */; };
 		AC8BF2F30504BEB3A55BDC44 /* Eventually.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33574558F88C2351D8CE0A3A /* Eventually.swift */; };
 		AF13F7A746597DAD204E0211 /* PrivacyIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC7A7BD6C8E078FD4DE7F5E5 /* PrivacyIntegrationTests.swift */; };
@@ -151,6 +153,20 @@
 			remoteGlobalIDString = 7CD62FBD58963C0052BEFDC5;
 			remoteInfo = OrivMobile;
 		};
+		A107C315373FCAC4C97EBF05 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 06FA9B291CABC488372F664F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7CD62FBD58963C0052BEFDC5;
+			remoteInfo = OrivMobile;
+		};
+		B2EC480A4B31C4DF76FF1DB5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 06FA9B291CABC488372F664F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C206B24713611A992623E62E;
+			remoteInfo = PersonalBrowser;
+		};
 		D690F88790763D96ECAA8FBF /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 06FA9B291CABC488372F664F /* Project object */;
@@ -180,12 +196,14 @@
 		1D670FDB7EB9A853088E58D3 /* TabSwitchGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabSwitchGeometryTests.swift; sourceTree = "<group>"; };
 		1E0EC8456692C8BC6A674709 /* ExternalPrivateWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPrivateWindowPresenter.swift; sourceTree = "<group>"; };
 		23D22D3C8E0E2E8C0A91E90B /* ContinuityIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityIntegrationTests.swift; sourceTree = "<group>"; };
+		243D91BF404183996A8BF8A0 /* AccessibilityAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAuditTests.swift; sourceTree = "<group>"; };
 		27B442D594891DC82B3D250D /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		286D4B2C4819DD7F153AE8D9 /* BrowserShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserShortcutTests.swift; sourceTree = "<group>"; };
 		289DC7D08D4FB51E06534E42 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2916BFF9F5765BBDBBAEEBEA /* TabGestureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGestureTests.swift; sourceTree = "<group>"; };
 		29AA6D131FF5B99423853908 /* PrivacyPasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPasteboard.swift; sourceTree = "<group>"; };
 		2B580B217F14BCBD3EB221E6 /* BrowserWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindow.swift; sourceTree = "<group>"; };
+		2E72E68156A8A7D4CB49FCF0 /* OrivAccessibilityMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrivAccessibilityMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		324BE85EA541CBE4D23483CA /* BrowserChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChromeTests.swift; sourceTree = "<group>"; };
 		33574558F88C2351D8CE0A3A /* Eventually.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Eventually.swift; sourceTree = "<group>"; };
 		36877C393B3085F23A50E040 /* NativeSidebarTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSidebarTabs.swift; sourceTree = "<group>"; };
@@ -241,6 +259,7 @@
 		B48C168AB3FA7165F540E5E1 /* MobileAddressField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAddressField.swift; sourceTree = "<group>"; };
 		B520968FAF229010D4EDB89E /* ExternalPrivateBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPrivateBar.swift; sourceTree = "<group>"; };
 		B5D06EBE2249EBB7DA386317 /* MobileGridMorph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileGridMorph.swift; sourceTree = "<group>"; };
+		B8BFC226032A1CACE0E202CB /* OrivAccessibilityMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OrivAccessibilityMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BF55C942D2FD9E5A4585AEA7 /* ProfileViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViews.swift; sourceTree = "<group>"; };
 		C01487988A72673134598152 /* ContinuityViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityViews.swift; sourceTree = "<group>"; };
 		C1DF54583C3541540EA2CB50 /* ChromeVisualFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromeVisualFixture.swift; sourceTree = "<group>"; };
@@ -413,6 +432,7 @@
 		6B3FF8C69CC7CBFD5960314C /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				8B0676A16EBA4CD792B23C19 /* AccessibilityAuditTests */,
 				37DD78743ACD02B88C2BF9CC /* BrowserCompatibilityTests */,
 				6A3DCCFD77C3887EDEC031BA /* BrowserMacTests */,
 				AA6CF49ACE14509A0A857252 /* MobileGestureTests */,
@@ -462,6 +482,14 @@
 				E0D15ECBA8E716F17D95FD41 /* Info.plist */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		8B0676A16EBA4CD792B23C19 /* AccessibilityAuditTests */ = {
+			isa = PBXGroup;
+			children = (
+				243D91BF404183996A8BF8A0 /* AccessibilityAuditTests.swift */,
+			);
+			path = AccessibilityAuditTests;
 			sourceTree = "<group>";
 		};
 		9C9CA0DB9B8A29FDA218CF1F /* Resources */ = {
@@ -515,6 +543,8 @@
 			isa = PBXGroup;
 			children = (
 				F04E01CD03158BE65CFA6836 /* BrowserMacTests.xctest */,
+				2E72E68156A8A7D4CB49FCF0 /* OrivAccessibilityMacTests.xctest */,
+				B8BFC226032A1CACE0E202CB /* OrivAccessibilityMobileTests.xctest */,
 				D26E00300785A8EE276D2E83 /* OrivMobile.app */,
 				5F9AD26FBDB63B2FF947B0D9 /* OrivMobileTests.xctest */,
 				65AAB65D9489FD4B74BEE7F6 /* PersonalBrowser.app */,
@@ -603,6 +633,24 @@
 			productReference = 5F9AD26FBDB63B2FF947B0D9 /* OrivMobileTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		6AE3C9C5030D5EB46691423A /* OrivAccessibilityMobileTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 01CCC8B2322350584D7914C2 /* Build configuration list for PBXNativeTarget "OrivAccessibilityMobileTests" */;
+			buildPhases = (
+				011DC276977604BBFEF50774 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				60AD125EA43D4F1FB0DA8A2E /* PBXTargetDependency */,
+			);
+			name = OrivAccessibilityMobileTests;
+			packageProductDependencies = (
+			);
+			productName = OrivAccessibilityMobileTests;
+			productReference = B8BFC226032A1CACE0E202CB /* OrivAccessibilityMobileTests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		7CD62FBD58963C0052BEFDC5 /* OrivMobile */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 52B827D6C669BEB73B5EDE67 /* Build configuration list for PBXNativeTarget "OrivMobile" */;
@@ -623,6 +671,24 @@
 			productName = OrivMobile;
 			productReference = D26E00300785A8EE276D2E83 /* OrivMobile.app */;
 			productType = "com.apple.product-type.application";
+		};
+		87DE5C5007FB746280F0B409 /* OrivAccessibilityMacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3901F4CFF84E5B6AA592A7CB /* Build configuration list for PBXNativeTarget "OrivAccessibilityMacTests" */;
+			buildPhases = (
+				964E187827D7C9724EB1D731 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4ADFC2D7CABEC85E76BCFD3E /* PBXTargetDependency */,
+			);
+			name = OrivAccessibilityMacTests;
+			packageProductDependencies = (
+			);
+			productName = OrivAccessibilityMacTests;
+			productReference = 2E72E68156A8A7D4CB49FCF0 /* OrivAccessibilityMacTests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		C206B24713611A992623E62E /* PersonalBrowser */ = {
 			isa = PBXNativeTarget;
@@ -678,6 +744,10 @@
 					43B0A9C5AD066FA6BAFEAB48 = {
 						DevelopmentTeam = "";
 					};
+					6AE3C9C5030D5EB46691423A = {
+						DevelopmentTeam = "";
+						TestTargetID = 7CD62FBD58963C0052BEFDC5;
+					};
 					7CD62FBD58963C0052BEFDC5 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
@@ -692,6 +762,10 @@
 								enabled = 1;
 							};
 						};
+					};
+					87DE5C5007FB746280F0B409 = {
+						DevelopmentTeam = "";
+						TestTargetID = C206B24713611A992623E62E;
 					};
 					C206B24713611A992623E62E = {
 						DevelopmentTeam = "";
@@ -730,6 +804,8 @@
 				7CD62FBD58963C0052BEFDC5 /* OrivMobile */,
 				E2D3B5E0AD111DD4F0A8192F /* BrowserMacTests */,
 				43B0A9C5AD066FA6BAFEAB48 /* OrivMobileTests */,
+				87DE5C5007FB746280F0B409 /* OrivAccessibilityMacTests */,
+				6AE3C9C5030D5EB46691423A /* OrivAccessibilityMobileTests */,
 			);
 		};
 /* End PBXProject section */
@@ -758,6 +834,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		011DC276977604BBFEF50774 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A70453E4355AFCAA2F9224F1 /* AccessibilityAuditTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		86F62D72FF3BFA2F8183034D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -810,6 +894,14 @@
 				4EB191F92276364B53913D00 /* Theme.swift in Sources */,
 				8E64517E9011D47708DE5982 /* VisualSnapshots.swift in Sources */,
 				8701DFFD06629E8A4530C1A1 /* WebPageView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		964E187827D7C9724EB1D731 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9CF8E061ECB412171C1B8EF4 /* AccessibilityAuditTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -914,6 +1006,16 @@
 			target = C206B24713611A992623E62E /* PersonalBrowser */;
 			targetProxy = D690F88790763D96ECAA8FBF /* PBXContainerItemProxy */;
 		};
+		4ADFC2D7CABEC85E76BCFD3E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C206B24713611A992623E62E /* PersonalBrowser */;
+			targetProxy = B2EC480A4B31C4DF76FF1DB5 /* PBXContainerItemProxy */;
+		};
+		60AD125EA43D4F1FB0DA8A2E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7CD62FBD58963C0052BEFDC5 /* OrivMobile */;
+			targetProxy = A107C315373FCAC4C97EBF05 /* PBXContainerItemProxy */;
+		};
 		E204B63CA03ECC9C030908F4 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 7CD62FBD58963C0052BEFDC5 /* OrivMobile */;
@@ -988,6 +1090,23 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Oriv-Mobile-Dev.app/Oriv-Mobile-Dev";
+			};
+			name = Debug;
+		};
+		303E534998E29990E4D02E58 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMacTests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = PersonalBrowser;
 			};
 			name = Debug;
 		};
@@ -1078,6 +1197,40 @@
 				SWIFT_VERSION = 6.0;
 			};
 			name = BrowserDevelopment;
+		};
+		3A0FB7D5489EDF63CB88F111 /* ContinuityDevelopment */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMacTests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = PersonalBrowser;
+			};
+			name = ContinuityDevelopment;
+		};
+		3C3087F89CEB862F73B5D73E /* ContinuityDevelopment */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMobileTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OrivMobile;
+			};
+			name = ContinuityDevelopment;
 		};
 		45BE63F638290214D1FFD282 /* ContinuityDevelopment */ = {
 			isa = XCBuildConfiguration;
@@ -1213,6 +1366,40 @@
 			};
 			name = Debug;
 		};
+		5906814AE4AAB1764C31A394 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMacTests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = PersonalBrowser;
+			};
+			name = Release;
+		};
+		606F22F2327BE049AF3C91C2 /* ContinuityRelease */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMobileTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OrivMobile;
+			};
+			name = ContinuityRelease;
+		};
 		625330239BE401533F157DF5 /* ContinuityRelease */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1284,6 +1471,40 @@
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/$(ORIV_APP_NAME).app/Contents/MacOS/$(ORIV_APP_NAME)";
 			};
 			name = Release;
+		};
+		75183B95FF3158A5B926E1CA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMobileTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OrivMobile;
+			};
+			name = Release;
+		};
+		754091FC8C57AE9F5A50AE2B /* BrowserDevelopment */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMacTests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = PersonalBrowser;
+			};
+			name = BrowserDevelopment;
 		};
 		763162C56917D5CB2A3CA188 /* ContinuityDevelopment */ = {
 			isa = XCBuildConfiguration;
@@ -1365,6 +1586,23 @@
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
+		};
+		8C7065D6EBA55C0D98A55676 /* BrowserDevelopment */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMobileTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OrivMobile;
+			};
+			name = BrowserDevelopment;
 		};
 		91EB31852E851F5CA0191A96 /* ContinuityRelease */ = {
 			isa = XCBuildConfiguration;
@@ -1646,6 +1884,40 @@
 			};
 			name = ContinuityDevelopment;
 		};
+		EA577DA8F949AFF628238F48 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMobileTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OrivMobile;
+			};
+			name = Debug;
+		};
+		EAE4DA124BCF948DAE5DEE45 /* ContinuityRelease */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.personalbrowser.OrivAccessibilityMacTests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = PersonalBrowser;
+			};
+			name = ContinuityRelease;
+		};
 		ED6F389B9C0DCB7DF8F0E72F /* BrowserDevelopment */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1712,6 +1984,30 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		01CCC8B2322350584D7914C2 /* Build configuration list for PBXNativeTarget "OrivAccessibilityMobileTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8C7065D6EBA55C0D98A55676 /* BrowserDevelopment */,
+				3C3087F89CEB862F73B5D73E /* ContinuityDevelopment */,
+				606F22F2327BE049AF3C91C2 /* ContinuityRelease */,
+				EA577DA8F949AFF628238F48 /* Debug */,
+				75183B95FF3158A5B926E1CA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = BrowserDevelopment;
+		};
+		3901F4CFF84E5B6AA592A7CB /* Build configuration list for PBXNativeTarget "OrivAccessibilityMacTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				754091FC8C57AE9F5A50AE2B /* BrowserDevelopment */,
+				3A0FB7D5489EDF63CB88F111 /* ContinuityDevelopment */,
+				EAE4DA124BCF948DAE5DEE45 /* ContinuityRelease */,
+				303E534998E29990E4D02E58 /* Debug */,
+				5906814AE4AAB1764C31A394 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = BrowserDevelopment;
+		};
 		52B827D6C669BEB73B5EDE67 /* Build configuration list for PBXNativeTarget "OrivMobile" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
