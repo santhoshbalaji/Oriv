@@ -139,7 +139,7 @@ struct SiteIconMissCache {
     /// must never restore a sleeping tab or navigate a bookmark/history entry.
     @ObservationIgnored public var document: ((URL, Bool) -> WKWebView?)?
     public init(directory: URL? = nil) { disk = SiteIconDiskCache(directory: directory) }
-    public static func key(_ url: URL, isPrivate: Bool) -> String? {
+    public nonisolated static func key(_ url: URL, isPrivate: Bool) -> String? {
         guard AddressResolver.isWebURL(url), let host = url.host?.lowercased() else { return nil }
         return (isPrivate ? "private:" : "regular:") + (url.scheme ?? "https") + "://" + host + (url.port.map { ":\($0)" } ?? "")
     }

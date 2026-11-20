@@ -47,6 +47,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
         list.setDraggingSourceOperationMask([], forLocal: false)
 
         let scroll = SidebarTabScrollView()
+        scroll.horizontalScrollElasticity = .none
         scroll.drawsBackground = false
         scroll.contentView = SidebarTabClipView()
         scroll.contentView.drawsBackground = false

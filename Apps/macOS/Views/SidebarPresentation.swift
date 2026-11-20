@@ -147,12 +147,14 @@ struct SidebarHitTarget: NSViewRepresentable {
 /// Window-scoped events; no new panel, focus request, polling, or app activation.
 struct SidebarWindowEvents: NSViewRepresentable {
     let controller: BrowserController
+    let profiles: BrowserProfiles?
     let tabList: SidebarListHandle
     let layoutDirection: LayoutDirection
     var dismiss: () -> Void
     func makeNSView(context: Context) -> EventView { EventView() }
     func updateNSView(_ view: EventView, context: Context) {
         view.controller = controller
+        view.profiles = profiles
         view.tabList = tabList
         view.layoutDirection = layoutDirection
         view.dismiss = dismiss
@@ -161,6 +163,7 @@ struct SidebarWindowEvents: NSViewRepresentable {
     static func dismantleNSView(_ view: EventView, coordinator: ()) { view.detach() }
     final class EventView: NSView {
         weak var controller: BrowserController?
+        weak var profiles: BrowserProfiles?
         weak var tabList: SidebarListHandle?
         var dismiss: (() -> Void)?
         var layoutDirection: LayoutDirection = .leftToRight
@@ -172,8 +175,11 @@ struct SidebarWindowEvents: NSViewRepresentable {
             guard window != nil else { return }
             controller?.sidebarWindow = window
             controller?.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp]) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp, .scrollWheel]) { [weak self] event in
                 guard let self, event.window === self.window, let controller = self.controller else { return event }
+                if event.type == .scrollWheel {
+                    return self.routeScroll(event) ? nil : event
+                }
                 self.tabList?.collection?.updateFocusInput(for: event)
                 let tooltipVisible = controller.sidebarTooltip.tabID != nil
                 controller.sidebarTooltip.dismiss()
@@ -199,15 +205,30 @@ struct SidebarWindowEvents: NSViewRepresentable {
                    self.requestCloseTab(at: event.locationInWindow) { return nil }
                 return event
             }
+            for name in [NSWindow.willCloseNotification, NSWindow.didResizeNotification, NSWindow.didResignKeyNotification] {
+                observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        if let self, let window = self.window { self.profiles?.sidebarSwitch.cancel(in: window) }
+                    }
+                })
+            }
             for (name, open) in [(NSMenu.didBeginTrackingNotification, true), (NSMenu.didEndTrackingNotification, false)] {
                 observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.controller?.sidebar.menuOpen = open }
+                    MainActor.assumeIsolated {
+                        self?.controller?.sidebar.menuOpen = open
+                        if open, let window = self?.window { self?.profiles?.sidebarSwitch.cancel(in: window, includingSettle: false) }
+                    }
                 })
             }
             observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.controller?.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled }
             })
         }
+        func routeScroll(_ event: NSEvent) -> Bool {
+            guard let controller, let window, let profiles else { return false }
+            return profiles.sidebarSwitch.route(event, window: window, profiles: profiles, source: controller)
+        }
+
         func requestCloseTab(at point: NSPoint) -> Bool {
             tabList?.collection?.closeTab(at: point) ?? false
         }

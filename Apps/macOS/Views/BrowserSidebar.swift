@@ -1,4 +1,5 @@
 import AppKit
+import BrowserCore
 import BrowserEngine
 import SwiftUI
 
@@ -83,7 +84,7 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
 
 struct BrowserSidebar: View {
     @Environment(\.browserTheme) private var theme
-    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.sidebarContrast) private var contrast
     @Bindable var controller: BrowserController
     var profiles: BrowserProfiles? = nil
     @State var tabList = SidebarListHandle()
@@ -103,18 +104,30 @@ struct BrowserSidebar: View {
     var body: some View {
         let tabs = filteredTabs
         return VStack(spacing: railLayout ? 6 : 0) {
-            if !railLayout { profileHeader.focused($utilityFocus, equals: "profile") }
-            searchField
-            if railLayout { newTab }
-            if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
-                Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 14)
+            VStack(spacing: railLayout ? 6 : 0) {
+                if !railLayout { profileHeader.focused($utilityFocus, equals: "profile") }
+                searchField
+                if railLayout { newTab }
+                if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
+                    Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 14)
+                }
+                NativeSidebarTabs(controller: controller, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
+                                  searching: !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { id, right in
+                    closeToRight = right
+                    closeOthers = id
+                }
+                if !railLayout { newTab.padding(.bottom, MacBrowserLayout.sidebarFooterGap) }
             }
-            NativeSidebarTabs(controller: controller, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
-                              searching: !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { id, right in
-                closeToRight = right
-                closeOthers = id
+            .opacity(!railLayout && profiles?.sidebarSwitch.isCovering == true && !privateWindow ? 0 : 1)
+            .background {
+                if !railLayout, let profiles, profiles.canSwitchProfiles(from: controller) {
+                    ProfileSidebarAnchor(switcher: profiles.sidebarSwitch, controller: controller, list: tabList,
+                                         profileTrailingInset: profileTrailingInset)
+                }
             }
-            if !railLayout { newTab.padding(.bottom, MacBrowserLayout.sidebarFooterGap) }
+            .task(id: profiles.map { $0.available.map(\.id) }) {
+                if !privateWindow { await profiles?.warmProfilePreviews() }
+            }
             if !railLayout, let profiles, profiles.canSwitchProfiles(from: controller) {
                 profileDots(profiles)
             }
@@ -235,28 +248,28 @@ struct BrowserSidebar: View {
         let focusID = utilityFocus.flatMap(UUID.init(uuidString:))
         return ScrollViewReader { proxy in
             ScrollView(.horizontal) {
-            HStack(spacing: 0) {
-                ForEach(Array(available.enumerated()), id: \.element.id) { index, profile in
-                    let selected = profile.id == profiles.active.id
-                    Button {
-                        profiles.switchFromSidebar(profile.id, source: controller)
-                    } label: {
-                        Circle()
-                            .fill(selected ? theme.accent : theme.secondaryText.opacity(contrast == .increased ? 1 : 0.60))
-                            .overlay {
-                                if contrast == .increased { Circle().strokeBorder(theme.text, lineWidth: 1) }
-                            }
-                            .frame(width: selected ? 8 : 6, height: selected ? 8 : 6)
-                            .frame(width: 24, height: 20)
-                            .contentShape(Rectangle())
+                HStack(spacing: 0) {
+                    ForEach(Array(available.enumerated()), id: \.element.id) { index, profile in
+                        let selected = profile.id == profiles.active.id
+                        Button {
+                            profiles.switchFromSidebar(profile.id, source: controller)
+                        } label: {
+                            Circle()
+                                .fill(selected ? theme.accent : theme.secondaryText.opacity(contrast == .increased ? 1 : 0.60))
+                                .overlay {
+                                    if contrast == .increased { Circle().strokeBorder(theme.text, lineWidth: 1) }
+                                }
+                                .frame(width: selected ? 8 : 6, height: selected ? 8 : 6)
+                                .frame(width: 24, height: 20)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain).focusable().focused($utilityFocus, equals: profile.id.uuidString)
+                        .help(profile.name)
+                        .accessibilityLabel("Profile \(index + 1) of \(available.count): \(profile.name)")
+                        .accessibilityAddTraits(selected ? [.isSelected] : [])
+                        .browserGeometryMarker("sidebarProfileDot-\(index)")
                     }
-                    .buttonStyle(.plain).focusable().focused($utilityFocus, equals: profile.id.uuidString)
-                    .help(profile.name)
-                    .accessibilityLabel("Profile \(index + 1) of \(available.count): \(profile.name)")
-                    .accessibilityAddTraits(selected ? [.isSelected] : [])
-                    .browserGeometryMarker("sidebarProfileDot-\(index)")
-                }
-            }.frame(maxWidth: .infinity)
+                }.frame(maxWidth: .infinity)
             }
             .onAppear { proxy.scrollTo(profiles.active.id, anchor: .center) }
             .onChange(of: focusID) { _, id in
@@ -315,6 +328,7 @@ struct SidebarSectionHeading: View {
     @Environment(\.browserTheme) private var theme
     let title: String
     let count: Int
+    var marksGeometry = true
     var body: some View {
         HStack(spacing: 6) {
             if title == "Private" { Image(systemName: "eyeglasses").foregroundStyle(theme.privateAccent) }
@@ -323,7 +337,7 @@ struct SidebarSectionHeading: View {
             if count > 0 { Text("\(count)").font(.system(size: 11)).monospacedDigit() }
         }
         .font(OrivType.title).foregroundStyle(theme.secondaryText)
-        .browserGeometryMarker("sidebarSection-\(title)")
+        .browserGeometryMarker("sidebarSection-\(title)", when: marksGeometry)
         .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 27)
         .padding(.top, title == "Private" ? 8 : (title == "Tabs" || title == "More pinned tabs" ? 4 : 0))
     }
@@ -333,7 +347,13 @@ struct SidebarTabArtwork: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.sidebarContrast) private var contrast
     @Environment(\.dynamicTypeSize) private var textSize
-    let tab: BrowserTab
+    private let tab: BrowserTab?
+    private let record: TabRecord?
+    private let previewIsPrivate: Bool
+    private let id: UUID
+    private var title: String { tab?.displayTitle ?? record?.title ?? "" }
+    private var url: URL? { tab?.url ?? record?.url }
+    private var isPrivate: Bool { tab?.isPrivate ?? previewIsPrivate }
     let selected: Bool
     let active: Bool
     let tile: Bool
@@ -341,30 +361,43 @@ struct SidebarTabArtwork: View {
     let peek: Bool
     let hovered: Bool
     let subtitle: String?
+    var previewIcons: [String: SiteIcon]? = nil
     #if DEBUG
     @Environment(\.sidebarCaptureState) private var captureState
     #endif
 
-    private var loading: Bool {
-        #if DEBUG
-        tab.isLoading || captureState.loading == tab.id
-        #else
-        tab.isLoading
-        #endif
+    init(tab: BrowserTab, selected: Bool, active: Bool, tile: Bool, rail: Bool, peek: Bool,
+         hovered: Bool, subtitle: String?) {
+        self.tab = tab; id = tab.id; record = nil; previewIsPrivate = false
+        self.selected = selected; self.active = active; self.tile = tile; self.rail = rail
+        self.peek = peek; self.hovered = hovered; self.subtitle = subtitle
     }
 
-    private var audio: Bool {
+    init(record: TabRecord, selected: Bool, tile: Bool, subtitle: String?, icons: [String: SiteIcon],
+         isPrivate: Bool = false) {
+        tab = nil; id = record.id; self.record = record; previewIsPrivate = isPrivate
+        self.selected = selected; active = selected; self.tile = tile; self.subtitle = subtitle
+        rail = false; peek = false; hovered = false
+        previewIcons = icons
+    }
+
+    private var loading: Bool {
+        guard let tab else { return false }
         #if DEBUG
-        tab.isPlayingAudio || captureState.audio == tab.id
+        return tab.isLoading || captureState.loading == tab.id
         #else
-        tab.isPlayingAudio
+        return tab.isLoading
         #endif
     }
 
     private var mediaSymbol: String? {
+        guard let tab else { return nil }
         if tab.mediaSuspended { return "pause.circle" }
         if tab.isAudioMuted { return "speaker.slash.fill" }
-        return audio ? "speaker.wave.2.fill" : nil
+        #if DEBUG
+        if captureState.audio == tab.id { return "speaker.wave.2.fill" }
+        #endif
+        return tab.isPlayingAudio ? "speaker.wave.2.fill" : nil
     }
 
     var body: some View {
@@ -374,13 +407,13 @@ struct SidebarTabArtwork: View {
                     .overlay(alignment: .bottomTrailing) {
                         if let mediaSymbol { badge(mediaSymbol) }
                     }
-                    .overlay(alignment: .topTrailing) { if tab.isPrivate { badge("eyeglasses") } }
-                if peek { Text(tab.displayTitle).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
+                    .overlay(alignment: .topTrailing) { if isPrivate { badge("eyeglasses") } }
+                if peek { Text(title).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
             } else {
                 favicon
                 if !tile {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(tab.displayTitle)
+                        Text(title)
                             .font(.system(size: textSize.isAccessibilitySize ? 26 : 13, weight: active ? .medium : .regular))
                             .lineLimit(subtitle == nil && textSize.isAccessibilitySize ? 2 : 1)
                         if let subtitle {
@@ -388,19 +421,19 @@ struct SidebarTabArtwork: View {
                                 .font(.system(size: textSize.isAccessibilitySize ? 17 : 11))
                                 .foregroundStyle(theme.secondaryText)
                                 .lineLimit(1).truncationMode(.middle)
-                                .browserGeometryMarker("sidebarHost-\(tab.id)")
+                                .browserGeometryMarker("sidebarHost-\(id)", when: previewIcons == nil)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     if let mediaSymbol {
                         Image(systemName: mediaSymbol)
                             .font(.system(size: 11)).foregroundStyle(theme.secondaryText)
                             .frame(width: 24, height: 24).padding(.leading, -8)
-                            .browserGeometryMarker("sidebarMedia-\(tab.id)")
+                            .browserGeometryMarker("sidebarMedia-\(id)")
                     }
                     Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.secondaryText).frame(width: 24, height: 24).padding(.leading, -8)
                         .opacity(hovered || selected || active ? 1 : 0)
-                        .browserGeometryMarker("sidebarClose-\(tab.id)")
+                        .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
                 }
             }
         }
@@ -409,9 +442,9 @@ struct SidebarTabArtwork: View {
         .foregroundStyle(theme.text)
         .background(selected ? theme.sidebar.selection : (hovered ? theme.sidebar.hover : (tile && !rail ? theme.sidebar.field.opacity(0.6) : .clear)),
                     in: .rect(cornerRadius: radius))
-        .browserGeometryMarker("sidebarSelection-\(tab.id)", when: active)
+        .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .leading) {
-            if active { SelectionMarker(height: 16, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(tab.id)").padding(.leading, 1) }
+            if active { SelectionMarker(height: 16, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil).padding(.leading, 1) }
         }
         .overlay {
             if selected && contrast == .increased {
@@ -431,8 +464,8 @@ struct SidebarTabArtwork: View {
     private var favicon: some View {
         let size: CGFloat = rail ? 22 : (tile ? 24 : 19)
         return ZStack {
-            SiteIdentity(url: tab.url, size: size, isPrivate: tab.isPrivate, isSelected: active, sidebarIcon: true)
-                .browserGeometryMarker("sidebarFavicon-\(tab.id)")
+            SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true, previewIcons: previewIcons)
+                .browserGeometryMarker("sidebarFavicon-\(id)", when: previewIcons == nil)
             if loading {
                 Circle().trim(from: 0, to: 0.75).stroke(theme.accent, lineWidth: 2)
                     .frame(width: rail ? 26 : 24, height: rail ? 26 : 24)

@@ -99,6 +99,36 @@ import XCTest
         }
     }
 
+    func testProfileArrowShortcutsAreUniqueAndProfileNavigationUsesAvailableOrder() throws {
+        func items(_ menu: NSMenu) -> [NSMenuItem] {
+            menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) }
+        }
+        let all = items(try XCTUnwrap(NSApp.mainMenu))
+        for (title, key) in [("Previous Profile", "\u{f702}"), ("Next Profile", "\u{f703}")] {
+            let matches = all.filter {
+                $0.keyEquivalent == key &&
+                $0.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control]) == [.command, .option]
+            }
+            XCTAssertEqual(matches.map(\.title), [title])
+        }
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let second = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        let third = try profiles.create(name: "Reading", color: .fern, symbol: .study)
+        XCTAssertEqual(profiles.relativeProfile(-1, wrapping: true)?.id, third.id)
+        XCTAssertNil(profiles.relativeProfile(-1, wrapping: false))
+        XCTAssertEqual(profiles.relativeProfile(1, wrapping: true)?.id, second.id)
+        try profiles.archive(second.id)
+        XCTAssertEqual(profiles.available.map(\.id), [BrowserProfile.personalID, third.id])
+        let source = profiles.controller
+        let privateID = profiles.createPrivateWindow()
+        let privateController = try XCTUnwrap(profiles.privateWindows[privateID])
+        profiles.switchFromSidebar(third.id, source: privateController)
+        XCTAssertEqual(profiles.active.id, BrowserProfile.personalID)
+        profiles.switchFromSidebar(third.id, source: source)
+        XCTAssertEqual(profiles.active.id, third.id)
+    }
+
     func testPrivateWindowContextsKeepTheirOwnTabsAndDiscardOnClose() throws {
         let profiles = BrowserProfiles(testing: true)
         defer { profiles.shutdown() }

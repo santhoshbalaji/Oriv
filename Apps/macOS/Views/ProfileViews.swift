@@ -59,16 +59,7 @@ struct ProfileMenu: View {
             Button("Manage Profiles…", systemImage: "person.crop.rectangle.stack") { profiles.showManager = true }
         } label: {
             if let tabCount {
-                HStack(spacing: 8) {
-                    Image(systemName: "rectangle.stack").font(.system(size: 17, weight: .semibold)).frame(width: 19)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(profiles.active.name).font(OrivType.profile).lineLimit(1)
-                            .browserGeometryMarker("sidebarProfileNameGeometry")
-                        Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.secondaryText)
-                            .browserGeometryMarker("sidebarProfileCountGeometry")
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
-                }.foregroundStyle(.primary).padding(.horizontal, 8).frame(height: 44).contentShape(Rectangle())
+                ProfileHeaderArtwork(name: profiles.active.name, tabCount: tabCount)
             } else {
                 HStack(spacing: 8) {
                     Image(systemName: profiles.active.symbol.rawValue).foregroundStyle(profiles.active.color.tint(in: theme))
@@ -77,6 +68,26 @@ struct ProfileMenu: View {
                 }.font(.system(size: 12, weight: .medium))
             }
         }
+    }
+}
+
+struct ProfileHeaderArtwork: View {
+    @Environment(\.browserTheme) private var theme
+    let name: String
+    let tabCount: Int
+    var marksGeometry = true
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "rectangle.stack").font(.system(size: 17, weight: .semibold)).frame(width: 19)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(OrivType.profile).lineLimit(1)
+                    .browserGeometryMarker("sidebarProfileNameGeometry", when: marksGeometry)
+                Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                    .browserGeometryMarker("sidebarProfileCountGeometry", when: marksGeometry)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+        }.foregroundStyle(.primary).padding(.horizontal, 8).frame(height: 44).contentShape(Rectangle())
     }
 }
 

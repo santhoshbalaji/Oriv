@@ -164,7 +164,7 @@ struct BrowserWindow: View {
             if !open { restoreSearchFocus() }
         }
         .onDisappear { controller.sidebar.cancel(); controller.sidebarTooltip.dismiss() }
-        .background(SidebarWindowEvents(controller: controller, tabList: sidebarTabs, layoutDirection: layoutDirection, dismiss: dismissSidebarOverlay))
+        .background(SidebarWindowEvents(controller: controller, profiles: controller === profiles?.controller ? profiles : nil, tabList: sidebarTabs, layoutDirection: layoutDirection, dismiss: dismissSidebarOverlay))
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
@@ -551,7 +551,7 @@ struct BrowserWindow: View {
 
     @ViewBuilder private func tabContent(_ tab: BrowserTab) -> some View {
         if tab.url != nil || tab.hasLoaded {
-            WebPageView(tab: tab, chrome: pageChrome, contentUnderChrome: contentUnderChrome, headerInset: MacBrowserLayout.headerHeight, fullscreenChanged: { controller.sidebar.fullscreen($0) })
+            WebPageView(tab: tab, chrome: pageChrome, contentUnderChrome: contentUnderChrome, headerInset: MacBrowserLayout.headerHeight, profileTransition: profiles?.sidebarSwitch.isPresenting(controller.profile?.id) == true, fullscreenChanged: { controller.sidebar.fullscreen($0) })
                 .scrollEdgeEffectStyle(.automatic, for: .top)
 
         }

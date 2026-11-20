@@ -98,6 +98,13 @@ struct AppearanceSettings: View {
                     .font(OrivType.detail).foregroundStyle(theme.secondaryText)
             }
             Section("All profiles") {
+                if let profiles {
+                    Picker("Swipe between profiles", selection: Binding(
+                        get: { profiles.profileSwipePreference }, set: { profiles.profileSwipePreference = $0 }
+                    )) {
+                        ForEach(ProfileSwipePreference.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                }
                 Picker("Glass opacity", selection: $sidebarGlassOpacity) {
                     ForEach(SidebarGlassOpacity.allCases, id: \.self) { choice in
                         Text(choice.rawValue).tag(choice)

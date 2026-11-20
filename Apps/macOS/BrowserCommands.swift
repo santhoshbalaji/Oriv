@@ -73,12 +73,12 @@ struct BrowserCommands: Commands {
                 Divider()
                 Button("Previous Profile") {
                     if let target = profiles.relativeProfile(-1, wrapping: true) {
-                        profiles.switchFromSidebar(target.id, source: controller)
+                        profiles.switchFromSidebar(target.id, source: controller, direction: -1)
                     }
                 }.keyboardShortcut(.leftArrow, modifiers: [.option, .command]).disabled(!canSwitch)
                 Button("Next Profile") {
                     if let target = profiles.relativeProfile(1, wrapping: true) {
-                        profiles.switchFromSidebar(target.id, source: controller)
+                        profiles.switchFromSidebar(target.id, source: controller, direction: 1)
                     }
                 }.keyboardShortcut(.rightArrow, modifiers: [.option, .command]).disabled(!canSwitch)
                 Divider()

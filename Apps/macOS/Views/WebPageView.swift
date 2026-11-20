@@ -7,10 +7,11 @@ struct WebPageView: NSViewRepresentable {
     var chrome: PageChrome? = nil
     var contentUnderChrome = false
     var headerInset: CGFloat = 0
+    var profileTransition = false
     var fullscreenChanged: ((Bool) -> Void)? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    func makeNSView(context: Context) -> WebViewHost { WebViewHost(webView: tab.webView,tab:tab) }
+    func makeNSView(context: Context) -> WebViewHost { WebViewHost(webView: tab.webView, tab: tab, profileTransition: profileTransition) }
     static func dismantleNSView(_ host: WebViewHost, coordinator: ()) { host.switchCover.cancel() }
     func updateNSView(_ host: WebViewHost, context: Context) {
         host.fullscreenChanged = fullscreenChanged
@@ -34,11 +35,12 @@ final class WebViewHost: NSView {
     private weak var tab: BrowserTab?
     let switchCover = TabSwitchCover()
 
-    init(webView: WKWebView,tab:BrowserTab? = nil) {
+    init(webView: WKWebView, tab: BrowserTab? = nil, profileTransition: Bool = false) {
         self.webView = webView
         self.tab = tab
         super.init(frame: .zero)
         clipsToBounds = true
+        switchCover.fadesWhenReady = profileTransition
         addSubview(switchCover)
         attachIfWindowed()
         if let tab { switchCover.begin(tab,in:webView,waitForLayout:true) }
@@ -69,6 +71,7 @@ final class WebViewHost: NSView {
             fullscreenObservation = nil
             webView.removeFromSuperview()
             webView = view; self.tab = tab
+            switchCover.fadesWhenReady = false
             attachIfWindowed(); switchCover.begin(tab,in:view,waitForLayout:true); needsLayout = true; observeFullscreen()
         } else { pendingTab = nil }
         switchCover.confirmIfReady(tab)

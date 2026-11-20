@@ -33,6 +33,13 @@ import Observation
     @ObservationIgnored private let root: URL?
     @ObservationIgnored private let testing: Bool
     @ObservationIgnored private var deleting: Set<UUID> = []
+    @ObservationIgnored private var selectionSave: Task<Void, Never>?
+    @ObservationIgnored private var selectionNeedsSave = false
+    @ObservationIgnored private var profilePreviews: [UUID: ProfileSidebarPreview] = [:]
+    let sidebarSwitch = ProfileSidebarSwitch()
+    var profileSwipePreference: ProfileSwipePreference {
+        didSet { linkDefaults?.set(profileSwipePreference.rawValue, forKey: ProfileSwipePreference.key) }
+    }
     var active: BrowserProfile { registry.profiles.first { $0.id == registry.activeID } ?? .personal }
     var available: [BrowserProfile] { registry.profiles.filter { $0.archivedAt == nil && !continuity.state.isProfileDeleted($0.id) } }
     var archived: [BrowserProfile] { registry.profiles.filter { $0.archivedAt != nil && !continuity.state.isProfileDeleted($0.id) } }
@@ -45,6 +52,8 @@ import Observation
         self.testing = isTesting
         privateTabIsolation = PrivateTabIsolation(defaults: isTesting ? nil : .standard)
         linkDefaults = isTesting ? nil : .standard
+        profileSwipePreference = linkDefaults?.string(forKey: ProfileSwipePreference.key)
+            .flatMap(ProfileSwipePreference.init(rawValue:)) ?? .system
         openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: isTesting ? nil : .standard)
         root = rootDirectory ?? (isTesting ? nil : URL.applicationSupportDirectory.appendingPathComponent("PersonalBrowser", isDirectory: true))
         continuity = BrowserContinuity(root: root, deviceName: "Mac")
@@ -119,6 +128,7 @@ import Observation
         var next = registry
         next.profiles.removeAll { $0.id == profile.id }
         try store?.save(next, preservingPrevious: false)
+        selectionDidSave()
         registry = next
     }
 
@@ -126,6 +136,7 @@ import Observation
         guard canModify else { throw ProfileError.invalidRegistry }
         _ = try next.validated()
         try store?.save(next)
+        selectionDidSave()
         registry = next
         continuity.profilesChanged()
     }
@@ -190,27 +201,79 @@ import Observation
         let profiles = available
         guard profiles.count > 1, let index = profiles.firstIndex(where: { $0.id == active.id }) else { return nil }
         let next = index + step
-        return wrapping ? profiles[(next + profiles.count) % profiles.count] : (profiles.indices.contains(next) ? profiles[next] : nil)
+        if wrapping { return profiles[(next + profiles.count) % profiles.count] }
+        return profiles.indices.contains(next) ? profiles[next] : nil
     }
 
-    func switchFromSidebar(_ id: UUID, source: BrowserController) {
-        guard canSwitchProfiles(from: source), !source.sidebar.dragging else { return }
-        perform { try select(id, focusLocation: false) }
+    func warmProfilePreviews() async {
+        guard let root else { return }
+        let neighbors = [-1, 1].compactMap { relativeProfile($0, wrapping: false) }
+        profilePreviews = profilePreviews.filter { id, _ in neighbors.contains { $0.id == id } }
+        for profile in neighbors where loadedController(profile.id) == nil {
+            let directory = profile.directory(in: root)
+            let read = Task.detached(priority: .utility) { await ProfileSidebarPreview.read(directory: directory) }
+            let preview = await withTaskCancellationHandler { await read.value } onCancel: { read.cancel() }
+            guard !Task.isCancelled else { return }
+            profilePreviews[profile.id] = preview
+        }
     }
 
-    func select(_ id: UUID, focusLocation: Bool = true) throws {
+    func preview(for profile: BrowserProfile) -> ProfileSidebarPreview {
+        if let session = loadedController(profile.id)?.session { return ProfileSidebarPreview(session: session) }
+        return profilePreviews[profile.id] ?? ProfileSidebarPreview()
+    }
+
+    func switchFromSidebar(_ id: UUID, source: BrowserController, direction: Int? = nil) {
+        guard canSwitchProfiles(from: source), !source.sidebar.dragging,
+              let target = available.first(where: { $0.id == id }) else { return }
+        perform { try sidebarSwitch.select(target, profiles: self, source: source, direction: direction) }
+    }
+
+    func select(_ id: UUID, focusLocation: Bool = true, deferSelectionSave: Bool = false) throws {
         guard id != active.id else { return }
         if let reason = switchBlocker { throw BrowserProfileOperationError.unavailable(reason) }
+        guard canModify else { throw ProfileError.invalidRegistry }
         let target = try obtain(id)
-        var next = registry; next.activeID = id
-        // A failed metadata write leaves both the visible profile and its tabs intact.
-        try commit(next)
+        var next = registry
+        next.activeID = id
+        if deferSelectionSave {
+            registry = next
+            scheduleSelectionSave()
+        } else {
+            // The synchronous path leaves the visible profile intact on a write failure.
+            try commit(next)
+        }
         controller.session.saveNow()
         controller.session.setProfileActive(false)
         controller = target
         target.session.setProfileActive(true)
         if focusLocation || target.session.selectedTab?.url == nil { target.focusAddress() }
     }
+
+    private func scheduleSelectionSave() {
+        guard store != nil else { return }
+        selectionNeedsSave = true
+        selectionSave?.cancel()
+        selectionSave = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            self?.flushSelection()
+        }
+    }
+
+    private func flushSelection() {
+        guard selectionNeedsSave else { return }
+        do {
+            try store?.save(registry)
+            selectionDidSave()
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func selectionDidSave() {
+        selectionNeedsSave = false
+        selectionSave?.cancel()
+        selectionSave = nil
+    }
+
     func archive(_ id: UUID) throws {
         guard id != BrowserProfile.personalID, id != active.id, !continuity.state.isProfileDeleted(id) else { throw ProfileError.protectedProfile }
         if let loaded = controllers[id], loaded.downloads.items.contains(where: { !$0.isFinished || $0.isPaused }) || loaded.session.tabs.contains(where: \.hasEditedFields) {
@@ -230,7 +293,10 @@ import Observation
     func perform(_ operation: () throws -> Void) {
         do { try operation() } catch { self.error = error.localizedDescription }
     }
-    func saveAll() { allControllers.forEach { $0.session.saveNow(); $0.session.flushPersistence() } }
+    func saveAll() {
+        flushSelection()
+        allControllers.forEach { $0.session.saveNow(); $0.session.flushPersistence() }
+    }
     func shutdown() { continuity.shutdown(); allControllers.forEach { $0.shutdown() } }
 
     func openContinuityPage(_ page: ContinuityPage) {

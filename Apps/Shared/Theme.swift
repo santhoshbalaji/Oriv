@@ -1,4 +1,5 @@
 import BrowserCore
+import BrowserEngine
 import SwiftUI
 
 /// Selective shared metrics. Deliberate platform geometry (including hit targets) stays local.
@@ -286,6 +287,7 @@ struct SiteIdentity: View {
     var isSelected = false
     var sidebarIcon = false
     var cachedOnly = false
+    var previewIcons: [String: SiteIcon]? = nil
     @Environment(\.colorScheme) private var colorScheme
 
     /// The site's own name (apple in developer.apple.com), not a subdomain such as en. or www.
@@ -298,9 +300,17 @@ struct SiteIdentity: View {
         if host.first?.isLetter != true { return "globe" }
         return nil
     }
+    private var icon: SiteIcon? {
+        if let previewIcons {
+            guard let url, let key = SiteIconStore.key(url, isPrivate: isPrivate) else { return nil }
+            return previewIcons[key]
+        }
+        return icons?.icon(for: url, isPrivate: isPrivate)
+    }
+
     var body: some View {
         ZStack {
-            if let icon = icons?.icon(for: url, isPrivate: isPrivate), sidebarIcon {
+            if let icon, sidebarIcon {
                 // Opaque artwork is full bleed. Transparent glyphs get a plate
                 // only when their dominant luminance would disappear on the panel.
                 if let lightPlate = icon.lightPlate(onDark: colorScheme == .dark, selected: isSelected) {
@@ -308,7 +318,7 @@ struct SiteIdentity: View {
                 }
                 Image(decorative: icon.image, scale: 2).resizable().scaledToFit()
                     .clipShape(.rect(cornerRadius: size * 0.2))
-            } else if let image = icons?.icon(for: url, isPrivate: isPrivate)?.image {
+            } else if let image = icon?.image {
                 RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
                 // A pale plate keeps black/transparent monochrome marks readable
                 // on dark sidebar material as well as light surfaces.
@@ -335,7 +345,7 @@ struct SiteIdentity: View {
             // Sidebar and start-page tiles are cache-only. The
             // session's completed-document path discovers icons. Sleeping
             // regular rows may hydrate their own profile's disk cache only.
-            if let url {
+            if let url, previewIcons == nil {
                 if sidebarIcon || cachedOnly {
                     if !isPrivate { await icons?.loadCached(url) }
                 } else { await icons?.load(url, isPrivate: isPrivate) }

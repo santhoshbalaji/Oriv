@@ -31,6 +31,7 @@ final class TabSwitchCover: CoverView {
     var reduceMotion = false
     var containsSnapshot: Bool { imageView.image != nil }
     #if os(macOS)
+    var fadesWhenReady = false
     private let label = NSTextField(labelWithString: "Loading page…")
     override var isOpaque: Bool { true }
     #else
@@ -174,7 +175,15 @@ final class TabSwitchCover: CoverView {
             #if os(macOS)
             // The public rendering barrier has painted this exact viewport.
             // An instant swap has no inherited SwiftUI or layer animation.
-            self.clear()
+            if self.fadesWhenReady {
+                self.fadesWhenReady = false
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.15
+                    self.animator().alphaValue = 0
+                } completionHandler: {
+                    DispatchQueue.main.async { if self.generation == token { self.clear() } }
+                }
+            } else { self.clear() }
             #else
             if self.reduceMotion { self.clear(); return }
             UIView.animate(withDuration:0.1,delay:0,options:[.beginFromCurrentState,.curveEaseOut]) { self.alpha = 0 } completion: { [weak self] _ in

@@ -63,6 +63,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-live" { await renderLiveSidebar(into: directory, activate: activate) }
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-github" { await renderGitHubFavicon(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "phase5" { await renderProfileSwipeScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "phase2" { await renderThemeScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "phase2-contrast" { await renderThemeContrast(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-rtl" { await renderRightToLeft(into: directory, activate: activate) }
@@ -87,6 +88,90 @@ import WebKit
         do { try encoder.encode(manifest).write(to: directory.appendingPathComponent("manifest.json")) }
         catch { fputs("manifest write failed: \(error)\n", stderr); exit(3) }
         exit(manifest.failures.isEmpty ? 0 : 1)
+    }
+
+    private static func renderProfileSwipeScenes(into directory: URL) async {
+        func seedTabs(_ controller: BrowserController, names: [String]) {
+            for (index, name) in names.enumerated() {
+                let tab = controller.session.addTab(url: URL(string: "https://example.test/\(index)"), select: false, load: false)
+                tab.webView.loadHTMLString("<title>\(name)</title><p>Profile swipe fixture</p>", baseURL: URL(string: "https://example.test"))
+                if index < 2 { controller.session.togglePinned(tab.id) }
+            }
+        }
+        func anchor(in view: NSView) -> ProfileSidebarAnchor.Anchor? {
+            if let anchor = view as? ProfileSidebarAnchor.Anchor, anchor.bounds.width > 0 { return anchor }
+            for child in view.subviews {
+                if let match = anchor(in: child) { return match }
+            }
+            return nil
+        }
+        func scroll(_ phase: NSEvent.Phase, dx: Int32) -> NSEvent? {
+            guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                                      wheel1: 0, wheel2: dx, wheel3: 0) else { return nil }
+            event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase == .began ? 1 : 2)
+            return NSEvent(cgEvent: event)
+        }
+        let scenes: [(String, BrowserAppearance, Int, Double, Bool, Bool, Bool)] =
+            [("light-two", .light, 2, 0, false, false, false),
+             ("light-three", .light, 3, 0, false, false, false),
+             ("light-five", .light, 5, 0, false, false, false),
+             ("dark-two", .dark, 2, 0, false, false, false),
+             ("dark-three", .dark, 3, 0, false, false, false),
+             ("dark-five", .dark, 5, 0, false, false, false),
+             ("rtl", .light, 3, 0, true, false, false),
+             ("light-swipe-30", .light, 3, 0.3, false, false, false),
+             ("dark-swipe-50", .dark, 3, 0.5, false, false, false),
+             ("t3-swipe-100", .t3Code, 3, 1, false, false, false),
+             ("rtl-swipe-50", .light, 3, 0.5, true, false, false),
+             ("reduce-motion-50", .dark, 3, 0.5, false, true, false),
+             ("increase-contrast", .light, 3, 0, false, false, true)]
+        for (scene, appearance, count, progress, rtl, reduceMotion, contrast) in scenes {
+            let profiles = BrowserProfiles(testing: true)
+            defer { profiles.shutdown() }
+            profiles.profileSwipePreference = .on
+            let source = profiles.controller
+            source.appearance = appearance
+            guard let work = try? profiles.create(name: "Work", color: .ocean, symbol: .work) else {
+                manifest.failures.append("Could not create profile fixture")
+                continue
+            }
+            for name in ["Reading", "Travel", "Studio"].prefix(count - 2) {
+                _ = try? profiles.create(name: name, color: .fern, symbol: .study)
+            }
+            if progress > 0 {
+                try? profiles.select(work.id)
+                profiles.controller.appearance = appearance
+                seedTabs(profiles.controller, names: ["Project notes", "Roadmap", "Team handbook", "Design review"])
+                try? profiles.select(BrowserProfile.personalID)
+            }
+            seedTabs(source, names: ["Reading list", "Field guides", "Weekend routes", "Library catalogue"])
+            await capture("mac-profile-\(scene)", directory, CGSize(width: 960, height: 620), key: false, settle: 350,
+                          appearance: appearance, prepare: { window in
+                guard progress > 0 else { return }
+                window.contentView?.layoutSubtreeIfNeeded()
+                guard let content = window.contentView, let region = anchor(in: content),
+                      let began = scroll(.began, dx: 0),
+                      let moved = scroll(.changed, dx: Int32(progress * region.bounds.width) * (rtl ? 1 : -1)) else {
+                    manifest.failures.append("Missing gesture region for \(scene)")
+                    return
+                }
+                let point = region.convert(NSPoint(x: region.bounds.midX, y: region.bounds.midY), to: nil)
+                _ = profiles.sidebarSwitch.route(began, window: window, profiles: profiles, source: source, location: point)
+                guard profiles.sidebarSwitch.route(moved, window: window, profiles: profiles, source: source, location: point),
+                      profiles.sidebarSwitch.isCovering else {
+                    manifest.failures.append("Synthetic swipe did not track for \(scene)")
+                    return
+                }
+                await Task.yield()
+            }) {
+                BrowserWindow(controller: source, profiles: profiles)
+                    .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
+                    .environment(\.sidebarCaptureReduceMotion, reduceMotion)
+                    .environment(\.sidebarCaptureContrast, contrast ? .increased : nil)
+                    .environment(\.chromeReduceTransparencyOverride, true)
+            }
+            if let window = source.sidebarWindow { profiles.sidebarSwitch.cancel(in: window) }
+        }
     }
 
     private static func renderBatchScenes(into directory: URL, activate: Bool) async {
