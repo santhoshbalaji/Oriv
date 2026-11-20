@@ -63,7 +63,11 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
     }
     public func endPrivateSession() { privateExceptions = [:] }
     public func cleanedNavigationURL(_ url: URL, isPrivate: Bool) -> URL {
-        isEnabled(.linkCleaning, for: url, isPrivate: isPrivate) ? URLCleaner.clean(url) : url
+        guard isEnabled(.linkCleaning, for: url, isPrivate: isPrivate) else { return url }
+        if let target = RedirectUnwrapper.destination(for: url) {
+            return isEnabled(.linkCleaning, for: target, isPrivate: isPrivate) ? URLCleaner.clean(target) : url
+        }
+        return URLCleaner.clean(url)
     }
     public func apply(to preferences: WKWebpagePreferences, request: URLRequest, isPrivate: Bool) {
         // Xcode 27's Swift 6.4 toolchain introduces the native GPC SDK property.

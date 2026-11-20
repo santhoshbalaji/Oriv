@@ -50,6 +50,42 @@ import Testing
         request.httpBody = nil; request.url = source.appending(queryItems: [URLQueryItem(name: "utm_source", value: "x")]); #expect(replace() == nil)
         #expect(NavigationCleaningPolicy.sameDocument(source, URL(string: source.absoluteString + "#anchor")!))
     }
+    @Test func knownBounceWrappersAndDestinationSafety() throws {
+        let signed = "https://destination.example/path?sig=keep&utm_source=also-kept#original"
+        let plain = "https://destination.example/path?utm_source=drop&q=%2F#fragment"
+        func wrapper(_ start: String, _ key: String, _ target: String) throws -> URL {
+            try #require(URL(string: start)).appending(queryItems: [URLQueryItem(name: key, value: target)])
+        }
+        let google = try wrapper("https://www.google.com/url", "q", plain)
+        let facebook = try wrapper("https://l.facebook.com/l.php", "u", signed)
+        let instagram = try wrapper("https://l.instagram.com/", "u", plain)
+        #expect(RedirectUnwrapper.destination(for: google)?.absoluteString == plain)
+        #expect(RedirectUnwrapper.destination(for: facebook)?.absoluteString == signed)
+        #expect(RedirectUnwrapper.destination(for: instagram)?.absoluteString == plain)
+        let request = URLRequest(url: google)
+        let source = URL(string: "https://www.google.com/search")!
+        func replacement(_ mainFrame: Bool, _ kind: PrivacyNavigationKind, _ enabled: Bool) -> URL? {
+            NavigationCleaningPolicy.replacement(for: request, source: source, isMainFrame: mainFrame, kind: kind, enabled: enabled)
+        }
+        #expect(replacement(true, .newNavigation, true)?.absoluteString == "https://destination.example/path?q=%2F#fragment")
+        #expect(replacement(false, .newNavigation, true) == nil)
+        #expect(replacement(true, .reload, true) == nil)
+        #expect(replacement(true, .backForward, true) == nil)
+        #expect(replacement(true, .newNavigation, false) == nil)
+        for raw in ["javascript:alert(1)", "file:///tmp/test", "//destination.example",
+                    "https://user:pass@example.com", "https://www.google.com/url?q=https%3A%2F%2Fexample.com"] {
+            let unsafe = try wrapper("https://www.google.com/url", "q", raw)
+            #expect(RedirectUnwrapper.destination(for: unsafe) == nil)
+        }
+        for start in ["https://www.google.com.example/url", "https://www.google.com:8443/url",
+                      "https://www.google.com/search", "https://t.co/x"] {
+            let unsupported = try wrapper(start, "q", plain)
+            #expect(RedirectUnwrapper.destination(for: unsupported) == nil)
+        }
+        let ambiguous = google.appending(queryItems: [URLQueryItem(name: "url", value: signed)])
+        #expect(RedirectUnwrapper.destination(for: ambiguous) == nil)
+    }
+
     @Test func httpsExemptions() {
         for host in ["localhost", "a.localhost", "printer.local", "intranet", "127.0.0.1", "10.0.0.5", "172.16.0.1", "172.31.255.1", "192.168.1.1", "169.254.12.2", "100.64.1.2", "[::1]", "[fc00::1]", "[fd00::1]", "[fe80::1]", "[fe80::1%25en0]", "[febf::1]", "[0:0:0:0:0:0:0:1]", "[::ffff:c0a8:1]"] {
             #expect(HTTPSUpgradePolicy.isExempt(URL(string: "http://\(host)/")!), "\(host)")

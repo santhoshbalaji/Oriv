@@ -1181,10 +1181,17 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             let enabled = (settings?.privacy.isEnabled(.linkCleaning, for: url, isPrivate: isPrivate) ?? true) && (settings?.privacy.isEnabled(.linkCleaning, for: webView.url, isPrivate: isPrivate) ?? true)
             if pendingCleanedURL == url { pendingCleanedURL = nil }
             else if !navigationAction.shouldPerformDownload,
-                    let replacement = NavigationCleaningPolicy.replacement(for: navigationAction.request, source: webView.url ?? navigationAction.sourceFrame.request.url, isMainFrame: true, kind: kind, enabled: enabled) {
+                    let replacement = NavigationCleaningPolicy.replacement(for: navigationAction.request, source: webView.url ?? navigationAction.sourceFrame.request.url, isMainFrame: true, kind: kind, enabled: enabled),
+                    settings?.privacy.isEnabled(.linkCleaning, for: replacement, isPrivate: isPrivate) ?? true {
                 pendingCleanedURL = replacement
-                var request = navigationAction.request
-                request.url = replacement
+                let original = navigationAction.request
+                var request = original
+                if replacement.host != url.host || replacement.scheme != url.scheme || replacement.port != url.port {
+                    // Never forward wrapper credentials, cookies or referrer headers to the destination.
+                    request = URLRequest(url: replacement, cachePolicy: original.cachePolicy, timeoutInterval: original.timeoutInterval)
+                } else {
+                    request.url = replacement
+                }
                 decisionHandler(.cancel)
                 webView.load(request)
                 return

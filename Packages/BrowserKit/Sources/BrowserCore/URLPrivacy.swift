@@ -6,7 +6,8 @@ import Darwin
 public enum URLCleaner {
     public static let trackingKeys: Set<String> = [
         "fbclid", "gclid", "dclid", "msclkid", "mc_eid", "mc_cid", "igshid", "yclid", "_hsenc", "_hsmi",
-        "gbraid", "wbraid", "twclid", "ttclid", "li_fat_id", "mkt_tok", "vero_id", "vero_conv"
+        "gbraid", "wbraid", "twclid", "ttclid", "li_fat_id", "mkt_tok", "vero_id", "vero_conv",
+        "_gl", "srsltid", "igsh", "oly_enc_id", "oly_anon_id", "irclickid", "ysclid", "_openstat", "rb_clickid", "s_cid"
     ]
     private static let sensitiveKeys: Set<String> = [
         "signature", "sig", "token", "access_token", "id_token", "refresh_token", "auth", "authorization",
@@ -42,6 +43,33 @@ public enum URLCleaner {
     }
 }
 
+/// Unwraps explicit destinations on known redirectors without a network request.
+public enum RedirectUnwrapper {
+    private static func destinationKeys(_ wrapper: URLComponents) -> Set<String> {
+        switch (wrapper.host?.lowercased(), wrapper.percentEncodedPath) {
+        case ("google.com", "/url"), ("www.google.com", "/url"): ["q", "url"]
+        case ("l.facebook.com", "/l.php"), ("lm.facebook.com", "/l.php"),
+             ("l.instagram.com", "/"): ["u"]
+        default: []
+        }
+    }
+
+    public static func destination(for url: URL) -> URL? {
+        guard url.scheme?.lowercased() == "https", url.port == nil || url.port == 443,
+              url.user == nil, url.password == nil,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let keys = destinationKeys(components)
+        guard !keys.isEmpty else { return nil }
+        let targets = (components.queryItems ?? []).filter { keys.contains($0.name) }
+        guard targets.count == 1, let raw = targets[0].value,
+              let target = URL(string: raw, encodingInvalidCharacters: false), AddressResolver.isWebURL(target),
+              target.user == nil, target.password == nil,
+              let targetComponents = URLComponents(url: target, resolvingAgainstBaseURL: false),
+              destinationKeys(targetComponents).isEmpty else { return nil }
+        return target
+    }
+}
+
 public enum PrivacyNavigationKind: Sendable { case newNavigation, backForward, reload }
 public enum NavigationCleaningPolicy {
     /// Exact-host comparison intentionally errs toward leaving sibling-host links alone.
@@ -51,7 +79,9 @@ public enum NavigationCleaningPolicy {
         guard enabled, isMainFrame, kind == .newNavigation,
               (request.httpMethod ?? "GET").uppercased() == "GET", request.httpBody == nil, request.httpBodyStream == nil,
               let url = request.url else { return nil }
-        if let source, source.host?.lowercased() == url.host?.lowercased() || sameDocument(source, url) { return nil }
+        if let source, sameDocument(source, url) { return nil }
+        if let target = RedirectUnwrapper.destination(for: url) { return URLCleaner.clean(target) }
+        if let source, source.host?.lowercased() == url.host?.lowercased() { return nil }
         let cleaned = URLCleaner.clean(url)
         return cleaned == url ? nil : cleaned
     }
