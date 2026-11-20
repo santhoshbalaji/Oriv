@@ -31,11 +31,22 @@ public final class BrowserSession {
         guard !isPrivate, !isExternalPrivate, let historyStore else { return [] }
         let revision = historyRevision
         let limit = 6
+        // Over-fetch so that several pages of one site still leave six distinct sites.
         let ranked = await Task.detached(priority: .utility) {
-            (try? historyStore.frequentDestinations(limit: limit + urls.count)) ?? []
+            (try? historyStore.frequentDestinations(limit: limit * 10 + urls.count)) ?? []
         }.value
         guard !Task.isCancelled, !isShutDown, revision == historyRevision else { return [] }
-        return Array(ranked.lazy.filter { !urls.contains($0.url) }.prefix(limit))
+        // One tile per site: the most visited page of each host wins.
+        var seenSites = Set<String>(), tiles: [HistoryEntry] = []
+        for entry in ranked where tiles.count < limit && !urls.contains(entry.url) {
+            if seenSites.insert(Self.siteKey(entry.url)).inserted { tiles.append(entry) }
+        }
+        return tiles
+    }
+    nonisolated static func siteKey(_ url: URL) -> String {
+        guard var host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty else { return url.absoluteString }
+        if host.hasPrefix("www.") { host.removeFirst(4) }
+        return host
     }
     public private(set) var persistenceNotice: String?
     public private(set) var canPersist = true

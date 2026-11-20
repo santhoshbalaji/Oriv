@@ -44,12 +44,15 @@ import XCTest
         let frequent = URL(string: "https://frequent.example")!
         try store.save(BrowserSnapshot(bookmarks: [Bookmark(title: "Saved", url: bookmarked)], history: [
             HistoryEntry(title: "Saved", url: bookmarked, visitCount: 9),
-            HistoryEntry(title: "Frequent", url: frequent, visitCount: 3)
+            HistoryEntry(title: "Frequent", url: frequent, visitCount: 3),
+            HistoryEntry(title: "Frequent page", url: URL(string: "https://www.frequent.example/?tab=2")!, visitCount: 2),
+            HistoryEntry(title: "Other", url: URL(string: "https://other.example/a")!, visitCount: 1)
         ]))
         let session = BrowserSession(store: store, dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
         defer { session.shutdown() }
         let tiles = await session.frequentHistory(excluding: [bookmarked], isPrivate: false)
-        XCTAssertEqual(tiles.map(\.url), [frequent])
+        // Pages of one site collapse into its most visited page.
+        XCTAssertEqual(tiles.map(\.url), [frequent, URL(string: "https://other.example/a")!])
         let privateTiles = await session.frequentHistory(excluding: [], isPrivate: true)
         XCTAssertTrue(privateTiles.isEmpty)
         let external = BrowserSession(store: store, dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil), externalPrivate: true)
