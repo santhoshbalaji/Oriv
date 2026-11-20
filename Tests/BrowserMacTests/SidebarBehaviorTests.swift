@@ -282,8 +282,8 @@ import XCTest
             }
             for offset in [0, 4] {
                 let row = frames[offset..<(offset + 4)]
-                XCTAssertEqual(frames[offset].minX, frames[8].minX + 8, accuracy: 0.5)
-                XCTAssertEqual(frames[offset + 3].maxX, frames[8].maxX - 8, accuracy: 0.5)
+                XCTAssertEqual(frames[offset].minX, frames[8].minX, accuracy: 0.5)
+                XCTAssertEqual(frames[offset + 3].maxX, frames[8].maxX, accuracy: 0.5)
                 for (left, right) in zip(row, row.dropFirst()) {
                     XCTAssertEqual(right.minX - left.maxX, 8, accuracy: 0.5)
                     XCTAssertEqual(left.midY, right.midY, accuracy: 0.5)

@@ -573,7 +573,7 @@ import XCTest
         let c = BrowserController(rootDirectory: root, testing: true); defer { c.shutdown() }
         // Sidebar-only host: the exact same 100 sleeping metadata records and no page loads.
         for solid in [true, false] {
-            let w = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 276, height: 760), styleMask: [.titled], backing: .buffered, defer: false)
+            let w = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: MacBrowserLayout.sidebarWidth, height: 760), styleMask: [.titled], backing: .buffered, defer: false)
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: BrowserSidebar(controller: c).browserAppearance(.light)
                 .background { Color.clear.modifier(MacSidebarGlass()) }.environment(\.chromeReduceTransparencyOverride, solid))

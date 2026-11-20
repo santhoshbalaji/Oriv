@@ -71,6 +71,35 @@ import XCTest
             XCTAssertEqual(rect.height, content.bounds.height, accuracy: 0.5, file: file, line: line)
         }
     }
+    func testFourPinnedTilesAlignWithRegularRowAt256Points() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let session = profiles.controller.session
+        for _ in 0..<4 { session.togglePinned(session.addTab(load: false).id) }
+        // The last pinned tile is selected. Use the opaque capture path to
+        // retain the actual AppKit grid and SwiftUI tile fill offscreen.
+        let window = makeWindow(profiles.controller, profiles: profiles, largestText: false, appearance: .light)
+        defer { window.close() }
+        try await waitForSidebar(window, rail: false)
+        let content = try XCTUnwrap(window.contentView)
+        let list = try XCTUnwrap(descendants(content).compactMap { $0 as? SidebarTabCollection }.first)
+        let layout = try XCTUnwrap(list.collectionViewLayout)
+        let tiles = try (0..<4).map { try XCTUnwrap(layout.layoutAttributesForItem(at: IndexPath(item: $0, section: 0))).frame }
+        let row = try XCTUnwrap(layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 1))).frame
+        XCTAssertEqual(tiles.first?.minX, row.minX)
+        XCTAssertEqual(tiles.last?.maxX, row.maxX)
+        XCTAssertTrue(tiles.allSatisfy { $0.minY == tiles[0].minY && $0.width == 54 })
+        let surface = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: window))
+        let rect = surface.convert(surface.bounds, to: content)
+        let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: rect))
+        content.cacheDisplay(in: rect, to: bitmap)
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        attachment.name = "mac-sidebar-256-aligned-pins"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testAttachedSidebarAndRailAtMinimumAndAfterResize() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles, width: 760); defer { window.close() }
