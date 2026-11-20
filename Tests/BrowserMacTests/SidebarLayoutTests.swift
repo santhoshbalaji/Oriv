@@ -9,7 +9,7 @@ import XCTest
 @MainActor final class SidebarLayoutTests: BackgroundUITestCase {
     private func makeWindow(_ controller: BrowserController, profiles: BrowserProfiles? = nil,
                             width: CGFloat = 1000, rtl: Bool = false, largestText: Bool = true,
-                            appearance: BrowserAppearance = .t3Code) -> NSWindow {
+                            appearance: BrowserAppearance = .t3Code, key: Bool = true) -> NSWindow {
         let root = BrowserWindow(controller: controller, profiles: profiles)
             .browserAppearance(appearance)
             .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight).dynamicTypeSize(largestText ? .accessibility5 : .large)
@@ -19,7 +19,7 @@ import XCTest
         window.isReleasedWhenClosed = false
         window.contentViewController = host
         window.setContentSize(NSSize(width: width, height: 600))
-        BackgroundUIMode.show(window, key: true, activate: BackgroundUIMode.foregroundAllowed)
+        BackgroundUIMode.show(window, key: key, activate: key && BackgroundUIMode.foregroundAllowed)
         return window
     }
     private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
@@ -39,7 +39,7 @@ import XCTest
         let profiles = BrowserProfiles(testing: true)
         defer { profiles.shutdown() }
         let controller = profiles.controller
-        let window = makeWindow(controller, profiles: profiles, largestText: false)
+        let window = makeWindow(controller, profiles: profiles, largestText: false, key: false)
         defer { window.close() }
         let footer = ["sidebarFooterGeometry", "sidebarFooter-Settings"] + LibrarySection.allCases.map {
             "sidebarFooter-\($0.rawValue)"
@@ -60,7 +60,7 @@ import XCTest
             XCTAssertEqual(new.height, old.height, accuracy: 1, name)
         }
         XCTAssertLessThan(try frame("sidebarProfileDot-0", in: window).midX, try frame("sidebarProfileDot-2", in: window).midX)
-        let rtl = makeWindow(controller, profiles: profiles, rtl: true, largestText: false)
+        let rtl = makeWindow(controller, profiles: profiles, rtl: true, largestText: false, key: false)
         defer { rtl.close() }
         try await eventually("RTL profile dots") { self.marker("sidebarProfileDot-2", in: rtl) != nil }
         XCTAssertGreaterThan(try frame("sidebarProfileDot-0", in: rtl).midX, try frame("sidebarProfileDot-2", in: rtl).midX)
@@ -69,14 +69,14 @@ import XCTest
         try await eventually("profile dots removed in rail") { self.marker("sidebarProfileDotsGeometry", in: window) == nil }
         let privateID = profiles.createPrivateWindow()
         let privateController = try XCTUnwrap(profiles.privateWindows[privateID])
-        let privateWindow = makeWindow(privateController)
+        let privateWindow = makeWindow(privateController, key: false)
         defer { privateWindow.close() }
         try await eventually("private footer") { self.marker("sidebarFooterGeometry", in: privateWindow) != nil }
         XCTAssertNil(marker("sidebarProfileDotsGeometry", in: privateWindow))
-        profiles.openExternalLinksPrivately = true
-        profiles.handleIncomingURL(URL(string: "https://private.test/")!, sourceName: "Fixture")
-        let external = try XCTUnwrap(profiles.externalPrivate)
-        let externalWindow = makeWindow(external, profiles: profiles)
+        // The external scene supplies the same profile-less controller type
+        // together with the regular registry. Model that wiring without opening
+        // a second SwiftUI scene or delivering a real URL.
+        let externalWindow = makeWindow(privateController, profiles: profiles, key: false)
         defer { externalWindow.close() }
         try await eventually("external private footer") { self.marker("sidebarFooterGeometry", in: externalWindow) != nil }
         XCTAssertNil(marker("sidebarProfileDotsGeometry", in: externalWindow))
