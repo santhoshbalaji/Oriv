@@ -75,7 +75,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ view: NSScrollView, coordinator: SidebarCollectionData) {
-        coordinator.cancelPreview()
+        coordinator.detach()
     }
 }
 
@@ -285,6 +285,15 @@ private struct SidebarSection {
             if let header = list.supplementaryView(forElementKind: NSCollectionView.elementKindSectionHeader, at: path) as? SidebarCollectionHeader {
                 configure(header, section: path.section)
             }
+        }
+    }
+
+    func detach() {
+        cancelPreview()
+        if drag != nil {
+            drag = nil
+            configuration?.controller.sidebar.dragging = false
+            configuration?.controller.sidebar.pointer(false, drag: false)
         }
     }
 

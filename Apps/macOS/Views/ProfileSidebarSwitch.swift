@@ -1,6 +1,7 @@
 import AppKit
 import BrowserCore
 import Observation
+import OSLog
 import SwiftUI
 
 enum ProfileSwipePreference: String, CaseIterable {
@@ -16,7 +17,7 @@ enum ProfileSwipePreference: String, CaseIterable {
     }
 }
 
-/// Its bounds exclude the dots, footer, glass and titlebar controls.
+/// The snapshot bounds exclude the dots, footer, glass and titlebar controls.
 struct ProfileSidebarAnchor: NSViewRepresentable {
     let switcher: ProfileSidebarSwitch
     let controller: BrowserController
@@ -51,23 +52,64 @@ struct ProfileSidebarAnchor: NSViewRepresentable {
     }
 }
 
-/// The regular scene owns this host outside the keyed BrowserWindow. AppKit
-/// manages the snapshot views inside it while SwiftUI manages the host itself.
-struct ProfileSidebarOverlayHost: NSViewRepresentable {
+/// Input spans the full sidebar below its titlebar, independently of the artwork.
+struct ProfileSidebarSwipeRegion: NSViewRepresentable {
+    enum Kind { case sidebar, editing, titlebarControl }
     let switcher: ProfileSidebarSwitch
+    let controller: BrowserController
+    let kind: Kind
 
-    func makeNSView(context: Context) -> Host { Host() }
-    func updateNSView(_ view: Host, context: Context) {
+    func makeNSView(context: Context) -> Region { Region() }
+    func updateNSView(_ view: Region, context: Context) {
         view.switcher = switcher
-        if view.window != nil { switcher.attachHost(view) }
+        view.controller = controller
+        view.kind = kind
+        if view.window != nil { switcher.attachRegion(view) }
     }
 
-    final class Host: NSView {
+    final class Region: NSView {
         weak var switcher: ProfileSidebarSwitch?
+        weak var controller: BrowserController?
+        var kind = Kind.sidebar
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if window != nil { switcher?.attachHost(self) }
+            if window != nil { switcher?.attachRegion(self) }
+        }
+    }
+}
+
+/// The regular scene owns the input monitor and artwork host outside the keyed
+/// BrowserWindow, so both survive the profile switch.
+struct ProfileSidebarOverlayHost: NSViewRepresentable {
+    let profiles: BrowserProfiles
+
+    func makeNSView(context: Context) -> Host { Host() }
+    func updateNSView(_ view: Host, context: Context) {
+        view.profiles = profiles
+        if view.window != nil { profiles.sidebarSwitch.attachHost(view) }
+    }
+    static func dismantleNSView(_ view: Host, coordinator: ()) { view.removeMonitor() }
+
+    final class Host: NSView {
+        weak var profiles: BrowserProfiles?
+        private var monitor: Any?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            removeMonitor()
+            guard window != nil else { return }
+            profiles?.sidebarSwitch.attachHost(self)
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let window = self?.window, event.window === window, let profiles = self?.profiles else { return event }
+                return profiles.sidebarSwitch.route(event, window: window, profiles: profiles,
+                                                   source: profiles.controller) ? nil : event
+            }
+        }
+
+        func removeMonitor() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
         }
     }
 }
@@ -78,6 +120,10 @@ struct ProfileSidebarOverlayHost: NSViewRepresentable {
     private(set) var isCovering = false
     @ObservationIgnored private weak var host: ProfileSidebarOverlayHost.Host?
     @ObservationIgnored private weak var anchor: ProfileSidebarAnchor.Anchor?
+    @ObservationIgnored private weak var hitRegion: ProfileSidebarSwipeRegion.Region?
+    @ObservationIgnored private weak var editingRegion: ProfileSidebarSwipeRegion.Region?
+    @ObservationIgnored private weak var titlebarControl: ProfileSidebarSwipeRegion.Region?
+    private static let diagnostics = Logger(subsystem: "Oriv", category: "ProfileSwipe")
     @ObservationIgnored private var overlay: ProfileSidebarOverlay?
     @ObservationIgnored private var swipe = ProfileSwipe()
     @ObservationIgnored private var settleToken = UUID()
@@ -102,18 +148,29 @@ struct ProfileSidebarOverlayHost: NSViewRepresentable {
     }
 
     func attach(_ view: ProfileSidebarAnchor.Anchor) {
+        if let active = host?.profiles?.controller, view.controller !== active { return }
         anchor = view
         view.needsLayout = true
     }
 
+    func attachRegion(_ view: ProfileSidebarSwipeRegion.Region) {
+        if let active = host?.profiles?.controller, view.controller !== active { return }
+        switch view.kind {
+        case .sidebar: hitRegion = view
+        case .editing: editingRegion = view
+        case .titlebarControl: titlebarControl = view
+        }
+    }
+
     func anchorLaidOut(_ view: ProfileSidebarAnchor.Anchor) {
-        guard view === anchor, view.bounds.width > 0,
+        guard view === anchor, view.bounds.width > 0, let waitingForProfile,
               view.controller?.profile?.id == waitingForProfile else { return }
         // The sibling collection view lays out in the same AppKit pass.
         DispatchQueue.main.async { [weak self, weak view] in
             guard let self, let view, self.anchor === view,
                   view.list?.collection?.window === view.window,
-                  view.controller?.profile?.id == self.waitingForProfile else { return }
+                  self.waitingForProfile == waitingForProfile,
+                  view.controller?.profile?.id == waitingForProfile else { return }
             self.waitingForProfile = nil
             if self.settled { self.clear() }
         }
@@ -136,36 +193,67 @@ struct ProfileSidebarOverlayHost: NSViewRepresentable {
     func route(_ event: NSEvent, window: NSWindow, profiles: BrowserProfiles, source: BrowserController,
                location: NSPoint? = nil) -> Bool {
         let phase: ProfileSwipe.Phase
-        if !event.momentumPhase.isEmpty { phase = .momentum }
-        else {
+        if !event.momentumPhase.isEmpty {
+            phase = event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) ? .momentumEnded : .momentum
+        } else {
             switch event.phase {
+            case .mayBegin: phase = .mayBegin
             case .began: phase = .began
             case .changed: phase = .changed
+            case .stationary: phase = .stationary
             case .ended: phase = .ended
             case .cancelled: phase = .cancelled
-            case .mayBegin: return false
             default: phase = .unphased
             }
         }
+
         let anchor = self.anchor
-        let preference = profiles.profileSwipePreference
-        var eligible = event.hasPreciseScrollingDeltas && anchor?.window === window && host?.window === window && anchor?.controller === source &&
-            preference.enabled(system: NSEvent.isSwipeTrackingFromScrollEventsEnabled) &&
-            profiles.canSwitchProfiles(from: source) && !source.sidebar.rail && !source.sidebar.peeking &&
-            !source.sidebar.webpageFullscreen && !source.sidebar.dragging && !source.sidebar.menuOpen &&
-            !source.tabSearchPanel && window.attachedSheet == nil && profiles.switchBlocker == nil
+        let point = location ?? event.locationInWindow
+        let systemEnabled = NSEvent.isSwipeTrackingFromScrollEventsEnabled
+        func blocker() -> String? {
+            if !event.hasPreciseScrollingDeltas { return "non-precise" }
+            if !profiles.profileSwipePreference.enabled(system: systemEnabled) { return "preference" }
+            if !profiles.canSwitchProfiles(from: source) { return "profile" }
+            if source.sidebar.rail || source.sidebar.peeking { return "collapsed-sidebar" }
+            if source.sidebar.webpageFullscreen { return "webpage-fullscreen" }
+            if source.sidebar.dragging { return "dragging" }
+            if source.sidebar.menuOpen { return "menu" }
+            if source.tabSearchPanel { return "tab-search" }
+            if window.attachedSheet != nil { return "sheet" }
+            if profiles.switchBlocker != nil { return "switch-blocker" }
+            if host?.window !== window { return "missing-host" }
+            if phase == .began || phase == .mayBegin {
+                guard let region = hitRegion, region.window === window, region.controller === source,
+                      region.convert(region.bounds, to: nil).contains(point) else { return "outside-sidebar" }
+                if let editing = editingRegion, editing.window === window, editing.controller === source,
+                   editing.convert(editing.bounds, to: nil).contains(point) { return "editing-field" }
+                if let control = titlebarControl, control.window === window, control.controller === source,
+                   control.convert(control.bounds, to: nil).contains(point) { return "titlebar-control" }
+                let trafficLights: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+                if trafficLights.contains(where: { kind in
+                    guard let button = window.standardWindowButton(kind), !button.isHiddenOrHasHiddenAncestor else { return false }
+                    return button.convert(button.bounds, to: nil).contains(point)
+                }) { return "titlebar-control" }
+            }
+            if anchor?.window !== window || anchor?.controller !== source ||
+                (anchor?.bounds.isEmpty ?? true) { return "anchor-reattaching" }
+            return nil
+        }
+        let reason = blocker()
         if phase == .began {
-            let hit = anchor.map { $0.convert($0.bounds, to: nil).contains(location ?? event.locationInWindow) } ?? false
-            eligible = eligible && hit
             gestureWidth = anchor?.bounds.width ?? 0
             gestureMirror = anchor?.environment.layoutDirection == .rightToLeft ? -1 : 1
         }
         let previous = profiles.relativeProfile(-1, wrapping: false)
         let next = profiles.relativeProfile(1, wrapping: false)
+        let axisBefore = swipe.axis
         let result = swipe.update(phase, dx: event.scrollingDeltaX * gestureMirror, dy: event.scrollingDeltaY,
-                                  at: event.timestamp, eligible: eligible, width: gestureWidth,
+                                  at: event.timestamp, eligible: reason == nil, width: gestureWidth,
                                   previous: previous != nil, next: next != nil,
                                   presentationOffset: overlay?.offset(relativeTo: profiles.active.id) ?? 0)
+        if UserDefaults.standard.bool(forKey: "ProfileSwipeDiagnostics") {
+            Self.diagnostics.notice("phase=\(event.phase.rawValue) routed=\(String(describing: phase), privacy: .public) momentumPhase=\(event.momentumPhase.rawValue) dx=\(Double(event.scrollingDeltaX)) dy=\(Double(event.scrollingDeltaY)) precise=\(event.hasPreciseScrollingDeltas) system=\(systemEnabled) eligibility=\(reason ?? "eligible", privacy: .public) axis=\(String(describing: axisBefore), privacy: .public)->\(String(describing: self.swipe.axis), privacy: .public) settling=\(self.overlay?.isSettling ?? false) result=\(String(describing: result), privacy: .public)")
+        }
         switch result {
         case .pass: return false
         case .swallow: return true

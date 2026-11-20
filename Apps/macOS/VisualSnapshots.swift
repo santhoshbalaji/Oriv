@@ -165,7 +165,7 @@ import WebKit
                 await Task.yield()
             }) {
                 BrowserWindow(controller: source, profiles: profiles)
-                    .overlay { ProfileSidebarOverlayHost(switcher: profiles.sidebarSwitch) }
+                    .overlay { ProfileSidebarOverlayHost(profiles: profiles) }
                     .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
                     .environment(\.sidebarCaptureReduceMotion, reduceMotion)
                     .environment(\.sidebarCaptureContrast, contrast ? .increased : nil)

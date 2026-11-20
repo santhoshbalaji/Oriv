@@ -223,6 +223,11 @@ struct BrowserWindow: View {
         // In fullscreen it shares the profile line instead of reserving a band.
         .overlay(alignment: .topLeading) {
             sidebarToggle
+                .background {
+                    if let profiles, fullscreen {
+                        ProfileSidebarSwipeRegion(switcher: profiles.sidebarSwitch, controller: controller, kind: .titlebarControl)
+                    }
+                }
                 .padding(.leading, railHeader ? MacBrowserLayout.railInset : controller.sidebar.width - MacBrowserLayout.sidebarInset - 30)
                 .padding(.top, railHeader ? (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight) : (fullscreen ? 8 : 1))
                 .opacity(windowActive ? 1 : 0.75)

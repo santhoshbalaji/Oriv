@@ -175,11 +175,8 @@ struct SidebarWindowEvents: NSViewRepresentable {
             guard window != nil else { return }
             controller?.sidebarWindow = window
             controller?.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp, .scrollWheel]) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp]) { [weak self] event in
                 guard let self, event.window === self.window, let controller = self.controller else { return event }
-                if event.type == .scrollWheel {
-                    return self.routeScroll(event) ? nil : event
-                }
                 self.tabList?.collection?.updateFocusInput(for: event)
                 let tooltipVisible = controller.sidebarTooltip.tabID != nil
                 controller.sidebarTooltip.dismiss()
@@ -224,11 +221,6 @@ struct SidebarWindowEvents: NSViewRepresentable {
                 MainActor.assumeIsolated { self?.controller?.sidebar.voiceOver = NSWorkspace.shared.isVoiceOverEnabled }
             })
         }
-        func routeScroll(_ event: NSEvent) -> Bool {
-            guard let controller, let window, let profiles else { return false }
-            return profiles.sidebarSwitch.route(event, window: window, profiles: profiles, source: controller)
-        }
-
         func requestCloseTab(at point: NSPoint) -> Bool {
             tabList?.collection?.closeTab(at: point) ?? false
         }
@@ -245,6 +237,7 @@ struct SidebarWindowEvents: NSViewRepresentable {
 
         func detach() {
             if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil
+            if controller?.sidebar.menuOpen == true { controller?.sidebar.menuOpen = false }
             observers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }; observers = []
         }
     }

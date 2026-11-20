@@ -135,6 +135,11 @@ struct BrowserSidebar: View {
         }
         .padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarInset)
         .padding(.bottom, railLayout ? 0 : MacBrowserLayout.sidebarInset)
+        .background {
+            if !railLayout, let profiles, profiles.canSwitchProfiles(from: controller) {
+                ProfileSidebarSwipeRegion(switcher: profiles.sidebarSwitch, controller: controller, kind: .sidebar)
+            }
+        }
         .font(OrivType.body)
         .foregroundStyle(.primary)
         .transformPreference(SidebarKeyboardFocusKey.self) { $0 = $0 || searchFocused || utilityFocus != nil || tabList.hasFocus }
@@ -218,6 +223,11 @@ struct BrowserSidebar: View {
             .font(OrivType.detail).foregroundStyle(theme.secondaryText)
             .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 32)
             .background(theme.sidebar.field.opacity(searchFocused ? 1 : 0.7), in: .rect(cornerRadius: OrivRadius.small))
+            .background {
+                if searchFocused, let profiles {
+                    ProfileSidebarSwipeRegion(switcher: profiles.sidebarSwitch, controller: controller, kind: .editing)
+                }
+            }
             .browserGeometryMarker("sidebarSearchGeometry")
             .padding(.bottom, 10)
         }
