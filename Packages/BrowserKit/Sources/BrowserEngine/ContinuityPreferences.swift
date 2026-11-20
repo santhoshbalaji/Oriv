@@ -3,15 +3,17 @@ import Foundation
 
 /// The same allowlist is used by both apps. Private overrides and OS permissions stay local.
 @MainActor public enum ContinuityPreferences {
-    public static func snapshot(session: BrowserSession, appearance: String) -> [String: String] {
+    public static func snapshot(session: BrowserSession, appearance: String?) -> [String: String] {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         func json<T: Encodable>(_ value: T) -> String {
             (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
         }
-        return ["appearance": appearance, "searchEngine": session.settings.searchEngine.rawValue,
+        var preferences = ["searchEngine": session.settings.searchEngine.rawValue,
                 "restoreTabs": String(session.settings.restoreTabs), "defaultZoom": String(session.settings.defaultZoom),
                 "adBlockingMode": session.adBlocker.mode.rawValue,
                 "adBlockingExceptions": json(session.adBlocker.regularExceptions.sorted()), "siteRules": json(session.settings.rules)]
+        preferences["appearance"] = appearance
+        return preferences
     }
     public static func apply(_ values: [String: String], session: BrowserSession, appearance: (String) -> Void) {
         if let value = values["appearance"] { appearance(value) }

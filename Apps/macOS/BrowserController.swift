@@ -131,11 +131,15 @@ final class BrowserController {
     var continuitySource: ContinuitySource {
         ContinuitySource(session: session, preferences: { [weak self] in
             guard let self else { return [:] }
-            return ContinuityPreferences.snapshot(session: self.session, appearance: self.appearance.rawValue)
+            let saved = self.profileDefaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:))
+            return ContinuityPreferences.snapshot(session: self.session, appearance: saved?.rawValue)
         }, applyPreferences: { [weak self] values in
             guard let self else { return }
             ContinuityPreferences.apply(values, session: self.session) { value in
-                if let appearance = BrowserAppearance(rawValue: value), self.appearance != appearance { self.appearance = appearance }
+                if let appearance = BrowserAppearance(rawValue: value),
+                   self.profileDefaults?.string(forKey: "browserAppearance") != value {
+                    self.appearance = appearance
+                }
             }
         })
     }
