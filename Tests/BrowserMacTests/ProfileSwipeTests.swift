@@ -105,6 +105,7 @@ final class ProfileSwipeTests: XCTestCase {
         let profiles: BrowserProfiles
         var body: some View {
             BrowserWindow(controller: profiles.controller, profiles: profiles).id(profiles.active.id)
+                .overlay { ProfileSidebarOverlayHost(switcher: profiles.sidebarSwitch) }
         }
     }
 

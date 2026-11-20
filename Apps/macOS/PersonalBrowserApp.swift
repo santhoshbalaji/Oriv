@@ -40,6 +40,7 @@ struct PersonalBrowserApp: App {
                 .onOpenURL { url in profiles.handleIncomingURL(url, sourceName: AppDelegate.externalSourceName) }
                 .frame(minWidth: 760, minHeight: 520)
                 .browserAppearance(appearance)
+                .overlay { ProfileSidebarOverlayHost(switcher: profiles.sidebarSwitch) }
         }
         .defaultLaunchBehavior(BackgroundUIMode.isEnabled ? .suppressed : .presented)
         .restorationBehavior(BackgroundUIMode.isEnabled ? .disabled : .automatic)

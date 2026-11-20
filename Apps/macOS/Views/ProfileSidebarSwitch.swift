@@ -51,10 +51,32 @@ struct ProfileSidebarAnchor: NSViewRepresentable {
     }
 }
 
+/// The regular scene owns this host outside the keyed BrowserWindow. AppKit
+/// manages the snapshot views inside it while SwiftUI manages the host itself.
+struct ProfileSidebarOverlayHost: NSViewRepresentable {
+    let switcher: ProfileSidebarSwitch
+
+    func makeNSView(context: Context) -> Host { Host() }
+    func updateNSView(_ view: Host, context: Context) {
+        view.switcher = switcher
+        if view.window != nil { switcher.attachHost(view) }
+    }
+
+    final class Host: NSView {
+        weak var switcher: ProfileSidebarSwitch?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil { switcher?.attachHost(self) }
+        }
+    }
+}
+
 /// Owned by the profile manager so the overlay and scroll phase survive the
 /// keyed BrowserWindow rebuild. Only the covering flag changes SwiftUI state.
 @MainActor @Observable final class ProfileSidebarSwitch {
     private(set) var isCovering = false
+    @ObservationIgnored private weak var host: ProfileSidebarOverlayHost.Host?
     @ObservationIgnored private weak var anchor: ProfileSidebarAnchor.Anchor?
     @ObservationIgnored private var overlay: ProfileSidebarOverlay?
     @ObservationIgnored private var swipe = ProfileSwipe()
@@ -73,6 +95,10 @@ struct ProfileSidebarAnchor: NSViewRepresentable {
 
     func isPresenting(_ profileID: UUID?) -> Bool {
         profileID != nil && overlay?.destinationProfile == profileID
+    }
+
+    func attachHost(_ view: ProfileSidebarOverlayHost.Host) {
+        host = view
     }
 
     func attach(_ view: ProfileSidebarAnchor.Anchor) {
@@ -123,7 +149,7 @@ struct ProfileSidebarAnchor: NSViewRepresentable {
         }
         let anchor = self.anchor
         let preference = profiles.profileSwipePreference
-        var eligible = event.hasPreciseScrollingDeltas && anchor?.window === window && anchor?.controller === source &&
+        var eligible = event.hasPreciseScrollingDeltas && anchor?.window === window && host?.window === window && anchor?.controller === source &&
             preference.enabled(system: NSEvent.isSwipeTrackingFromScrollEventsEnabled) &&
             profiles.canSwitchProfiles(from: source) && !source.sidebar.rail && !source.sidebar.peeking &&
             !source.sidebar.webpageFullscreen && !source.sidebar.dragging && !source.sidebar.menuOpen &&
@@ -176,14 +202,13 @@ struct ProfileSidebarAnchor: NSViewRepresentable {
             return overlay
         }
         if overlay != nil { clear() }
-        guard let content = anchor.window?.contentView, let container = content.superview,
-              anchor.bounds.width > 0, anchor.bounds.height > 0 else { return nil }
-        let frame = anchor.convert(anchor.bounds, to: container)
+        guard let host, host.window === anchor.window, anchor.bounds.width > 0, anchor.bounds.height > 0 else { return nil }
+        let frame = anchor.convert(anchor.bounds, to: host)
         let effect = ProfileSidebarOverlay(frame: frame, rtl: anchor.environment.layoutDirection == .rightToLeft,
                                            reduceMotion: anchor.environment.browserReduceMotion)
         effect.baseProfile = profiles.active.id
         effect.setImage(render(profiles.active, profiles: profiles, anchor: anchor, current: true), step: 0)
-        container.addSubview(effect, positioned: .above, relativeTo: content)
+        host.addSubview(effect)
         overlay = effect
         isCovering = true
         return effect
