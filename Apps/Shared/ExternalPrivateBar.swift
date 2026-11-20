@@ -108,9 +108,9 @@ struct ExternalPrivateBar: View {
                     #endif
             }
             #if os(iOS)
-            .buttonStyle(ExternalMoveButtonStyle(fill: theme.controlFill))
+            .buttonStyle(ExternalMoveButtonStyle(fill: theme.accent))
             #else
-            .buttonStyle(.borderedProminent).controlSize(.regular).tint(theme.controlFill)
+            .buttonStyle(.borderedProminent).controlSize(.regular).tint(theme.accent)
             // No defaultAction shortcut: Return in the address field or page must never move a private page.
             #endif
             .accessibilityHint("Opens this address in \(selectedName) and closes its private tab")

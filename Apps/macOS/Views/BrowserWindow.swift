@@ -58,11 +58,10 @@ struct BrowserWindow: View {
         return min(ceil(width) + 4, max(60, addressWidth - 180))
     }
     private var emptyPageColor: ChromeColor { PageChrome.resolveCanvas(theme.page, scheme: colorScheme) }
-    private var toolbarTheme: Theme { pageChrome.isDark ? theme : .classic }
     private var contentUnderChrome: Bool { pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
     private var chromeForeground: Color { pageChrome.foreground }
     private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark) }
-    private var privateCue: Color { pageChrome.contrasting(pageChrome.isDark ? Color(red: 0.733, green: 0.522, blue: 0.961) : Color(red: 0.537, green: 0.267, blue: 0.671)) }
+    private var privateCue: Color { pageChrome.contrasting(pageChrome.isDark ? Theme.privateDark : Theme.privateLight) }
 
     private var sceneContent: some View {
         routedContent
@@ -278,7 +277,7 @@ struct BrowserWindow: View {
         .browserGeometryMarker("sidebarToggleKeyboardFocus", when: sidebarHeaderToggleFocused)
         .onKeyPress(.downArrow) { sidebarTabs.focus(); return .handled }
         .accessibilitySortPriority(2)
-        .foregroundStyle(Theme.sidebar.text)
+        .foregroundStyle(.primary)
     }
 
     private func toggleSidebar() {
@@ -375,7 +374,6 @@ struct BrowserWindow: View {
                 .foregroundStyle(chromeForeground)
                 .modifier(chromeGlass)
                 .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
-                .environment(\.browserTheme, toolbarTheme)
                 .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
                 .browserGeometryMarker("browserAddressGeometry")
     }
@@ -530,7 +528,7 @@ struct BrowserWindow: View {
                                 Text(error)
                                 Text(tab.url?.host ?? "").font(.caption)
                             } actions: {
-                                Button("Reload Page") { tab.reload() }.buttonStyle(.borderedProminent).tint(theme.controlFill)
+                                Button("Reload Page") { tab.reload() }.buttonStyle(.borderedProminent).tint(theme.accent)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(theme.canvas)
@@ -577,12 +575,12 @@ struct BrowserWindow: View {
 
     private func noticeBar(_ message: String, symbol: String, isWarning: Bool = true, dismiss: @escaping () -> Void) -> some View {
         HStack {
-            Image(systemName: symbol)
-            Text(message).font(.caption)
+            Image(systemName: symbol).foregroundStyle(isWarning ? theme.warning : theme.secondaryText)
+            Text(message).font(.caption).foregroundStyle(isWarning ? theme.warning : theme.text)
             Spacer()
             if !isWarning || session.canPersist { Button("Dismiss", action: dismiss).buttonStyle(.borderless) }
         }
-        .padding(10).background(isWarning ? Color.yellow.opacity(0.12) : theme.surface)
+        .padding(10).background(theme.surface)
     }
 }
 
@@ -671,8 +669,8 @@ struct AddressSuggestionList: View {
                         .foregroundStyle(theme.text).padding(.horizontal, 10).frame(height: 32).frame(maxWidth: .infinity, alignment: .leading)
                 }.buttonStyle(.plain)
             }
-        }.font(OrivType.body).padding(6).background(theme.surface, in: .rect(cornerRadius: OrivRadius.medium))
-            .overlay { RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.separator) }
-            .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
+        }.font(OrivType.body).padding(6).background(theme.surface, in: .rect(cornerRadius: OrivRadius.popover))
+            .overlay { RoundedRectangle(cornerRadius: OrivRadius.popover).strokeBorder(theme.separator) }
+            .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
     }
 }

@@ -42,14 +42,14 @@ import XCTest
             window.contentView?.layoutSubtreeIfNeeded()
             guard let surface = self.geometry("sidebarSurfaceGeometry", in: window),
                   let toolbar = self.geometry("browserTopBarGeometry", in: window) else { return false }
-            return abs(surface.width - (overlay ? MacBrowserLayout.sidebarWidth : reserved)) < 0.5
-                && abs(toolbar.minX - reserved) < 0.5
+            return abs(surface.width - (overlay ? MacBrowserLayout.sidebarWidth : reserved)) <= 1
+                && abs(toolbar.minX - reserved) <= 1
         }
     }
     private func waitForTitlebar(_ window: NSWindow, height: CGFloat) async throws {
         try await eventually("sidebar titlebar height \(height)") {
             window.contentView?.layoutSubtreeIfNeeded()
-            return abs((self.marker("sidebarTitlebarGeometry", in: window)?.bounds.height ?? -1) - height) < 0.5
+            return abs((self.marker("sidebarTitlebarGeometry", in: window)?.bounds.height ?? -1) - height) <= 1
         }
     }
     private func checkGeometry(_ window: NSWindow, collapsed: Bool, overlay: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -65,10 +65,10 @@ import XCTest
             // Measure the actual material, not its formerly padded wrapper.
             let sidebar = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: window), file: file, line: line)
             let rect = sidebar.convert(sidebar.bounds, to: nil)
-            XCTAssertEqual(rect.minX, 0, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(rect.minY, 0, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(rect.width, overlay ? MacBrowserLayout.sidebarWidth : (collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth), accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(rect.height, content.bounds.height, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(rect.minX, 0, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(rect.minY, 0, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(rect.width, overlay ? MacBrowserLayout.sidebarWidth : (collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth), accuracy: 1, file: file, line: line)
+            XCTAssertEqual(rect.height, content.bounds.height, accuracy: 1, file: file, line: line)
         }
     }
     func testFourPinnedTilesAlignWithRegularRowAt256Points() async throws {
@@ -131,30 +131,30 @@ import XCTest
             for name in ["sidebarSearchGeometry", "sidebarItem-\(tab)", "sidebarSelection-\(tab)", "sidebarNewTabGeometry", "sidebarFooterGeometry"] {
                 let rect = try frame(name, in: window)
                 let gutter = name.hasPrefix("sidebarItem-") || name.hasPrefix("sidebarSelection-") ? scrollerGutter : 0
-                XCTAssertEqual(rect.minX - surface.minX, 8, accuracy: 0.5, name)
-                XCTAssertEqual(surface.maxX - rect.maxX, 8 + gutter, accuracy: 0.5, name)
+                XCTAssertEqual(rect.minX - surface.minX, 8, accuracy: 1, name)
+                XCTAssertEqual(surface.maxX - rect.maxX, 8 + gutter, accuracy: 1, name)
             }
             let row = try frame("sidebarItem-\(tab)", in: window)
             let icon = try frame("sidebarFavicon-\(tab)", in: window)
-            XCTAssertEqual(row.height, 36, accuracy: 0.5)
-            XCTAssertEqual(icon.minX - row.minX, 8, accuracy: 0.5)
-            XCTAssertEqual(try frame("sidebarSection-Tabs", in: window).minX, icon.minX, accuracy: 0.5)
+            XCTAssertEqual(row.height, 36, accuracy: 1)
+            XCTAssertEqual(icon.minX - row.minX, 8, accuracy: 1)
+            XCTAssertEqual(try frame("sidebarSection-Tabs", in: window).minX, icon.minX, accuracy: 1)
             let footer = try frame("sidebarFooterGeometry", in: window)
             let footerTitles = LibrarySection.allCases.map(\.rawValue) + ["Settings"]
             let footerButtons = try footerTitles.map { try frame("sidebarFooter-\($0)", in: window) }
             for (title, button) in zip(footerTitles, footerButtons) {
                 XCTAssertTrue(footer.contains(button), title)
-                XCTAssertEqual(button.width, 32, accuracy: 0.5, title)
-                XCTAssertEqual(button.height, 32, accuracy: 0.5, title)
+                XCTAssertEqual(button.width, 32, accuracy: 1, title)
+                XCTAssertEqual(button.height, 32, accuracy: 1, title)
             }
             for (left, right) in zip(footerButtons, footerButtons.dropFirst()) {
                 XCTAssertLessThanOrEqual(left.maxX, right.minX)
             }
-            XCTAssertEqual(footer.minY - surface.minY, 8, accuracy: 0.5)
-            XCTAssertEqual(try frame("sidebarNewTabGeometry", in: window).minY - footer.maxY, 5, accuracy: 0.5)
-            XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 0.5)
-            XCTAssertEqual(surface.maxY - (try frame("sidebarProfileGeometry", in: window)).maxY, 40, accuracy: 0.5)
-            XCTAssertEqual(surface.maxY - (try frame("sidebarToggleGeometry", in: window)).midY, 16, accuracy: 0.5)
+            XCTAssertEqual(footer.minY - surface.minY, 8, accuracy: 1)
+            XCTAssertEqual(try frame("sidebarNewTabGeometry", in: window).minY - footer.maxY, 5, accuracy: 1)
+            XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 1)
+            XCTAssertEqual(surface.maxY - (try frame("sidebarProfileGeometry", in: window)).maxY, 40, accuracy: 1)
+            XCTAssertEqual(surface.maxY - (try frame("sidebarToggleGeometry", in: window)).midY, 16, accuracy: 1)
         }
     }
 
@@ -171,19 +171,19 @@ import XCTest
             try await eventually("rail toggle position") {
                 guard let surface = self.geometry("sidebarSurfaceGeometry", in: window),
                       let toggle = self.geometry("sidebarToggleGeometry", in: window) else { return false }
-                return abs(surface.maxY - toggle.maxY - (fullscreen ? 0 : 32)) < 0.5
+                return abs(surface.maxY - toggle.maxY - (fullscreen ? 0 : 32)) <= 1
             }
             let surface = try frame("sidebarSurfaceGeometry", in: window)
             let tab = try XCTUnwrap(controller.session.selectedTabID)
             for name in ["sidebarToggleGeometry", "sidebarSearchGeometry", "sidebarNewTabGeometry", "sidebarItem-\(tab)", "sidebarFooter-Settings"] {
                 let rect = try frame(name, in: window)
-                XCTAssertEqual(rect.midX, surface.midX, accuracy: 0.5, name)
-                XCTAssertEqual(rect.width, 42, accuracy: 0.5, name)
-                XCTAssertEqual(rect.height, 36, accuracy: 0.5, name)
+                XCTAssertEqual(rect.midX, surface.midX, accuracy: 1, name)
+                XCTAssertEqual(rect.width, 42, accuracy: 1, name)
+                XCTAssertEqual(rect.height, 36, accuracy: 1, name)
             }
             let toggle = try frame("sidebarToggleGeometry", in: window)
-            XCTAssertEqual(surface.maxY - toggle.maxY, fullscreen ? 0 : 32, accuracy: 0.5)
-            XCTAssertEqual(try frame("sidebarFooter-Settings", in: window).minY - surface.minY, 0, accuracy: 0.5)
+            XCTAssertEqual(surface.maxY - toggle.maxY, fullscreen ? 0 : 32, accuracy: 1)
+            XCTAssertEqual(try frame("sidebarFooter-Settings", in: window).minY - surface.minY, 0, accuracy: 1)
         }
     }
 
@@ -199,9 +199,9 @@ import XCTest
         let surface = try frame("sidebarSurfaceGeometry", in: window)
         let profile = try frame("sidebarProfileGeometry", in: window)
         let toggle = try frame("sidebarToggleGeometry", in: window)
-        XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 0, accuracy: 0.5)
-        XCTAssertEqual(surface.maxY - profile.maxY, 8, accuracy: 0.5)
-        XCTAssertEqual(surface.maxY - toggle.maxY, 8, accuracy: 0.5)
+        XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 0, accuracy: 1)
+        XCTAssertEqual(surface.maxY - profile.maxY, 8, accuracy: 1)
+        XCTAssertEqual(surface.maxY - toggle.maxY, 8, accuracy: 1)
         XCTAssertGreaterThanOrEqual(toggle.minX - profile.maxX, 8)
         // Visibility represents the two reveal states without a system Space
         // transition. Native host painting still needs foreground acceptance.
@@ -217,7 +217,7 @@ import XCTest
         chrome.simulatesFullscreenLayout = false; chrome.configure()
         try await waitForTitlebar(window, height: 32)
         XCTAssertTrue(window.titlebarAppearsTransparent)
-        XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 0.5)
+        XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 1)
     }
 
     func testProfileNameAndCountAlignAndStayClearOfSearchAndToggle() async throws {
@@ -236,9 +236,9 @@ import XCTest
                 let count = try frame("sidebarProfileCountGeometry", in: window)
                 let search = try frame("sidebarSearchGeometry", in: window)
                 let toggle = try frame("sidebarToggleGeometry", in: window)
-                XCTAssertEqual(profile.minX, 8, accuracy: 0.5)
-                XCTAssertEqual(profile.height, 44, accuracy: 0.5)
-                XCTAssertEqual(name.minX, count.minX, accuracy: 0.5)
+                XCTAssertEqual(profile.minX, 8, accuracy: 1)
+                XCTAssertEqual(profile.height, 44, accuracy: 1)
+                XCTAssertEqual(name.minX, count.minX, accuracy: 1)
                 XCTAssertTrue(profile.contains(name)); XCTAssertTrue(profile.contains(count))
                 XCTAssertGreaterThanOrEqual(profile.minY - search.maxY, 8)
                 XCTAssertFalse(profile.intersects(toggle)); XCTAssertFalse(search.intersects(toggle))

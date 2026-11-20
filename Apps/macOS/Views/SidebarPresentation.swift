@@ -240,6 +240,7 @@ struct SidebarLabelFade: ViewModifier {
 }
 
 struct SidebarTooltipBubble: View {
+    @Environment(\.browserTheme) private var theme
     let text: String
     let width: CGFloat
     let maximumHeight: CGFloat
@@ -251,8 +252,8 @@ struct SidebarTooltipBubble: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
         }
         .frame(width: width, height: min(textHeight, maximumHeight))
-        .background(Theme.sidebar.surface, in: .rect(cornerRadius: 8)).foregroundStyle(Theme.sidebar.text)
-        .overlay { RoundedRectangle(cornerRadius: 8).stroke(Theme.sidebar.separator) }
+        .background(theme.surface, in: .rect(cornerRadius: 8)).foregroundStyle(theme.text)
+        .overlay { RoundedRectangle(cornerRadius: 8).stroke(theme.separator) }
         .accessibilityHidden(true)
     }
 }

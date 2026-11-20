@@ -53,7 +53,7 @@ import WebKit
                                      privateTabIsolation: privateTabIsolation)
         let defaults = factory.defaults
         profileDefaults = defaults
-        appearance = defaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:)) ?? .t3Code
+        appearance = BrowserAppearance.saved(defaults?.string(forKey: "browserAppearance"))
         session = factory.session
         tabSwipe.topChrome = topChrome
         tabSwipe.chromeForTab = { [weak self] id in

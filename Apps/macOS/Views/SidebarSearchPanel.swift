@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Memory-only metadata search in an explicit privacy scope. Never reads a web view.
 struct SidebarSearchPanel: View {
+    @Environment(\.browserTheme) private var theme
     @Bindable var controller: BrowserController
     let dismiss: () -> Void
     @State private var results: [BrowserTab] = []
@@ -21,19 +22,18 @@ struct SidebarSearchPanel: View {
             }.pickerStyle(.segmented)
             TextField("Search titles and hosts", text: $controller.tabSearch)
                 .textFieldStyle(.plain).focused($focused)
-                .padding(8).background(Theme.sidebar.field, in: .rect(cornerRadius: 9))
+                .padding(8).background(theme.sidebar.field, in: .rect(cornerRadius: OrivRadius.small))
                 .accessibilityIdentifier("railTabSearchField")
                 .onExitCommand(perform: dismiss)
                 .onSubmit { activate() }
                 .onKeyPress(.downArrow) { selected = min(max(0, results.count - 1), selected + 1); return .handled }
                 .onKeyPress(.upArrow) { selected = max(0, selected - 1); return .handled }
             Text("\(results.count) \(privateScope ? "private" : "regular") tabs")
-                .font(.caption).foregroundStyle(Theme.sidebar.secondaryText).accessibilityIdentifier("tabSearchResultCount")
+                .font(.caption).foregroundStyle(theme.secondaryText).accessibilityIdentifier("tabSearchResultCount")
             resultList
-        }.padding(14).foregroundStyle(Theme.sidebar.text)
-            .environment(\.browserTheme, Theme.sidebar)
-            .background(Theme.sidebar.surface, in: .rect(cornerRadius: 14))
-            .overlay { RoundedRectangle(cornerRadius: 14).stroke(Theme.sidebar.separator) }
+        }.padding(14).foregroundStyle(theme.text)
+            .background(theme.surface, in: .rect(cornerRadius: OrivRadius.popover))
+            .overlay { RoundedRectangle(cornerRadius: OrivRadius.popover).stroke(theme.separator) }
             .background(SidebarHitTarget(kind: .searchPanel))
             .task {
                 privateScope = controller.session.selectedTab?.isPrivate ?? controller.session.isExternalPrivate
@@ -66,13 +66,13 @@ struct SidebarSearchPanel: View {
             Button { controller.session.selectTab(tab.id); dismiss() } label: {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(tab.displayTitle).lineLimit(2)
-                    Text(tab.hostname).font(.caption).foregroundStyle(Theme.sidebar.secondaryText)
+                    Text(tab.hostname).font(.caption).foregroundStyle(theme.secondaryText)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
             }.buttonStyle(ContentButtonStyle()).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
             Button { controller.requestCloseTab(tab.id) } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
                 .buttonStyle(ContentButtonStyle()).accessibilityLabel("Close \(tab.displayTitle)")
         }
-        .background(index == selected ? Theme.sidebar.selection : .clear, in: .rect(cornerRadius: 8))
+        .background(index == selected ? theme.sidebar.selection : .clear, in: .rect(cornerRadius: OrivRadius.small))
         .id(tab.id)
     }
 

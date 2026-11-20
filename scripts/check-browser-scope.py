@@ -9,6 +9,9 @@ failures = []
 for relative in ('Apps', 'Packages/BrowserKit/Sources'):
     for path in (root / relative).rglob('*.swift'):
         text = path.read_text()
+        if relative == 'Apps' and path.name not in {'Theme.swift', 'Theme+macOS.swift'}:
+            if re.search(r'\b(?:hex\(0x|Color\(red:|design:\s*\.serif)', text):
+                failures.append(f'{path.relative_to(root)} uses a raw theme color or decorative serif')
         transport = path.relative_to(root).as_posix() == 'Packages/BrowserKit/Sources/BrowserEngine/ContinuityCloudTransport.swift'
         timing_probe = (path.relative_to(root).as_posix() == 'Apps/Shared/SyncTimingProbe.swift'
                         and text.startswith('#if DEBUG\n') and text.rstrip().endswith('#endif'))

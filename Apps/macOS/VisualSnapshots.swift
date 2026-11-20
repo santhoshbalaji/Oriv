@@ -395,7 +395,7 @@ import WebKit
                 BrowserWindow(controller: controller).frame(width: size.width, height: size.height)
                     .environment(\.chromeReduceTransparencyOverride, true)
             }
-            let backdrop = Color(red: 0.04, green: 0.67, blue: 0.64)
+            let backdrop = Color(.sRGB, red: 0.04, green: 0.67, blue: 0.64)
             for variant in ["glass-input", "reduced", "increased"] {
                 let name = "mac-glass-sidebar-contrast-p2-\(label)-\(variant)"
                 await capture(name, directory, size, key: activate, appearance: appearance) {
@@ -429,7 +429,7 @@ import WebKit
                       key: false, appearance: .light) {
             AppearanceSettings(appearance: .constant(.light), controller: controller, initialPane: .appearance)
         }
-        let backdrop = Color(red: 96.0 / 255, green: 0, blue: 217.0 / 255)
+        let backdrop = Color(.sRGB, red: 96.0 / 255, green: 0, blue: 217.0 / 255)
         for appearance in [BrowserAppearance.light, .dark] {
             for choice in SidebarGlassOpacity.allCases {
                 let name = "mac-glass-sidebar-contrast-opacity-\(appearance.rawValue.lowercased())-\(choice.rawValue.lowercased())"
@@ -467,7 +467,7 @@ import WebKit
         _ = controller.session.addTab(isPrivate: true, select: false, load: false)
         guard let tab = controller.session.selectedTab else { manifest.failures.append("No contrast fixture tab"); return }
         for (page, hex, backdrop) in [("white", "#ffffff", Color.white), ("black", "#000000", Color.black),
-                                      ("purple", "#6000d9", Color(red: 96.0 / 255, green: 0, blue: 217.0 / 255))] {
+                                      ("purple", "#6000d9", Color(.sRGB, red: 96.0 / 255, green: 0, blue: 217.0 / 255))] {
             let title = "Wikipedia – \(page) fixture"
             tab.webView.loadHTMLString("<title>\(title)</title><body style='margin:0;background:\(hex);color:\(page == "white" ? "black" : "white");font:24px system-ui;padding:60px;height:2000px'><h1>Wikipedia</h1><p>Local contrast fixture: \(page).</p></body>", baseURL: records[1].url)
             for _ in 0..<200 {

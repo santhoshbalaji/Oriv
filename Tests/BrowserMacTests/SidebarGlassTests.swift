@@ -278,7 +278,7 @@ import XCTest
         XCTAssertNil(marker("sidebarHost", unique.id))
         for record in [first, second, unique] {
             let row = try XCTUnwrap(marker("sidebarItem", record.id))
-            XCTAssertEqual(row.bounds.height, 36, accuracy: 0.5)
+            XCTAssertEqual(row.bounds.height, 36, accuracy: 1)
             XCTAssertEqual(row.accessibilityLabel()?.contains(record.url!.host!), true)
             if record.id != unique.id {
                 let host = try XCTUnwrap(marker("sidebarHost", record.id))

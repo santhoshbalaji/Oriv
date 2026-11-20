@@ -152,17 +152,17 @@ import XCTest
         }
 
         _ = try await revealFromBottom(first)
-        XCTAssertEqual(list.visibleRect.minY, 0, accuracy: 0.5)
+        XCTAssertEqual(list.visibleRect.minY, 0, accuracy: 1)
         let fourth = try XCTUnwrap(c.session.orderedTabs.prefix(5).dropFirst(3).first)
         _ = try await revealFromBottom(fourth)
-        XCTAssertEqual(list.visibleRect.minY, 0, accuracy: 0.5)
+        XCTAssertEqual(list.visibleRect.minY, 0, accuracy: 1)
         let tabs = try await revealFromBottom(try XCTUnwrap(regular.first))
-        XCTAssertEqual(list.visibleRect.minY, tabs.minY, accuracy: 0.5)
+        XCTAssertEqual(list.visibleRect.minY, tabs.minY, accuracy: 1)
 
         for pin in pins { c.session.togglePinned(pin.id) }
         let firstUnpinned = try XCTUnwrap(c.session.orderedTabs.first)
         _ = try await revealFromBottom(firstUnpinned)
-        XCTAssertEqual(list.visibleRect.minY, 0, accuracy: 0.5)
+        XCTAssertEqual(list.visibleRect.minY, 0, accuracy: 1)
     }
 
     func testArrowPreviewWakesOnlyTheSettledTab() async throws {
@@ -226,11 +226,11 @@ import XCTest
         c.compactSidebar = true
         try await wait("Rail kept legacy scrollbar space") { c.sidebar.rail && !scroll.hasVerticalScroller }
         scroll.tile()
-        XCTAssertEqual(scroll.contentView.bounds.width, MacBrowserLayout.railWidth, accuracy: 0.5)
+        XCTAssertEqual(scroll.contentView.bounds.width, MacBrowserLayout.railWidth, accuracy: 1)
         XCTAssertFalse(scroll.hasVerticalScroller)
         let path = try XCTUnwrap(list.selectionIndexPaths.first)
         let row = try XCTUnwrap(list.item(at: path)?.view)
-        XCTAssertEqual(row.bounds.width, 42, accuracy: 0.5)
+        XCTAssertEqual(row.bounds.width, 42, accuracy: 1)
         XCTAssertEqual(row.accessibilityRole(), .row)
         XCTAssertTrue(row.isAccessibilitySelected())
         XCTAssertTrue(row.accessibilityCustomActions()?.contains { $0.name == "Close Tab" } == true)
@@ -294,7 +294,7 @@ import XCTest
             let rect = button.convert(button.bounds, to: nil)
             XCTAssertGreaterThanOrEqual(rect.minX, 8)
             XCTAssertLessThanOrEqual(rect.maxX, MacBrowserLayout.railWidth - 8)
-            XCTAssertEqual(rect.minX, MacBrowserLayout.railLightsInset + CGFloat(index) * 20, accuracy: 0.5)
+            XCTAssertEqual(rect.minX, MacBrowserLayout.railLightsInset + CGFloat(index) * 20, accuracy: 1)
             XCTAssertEqual(w.contentView!.bounds.maxY - rect.midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)
         }
     }

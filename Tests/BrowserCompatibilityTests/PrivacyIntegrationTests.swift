@@ -196,6 +196,33 @@ import UIKit
         XCTAssertFalse(tab.webView.configuration.userContentController.userScripts.contains { $0.source.hasPrefix("// Oriv cookie consent policy") })
     }
 
+    func testAppearancePreservesExplicitProfileChoicesAndDefaultsUnsetToSystem() {
+        XCTAssertEqual(BrowserAppearance.saved(nil), .system)
+        XCTAssertEqual(BrowserAppearance.saved("Future theme"), .system)
+        for choice in BrowserAppearance.allCases {
+            XCTAssertEqual(BrowserAppearance.saved(choice.rawValue), choice)
+        }
+        XCTAssertNil(BrowserAppearance.system.colorScheme)
+        XCTAssertFalse(BrowserAppearance.system.theme.isT3Code)
+        XCTAssertTrue(BrowserAppearance.t3Code.theme.isT3Code)
+    }
+
+    func testSystemAccentMarkersMeetContrastOnEverySelection() {
+        for appearance in [BrowserAppearance.light, .dark, .t3Code] {
+            var environment = EnvironmentValues()
+            environment.colorScheme = appearance.colorScheme ?? .light
+            let theme = appearance.theme
+            for color in [theme.selection, theme.sidebar.selection] {
+                let surface = color.resolve(in: environment)
+                let marker = theme.markerAccent(on: surface, in: environment).resolve(in: environment)
+                let foreground = Theme.luminance(marker)
+                let background = Theme.luminance(surface)
+                let ratio = (max(background, foreground) + 0.05) / (min(background, foreground) + 0.05)
+                XCTAssertGreaterThanOrEqual(ratio, 3, appearance.rawValue)
+            }
+        }
+    }
+
     #if os(iOS)
     func testThemeSurfaceCaptures() async throws {
         for appearance in [BrowserAppearance.light, .dark] {

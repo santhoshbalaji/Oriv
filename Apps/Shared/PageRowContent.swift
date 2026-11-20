@@ -73,7 +73,7 @@ struct PageRowContent: View {
         case .alreadyOpen: SwitchToTabBadge()
         case .selected:
             Image(systemName: "checkmark").font(.footnote.weight(.semibold))
-                .foregroundStyle(theme.accentText).accessibilityHidden(true)
+                .foregroundStyle(theme.secondaryText).accessibilityHidden(true)
         }
     }
 }

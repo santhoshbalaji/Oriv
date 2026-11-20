@@ -83,7 +83,7 @@ final class BrowserController {
         profileDefaults = defaults
         sidebar.preferredRail = defaults?.bool(forKey: "compactSidebar") ?? false
         sidebar.hoverEnabled = defaults?.bool(forKey: "hoverSidebar") ?? false
-        appearance = defaults?.string(forKey: "browserAppearance").flatMap(BrowserAppearance.init(rawValue:)) ?? .t3Code
+        appearance = BrowserAppearance.saved(defaults?.string(forKey: "browserAppearance"))
         session = factory.session
         bookmarkMigration = factory.importLegacyBookmarks()
         session.configureWebView = { [weak self] view, tab in

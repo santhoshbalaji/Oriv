@@ -18,7 +18,7 @@ struct ReaderTextView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text(capture.title).font(Theme.editorial(30))
+                    Text(capture.title).font(OrivType.title)
                     Text(capture.url.host ?? "").font(.callout).foregroundStyle(theme.secondaryText)
                     Text(capture.text).font(.system(size: size)).lineSpacing(8).textSelection(.enabled)
                     Divider()

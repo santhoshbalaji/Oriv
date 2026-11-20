@@ -8,19 +8,19 @@ import XCTest
 @MainActor final class BrowserChromeTests: BackgroundUITestCase {
     func testEmptyChromeFollowsWindowAppearanceAcrossWebViewAttachment() throws {
         let chrome = PageChrome()
-        let light = PageChrome.resolveCanvas(Theme.classic.page, scheme: .light)
-        let dark = PageChrome.resolveCanvas(Theme.classic.page, scheme: .dark)
+        let light = PageChrome.resolveCanvas(Theme.graphite.page, scheme: .light)
+        let dark = PageChrome.resolveCanvas(Theme.graphite.page, scheme: .dark)
         let web = makeWebView()
         chrome.setEmptyPageColor(light)
         chrome.observe(web)
         XCTAssertFalse(chrome.isDark)
         XCTAssertEqual(chrome.luminance, light.luminance, accuracy: 0.001)
-        XCTAssertEqual(light.red, 252.0 / 255, accuracy: 0.002)
+        XCTAssertEqual(light.red, 1.0, accuracy: 0.002)
         chrome.setEmptyPageColor(dark)
         chrome.observe(nil)
         XCTAssertTrue(chrome.isDark)
         XCTAssertEqual(chrome.luminance, dark.luminance, accuracy: 0.001)
-        XCTAssertEqual(dark.red, 37.0 / 255, accuracy: 0.002)
+        XCTAssertEqual(dark.red, 28.0 / 255, accuracy: 0.002)
         chrome.setEmptyPageColor(PageChrome.resolveCanvas(Theme.t3Code.page, scheme: .dark))
         XCTAssertEqual(chrome.luminance, 0, accuracy: 0.001)
     }

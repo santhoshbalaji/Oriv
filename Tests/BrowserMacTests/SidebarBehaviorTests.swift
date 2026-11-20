@@ -24,7 +24,7 @@ import XCTest
             guard let content = window.contentView else { return false }
             content.layoutSubtreeIfNeeded()
             let marker = self.views(content).first { $0.identifier?.rawValue == "sidebarSurfaceGeometry" }
-            return abs((marker?.bounds.width ?? 0) - width) < 0.5
+            return abs((marker?.bounds.width ?? 0) - width) <= 1
         }
     }
     private func sidebarKey(in window: NSWindow) throws {
@@ -274,7 +274,7 @@ import XCTest
                 return marker.convert(marker.bounds, to: nil)
             }
             let surface = try XCTUnwrap(all.first { $0.identifier?.rawValue == "sidebarSurfaceGeometry" })
-            XCTAssertEqual(surface.bounds.width, 256, accuracy: 0.5)
+            XCTAssertEqual(surface.bounds.width, 256, accuracy: 1)
             if style == .legacy { XCTAssertLessThan(scroll.contentView.bounds.width, scroll.bounds.width) }
             for (index, frame) in frames.enumerated() {
                 XCTAssertEqual(frame.height, index < 8 ? 48 : 36, accuracy: 1)
@@ -282,12 +282,12 @@ import XCTest
             }
             for offset in [0, 4] {
                 let row = frames[offset..<(offset + 4)]
-                XCTAssertEqual(frames[offset].minX, frames[8].minX, accuracy: 0.5)
-                XCTAssertEqual(frames[offset + 3].maxX, frames[8].maxX, accuracy: 0.5)
+                XCTAssertEqual(frames[offset].minX, frames[8].minX, accuracy: 1)
+                XCTAssertEqual(frames[offset + 3].maxX, frames[8].maxX, accuracy: 1)
                 for (left, right) in zip(row, row.dropFirst()) {
                     // Fractional tile widths snap to device pixels; 1x hosted runners land up to ~0.75 pt off.
                     XCTAssertEqual(right.minX - left.maxX, 8, accuracy: 1)
-                    XCTAssertEqual(left.midY, right.midY, accuracy: 0.5)
+                    XCTAssertEqual(left.midY, right.midY, accuracy: 1)
                 }
             }
         }

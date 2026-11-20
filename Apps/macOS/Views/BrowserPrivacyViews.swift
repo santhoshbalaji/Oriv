@@ -51,7 +51,7 @@ struct WebsiteDataView: View {
     private var records: [WKWebsiteDataRecord] { manager.records.filter { query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query) } }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { Text("Website data").font(Theme.editorial(26)); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
+            HStack { Text("Website data").font(OrivType.title); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
             Text("Cookies, caches and offline storage from regular browsing. Removing data may sign you out and delete a site's offline work. Bookmarks are kept separately.").font(.callout).foregroundStyle(theme.secondaryText)
             TextField("Search websites", text: $query).textFieldStyle(.roundedBorder)
             List(records, id: \.displayName) { record in
@@ -93,7 +93,7 @@ struct ClearBrowsingDataView: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Clear browsing data").font(Theme.editorial(26))
+            Text("Clear browsing data").font(OrivType.title)
             Picker("Time range", selection: $hours) {
                 Text("Last hour").tag(1); Text("Last 24 hours").tag(24); Text("Last 7 days").tag(168); Text("All time").tag(0)
             }

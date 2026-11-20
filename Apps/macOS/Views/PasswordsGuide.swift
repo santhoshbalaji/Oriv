@@ -27,7 +27,7 @@ struct PasswordsGuide: View {
     }
     private func instruction(_ number: String, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Text(number).font(.caption.weight(.semibold)).foregroundStyle(theme.accentText)
+            Text(number).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
                 .frame(width: 24, height: 24).background(theme.accent.opacity(0.09), in: .circle)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.callout.weight(.medium))

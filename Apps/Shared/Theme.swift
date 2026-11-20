@@ -15,6 +15,7 @@ enum OrivRadius {
     static let compact: CGFloat = 6
     static let small: CGFloat = 8
     static let medium: CGFloat = 10
+    static let popover: CGFloat = 12
     static let large: CGFloat = 14
     // Capsule shapes use Capsule(), rather than a radius tied to a particular height.
 }
@@ -25,7 +26,8 @@ enum OrivType {
     static let body: Font = .system(size: 13)
     static let detail: Font = .system(size: 12)
     static let caption: Font = .system(size: 11)
-    static let title: Font = .system(size: 17, weight: .semibold)
+    static let title: Font = .system(size: 15, weight: .semibold)
+    static let profile: Font = .system(size: 17, weight: .semibold)
     #else
     static let body: Font = .body
     static let detail: Font = .footnote
@@ -41,67 +43,102 @@ enum BrowserAppearance: String, CaseIterable, Identifiable {
     var colorScheme: ColorScheme? {
         switch self { case .system: nil; case .light: .light; case .dark, .t3Code: .dark }
     }
-    var theme: Theme { self == .t3Code ? .t3Code : .classic }
+    var theme: Theme { self == .t3Code ? .t3Code : .graphite }
+
+    /// Read profile defaults without writing a choice for unset or unrecognized values.
+    static func saved(_ value: String?) -> BrowserAppearance {
+        value.flatMap(Self.init(rawValue:)) ?? .system
+    }
 }
 
-/// Color roles, rather than process-wide mutable colors, keep profile windows and previews independent.
+/// Color roles are scoped to the owning window, sheet or preview.
 struct Theme {
+    struct SidebarPalette {
+        let backing: Color
+        let field: Color
+        let selection: Color
+        let hover: Color
+    }
+
     let isT3Code: Bool
-    let accent: Color
     let canvas: Color
     let surface: Color
     let field: Color
     let chrome: Color
-    let separator: Color
+    var separator: Color
     let text: Color
-    let secondaryText: Color
+    var secondaryText: Color
     let selection: Color
-    let thread: Color
-    /// Accent for text and small glyphs. The brand accent stays for fills, focus and selection.
-    var accentText: Color
-    let privateAccent = adaptive("Private", light: 0x8944AB, dark: 0xBB85F5)
-    var controlFill: Color { isT3Code ? Self.hex(0x346BF1) : accent }
-    /// Placeholders must read as hints, never as entered content.
-    var fieldText: Color { secondaryText }
-    var page: Color { isT3Code ? canvas : surface }
-    /// One background for every list and form row.
-    var row: Color { surface }
-    /// Muted amber, used only for connection warnings such as "Not secure" (7.2:1 on the T3 field).
-    var warning: Color { isT3Code ? Self.hex(0xD9A04A) : Self.classicWarning }
-    private static let classicWarning = adaptive("Warning", light: 0x8A5300, dark: 0xD9A04A)
+    let warning: Color
+    let sidebar: SidebarPalette
 
-    // T3 Code Nightly 0.1.7-nightly.20261103.4119, built-in dark palette.
-    // The app's default dark canvas overrides its base palette to pure black.
-    // Secondary text and accent text are lightened from the palette so they reach 4.5:1 on every surface.
-    static let t3Code = Theme(isT3Code: true, accent: hex(0x346BF1), canvas: hex(0x000000),
+    #if os(macOS)
+    let accent = Color(nsColor: .controlAccentColor)
+    #else
+    let accent = Color.accentColor
+    #endif
+    var fieldText: Color { secondaryText }
+    var page: Color { canvas }
+    var row: Color { surface }
+
+    /// Preserve the system hue while meeting the 3:1 requirement on app-drawn selections.
+    func markerAccent(on background: Color.Resolved, in environment: EnvironmentValues) -> Color {
+        let resolved = accent.resolve(in: environment)
+        let base = Self.luminance(background)
+        let foreground = Self.luminance(resolved)
+        let minimum: Float = 3.1
+        guard (max(base, foreground) + 0.05) / (min(base, foreground) + 0.05) < minimum else { return accent }
+        let darken = base >= 0.30
+        let target = darken ? (base + 0.05) / minimum - 0.05 : (base + 0.05) * minimum - 0.05
+        let endpoint: Float = darken ? 0 : 1
+        let amount = (target - foreground) / (endpoint - foreground)
+        return Color(.sRGBLinear,
+                     red: Double(resolved.linearRed + (endpoint - resolved.linearRed) * amount),
+                     green: Double(resolved.linearGreen + (endpoint - resolved.linearGreen) * amount),
+                     blue: Double(resolved.linearBlue + (endpoint - resolved.linearBlue) * amount))
+    }
+
+    static func luminance(_ color: Color.Resolved) -> Float {
+        0.2126 * color.linearRed + 0.7152 * color.linearGreen + 0.0722 * color.linearBlue
+    }
+
+    static let privateLight = hex(0x713692)
+    static let privateDark = hex(0xD5AAF8)
+    let privateAccent = adaptive("Private", light: 0x713692, dark: 0xD5AAF8)
+
+    static let t3Code = Theme(isT3Code: true, canvas: hex(0x000000),
         surface: hex(0x111111), field: hex(0x1E1E1E), chrome: hex(0x0A0A0A), separator: hex(0x191919),
-        text: hex(0xF5F5F5), secondaryText: hex(0xA3A3A3), selection: hex(0x1C1C1C), thread: hex(0x191919),
-        accentText: hex(0x5B8CFF))
-    static let classic = Theme(isT3Code: false, accent: adaptive("Mulberry", light: 0x713C52, dark: 0xE3ADC4),
-        canvas: adaptive("Mist", light: 0xF3F0F5, dark: 0x1D1B20),
-        surface: adaptive("Paper", light: 0xFCFAFD, dark: 0x252228), field: nativeField, chrome: nativeChrome,
-        separator: nativeSeparator, text: adaptive("Ink", light: 0x1D1B20, dark: 0xF5F5F5),
-        secondaryText: adaptive("Secondary", light: 0x66626A, dark: 0xABA6AF),
-        selection: adaptive("Selection", light: 0xE8DFEA, dark: 0x322C35),
-        thread: adaptive("Thread", light: 0xC8B8CD, dark: 0x6C5B73),
-        accentText: adaptive("Mulberry", light: 0x713C52, dark: 0xE3ADC4))
+        text: hex(0xF5F5F5), secondaryText: hex(0xA3A3A3), selection: hex(0x1C1C1C),
+        warning: hex(0xD9A04A),
+        sidebar: SidebarPalette(backing: hex(0x0A0A0A), field: hex(0x1E1E1E),
+                               selection: hex(0x1C1C1C), hover: hex(0x171717)))
+
+    static let graphite = Theme(isT3Code: false,
+        canvas: adaptive("Canvas", light: 0xFFFFFF, dark: 0x1C1C1E),
+        surface: adaptive("Surface", light: 0xF5F5F7, dark: 0x242426),
+        field: adaptive("Field", light: 0xE6E6EA, dark: 0x323236),
+        chrome: adaptive("Chrome", light: 0xF0F0F3, dark: 0x252528),
+        separator: adaptive("Separator", light: 0xC9C9CF, dark: 0x48484D),
+        text: adaptive("Text", light: 0x1D1D1F, dark: 0xF5F5F7),
+        secondaryText: adaptive("Secondary", light: 0x4E4E54, dark: 0xC2C2C8),
+        selection: adaptive("Selection", light: 0xDEDEE3, dark: 0x3D3D42),
+        warning: adaptive("Warning", light: 0x794900, dark: 0xE0AA55),
+        sidebar: SidebarPalette(
+            backing: adaptive("SidebarBacking", light: 0xF0F0F3, dark: 0x252528),
+            field: adaptive("SidebarField", light: 0xE6E6EA, dark: 0x323236),
+            selection: adaptive("SidebarSelection", light: 0xDEDEE3, dark: 0x3D3D42),
+            hover: adaptive("SidebarHover", light: 0xE7E7EB, dark: 0x303034)))
 
     func respecting(_ contrast: ColorSchemeContrast) -> Theme {
-        guard isT3Code && contrast == .increased else { return self }
-        return Theme(isT3Code: true, accent: accent, canvas: canvas, surface: surface,
-            field: field, chrome: chrome, separator: Self.hex(0x818181), text: text,
-            secondaryText: Self.hex(0xB8B8B8), selection: Self.hex(0x242424), thread: thread,
-            accentText: Self.hex(0x79A5FF))
+        guard contrast == .increased else { return self }
+        var palette = self
+        palette.separator = isT3Code ? Self.hex(0x818181) : Self.highContrastSeparator
+        palette.secondaryText = isT3Code ? Self.hex(0xB8B8B8) : Self.highContrastSecondary
+        return palette
     }
-    #if os(macOS)
-    private static let nativeField = Color(nsColor: .textBackgroundColor)
-    private static let nativeChrome = Color(nsColor: .windowBackgroundColor)
-    private static let nativeSeparator = Color(nsColor: .separatorColor)
-    #else
-    private static let nativeField = Color(uiColor: .secondarySystemGroupedBackground)
-    private static let nativeChrome = Color(uiColor: .systemBackground)
-    private static let nativeSeparator = Color(uiColor: .separator)
-    #endif
+
+    private static let highContrastSeparator = adaptive("StrongSeparator", light: 0x646469, dark: 0xA3A3A9)
+    private static let highContrastSecondary = adaptive("StrongSecondary", light: 0x36363B, dark: 0xD9D9DD)
 
     private static func hex(_ value: UInt32) -> Color {
         Color(.sRGB, red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255,
@@ -126,7 +163,7 @@ struct Theme {
     }
 }
 
-private struct BrowserThemeKey: EnvironmentKey { static let defaultValue: Theme = .classic }
+private struct BrowserThemeKey: EnvironmentKey { static let defaultValue: Theme = .graphite }
 extension EnvironmentValues {
     var browserTheme: Theme {
         get { self[BrowserThemeKey.self] }
@@ -144,9 +181,7 @@ private struct BrowserAppearanceModifier: ViewModifier {
         let theme = appearance.theme.respecting(contrast)
         content.environment(\.browserTheme, theme)
             .preferredColorScheme(followsPage ? nil : appearance.colorScheme)
-            // macOS 27 uses tint for Form picker values and text buttons, just as iOS does.
-            // Text controls inherit accentText; fills, focus and selection opt in to accent/controlFill.
-            .tint(theme.accentText).accentColor(theme.accentText)
+            .tint(theme.accent)
             #if os(macOS)
             .background(theme.canvas, ignoresSafeAreaEdges: [])
             #else
@@ -218,19 +253,24 @@ struct SwitchToTabBadge: View {
     }
 }
 
-/// The selected row's marker: a narrow brand-accent bar (4.3:1 on the T3 toolbar, 3.7:1 on the selection fill).
+/// The system-accent marker identifies the active row at its leading edge.
 struct SelectionMarker: View {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.self) private var environment
     var height: CGFloat = 16
+    var background: Color? = nil
+
     var body: some View {
-        Capsule().fill(theme.accent).frame(width: 3, height: height).accessibilityHidden(true)
+        let surface = (background ?? theme.selection).resolve(in: environment)
+        Capsule().fill(theme.markerAccent(on: surface, in: environment))
+            .frame(width: 3, height: height).accessibilityHidden(true)
     }
 }
 
 /// Selected-row background with the leading marker, for lists that draw their own selection.
 struct SelectedRowBackground: View {
     @Environment(\.browserTheme) private var theme
-    var cornerRadius: CGFloat = 7
+    var cornerRadius: CGFloat = OrivRadius.small
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius).fill(theme.selection)
             .overlay(alignment: .leading) { SelectionMarker().padding(.leading, 2) }

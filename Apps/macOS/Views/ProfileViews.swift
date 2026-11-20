@@ -4,7 +4,7 @@ import SwiftUI
 extension ProfileColor {
     func tint(in theme: Theme) -> Color {
         switch self {
-        case .mulberry: Color(red: 0.89, green: 0.68, blue: 0.77)
+        case .mulberry: theme.secondaryText
         case .ocean: .blue
         case .fern: .green
         case .amber: .orange
@@ -37,7 +37,7 @@ struct ProfileMenu: View {
         Group {
             if tabCount != nil {
                 picker.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).focusEffectDisabled()
-                    .background(theme.text.opacity(headerHovered ? 0.05 : 0), in: .rect(cornerRadius: 8))
+                    .background(headerHovered ? theme.sidebar.hover : .clear, in: .rect(cornerRadius: 8))
                     .onHover { headerHovered = $0 }
             }
             else { picker.menuStyle(.borderlessButton).menuIndicator(iconOnly ? .hidden : .automatic) }
@@ -62,13 +62,13 @@ struct ProfileMenu: View {
                 HStack(spacing: 8) {
                     Image(systemName: "rectangle.stack").font(.system(size: 17, weight: .semibold)).frame(width: 19)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(profiles.active.name).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                        Text(profiles.active.name).font(OrivType.profile).lineLimit(1)
                             .browserGeometryMarker("sidebarProfileNameGeometry")
                         Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.secondaryText)
                             .browserGeometryMarker("sidebarProfileCountGeometry")
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
-                }.foregroundStyle(theme.text).padding(.horizontal, 8).frame(height: 44).contentShape(Rectangle())
+                }.foregroundStyle(.primary).padding(.horizontal, 8).frame(height: 44).contentShape(Rectangle())
             } else {
                 HStack(spacing: 8) {
                     Image(systemName: profiles.active.symbol.rawValue).foregroundStyle(profiles.active.color.tint(in: theme))
@@ -133,7 +133,7 @@ struct ProfilesView: View {
                                 } else if let selected { try profiles.update(selected.id, name: name, color: color, symbol: symbol) }
                                 message = nil
                             } catch { message = error.localizedDescription }
-                        }.buttonStyle(.borderedProminent).tint(theme.controlFill).disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }.buttonStyle(.borderedProminent).tint(theme.accent).disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         if let selected, selected.archivedAt != nil {
                             Button("Restore") { perform { try profiles.restore(selected.id) } }.disabled(!profiles.canModify)
                         } else if let selected, selected.id != profiles.active.id, canSwitch {
@@ -199,7 +199,7 @@ struct ProfilesSheet: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack { Text("Your browsing profiles").font(Theme.editorial(24)); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
+            HStack { Text("Your browsing profiles").font(OrivType.title); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
             ProfilesView(profiles: profiles)
         }.padding(24).frame(width: 700, height: 560)
     }
