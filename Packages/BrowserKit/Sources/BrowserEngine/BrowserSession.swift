@@ -200,6 +200,7 @@ public final class BrowserSession {
         guard isExternalPrivate else { return }
         settings.searchEngine = source.settings.searchEngine
         adBlocker.setMode(source.adBlocker.mode)
+        settings.privacy.skipYouTubeAds = source.settings.privacy.skipYouTubeAds
         for layer in PrivacyLayer.allCases {
             settings.privacy.setEnabled(source.settings.privacy.isEnabled(layer), layer)
         }

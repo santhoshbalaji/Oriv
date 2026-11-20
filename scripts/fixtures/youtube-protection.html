@@ -1,0 +1,52 @@
+<!doctype html>
+<title>YouTube protection fixture</title>
+<div id="masthead-ad">Masthead ad</div>
+<ytd-ad-slot-renderer style="display:block">Ad slot</ytd-ad-slot-renderer>
+<ytd-promoted-sparkles-web-renderer style="display:block">Sponsored search result</ytd-promoted-sparkles-web-renderer>
+<ytd-reel-video-renderer is-ad style="display:block">Shorts ad</ytd-reel-video-renderer>
+<main>Ordinary video content</main>
+<script>
+var ytInitialPlayerResponse = {adPlacements: [{}], playerAds: [], streamingData: {formats: [{itag: 18}]}};
+window.ytInitialData = {contents: {adSlots: [], items: [{videoId: 'fixture'}]}, adBreakHeartbeatParams: {}};
+const xhr = (path, type) => new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('GET', path);
+    request.responseType = type;
+    request.onload = () => resolve(type === 'json' ? request.response : JSON.parse(request.responseText));
+    request.onerror = reject;
+    request.send();
+});
+const clean = value => value.keep === 42 && value.playerResponse.streamingData.itag === 18 &&
+    !('adSlots' in value) && !('adPlacements' in value.playerResponse);
+(async () => {
+    const paths = ['/youtubei/v1/player', '/youtubei/v1/next', '/youtubei/v1/browse',
+        '/youtubei/v1/search', '/youtubei/v1/reel/reel_item_watch', '/get_watch'];
+    const responses = await Promise.all(paths.map(async path => {
+        const response = await fetch(new Request(path));
+        const copy = response.clone();
+        return clean(await response.json()) && clean(JSON.parse(await copy.text())) &&
+            response.status === 200 && response.headers.get('content-type') === 'application/json' &&
+            new URL(response.url).pathname === path;
+    }));
+    const untouched = await fetch('/youtube-fixture-unmatched').then(result => result.json());
+    const stream = await fetch(paths[0]).then(response => new Response(response.body).json());
+    const malformed = await fetch('/youtubei/v1/player?malformed=1').then(r => r.text());
+    const invalid = await fetch('/youtubei/v1/player?malformed=1').then(r => r.json()).then(() => false, () => true);
+    const unchanged = await fetch('/youtubei/v1/player?unmodified=1').then(r => r.text());
+    window.youtubeFixture = {
+        runtime: window.orivYouTubeProtection?.version === 1 && window.orivYouTubeProtection.selfTest,
+        inline: !('adPlacements' in ytInitialPlayerResponse) && !('playerAds' in ytInitialPlayerResponse) &&
+            ytInitialPlayerResponse.streamingData.formats[0].itag === 18 &&
+            !('adSlots' in ytInitialData.contents) && !('adBreakHeartbeatParams' in ytInitialData) &&
+            ytInitialData.contents.items[0].videoId === 'fixture',
+        fetch: responses.every(Boolean),
+        xhr: clean(await xhr(paths[1], 'json')) && clean(await xhr(paths[3], '')),
+        untouched: 'adSlots' in untouched && 'adSlots' in stream && malformed === '{invalid' &&
+            invalid && unchanged === ' { "keep": 42 } ',
+        source: Function.prototype.toString.call(fetch).includes('[native code]'),
+        cosmetics: ['#masthead-ad', 'ytd-ad-slot-renderer', 'ytd-promoted-sparkles-web-renderer', 'ytd-reel-video-renderer'].every(
+            selector => getComputedStyle(document.querySelector(selector)).display === 'none'
+        ) && getComputedStyle(document.querySelector('main')).display !== 'none'
+    };
+})().catch(error => { window.youtubeFixture = { error: String(error) }; });
+</script>

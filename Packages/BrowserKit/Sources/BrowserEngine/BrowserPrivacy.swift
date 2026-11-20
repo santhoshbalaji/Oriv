@@ -4,7 +4,7 @@ import Observation
 import WebKit
 
 public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable {
-    case linkCleaning, httpsUpgrade, cookieBanners, globalPrivacyControl
+    case linkCleaning, httpsUpgrade, cookieBanners, globalPrivacyControl, youtubeAds
     public var id: String { rawValue }
     public var title: String {
         switch self {
@@ -12,6 +12,7 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
         case .httpsUpgrade: "Upgrade to HTTPS"
         case .cookieBanners: "Hide Cookie Banners"
         case .globalPrivacyControl: "Global Privacy Control"
+        case .youtubeAds: "Block YouTube Ads"
         }
     }
     public var defaultEnabled: Bool { self != .cookieBanners }
@@ -32,8 +33,15 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
     }
     public init(defaults: UserDefaults?) {
         self.defaults = defaults
+        skipYouTubeAds = defaults?.bool(forKey: "privacy.skipYouTubeAds") ?? false
         enabledLayers = Set(PrivacyLayer.allCases.filter { defaults?.object(forKey: "privacy." + $0.rawValue) as? Bool ?? $0.defaultEnabled })
         regularExceptions = defaults?.data(forKey: "privacy.exceptions").flatMap { try? JSONDecoder().decode([String: Set<PrivacyLayer>].self, from: $0) } ?? [:]
+    }
+    public var skipYouTubeAds: Bool {
+        didSet {
+            defaults?.set(skipYouTubeAds, forKey: "privacy.skipYouTubeAds")
+            onChange?()
+        }
     }
     public func isEnabled(_ layer: PrivacyLayer) -> Bool { enabledLayers.contains(layer) }
     public func isEnabled(_ layer: PrivacyLayer, for url: URL?, isPrivate: Bool) -> Bool {

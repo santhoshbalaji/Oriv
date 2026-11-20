@@ -92,6 +92,64 @@ import UIKit
         try await wait { tab.title == "Privacy fixture" && !tab.isLoading || tab.errorMessage != nil }
         XCTAssertNil(tab.errorMessage)
     }
+    func testYouTubeUserScriptIsScopedAndRespectsBothExceptions() throws {
+        let settings = BrowserSettings(defaults: nil)
+        let blocker = AdBlocker()
+        let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: blocker, settings: settings)
+        defer { session.shutdown() }
+        let controller = WKUserContentController()
+        let youtube = URL(string: "https://www.youtube.com/watch?v=fixture")!
+        func script(for url: URL, privateTab: Bool = false) -> WKUserScript? {
+            blocker.applyPrepared(to: controller, url: url, isPrivate: privateTab)
+            return controller.userScripts.first { $0.source.hasPrefix("// Oriv YouTube policy") }
+        }
+        for host in YouTubeProtection.hosts {
+            XCTAssertNotNil(script(for: URL(string: "https://\(host)")!))
+        }
+        XCTAssertNil(script(for: URL(string: "https://www.youtube.com.example/")!))
+        XCTAssertNil(script(for: URL(string: "https://browserbench.org/Speedometer3.1/")!))
+        let installed = try XCTUnwrap(script(for: youtube))
+        XCTAssertEqual(installed.injectionTime, .atDocumentStart)
+        XCTAssertFalse(installed.isForMainFrameOnly)
+        XCTAssertTrue(script(for: youtube) === installed)
+        XCTAssertTrue(installed.source.contains("const skipAds = false;"))
+        settings.privacy.skipYouTubeAds = true
+        XCTAssertTrue(script(for: youtube)?.source.contains("const skipAds = true;") == true)
+        settings.privacy.setException(true, .youtubeAds, for: youtube, isPrivate: true)
+        XCTAssertNil(script(for: youtube, privateTab: true))
+        XCTAssertNotNil(script(for: youtube))
+        blocker.setException(true, for: youtube, isPrivate: false)
+        XCTAssertNil(script(for: youtube))
+        blocker.setException(false, for: youtube, isPrivate: false)
+        blocker.setMode(.off)
+        XCTAssertNil(script(for: youtube))
+        blocker.setMode(.balanced)
+        settings.privacy.setEnabled(false, .youtubeAds)
+        XCTAssertNil(script(for: youtube))
+    }
+
+    func testYouTubeFixturePrunesInlineFetchAndXHR() async throws {
+        let session = BrowserSession(dataStore: .nonPersistent())
+        defer { session.shutdown() }
+        let tab = session.addTab(isPrivate: true)
+        try hostFixture(tab)
+        let shippingSource = try XCTUnwrap(YouTubeProtection.source(disabledHosts: [], skipAds: false))
+        // Keep production host matching strict. This copy targets the local QA server.
+        let localSource = shippingSource.replacingOccurrences(of: "// Oriv YouTube policy", with: "// Local YouTube fixture")
+            .replacingOccurrences(of: "'youtube.com'", with: "'127.0.0.1'")
+        tab.webView.configuration.userContentController.addUserScript(WKUserScript(
+            source: localSource, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
+        tab.navigate(to: base.appendingPathComponent("youtube-protection"))
+        try await waitForFixtureCondition("YouTube endpoint fixture", timeout: 20) {
+            (try? await tab.webView.evaluateJavaScript("window.youtubeFixture !== undefined")) as? Bool == true
+        }
+        let result = try await tab.webView.evaluateJavaScript("window.youtubeFixture")
+        XCTAssertEqual(result as? [String: Bool], [
+            "runtime": true, "inline": true, "fetch": true, "xhr": true, "untouched": true,
+            "source": true, "cosmetics": true
+        ], String(describing: result))
+    }
+
     func testPrivateTabIsolationDefaultsOnAndSavesExplicitOptOut() throws {
         let name = "oriv.private-isolation." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))

@@ -20,6 +20,10 @@ struct PrivacySettingsControls: View {
                 Text("Unavailable on this OS. Requires macOS 27 or iOS 27.").font(.caption).foregroundStyle(.secondary)
             }
         }
+        Toggle("Skip ads that still start", isOn: Binding(
+            get: { session.settings.privacy.skipYouTubeAds },
+            set: { session.settings.privacy.skipYouTubeAds = $0 }
+        )).disabled(!session.settings.privacy.isEnabled(.youtubeAds) || session.adBlocker.mode == .off)
         Text("Copy and Share clean links. Use Copy Original Link to keep every parameter. The link-cleaning switch controls navigation.").font(.caption).foregroundStyle(.secondary)
         Text("Hides cookie banners. Doesn't reject cookies.").font(.caption).foregroundStyle(.secondary)
         Text("Lists: \(AdBlocker.rulesVersion)").font(.caption).textSelection(.enabled)
@@ -54,11 +58,12 @@ struct PrivacyShieldControls: View {
             get: { session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate) },
             set: { session.adBlocker.setException(!$0, for: tab.url, isPrivate: tab.isPrivate); reloadPrompt = true }
         )).disabled(session.adBlocker.mode == .off)
-        ForEach(PrivacyLayer.allCases) { layer in
+        ForEach(PrivacyLayer.allCases.filter { $0 != .youtubeAds || YouTubeProtection.supports(tab.url) }) { layer in
             Toggle(layer.title, isOn: Binding(
-                get: { privacy.isEnabled(layer, for: tab.url, isPrivate: tab.isPrivate) && (layer != .globalPrivacyControl || BrowserPrivacy.supportsGPC) },
+                get: { privacy.isEnabled(layer, for: tab.url, isPrivate: tab.isPrivate) && (layer != .globalPrivacyControl || BrowserPrivacy.supportsGPC) && (layer != .youtubeAds || session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate)) },
                 set: { privacy.setException(!$0, layer, for: tab.url, isPrivate: tab.isPrivate); reloadPrompt = true }
-            )).disabled(!privacy.isEnabled(layer) || layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC)
+            )).disabled(!privacy.isEnabled(layer) || layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC
+                        || layer == .youtubeAds && !session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate))
         }
         if !BrowserPrivacy.supportsGPC { Text("GPC unavailable on this OS (requires 27).").font(.caption).foregroundStyle(.secondary) }
         if let url = tab.url, HTTPSUpgradePolicy.isExempt(url) { Text("HTTPS upgrade is exempt for this local or connectivity-check address.").font(.caption).foregroundStyle(.secondary) }

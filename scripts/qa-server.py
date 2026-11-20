@@ -78,6 +78,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/private-cookie-fixture':
             self.page('Private cookie fixture', '<main><h1>Private cookie fixture</h1></main>')
             return
+        if path == '/youtube-protection':
+            self.send_bytes((FIXTURES / (path[1:] + '.html')).read_bytes(), 'text/html; charset=utf-8')
+            return
+        if path.startswith('/youtubei/v1/') or path in {'/get_watch', '/youtube-fixture-unmatched'}:
+            query = parse_qs(urlsplit(self.path).query)
+            if 'malformed' in query:
+                payload = b'{invalid'
+            elif 'unmodified' in query:
+                payload = b' { "keep": 42 } '
+            else:
+                payload = b'{"adSlots":[],"keep":42,"playerResponse":{"adPlacements":[{}],"streamingData":{"itag":18}}}'
+            self.send_bytes(payload, 'application/json')
+            return
         if path == '/privacy':
             self.send_bytes((FIXTURES / 'privacy.html').read_text().replace(':8768', ':' + str(self.server.server_port)).replace('__GPC__', json.dumps(self.headers.get('Sec-GPC'))).encode(), 'text/html; charset=utf-8')
             return

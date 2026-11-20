@@ -251,6 +251,17 @@ public final class AdBlocker {
 
     /// Compiled components contain no profile or private site data.
     func applyPrepared(to controller: WKUserContentController, url: URL?, isPrivate: Bool) {
+        var youtubeSource: String?
+        if YouTubeProtection.supports(url), isEnabled(for: url, isPrivate: isPrivate),
+           let privacy, privacy.isEnabled(.youtubeAds, for: url, isPrivate: isPrivate) {
+            let disabled = YouTubeProtection.hosts.filter { host in
+                let frameURL = URL(string: "https://" + host)
+                return !isEnabled(for: frameURL, isPrivate: isPrivate)
+                    || !privacy.isEnabled(.youtubeAds, for: frameURL, isPrivate: isPrivate)
+            }
+            youtubeSource = YouTubeProtection.source(disabledHosts: disabled, skipAds: privacy.skipYouTubeAds)
+        }
+        YouTubeProtection.update(controller, source: youtubeSource)
         let hideCookies = cookieBannersEnabled && (privacy?.isEnabled(.cookieBanners, for: url, isPrivate: isPrivate) ?? true)
         CookieBannerRestoration.update(controller, enabled: hideCookies)
         var desired:[String:WKContentRuleList] = [:]
