@@ -126,14 +126,38 @@ def parse(text):
             counts['dropped:' + str(error)] += 1
     return blocks, allows, cosmetics, cosmetic_exceptions, counts
 
+def subtract_cosmetic_scope(scope, exception):
+    if not exception:
+        return None
+    key, excluded = next(iter(exception.items()))
+    if not scope and key.startswith('if-'):
+        return {'unless-' + key[3:]: excluded}
+    current_key, included = next(iter(scope.items())) if scope else (None, [])
+    if current_key == key.replace('if-', 'unless-', 1) and key.startswith('if-'):
+        return {current_key: sorted(set(included + excluded))}
+    if current_key == key == 'if-domain':
+        # WebKit has one condition per rule. If an exception is narrower than
+        # an included domain, omit this selector for that domain family only.
+        def overlaps(left, right):
+            left, right = left[1:], right[1:]
+            return left == right or left.endswith('.' + right) or right.endswith('.' + left)
+        remaining = [domain for domain in included if not any(overlaps(domain, other) for other in excluded)]
+        return {'if-domain': remaining} if remaining else None
+    # Mixed condition types and negated exceptions may be unrepresentable.
+    # Preserve visibility by dropping this selector only.
+    return None
+
 def cosmetic_rules(entries, exceptions, light=False):
-    # Global cosmetic exceptions suppress their selector; scoped exceptions below
-    # conservatively preserve all visible content on the affected sites.
-    excluded = {selector for sc, selector in exceptions if not sc}
+    by_selector = {}
+    for sc, selector in exceptions:
+        by_selector.setdefault(selector, []).append(sc)
     grouped = {}
     for sc, selector in entries:
-        if selector in excluded: continue
         if light and (sc or not re.fullmatch(r'[.#][a-zA-Z_-][a-zA-Z0-9_-]*', selector)): continue
+        for exception in by_selector.get(selector, []):
+            sc = subtract_cosmetic_scope(sc, exception)
+            if sc is None: break
+        if sc is None: continue
         key = json.dumps(sc, sort_keys=True)
         grouped.setdefault(key, []).append(selector)
     result = []
@@ -141,11 +165,6 @@ def cosmetic_rules(entries, exceptions, light=False):
         unique = sorted(set(selectors))
         for start in range(0, len(unique), 50):
             result.append({'trigger': {'url-filter': '.*', **json.loads(key)}, 'action': {'type': 'css-display-none', 'selector': ','.join(unique[start:start+50])}})
-    # WebKit cannot undo just one CSS selector. Scoped cosmetic exceptions
-    # conservatively allow ALL cosmetics on their domains, preserving upstream
-    # visibility at the expense of some hiding. They never disable network rules.
-    for key in sorted({json.dumps(sc, sort_keys=True) for sc, _ in exceptions if sc}):
-        result.append({'trigger': {'url-filter': '.*', **json.loads(key)}, 'action': {'type': 'ignore-previous-rules'}})
     return result
 
 def encode(value): return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':')).encode() + b'\n'
@@ -207,13 +226,13 @@ def main():
             value = rules[i:i+budget] + exceptions
             filename = f'{name}-{len(chunks)}.orivrules'
             raw = encode(value)
-            header = {'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'source': 'manifest.json', 'modifications': 'Oriv supported-subset conversion v1', 'decodedBytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
+            header = {'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'source': 'manifest.json', 'modifications': 'Oriv supported-subset conversion v2' if 'cosmetics' in name else 'Oriv supported-subset conversion v1', 'decodedBytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
             payload = encode(header) + base64.b64encode(zlib.compress(raw, level=9, wbits=-15)) + b'\n'
             write_atomic(destination / filename, payload)
             chunks.append({'file': filename, 'rules': len(value), 'bytes': len(raw), 'bundledBytes': len(payload), 'sha256': hashlib.sha256(raw).hexdigest()})
         outputs[name] = chunks
-    manifest = {'rulesVersion': '2026.11.11-' + PIN[:12], 'converterVersion': 1, 'upstreamCommit': PIN, 'sources': sources, 'outputs': outputs, 'counts': report,
-                'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'modifications': 'Converted supported network and plain cosmetic subset; unsupported syntax dropped; scoped cosmetic exceptions conservatively allow all cosmetics; grouped/split WebKit rules.'}
+    manifest = {'rulesVersion': '2026.11.11-' + PIN[:12], 'converterVersion': 2, 'upstreamCommit': PIN, 'sources': sources, 'outputs': outputs, 'counts': report,
+                'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'modifications': 'Converted supported network and plain cosmetic subset; unsupported syntax dropped; scoped cosmetic exceptions affect matching selectors only; grouped/split WebKit rules.'}
     write_atomic(destination / 'manifest.json', json.dumps(manifest, indent=2, sort_keys=True).encode() + b'\n')
     keep = {destination / chunk['file'] for chunks in outputs.values() for chunk in chunks}
     for stale in old_files - keep: stale.unlink()

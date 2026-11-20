@@ -20,7 +20,7 @@ class ConversionTests(unittest.TestCase):
         counts = parsed[-1]
         self.assertEqual(sum(v for k,v in counts.items() if k != 'input_lines'), counts['input_lines'])
         self.assertEqual(counts['dropped:unsupported-option:redirect'], 1)
-        self.assertEqual(c.cosmetic_rules(parsed[2], parsed[3])[-1]["action"]["type"], "ignore-previous-rules")
+        self.assertEqual(c.cosmetic_rules(parsed[2], parsed[3]), [])
     def test_domain_scope_and_badfilter(self):
         self.assertEqual(c.scope(['example.com']), {'if-domain':['*example.com']})
         with self.assertRaises(ValueError): c.scope(['example.com','~sub.example.com'])
@@ -29,6 +29,18 @@ class ConversionTests(unittest.TestCase):
         entries=[({},'.ad'), ({'if-domain':['*example.com']}, '#banner'), ({}, 'div > .ad')]
         rules=c.cosmetic_rules(entries, [], True)
         self.assertEqual(len(rules),1); self.assertEqual(rules[0]['action']['selector'],'.ad')
+    def test_scoped_exception_only_changes_its_own_selector(self):
+        _, _, entries, exceptions, _ = c.parse(
+            '##.ad\n##.banner\nwww.example.com,elsewhere.test##.promo\n'
+            'example.com#@#.ad\nexample.com#@#.promo\n'
+        )
+        rules = c.cosmetic_rules(entries, exceptions)
+        by_selector = {rule['action']['selector']: rule['trigger'] for rule in rules}
+        self.assertEqual(by_selector['.ad'], {'url-filter': '.*', 'unless-domain': ['*example.com']})
+        self.assertEqual(by_selector['.banner'], {'url-filter': '.*'})
+        self.assertEqual(by_selector['.promo'], {'url-filter': '.*', 'if-domain': ['*elsewhere.test']})
+        self.assertTrue(all(rule['action']['type'] == 'css-display-none' for rule in rules))
+
     def test_bundle_headers_digests_and_counts(self):
         import hashlib
         manifest=json.loads((c.OUT/'manifest.json').read_text())
