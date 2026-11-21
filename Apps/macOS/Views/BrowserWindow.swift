@@ -97,13 +97,22 @@ struct BrowserWindow: View {
     }
 
     private func prepareWindow() {
-        session.activateSelectedTab(); syncAddress(); if tab?.url == nil { controller.focusAddress() }
+        session.activateSelectedTab()
+        syncAddress()
+        if controller.addressFocusRequestAtProfileSwitch == nil, tab?.url == nil, tab?.hasLoaded != true {
+            controller.focusAddress()
+        }
         if !session.isExternalPrivate {
             profiles?.showRegularWindow = { openWindow(id: "browser") }
             profiles?.showExternalWindow = { openWindow(id: "external-private") }
             profiles?.closeExternalWindow = { dismissWindow(id: "external-private") }
             if profiles?.externalPrivate != nil { openWindow(id: "external-private") }
         }
+    }
+
+    private var profileSwitchFocus: (() -> Bool)? {
+        guard controller.addressFocusRequestAtProfileSwitch != nil else { return nil }
+        return { controller.session.isProfileActive && controller.activeAddressFocusRequest == 0 }
     }
 
     private var selectedPage: String {
@@ -168,7 +177,9 @@ struct BrowserWindow: View {
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
-        .background(BrowserWindowChrome(windowContext: windowContext, compact: controller.sidebar.reservesRail, initialContentFocus: tab?.url == nil ? nil : tab?.webView,
+        .background(BrowserWindowChrome(windowContext: windowContext, compact: controller.sidebar.reservesRail,
+            initialContentFocus: tab?.url != nil || tab?.hasLoaded == true ? tab?.webView : nil,
+            shouldApplyProfileSwitchFocus: profileSwitchFocus,
             externalPresentationRequest: session.isExternalPrivate ? profiles?.externalPresentationRequest : nil,
             stateChanged: { fullscreen = $0; windowActive = $1 },
             contentWidthChanged: { controller.sidebar.resize(availableWidth: $0) }))
@@ -352,7 +363,7 @@ struct BrowserWindow: View {
                                  placeholder: "Search or enter website",
                                  displayText: compactAddress,
                                  foreground: chromeForeground,
-                                 focusRequest: controller.addressFocusRequest, submit: {
+                                 focusRequest: controller.activeAddressFocusRequest, submit: {
                             if addressMatches.query == address, let index = addressMatches.selected, suggestions.indices.contains(index) { chooseSuggestion(suggestions[index]); return true }
                             controller.navigate(address)
                             return controller.addressError == nil

@@ -208,7 +208,7 @@ class ProfileSidebarScrollView: NSScrollView {
             effect.setImage(render(target, profiles: profiles, anchor: anchor), step: step)
             try commit(target, step: step, profiles: profiles)
         } else {
-            try profiles.select(target.id, focusLocation: false, deferSelectionSave: true)
+            try profiles.select(target.id, deferSelectionSave: true)
         }
     }
 
@@ -369,7 +369,7 @@ class ProfileSidebarScrollView: NSScrollView {
         overlay?.destinationProfile = target.id
         waitingForProfile = target.id
         do {
-            try profiles.select(target.id, focusLocation: false, deferSelectionSave: true)
+            try profiles.select(target.id, deferSelectionSave: true)
         } catch {
             waitingForProfile = nil
             overlay?.destinationProfile = nil

@@ -179,6 +179,106 @@ final class ProfileSwipeTests: XCTestCase {
         return window
     }
 
+    func testSwipeSwitchFocusesLoadedPage() async throws {
+        try await assertSwitchFocus(viaSwipe: true, hasPage: true)
+    }
+
+    func testSwipeSwitchLeavesEmptyTabUnfocused() async throws {
+        try await assertSwitchFocus(viaSwipe: true, hasPage: false)
+    }
+
+    func testProfileDotFocusesLoadedPage() async throws {
+        try await assertSwitchFocus(viaSwipe: false, hasPage: true)
+    }
+
+    func testProfileDotLeavesEmptyTabUnfocused() async throws {
+        try await assertSwitchFocus(viaSwipe: false, hasPage: false)
+    }
+
+    private func assertSwitchFocus(viaSwipe: Bool, hasPage: Bool) async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        profiles.profileSwipePreference = .on
+        let target = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        try profiles.select(target.id)
+        let destination = profiles.controller
+        let tab = try XCTUnwrap(destination.session.selectedTab)
+        if hasPage {
+            tab.webView.loadHTMLString("<title>Profile focus fixture</title><p>Loaded page</p>",
+                                       baseURL: URL(string: "https://profile-focus.test"))
+            try await eventually("destination page loaded") { tab.hasLoaded && tab.url != nil && !tab.isLoading }
+        }
+
+        let window = makeWindow(Fixture(profiles: profiles).frame(width: 1000, height: 600))
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        func addressField() -> FocusAwareAddressField? {
+            descendants(content).compactMap { $0 as? FocusAwareAddressField }.first { $0.window === window }
+        }
+        func marker(_ name: String) -> NSView? {
+            content.layoutSubtreeIfNeeded()
+            return descendants(content).first { $0.identifier?.rawValue == name && $0.window === window && !$0.bounds.isEmpty }
+        }
+        func editAddress(in controller: BrowserController) async throws -> FocusAwareAddressField {
+            controller.focusAddress()
+            try await eventually("explicit address command starts editing") { addressField()?.currentEditor() != nil }
+            return try XCTUnwrap(addressField())
+        }
+
+        // Use the destination's editor before leaving so its rebuilt field would
+        // replay a real, previously handled focus request on the old code.
+        let previousDestinationField = try await editAddress(in: destination)
+        try profiles.select(BrowserProfile.personalID)
+        profiles.controller.sidebar.setPreference(false)
+        try await eventually("source profile mounted") {
+            addressField().map { $0 !== previousDestinationField } == true
+        }
+        let sourceField = try await editAddress(in: profiles.controller)
+        try await eventually("source profile dots laid out") { marker("sidebarProfileDot-1") != nil }
+        let dot = try XCTUnwrap(marker("sidebarProfileDot-1"))
+        let point = dot.convert(NSPoint(x: dot.bounds.midX, y: dot.bounds.midY), to: nil)
+
+        if viaSwipe {
+            let events: [(NSEvent.Phase, Int32, TimeInterval)] = [
+                (.began, -4, 1), (.changed, -150, 1.02), (.ended, 0, 1.04)
+            ]
+            for (phase, delta, time) in events {
+                let event = try wheel(phase, x: delta, time: time)
+                XCTAssertEqual(profiles.sidebarSwitch.route(event, window: window, profiles: profiles,
+                                                           source: profiles.controller, location: point), phase != .began)
+            }
+        } else {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                NSApp.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
+            }
+        }
+
+        XCTAssertEqual(profiles.active.id, target.id)
+        try await eventually("destination window rebuilt and overlay settled") {
+            content.layoutSubtreeIfNeeded()
+            return !profiles.sidebarSwitch.isCovering &&
+                addressField().map { $0 !== sourceField && $0 !== previousDestinationField } == true
+        }
+        let field = try XCTUnwrap(addressField())
+        XCTAssertNil(field.currentEditor())
+        XCTAssertFalse(window.firstResponder === field)
+        if hasPage {
+            let responder = try XCTUnwrap(window.firstResponder as? NSView)
+            XCTAssertTrue(responder === tab.webView || responder.isDescendant(of: tab.webView))
+        } else {
+            XCTAssertTrue(window.firstResponder === window)
+        }
+
+        _ = try await editAddress(in: destination)
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertNil(field.currentEditor())
+        destination.newTab()
+        XCTAssertNotEqual(destination.session.selectedTabID, tab.id)
+        try await eventually("new tab starts address editing") { addressField()?.currentEditor() != nil }
+    }
+
     func testScrollViewReceivesGestureTailWithoutTheMonitorAndPreservesVerticalMomentum() async throws {
         for overDots in [false, true] {
             let profiles = BrowserProfiles(testing: true)

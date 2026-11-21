@@ -93,6 +93,7 @@ import Observation
             let old = controller
             registry.activeID = BrowserProfile.personalID
             if let personal = try? obtain(BrowserProfile.personalID) {
+                personal.prepareForProfileSwitch()
                 controller = personal
                 personal.session.setProfileActive(true)
             }
@@ -229,7 +230,7 @@ import Observation
         perform { try sidebarSwitch.select(target, profiles: self, source: source, direction: direction) }
     }
 
-    func select(_ id: UUID, focusLocation: Bool = true, deferSelectionSave: Bool = false) throws {
+    func select(_ id: UUID, deferSelectionSave: Bool = false) throws {
         guard id != active.id else { return }
         if let reason = switchBlocker { throw BrowserProfileOperationError.unavailable(reason) }
         guard canModify else { throw ProfileError.invalidRegistry }
@@ -245,9 +246,9 @@ import Observation
         }
         controller.session.saveNow()
         controller.session.setProfileActive(false)
+        target.prepareForProfileSwitch()
         controller = target
         target.session.setProfileActive(true)
-        if focusLocation || target.session.selectedTab?.url == nil { target.focusAddress() }
     }
 
     private func scheduleSelectionSave() {

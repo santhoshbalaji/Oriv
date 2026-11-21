@@ -51,6 +51,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
     let windowContext: MacBrowserWindowContext
     var compact = false
     var initialContentFocus: NSView? = nil
+    var shouldApplyProfileSwitchFocus: (() -> Bool)? = nil
     var externalPresentationRequest: Int? = nil
     var stateChanged: (Bool, Bool) -> Void
     var contentWidthChanged: (CGFloat) -> Void = { _ in }
@@ -58,6 +59,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
     func makeNSView(context: Context) -> WindowChromeView { WindowChromeView() }
     func updateNSView(_ view: WindowChromeView, context: Context) {
         view.initialContentFocus = initialContentFocus
+        view.shouldApplyProfileSwitchFocus = shouldApplyProfileSwitchFocus
         view.compact = compact
         view.stateChanged = stateChanged
         view.contentWidthChanged = contentWidthChanged
@@ -70,6 +72,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
 
     final class WindowChromeView: NSView {
         weak var initialContentFocus: NSView?
+        var shouldApplyProfileSwitchFocus: (() -> Bool)?
         private var didSetInitialFocus = false
         var compact = false
         var stateChanged: ((Bool, Bool) -> Void)?
@@ -131,13 +134,22 @@ struct BrowserWindowChrome: NSViewRepresentable {
         func configure() {
             guard let window, !configuring else { return }
             windowContext?.window = window
-            if !didSetInitialFocus, let target = initialContentFocus, target.window === window {
+            let target = initialContentFocus
+            if !didSetInitialFocus, target?.window === window || (target == nil && shouldApplyProfileSwitchFocus != nil) {
                 didSetInitialFocus = true
-                window.initialFirstResponder = target
-                DispatchQueue.main.async { [weak window, weak target] in
-                    guard let window, let target,
-                          !(window.firstResponder is NSTextView), !(window.firstResponder is NSTextField),
-                          !(window.firstResponder is SidebarTabCollection) else { return }
+                if shouldApplyProfileSwitchFocus == nil { window.initialFirstResponder = target }
+                DispatchQueue.main.async { [weak self, weak window, weak target] in
+                    guard let self, let window, self.window === window,
+                          self.initialContentFocus === target, target == nil || target?.window === window else { return }
+                    if let shouldApplyProfileSwitchFocus = self.shouldApplyProfileSwitchFocus {
+                        // A profile switch replaces the previous responder, unless
+                        // a typing command has already arrived for the new profile.
+                        guard shouldApplyProfileSwitchFocus() else { return }
+                        window.initialFirstResponder = target
+                    } else {
+                        guard target != nil, !(window.firstResponder is NSTextView), !(window.firstResponder is NSTextField),
+                              !(window.firstResponder is SidebarTabCollection) else { return }
+                    }
                     window.makeFirstResponder(target)
                 }
             }

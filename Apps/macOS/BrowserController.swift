@@ -55,6 +55,10 @@ final class BrowserController {
         sidebarTooltip.dismiss(); dismissTabSearch()
     }
     var addressFocusRequest = 0
+    private(set) var addressFocusRequestAtProfileSwitch: Int?
+    var activeAddressFocusRequest: Int {
+        addressFocusRequest == addressFocusRequestAtProfileSwitch ? 0 : addressFocusRequest
+    }
     var findRequest = 0
     var findNextRequest = 0
     var findBackwards = false
@@ -145,6 +149,11 @@ final class BrowserController {
     }
     func newTab(isPrivate: Bool? = nil) { session.addTab(isPrivate: isPrivate ?? session.selectedTab?.isPrivate ?? session.isExternalPrivate); focusAddress() }
     func focusAddress() { addressFocusRequest += 1 }
+    func prepareForProfileSwitch() {
+        // The keyed window creates a new address field when this profile is selected.
+        // Only requests made after selection should reach that new field.
+        addressFocusRequestAtProfileSwitch = addressFocusRequest
+    }
     func closeTabOrPanel() {
         // A browser shortcut must never close a background tab while Settings is active.
         if session.isExternalPrivate {
