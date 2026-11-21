@@ -5,7 +5,7 @@ Oriv uses public WebKit content rules in both normal and private tabs. The shiel
 | Mode | Behavior |
 | --- | --- |
 | Off | Removes Oriv's content rules. |
-| Balanced (default) | Uses the supported network subset of EasyList and EasyPrivacy, respecting each filter's party/resource scope. Adds light generic class/ID cosmetics. |
+| Balanced (default) | Uses the supported network subset of EasyList and EasyPrivacy and the AdGuard CNAME disguised tracker list. Adds light generic class/ID cosmetics. |
 | Strict | Adds broader EasyList cosmetics and the original first-party analytics supplement. |
 
 The mode applies per profile, including that profile's private tabs. “Block on this site” applies to the exact hostname, across schemes and ports; it does not implicitly exempt sibling domains or subdomains. Regular exceptions are saved locally. Private exceptions are separate, stay in memory and are erased when the last private tab closes. No private hostname is written into a compiled rule list or saved preferences.
@@ -20,7 +20,7 @@ Each tab owns its user-content controller, including WebKit-created popups. The 
 
 The maintained EasyList/EasyPrivacy/Cookie adaptations, version and conversion counts are bundled under `Packages/BrowserKit/Sources/BrowserEngine/Resources/Privacy/`, separately licensed CC BY-SA 3.0. The original first-party Strict supplement remains in `AdBlockingRules`. An original reproducible converter and compact, digest-checked resources keep unsupported syntax observable without a runtime updater. [Privacy controls](privacy.md) describes the conversion subset, licence route, cookie layer, navigation cleaning, HTTPS and GPC. Updates ship only with app releases.
 
-The maintained network subset excludes top-level document blocking. Media, style and font filters follow supported upstream resource options. The original Strict supplement excludes media, styles and fonts. They can still block a script that a player needs; use the per-site switch when a page breaks.
+The maintained network subset excludes top-level document blocking. The MIT-licensed CNAME rules match HTTP(S) subresources by destination host, including first-party requests. Media, style and font filters follow supported upstream resource options. The original Strict supplement excludes media, styles and fonts. They can still block a script that a player needs; use the per-site switch when a page breaks.
 
 ## YouTube
 

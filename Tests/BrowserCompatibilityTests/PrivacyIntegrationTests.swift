@@ -505,6 +505,7 @@ import UIKit
         let blocker = AdBlocker()
         let session = BrowserSession(dataStore: data, adBlocker: blocker, settings: settings)
         defer { session.shutdown() }
+        session.siteIcons.document = nil // The synthetic origin is reachable only through the WebKit proxy.
         let tab = try XCTUnwrap(session.selectedTab)
         try hostFixture(tab)
         let url = URL(string: "http://analytics.sixt.com/cname-page")!
