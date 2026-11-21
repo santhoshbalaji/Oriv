@@ -60,6 +60,28 @@ struct ContinuityTests {
         try capture(&first, [], history: [old, new])
         #expect(first.history(for: profile.id) == [new])
     }
+    @Test func siteClearRejectsUnseenOfflineVisitsAndPreservesLaterVisitsAndOtherProfiles() throws {
+        var first = ContinuityReplica(deviceName: "Mac"), offline = ContinuityReplica(deviceName: "iPhone")
+        let old = HistoryEntry(title: "Erased", url: URL(string: "https://a.example.co.uk/old")!, visitedAt: .distantPast)
+        let later = HistoryEntry(title: "Later", url: URL(string: "https://example.co.uk/later")!, visitedAt: .distantFuture)
+        let other = HistoryEntry(title: "Other", url: URL(string: "https://notexample.co.uk")!, visitedAt: .distantPast)
+        let otherProfile = BrowserProfile(name: "Other")
+        let saved = Bookmark(title: old.title, url: old.url)
+        try capture(&offline, [saved], history: [old, later, other])
+        try offline.capture(profile: otherProfile, bookmarks: [], history: [old], regularTabs: [], preferences: [:])
+        let deletion = SiteHistoryDeletion(site: try #require(BrowserSite(url: old.url)), through: .now)
+        let id = UUID()
+        try first.captureSiteHistoryDeletions(profile: profile.id, deletions: [id: deletion])
+        let marker = try #require(first.dirtyRecords.first)
+        #expect(try ContinuityRecord.decodeIfKnown(from: JSONEncoder().encode(marker)) == marker)
+        try first.merge(Array(offline.records.values))
+        try offline.merge(Array(first.records.values))
+        #expect(first.history(for: profile.id) == [later, other])
+        #expect(offline.history(for: profile.id) == [later, other])
+        #expect(offline.history(for: otherProfile.id) == [old])
+        #expect(offline.bookmarks(for: profile.id) == [saved])
+        #expect(offline.records[ContinuityRecord.historyKey(profile.id, old.id)]?.payload == nil)
+    }
     @Test func mergeRejectsWholeUnknownBatchAndStoreFailsClosed() throws {
         var state = ContinuityReplica(deviceName: "Mac")
         let saved = bookmark("saved")

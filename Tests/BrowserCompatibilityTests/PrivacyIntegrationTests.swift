@@ -1,6 +1,7 @@
 import BrowserCore
 @testable import BrowserEngine
 import WebKit
+import Network
 import XCTest
 import SwiftUI
 #if os(macOS)
@@ -437,9 +438,95 @@ import UIKit
             XCTAssertGreaterThanOrEqual(blocker.compilationMeasurements.count, 5)
         }
         XCTAssertTrue(warm.compilationMeasurements.allSatisfy(\.cached))
+        XCTAssertTrue(cold.compilationMeasurements.contains { $0.component.hasPrefix("network-cname-") })
         for measurement in cold.compilationMeasurements {
             try await WKContentRuleListStore.default()!.removeContentRuleList(forIdentifier: measurement.identifier)
         }
+    }
+
+    func testForgetSiteClearsCookieStorageAndHistoryAndResetsLiveTab() async throws {
+        let store = WKWebsiteDataStore.nonPersistent()
+        let blocker = AdBlocker()
+        blocker.setMode(.off)
+        let session = BrowserSession(dataStore: store, adBlocker: blocker,
+                                     settings: BrowserSettings(defaults: nil), recordsQAFixtureHistory: true)
+        defer { session.shutdown() }
+        let tab = try XCTUnwrap(session.selectedTab)
+        try await load(tab)
+        let url = try XCTUnwrap(tab.url)
+        let site = try XCTUnwrap(session.forgettableSite(for: tab))
+        let originalView = tab.webView
+        session.toggleBookmark()
+        _ = try await originalView.evaluateJavaScript("""
+            document.cookie = 'oriv_forget=1; path=/';
+            localStorage.setItem('oriv_forget', '1');
+            sessionStorage.setItem('oriv_forget', '1');
+            """)
+        let unrelated = try XCTUnwrap(HTTPCookie(properties: [
+            .name: "oriv_keep", .value: "1", .domain: "keep.example", .path: "/"
+        ]))
+        await store.httpCookieStore.setCookie(unrelated)
+        let otherProfile = WKWebsiteDataStore.nonPersistent()
+        let otherProfileCookie = try XCTUnwrap(HTTPCookie(properties: [
+            .name: "other_profile", .value: "1", .domain: site.domain, .path: "/"
+        ]))
+        await otherProfile.httpCookieStore.setCookie(otherProfileCookie)
+        let before = await store.dataRecords(ofTypes: [WKWebsiteDataTypeLocalStorage])
+        XCTAssertTrue(before.contains { site.contains(host: $0.displayName) })
+        XCTAssertTrue(session.history.contains { site.contains($0.url) })
+        try await session.forgetSite(site)
+        XCTAssertIdentical(session.selectedTab, tab)
+        XCTAssertFalse(tab.webView === originalView)
+        XCTAssertEqual(tab.url, url)
+        XCTAssertEqual(session.bookmarks.map(\.url), [url])
+        try await wait { tab.title == "Privacy fixture" && !tab.isLoading }
+        let state = try await tab.webView.evaluateJavaScript("""
+            !document.cookie.includes('oriv_forget') && localStorage.getItem('oriv_forget') === null &&
+                sessionStorage.getItem('oriv_forget') === null
+            """) as? Bool
+        XCTAssertEqual(state, true)
+        let cookies = await store.httpCookieStore.allCookies()
+        XCTAssertEqual(cookies.map(\.name), [unrelated.name])
+        let otherProfileCookies = await otherProfile.httpCookieStore.allCookies()
+        XCTAssertEqual(otherProfileCookies.map(\.name), [otherProfileCookie.name])
+        XCTAssertFalse(session.history.contains { site.contains($0.url) })
+        let privateTab = session.addTab(url: url, isPrivate: true, load: false)
+        XCTAssertNil(session.forgettableSite(for: privateTab))
+    }
+
+    func testCNAMEHostAllowsTopLevelAndBlocksSameOriginSubresource() async throws {
+        let data = WKWebsiteDataStore.nonPersistent()
+        var proxy = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: 18768))
+        proxy.allowFailover = false
+        data.proxyConfigurations = [proxy]
+        let settings = BrowserSettings(defaults: nil)
+        settings.privacy.setEnabled(false, .httpsUpgrade)
+        settings.privacy.setCookieBannerMode(.off)
+        let blocker = AdBlocker()
+        let session = BrowserSession(dataStore: data, adBlocker: blocker, settings: settings)
+        defer { session.shutdown() }
+        let tab = try XCTUnwrap(session.selectedTab)
+        try hostFixture(tab)
+        let url = URL(string: "http://analytics.sixt.com/cname-page")!
+        func loadProbe() async throws -> String? {
+            tab.navigate(to: URL(string: url.absoluteString + "?run=" + UUID().uuidString)!)
+            try await wait { tab.errorMessage != nil || (tab.title == "CNAME fixture" && !tab.isLoading) }
+            XCTAssertNil(tab.errorMessage)
+            XCTAssertEqual(tab.title, "CNAME fixture")
+            return try await tab.webView.evaluateJavaScript("window.probe ?? null") as? String
+        }
+        let balanced = try await loadProbe()
+        XCTAssertEqual(balanced, "blocked")
+        blocker.setMode(.strict)
+        let strict = try await loadProbe()
+        XCTAssertEqual(strict, "blocked")
+        blocker.setException(true, for: url, isPrivate: false)
+        let excepted = try await loadProbe()
+        XCTAssertEqual(excepted, "loaded")
+        blocker.setException(false, for: url, isPrivate: false)
+        blocker.setMode(.off)
+        let off = try await loadProbe()
+        XCTAssertEqual(off, "loaded")
     }
     func testShippedCookieListAndLayerIndependence() async throws {
         let settings = BrowserSettings(defaults: nil), blocker = AdBlocker()

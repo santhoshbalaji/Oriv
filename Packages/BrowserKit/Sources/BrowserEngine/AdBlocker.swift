@@ -26,7 +26,7 @@ public final class AdBlocker {
     public private(set) var privateExceptions: Set<String> = []
     public private(set) var isPreparing = false
     public private(set) var preparationError: String?
-    public static let rulesVersion = "2026.11.11-74c3e769a009"
+    public static let rulesVersion = (try? BundledPrivacyRules.manifest().rulesVersion) ?? "Unavailable"
     public var cookieBannersEnabled = false
     @ObservationIgnored public var privacy: BrowserPrivacy?
     public private(set) var compilationMeasurements: [RuleCompilationMeasurement] = []
@@ -366,10 +366,18 @@ public enum BundledPrivacyRules {
         let consent = ["NOTICE.txt", "MPL-2.0.txt"].compactMap {
             try? String(contentsOf: root.appendingPathComponent("Autoconsent").appendingPathComponent($0), encoding: .utf8)
         }
-        return ([notice, license] + consent).joined(separator: "\n\n")
+        let cname = (try? String(contentsOf: root.appendingPathComponent("AdGuard-MIT.txt"), encoding: .utf8)) ?? ""
+        let suffixes = "Mozilla Public Suffix List (https://publicsuffix.org/list/), distributed under MPL 2.0.\n\n" + BrowserSite.suffixLicense
+        return ([notice, license, cname, suffixes] + consent).joined(separator: "\n\n")
     }
-    private struct Manifest: Decodable { let outputs: [String: [Entry]] }
-    private struct Entry: Decodable { let file: String; let sha256: String }
+    struct Manifest: Decodable { let rulesVersion: String; let outputs: [String: [Entry]] }
+    struct Entry: Decodable { let file: String; let sha256: String }
+    private static let root = Bundle.module.url(forResource: "Privacy", withExtension: nil)
+
+    static func manifest() throws -> Manifest {
+        guard let root else { throw CocoaError(.fileReadNoSuchFile) }
+        return try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
+    }
 
     struct Resource: Sendable {
         let file: URL
@@ -395,9 +403,8 @@ public enum BundledPrivacyRules {
     }
 
     static func resources() throws -> [Resource] {
-        guard let root = Bundle.module.url(forResource: "Privacy", withExtension: nil) else { throw CocoaError(.fileReadNoSuchFile) }
-        let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
-        let entries = manifest.outputs.values.flatMap { $0 }
+        guard let root else { throw CocoaError(.fileReadNoSuchFile) }
+        let entries = try manifest().outputs.values.flatMap { $0 }
         guard !entries.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
         return entries.map { Resource(file: root.appendingPathComponent($0.file), sha256: $0.sha256) }
     }

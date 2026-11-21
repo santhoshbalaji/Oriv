@@ -55,7 +55,13 @@ The supported subset covers network URL patterns, resource types, first/third pa
 
 Committed `.orivrules` resources contain an attribution/licence header and base64 raw-deflate JSON. This keeps the repository and application much smaller than the expanded JSON, while avoiding a networked build or requiring Python at app runtime. Runtime decoding verifies the byte count and SHA-256 before using the existing SHA-named WebKit compilation cache. Each chunk stays below 140,000 rules including repeated exceptions, under WebKit's approximately 150,000 limit. No profile/private hostname is encoded into the immutable cache.
 
-Balanced uses EasyPrivacy plus EasyList network filtering and light generic class/ID cosmetics. Strict adds broader site/generic cosmetics and the original first-party analytics supplement. Off remains available. Cookie-banner controls operate independently of the ad blocker.
+Balanced uses EasyPrivacy, EasyList and the AdGuard CNAME disguised tracker host list, plus light generic class/ID cosmetics. Strict adds broader site/generic cosmetics and the original first-party analytics supplement. The CNAME rules match requests to known tracker hosts even when WebKit treats them as first-party, and leave direct navigation available. The per-site ad-blocking exception also disables the CNAME rules. Oriv refreshes the MIT-licensed host list with app updates using `CNAME_PIN` and `CNAME_SHA256` in the converter. Cookie-banner controls operate independently of the ad blocker.
+
+## Forget This Site
+
+Use Browser Actions or a Library history row on Mac, or the page menu on iPhone. The confirmation names the registrable domain using the bundled Mozilla Public Suffix List. Oriv removes WebKit website data and cookies, history, history-derived suggestions and frequent tiles, and site icon and tab snapshot caches in the current profile. Open tabs keep their identity and restart with a fresh browsing context. Bookmarks are preserved. The command is unavailable in private page menus.
+
+Continuity shares a site history deletion marker through its existing encrypted records. It removes matching visits through the time of the request on updated devices, including visits that arrive from an offline device later. Website data is cleared on the device where you use the command.
 
 Privacy protections do not provide complete ad removal, extension/scriptlet compatibility, IP masking or a block count. Lists can break sign-in, media and layouts; the site panel provides the recovery path without reloading a form automatically. New privacy preferences/exceptions remain local per profile; they are deliberately not added to the continuity preference schema in this batch.
 

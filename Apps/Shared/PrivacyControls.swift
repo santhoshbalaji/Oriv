@@ -2,6 +2,24 @@ import BrowserCore
 import BrowserEngine
 import SwiftUI
 
+extension View {
+    func forgetSiteAlert(_ selection: Binding<BrowserSite?>, session: BrowserSession, onError: @escaping (String) -> Void) -> some View {
+        alert(selection.wrappedValue.map { "Forget \($0.domain)?" } ?? "Forget This Site?",
+              isPresented: Binding(get: { selection.wrappedValue != nil }, set: { if !$0 { selection.wrappedValue = nil } }),
+              presenting: selection.wrappedValue) { site in
+            Button("Cancel", role: .cancel) {}
+            Button("Forget This Site", role: .destructive) {
+                Task {
+                    do { try await session.forgetSite(site) }
+                    catch { onError(error.localizedDescription) }
+                }
+            }
+        } message: { _ in
+            Text("Cookies, website data, and browsing history for this site will be removed from this profile. If you use Continuity, the history deletion will sync to your other devices.")
+        }
+    }
+}
+
 /// Shared policy controls; platform containers retain their native settings layout.
 struct PrivacySettingsControls: View {
     let session: BrowserSession

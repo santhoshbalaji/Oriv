@@ -13,6 +13,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public let id: UUID
     public let isPrivate: Bool
     public private(set) var documentRevision = 0
+    public private(set) var isResettingSiteData = false
+    @ObservationIgnored private var skipHistoryOnActivation = false
+    @ObservationIgnored private var isReloadingForgottenSite = false
     public private(set) var title: String
     public private(set) var url: URL?
     public private(set) var content: TabContent
@@ -319,10 +322,12 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     /// Restored background tabs stay dormant until selected.
     public func activate() {
+        guard !isResettingSiteData else { return }
         if savedInteractionState != nil { _ = webView; return }
         recoverContentProcessIfPossible()
         guard !hasLoaded, let url else { return }
-        navigate(to: url)
+        if skipHistoryOnActivation { loadAddress(url, typed: false, recordHistory: false) }
+        else { navigate(to: url) }
     }
 
     /// Reclaim only an unattached, idle GET page. Forms, private tabs, media,
@@ -477,7 +482,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         loadAddress(destination, typed: false)
     }
 
-    private func loadAddress(_ destination: URL, typed: Bool) {
+    private func loadAddress(_ destination: URL, typed: Bool, recordHistory: Bool = true) {
+        guard !isResettingSiteData else { return }
+        skipHistoryOnActivation = false
+        isReloadingForgottenSite = !recordHistory
         invalidateSwitchSnapshot()
         savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil; isRestoringWebView = false; applyingRestoration = false
         pendingHTTPUpgrade = nil
@@ -520,6 +528,46 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     public func stop() { backingWebView?.stopLoading(); isLoading = false; finishScrollRestoration(); endRefreshing() }
     public func reloadFromOrigin() { errorMessage = nil; backingWebView?.reloadFromOrigin() }
+
+    /// A new browsing context discards sessionStorage and WebKit's cached
+    /// back/forward documents. The tab's identity, URL and pin stay in place.
+    func beginSiteDataReset() -> Bool {
+        isResettingSiteData = true
+        let wasLive = backingWebView != nil
+        invalidateSwitchSnapshot()
+        cancelPendingHistory()
+        historyDocumentURL = nil
+        finishedDocumentRevision = nil
+        documentRevision += 1
+        if let view = backingWebView {
+            onWebViewDiscarded?()
+            #if os(macOS)
+            resetAudio()
+            #else
+            view.findInteraction?.dismissFindNavigator()
+            #endif
+            onAuthentication = nil
+            policyGeneration += 1
+            observations.removeAll()
+            view.stopLoading()
+            view.navigationDelegate = nil
+            view.uiDelegate = nil
+            view.loadHTMLString("", baseURL: nil)
+            backingWebView = nil
+        }
+        savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil
+        isRestoringWebView = false; applyingRestoration = false
+        hasLoaded = false; hasRenderedContent = false; isLoading = false
+        canGoBack = false; canGoForward = false
+        lastPageBackground = nil
+        return wasLive
+    }
+
+    func finishSiteDataReset(reload: Bool) {
+        isResettingSiteData = false
+        skipHistoryOnActivation = true
+        if reload { activate() }
+    }
     public func zoomIn() { setZoom(pageZoom + 0.1) }
     public func zoomOut() { setZoom(pageZoom - 0.1) }
     public func resetZoom() { setZoom(1) }
@@ -1057,7 +1105,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         hasRequestedDisplayCapture = false
         refresh(from: webView)
         if historyResponseAllowed, let committed = webView.url, AddressResolver.isWebURL(committed) {
-            if isRestoringWebView {
+            if isRestoringWebView || isReloadingForgottenSite {
                 historyDocumentURL = committed
             } else {
                 historyNavigation = navigation
@@ -1073,6 +1121,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     func recordDisplayCaptureRequest() { if !isClosed { hasRequestedDisplayCapture = true } }
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard !isClosed, backingWebView === webView else { return }
+        isReloadingForgottenSite = false
         restoreScrollPosition(force:true)
         // Empty pages, PDFs and unsupported Paint Timing documents must also
         // become usable. The host's afterScreenUpdates barrier still runs.

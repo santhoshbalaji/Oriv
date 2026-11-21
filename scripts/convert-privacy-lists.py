@@ -19,6 +19,10 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'Packages/BrowserKit/Sources/BrowserEngine/Resources/Privacy'
 PIN = '74c3e769a009be43c1bb73b0744e5e6e8943bad3'
 SOURCE_PIN = '0476c21b10d796a3fd533cf2584ebf133ede36a5'
+CNAME_PIN = 'dd5bd59eda209a97efeee1ee7898e119c582a13b'
+CNAME_SHA256 = 'f6a241680c4a3e561d4e7566ad67d77d8f0e9969f4dc71a9bf50ae2a1f406b42'
+CNAME_FILE = 'combined_disguised_trackers_justdomains.txt'
+CNAME_URL_PREFIX = r'^https?://([^/?#@]*@)?'
 TYPES = {'script': 'script', 'image': 'image', 'stylesheet': 'style-sheet', 'font': 'font', 'media': 'media', 'xmlhttprequest': 'raw', 'subdocument': 'child-document', 'ping': 'ping', 'websocket': 'websocket', 'other': 'other'}
 # `fetch` and `raw` are distinct on recent WebKit. Never filter a main document.
 RESOURCES = sorted(set(TYPES.values()) | {'fetch', 'svg-document'})
@@ -178,6 +182,31 @@ def cosmetic_rules(entries, exceptions, light=False):
 
 def encode(value): return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':')).encode() + b'\n'
 
+def cname_rules(text):
+    hosts = {line.strip().lower() for line in text.splitlines() if line.strip() and not line.lstrip().startswith('#')}
+    if not hosts or any(not DOMAIN.fullmatch(host) or '.' not in host for host in hosts):
+        raise ValueError('Unexpected CNAME input')
+    parents, covered = set(), set()
+    for host in hosts:
+        labels = host.split('.')
+        for index in range(len(labels) - 1, 0, -1):
+            parent = '.'.join(labels[index:])
+            if parent in hosts:
+                parents.add(parent)
+                covered.add(host)
+                break
+    rules = []
+    for host in sorted(hosts - covered):
+        prefix = CNAME_URL_PREFIX + (r'([^/:@?#]+\.)?' if host in parents else '')
+        # Two fixed endings let WebKit share the host trie. A per-host
+        # optional dot forces WebKit to build a separate automaton for each host.
+        for suffix in (r'[:/]', r'\.[:/]'):
+            rules.append({
+                'trigger': {'url-filter': prefix + re.escape(host) + suffix, 'resource-type': RESOURCES},
+                'action': {'type': 'block'},
+            })
+    return rules, {'hosts': len(hosts), 'covered_by_parent': len(covered), 'parent_hosts': len(parents)}
+
 def write_atomic(path, data):
     temporary = path.with_suffix(path.suffix + '.tmp')
     temporary.write_bytes(data)
@@ -219,16 +248,26 @@ def main():
         b, a, c, e, _ = parsed[name]
         blocks += b; allows += a; cosmetics += c; exceptions += e
     b, a, c, e, _ = parsed['cookies']
+    cname_url = f'https://raw.githubusercontent.com/AdguardTeam/cname-trackers/{CNAME_PIN}/data/{CNAME_FILE}'
+    cname_path = args.source_dir / CNAME_FILE if args.source_dir else None
+    raw = cname_path.read_bytes() if cname_path and cname_path.exists() else fetch(cname_url)
+    if hashlib.sha256(raw).hexdigest() != CNAME_SHA256: raise ValueError('Pinned source digest mismatch: cname')
+    if cname_path and not cname_path.exists(): cname_path.write_bytes(raw)
+    cname, report['cname'] = cname_rules(raw.decode('utf-8'))
+    cname_attribution = {'copyright': 'Copyright 2021 Adguard Software Ltd', 'license': 'MIT',
+                        'modifications': 'Oriv conversion to WebKit subresource rules with parent-host deduplication'}
+    sources['cname'] = {'url': cname_url, 'sha256': CNAME_SHA256, 'bytes': len(raw), **cname_attribution}
     groups = {'network': (blocks, allows), 'cosmetics-light': (cosmetic_rules(cosmetics, exceptions, True), []),
               'cosmetics-strict': (cosmetic_rules(cosmetics, exceptions), []),
-              'cookies-network': (b, a), 'cookies-cosmetics': (cosmetic_rules(c, e), [])}
+              'cookies-network': (b, a), 'cookies-cosmetics': (cosmetic_rules(c, e), []),
+              'network-cname': (cname, [])}
     outputs = {}
     for name, (rules, exceptions) in groups.items():
         exceptions = exceptions + [rule for rule in rules if rule['action']['type'] == 'ignore-previous-rules']
         rules = [rule for rule in rules if rule['action']['type'] != 'ignore-previous-rules']
         # Duplicate ALL network exceptions at the end of EVERY chunk. A whitelist
         # in a separate WKContentRuleList would not undo blocking in another list.
-        budget = 140_000 - len(exceptions)
+        budget = (85_000 if name == 'network-cname' else 140_000) - len(exceptions)
         if budget <= 0: raise ValueError('Too many exceptions')
         chunks = []
         for i in range(0, len(rules), budget):
@@ -236,12 +275,13 @@ def main():
             filename = f'{name}-{len(chunks)}.orivrules'
             raw = encode(value)
             header = {'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'source': 'manifest.json', 'modifications': 'Oriv supported-subset conversion v2' if 'cosmetics' in name else 'Oriv supported-subset conversion v1', 'decodedBytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
+            if name == 'network-cname': header.update(cname_attribution)
             payload = encode(header) + base64.b64encode(zlib.compress(raw, level=9, wbits=-15)) + b'\n'
             write_atomic(destination / filename, payload)
             chunks.append({'file': filename, 'rules': len(value), 'bytes': len(raw), 'bundledBytes': len(payload), 'sha256': hashlib.sha256(raw).hexdigest()})
         outputs[name] = chunks
-    manifest = {'rulesVersion': '2026.11.11-' + PIN[:12], 'converterVersion': 2, 'upstreamCommit': PIN, 'sources': sources, 'outputs': outputs, 'counts': report,
-                'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'modifications': 'Converted supported network and plain cosmetic subset; unsupported syntax dropped; scoped cosmetic exceptions affect matching selectors only; grouped/split WebKit rules.'}
+    manifest = {'rulesVersion': '2026.11.21-' + PIN[:12] + '-' + CNAME_PIN[:12], 'converterVersion': 3, 'upstreamCommit': PIN, 'sources': sources, 'outputs': outputs, 'counts': report,
+                'copyright': 'The EasyList authors (https://easylist.to/)', 'license': 'CC-BY-SA-3.0', 'modifications': 'Converted the EasyList network and plain cosmetic subset with scoped exceptions, plus AdGuard CNAME subresource host rules. Grouped and split WebKit rules.'}
     write_atomic(destination / 'manifest.json', json.dumps(manifest, indent=2, sort_keys=True).encode() + b'\n')
     keep = {destination / chunk['file'] for chunks in outputs.values() for chunk in chunks}
     for stale in old_files - keep: stale.unlink()

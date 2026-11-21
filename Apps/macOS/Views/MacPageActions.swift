@@ -1,3 +1,4 @@
+import BrowserCore
 import BrowserEngine
 import SwiftUI
 
@@ -9,6 +10,7 @@ struct MacPageActions: View {
     var findOnPage: () -> Void
     var showSitePrivacy: () -> Void
     var showPasswordsGuide: () -> Void
+    var requestSiteForget: (BrowserSite) -> Void
     private var session: BrowserSession { controller.session }
     private var tab: BrowserTab? { session.selectedTab }
 
@@ -45,6 +47,9 @@ struct MacPageActions: View {
                 if let profiles { SendPageMenu(continuity: profiles.continuity, session: session, profile: controller.profile) }
                 Button("Read Page Text", systemImage: "doc.text") { controller.openReader() }.disabled(tab?.url == nil)
                 Button("Site Privacy", systemImage: "shield.lefthalf.filled") { showSitePrivacy() }
+                if let site = session.forgettableSite(for: tab) {
+                    Button("Forget This Site…", systemImage: "trash", role: .destructive) { requestSiteForget(site) }
+                }
                 Button("Password AutoFill Help", systemImage: "key") { showPasswordsGuide() }
             }
         }

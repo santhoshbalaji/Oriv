@@ -3,6 +3,53 @@ import Foundation
 import Testing
 
 @Suite struct VisitHistoryStoreTests {
+    @Test func registrableSitesMatchAtLabelBoundaries() throws {
+        let site = try #require(BrowserSite(host: "WWW.News.Example.CO.UK."))
+        #expect(site.domain == "example.co.uk")
+        #expect(site.contains(host: ".other.example.co.uk"))
+        #expect(!site.contains(host: "notexample.co.uk"))
+        #expect(!site.contains(host: "example.co.uk.attacker.test"))
+        #expect(BrowserSite(host: "a.foo.github.io")?.domain == "foo.github.io")
+        #expect(BrowserSite(host: "foo.github.io") != BrowserSite(host: "bar.github.io"))
+        #expect(BrowserSite(host: "a.b.ck")?.domain == "a.b.ck")
+        #expect(BrowserSite(host: "a.www.ck")?.domain == "www.ck")
+        #expect(BrowserSite(host: "a.食狮.公司.cn")?.domain == "xn--85x722f.xn--55qx5d.cn")
+        #expect(BrowserSite(host: "127.1")?.domain == "127.0.0.1")
+        #expect(BrowserSite(host: "128.0.0.1") != BrowserSite(host: "127.0.0.1"))
+        #expect(BrowserSite(host: "[0:0::1]")?.domain == "::1")
+        #expect(BrowserSite(host: "LOCALHOST.")?.domain == "localhost")
+    }
+
+    @Test func forgettingOneSitePersistsSyncMarkerAndInvalidatesHistoryDerivatives() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("history.sqlite")
+        let store = try VisitHistoryStore(fileURL: database)
+        let old = HistoryEntry(title: "Old", url: URL(string: "https://a.example.co.uk/one")!, visitedAt: .distantPast)
+        let remote = HistoryEntry(title: "Remote", url: URL(string: "http://b.example.co.uk:8080/two")!, visitedAt: .distantPast)
+        let other = HistoryEntry(title: "Keep", url: URL(string: "https://notexample.co.uk")!)
+        let site = try #require(BrowserSite(url: old.url))
+        try store.migrate([old, other])
+        try store.applyShared([old, remote, other], removedIDs: [], clearRanges: []) {}
+        _ = try store.suggestionDelta()
+        let markers = try store.forget(site)
+        #expect(try store.page() == [other])
+        #expect(try store.frequentDestinations(limit: 5) == [other])
+        #expect(try store.suggestionDelta().changed == [old.url, remote.url])
+
+        let reopened = try VisitHistoryStore(fileURL: database)
+        #expect(try reopened.siteHistoryDeletions() == markers)
+        try reopened.applyShared([other, old, remote], removedIDs: [], clearRanges: []) {}
+        #expect(try reopened.page() == [other])
+        let new = HistoryEntry(title: "New visit", url: old.url, visitedAt: .distantFuture)
+        try reopened.applyShared([other, new], removedIDs: [], clearRanges: [], siteDeletions: Set(markers.values)) {}
+        #expect(Set(try reopened.page().map(\.id)) == [new.id, other.id])
+
+        let receivingDevice = try VisitHistoryStore()
+        try receivingDevice.record(old, shared: false)
+        try receivingDevice.applyShared([new, other], removedIDs: [], clearRanges: [], siteDeletions: Set(markers.values)) {}
+        #expect(Set(try receivingDevice.page().map(\.id)) == [new.id, other.id])
+    }
     @Test func retentionPagingAndIncrementalAggregates() throws {
         let store = try VisitHistoryStore(limit: 3)
         let repeated = URL(string: "https://docs.example.test/guide")!

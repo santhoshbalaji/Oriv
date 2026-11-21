@@ -27,6 +27,7 @@ struct BrowserWindow: View {
     @State private var findText = ""
     @State private var showFind = false
     @State private var showProtection = false
+    @State private var siteToForget: BrowserSite?
     @State private var showPasswords = false
     @State private var showSiteInfo = false
     @State private var findCaseSensitive = false
@@ -73,7 +74,7 @@ struct BrowserWindow: View {
     private var windowLifecycle: some View {
         sceneContent
             .onAppear(perform: prepareWindow)
-            .task(id: "\(address)-\(addressFocused)-\(session.selectedTabID?.uuidString ?? "")") {
+            .task(id: "\(address)-\(addressFocused)-\(session.selectedTabID?.uuidString ?? "")-\(session.forgottenSiteRevision)") {
                 await addressMatches.update(addressFocused ? address : "", session: session, isPrivate: tab?.isPrivate == true)
             }
             .onChange(of: session.selectedTabID) { _, _ in addressFocused = false; syncAddress(); showFind = false; showSiteInfo = false; showProtection = false }
@@ -433,7 +434,8 @@ struct BrowserWindow: View {
         MacPageMenu {
             MacPageActions(controller: controller, profiles: profiles,
                 findOnPage: { showFind = true; findFocused = true },
-                showSitePrivacy: { showProtection = true }, showPasswordsGuide: { showPasswords = true })
+                showSitePrivacy: { showProtection = true }, showPasswordsGuide: { showPasswords = true },
+                requestSiteForget: { siteToForget = $0 })
         } label: {
             Image(systemName: "ellipsis")
                 .frame(width: 36, height: 32)
@@ -467,6 +469,7 @@ struct BrowserWindow: View {
         .alert("Browser", isPresented: Binding(get: { controller.browserError != nil }, set: { if !$0 { controller.browserError = nil } })) {
             Button("OK") { controller.browserError = nil }
         } message: { Text(controller.browserError ?? "") }
+        .forgetSiteAlert($siteToForget, session: session) { controller.browserError = $0 }
     }
 
     private var routedContent: some View {
@@ -560,7 +563,9 @@ struct BrowserWindow: View {
     }
 
     @ViewBuilder private func tabContent(_ tab: BrowserTab) -> some View {
-        if tab.url != nil || tab.hasLoaded {
+        if tab.isResettingSiteData {
+            Color.clear
+        } else if tab.url != nil || tab.hasLoaded {
             WebPageView(tab: tab, chrome: pageChrome, contentUnderChrome: contentUnderChrome, headerInset: MacBrowserLayout.headerHeight, profileTransition: profiles?.sidebarSwitch.isPresenting(controller.profile?.id) == true, fullscreenChanged: { controller.sidebar.fullscreen($0) })
                 .scrollEdgeEffectStyle(.automatic, for: .top)
 

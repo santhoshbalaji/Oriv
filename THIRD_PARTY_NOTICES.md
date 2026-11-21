@@ -10,6 +10,10 @@ Full attribution, modifications, source commits, SHA-256 digests and conversion 
 
 DuckDuckGo Autoconsent **18.9.0** is bundled separately under the **Mozilla Public License 2.0**. The CommonJS runtime and compact rules are verbatim copies from the pinned [published package](https://registry.npmjs.org/@duckduckgo/autoconsent/-/autoconsent-18.9.0.tgz). That package includes the covered source, which is also available at the [upstream commit](https://github.com/duckduckgo/autoconsent/tree/d6cf4b99c96c5209cf5a9f228209fc9612b05e8c). The bundled Autoconsent directory includes the licence, notice and SHA-256 manifest. The Oriv bridge and YouTube filtering runtime are original MIT code.
 
+AdGuard's disguised CNAME tracker host list is adapted under **MIT**, copyright 2021 Adguard Software Ltd. See the bundled `AdGuard-MIT.txt` and `manifest.json` in `Resources/Privacy` for the licence, pinned source and conversion details.
+
+The Mozilla Public Suffix List is bundled under **MPL 2.0** in `Packages/BrowserKit/Sources/BrowserCore/Resources`, with the full licence. The bundled file preserves ICANN and PRIVATE rules and omits upstream comments from the [pinned upstream snapshot](https://github.com/publicsuffix/list/blob/d7d7f1fd55166aaf73ad2f526e72634490acd9c8/public_suffix_list.dat).
+
 The Oriv mark is original vector geometry inspired by the traditional kolam form. The brand folder retains an AI-generated design concept and the prompt; the shipping mark is the editable vector described in [the identity notes](Assets/Brand/README.md). Icon previews include rendering supplied by Apple's Icon Composer.
 
 The media fixture generates its own local test video. Its optional Apple HLS sample is fetched from Apple's public streaming example URL at test time and is not included in this repository. Third-party webpages and their media remain owned by their respective owners. Raw browsing/notification QA captures and build artifacts are excluded from Git; the published Workspace screenshots use only the project's synthetic fixture content.

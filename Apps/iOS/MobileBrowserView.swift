@@ -11,6 +11,7 @@ struct MobileBrowserView: View {
     @Bindable var controller: MobileController
     let profiles: MobileProfiles
     @State private var address = ""
+    @State private var siteToForget: BrowserSite?
     @State private var editingAddress = false
     @State private var addressMatches = AddressSuggestions()
     @State private var nativeFinding = false
@@ -245,7 +246,7 @@ struct MobileBrowserView: View {
                 if wasActive && !active && gestures.source != nil { cancelTransition() }
             }
             .environment(\.siteIcons, controller.session.siteIcons)
-            .task(id: "\(address)-\(editingAddress)-\(tab?.id.uuidString ?? "")") {
+            .task(id: "\(address)-\(editingAddress)-\(tab?.id.uuidString ?? "")-\(controller.session.forgottenSiteRevision)") {
                 await addressMatches.update(editingAddress ? address : "", session: controller.session, isPrivate: tab?.isPrivate == true)
             }
             .onReceive(NotificationCenter.default.publisher(for:UIResponder.keyboardWillChangeFrameNotification)) { _ in
@@ -276,6 +277,7 @@ struct MobileBrowserView: View {
             .alert("Unable to complete action", isPresented: Binding(get: { controller.message != nil }, set: { if !$0 { controller.message = nil } })) {
                 Button("OK") { controller.message = nil }
             } message: { Text(controller.message ?? "") }
+            .forgetSiteAlert($siteToForget, session: controller.session) { controller.message = $0 }
     }
 
     private func sheetChanged(from oldSheet: MobileSheet?, to sheet: MobileSheet?) {
@@ -767,6 +769,7 @@ struct MobileBrowserView: View {
                 else { cancelTransition() }
             },swipe:swipe,tabID:tab.id,selected:tab.id == controller.session.selectedTabID,
             viewportLayout:controller.viewportLayout,baseBottomInset:max(bottom,windowInsets.bottom),includesBar:!nativeFinding,tab:tab)
+            .id(ObjectIdentifier(tab.webView))
         }
     }
     private var otherProfiles: Bool { profiles.profiles.filter { $0.archivedAt == nil }.count > 1 }
@@ -850,6 +853,9 @@ struct MobileBrowserView: View {
                         MobileMoveTabMenu(controller: controller, profiles: profiles, tab: tab)
                     }
                     Button("Site Privacy & Settings", systemImage: "slider.horizontal.3") { controller.sheet = .site }.disabled(tab?.url == nil)
+                    if let site = controller.session.forgettableSite(for: tab) {
+                        Button("Forget This Site…", systemImage: "trash", role: .destructive) { siteToForget = site }
+                    }
                     Menu("More Page Actions", systemImage: "ellipsis.circle") {
                         Menu("Back History", systemImage: "clock.arrow.circlepath") { MobileHistoryMenu(tab: tab, forward: false) }.disabled(tab?.canGoBack != true)
                         if tab?.canGoForward == true { Menu("Forward History") { MobileHistoryMenu(tab: tab, forward: true) } }

@@ -46,7 +46,8 @@ import WebKit
         }
         let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
         XCTAssertEqual(files.count, 1)
-        XCTAssertTrue(files[0].lastPathComponent.hasSuffix(".png")); XCTAssertFalse(files[0].lastPathComponent.contains("127"))
+        XCTAssertEqual(files[0].lastPathComponent.range(of: #"^[0-9a-f]{64}(-[0-9a-f]{64})?\.png$"#, options: .regularExpression)?.lowerBound,
+                       files[0].lastPathComponent.startIndex)
         let restored = SiteIconStore(directory: root)
         await restored.load(url, isPrivate: false)
         XCTAssertNotNil(restored.icon(for: url, isPrivate: false), "Disk cache needs no speculative page load")
@@ -146,6 +147,15 @@ import WebKit
         for index in 130..<260 { await cache.load(URL(string: "https://host\(index).test")!, isPrivate: false) }
         let retained = (130..<260).filter { cache.icon(for: URL(string: "https://host\($0).test")!, isPrivate: false) != nil }.count
         XCTAssertEqual(retained, SiteIconStore.memoryLimit)
+        let forgotten = URL(string: "https://host259.test")!
+        let retainedSite = URL(string: "https://host258.test")!
+        try await cache.forget(XCTUnwrap(BrowserSite(url: forgotten)))
+        XCTAssertNil(cache.icon(for: forgotten, isPrivate: false))
+        let reopened = SiteIconStore(directory: root)
+        await reopened.loadCached(forgotten)
+        await reopened.loadCached(retainedSite)
+        XCTAssertNil(reopened.icon(for: forgotten, isPrivate: false))
+        XCTAssertNotNil(reopened.icon(for: retainedSite, isPrivate: false))
     }
     func testPrivateSessionLeavesNoIconDirectoryAndLazyLookupDoesNotWakeTabs() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("OrivPrivateIcons-\(UUID())")

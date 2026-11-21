@@ -22,8 +22,28 @@ class Handler(BaseHTTPRequestHandler):
     privacy_destination_runs = {}
     favicon_requests = {}
 
+    def do_CONNECT(self):
+        # A synthetic origin for the CNAME integration test. Never open an
+        # upstream connection. Only these fixture hosts may enter the tunnel.
+        if self.path not in ('analytics.sixt.com:80', 'analytics.seagate.com:80'):
+            self.send_error(403)
+            return
+        self.send_response_only(200, 'Connection Established')
+        self.end_headers()
+        self.handle_one_request()
+
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/cname-page':
+            self.send_bytes(b"""
+                <title>CNAME fixture</title>
+                <script src="/cname-probe.js" onload="window.probe = 'loaded'"
+                        onerror="window.probe = 'blocked'"></script>
+            """, 'text/html; charset=utf-8', no_store=True)
+            return
+        if path == '/cname-probe.js':
+            self.send_bytes(b'window.cnameProbeRan = true;', 'text/javascript; charset=utf-8', no_store=True)
+            return
         if path == '/github-favicon':
             self.send_bytes((FIXTURES / 'github-favicon.html').read_bytes(), 'text/html; charset=utf-8', no_store=True)
             return

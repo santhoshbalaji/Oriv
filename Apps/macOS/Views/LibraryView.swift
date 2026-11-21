@@ -11,6 +11,8 @@ struct LibraryView: View {
     @State private var search = ""
     @State private var historyOffset = 0
     @State private var confirmClear = false
+    @State private var siteToForget: BrowserSite?
+    @State private var forgetError: String?
     @Environment(\.dismiss) private var dismiss
 
     private var bookmarks: [Bookmark] { controller.savedBookmarks.filter { matches($0.title, $0.url) } }
@@ -89,6 +91,10 @@ struct LibraryView: View {
         .confirmationDialog("Clear browsing history?", isPresented: $confirmClear) {
             Button("Clear History", role: .destructive) { controller.session.clearHistory() }
         } message: { Text("This removes your history list. Bookmarks and website login data will remain.") }
+        .forgetSiteAlert($siteToForget, session: controller.session) { forgetError = $0 }
+        .alert("Unable to forget site", isPresented: Binding(get: { forgetError != nil }, set: { if !$0 { forgetError = nil } })) {
+            Button("OK") { forgetError = nil }
+        } message: { Text(forgetError ?? "") }
     }
 
     private var sectionNavigation: some View {
@@ -168,6 +174,11 @@ struct LibraryView: View {
                                 .font(.caption).foregroundStyle(theme.secondaryText).fixedSize()
                             Button { controller.session.removeHistory(entry.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 24, height: 24) }
                                 .buttonStyle(.borderless).foregroundStyle(theme.secondaryText).accessibilityLabel("Remove \(entry.title) from history")
+                        }
+                        .contextMenu {
+                            if let site = controller.session.forgettableSite(forHistoryURL: entry.url) {
+                                Button("Forget This Site…", role: .destructive) { siteToForget = site }
+                            }
                         }
                     }
                     if historyOffset > 0 || page.count > historyPageSize {

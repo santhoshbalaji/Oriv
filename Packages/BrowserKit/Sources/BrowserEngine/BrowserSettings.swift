@@ -77,6 +77,18 @@ public final class WebsiteDataManager {
         isWorking = false
         await refresh()
     }
+    public func remove(site: BrowserSite) async throws {
+        guard !isWorking else { throw CocoaError(.fileLocking, userInfo: [NSLocalizedDescriptionKey: "Website data is busy. Try again when the other operation finishes."]) }
+        isWorking = true; defer { isWorking = false }
+        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        let matching = await store.dataRecords(ofTypes: types).filter { site.contains(host: $0.displayName) }
+        if !matching.isEmpty { await store.removeData(ofTypes: types, for: matching) }
+        let cookies = store.httpCookieStore
+        for cookie in await cookies.allCookies() where site.contains(host: cookie.domain) {
+            await cookies.deleteCookie(cookie)
+        }
+        records = await store.dataRecords(ofTypes: types).sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
     public func clear(since: Date, cacheOnly: Bool) async {
         guard !isWorking else { return }
         isWorking = true

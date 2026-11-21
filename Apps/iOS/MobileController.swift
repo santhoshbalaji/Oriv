@@ -94,6 +94,7 @@ import WebKit
             adapter.installContextTracking(on: view)
         }
         session.didCloseTab = { [weak self] id in self?.delegates.removeValue(forKey: id)?.invalidate(); self?.tabPresentation.remove(id); self?.chromes.removeValue(forKey:id)?.observe(nil) }
+        session.didResetSiteTab = { [weak self] id in self?.tabPresentation.remove(id) }
         session.handleDownload = { [weak self] download in
             guard let self, session.isProfileActive else { download.cancel { _ in }; return }
             downloads.begin(download)

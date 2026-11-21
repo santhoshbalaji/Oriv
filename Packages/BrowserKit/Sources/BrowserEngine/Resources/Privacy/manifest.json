@@ -1,7 +1,12 @@
 {
-  "converterVersion": 2,
+  "converterVersion": 3,
   "copyright": "The EasyList authors (https://easylist.to/)",
   "counts": {
+    "cname": {
+      "covered_by_parent": 140647,
+      "hosts": 306627,
+      "parent_hosts": 13476
+    },
     "cookies": {
       "cosmetic": 22809,
       "cosmetic_exception": 316,
@@ -51,7 +56,7 @@
     }
   },
   "license": "CC-BY-SA-3.0",
-  "modifications": "Converted supported network and plain cosmetic subset; unsupported syntax dropped; scoped cosmetic exceptions affect matching selectors only; grouped/split WebKit rules.",
+  "modifications": "Converted the EasyList network and plain cosmetic subset with scoped exceptions, plus AdGuard CNAME subresource host rules. Grouped and split WebKit rules.",
   "outputs": {
     "cookies-cosmetics": [
       {
@@ -104,10 +109,48 @@
         "rules": 58462,
         "sha256": "0ae0e5123186d0ffa84266e3af2b982d572c7b850491709934127cd5520105e9"
       }
+    ],
+    "network-cname": [
+      {
+        "bundledBytes": 795315,
+        "bytes": 21652352,
+        "file": "network-cname-0.orivrules",
+        "rules": 85000,
+        "sha256": "831582e6fcedbe00a596269c63f974c76709d98d24d52fda4109425b0b4ccbf8"
+      },
+      {
+        "bundledBytes": 803227,
+        "bytes": 21765872,
+        "file": "network-cname-1.orivrules",
+        "rules": 85000,
+        "sha256": "aee68a04b9bfc99065158357fa7fc0136f3e2dd545bef562a42e6fba26a4220d"
+      },
+      {
+        "bundledBytes": 748571,
+        "bytes": 21255170,
+        "file": "network-cname-2.orivrules",
+        "rules": 85000,
+        "sha256": "83c199dab572c7749d9fa1b392aba25a5e648edaf7e6803b330aa9deadfc72b9"
+      },
+      {
+        "bundledBytes": 684875,
+        "bytes": 19281766,
+        "file": "network-cname-3.orivrules",
+        "rules": 76960,
+        "sha256": "db153aa4e7950546164e2b9df46697381bdf8547dbeec4779e738e33bd0f7dab"
+      }
     ]
   },
-  "rulesVersion": "2026.11.11-74c3e769a009",
+  "rulesVersion": "2026.11.21-74c3e769a009-dd5bd59eda20",
   "sources": {
+    "cname": {
+      "bytes": 9748285,
+      "copyright": "Copyright 2021 Adguard Software Ltd",
+      "license": "MIT",
+      "modifications": "Oriv conversion to WebKit subresource rules with parent-host deduplication",
+      "sha256": "f6a241680c4a3e561d4e7566ad67d77d8f0e9969f4dc71a9bf50ae2a1f406b42",
+      "url": "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/dd5bd59eda209a97efeee1ee7898e119c582a13b/data/combined_disguised_trackers_justdomains.txt"
+    },
     "cookies": {
       "bytes": 907018,
       "sha256": "91ec6cdbd4a55f49f45ca3d51d6b0c4435e0ab91068f197fd8ce9f571ca82297",

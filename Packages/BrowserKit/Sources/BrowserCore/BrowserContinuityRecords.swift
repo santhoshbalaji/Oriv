@@ -6,6 +6,7 @@ public enum ContinuityPayload: Codable, Equatable, Sendable {
     case bookmark(UUID, Bookmark)
     case history(UUID, HistoryEntry)
     case historyClear(UUID, since: Date, through: Date)
+    case siteHistoryClear(UUID, domain: String, through: Date)
     case preference(UUID, key: String, value: String)
     case tab(UUID, device: UUID, tab: TabRecord, position: Int)
     case device(ContinuityDevice)
@@ -101,6 +102,10 @@ public struct ContinuityRecord: Codable, Equatable, Sendable, Identifiable {
         case .historyClear(let profile, let since, let through):
             guard first == "clear", String(parts[1]) == profile.uuidString, since <= through,
                   since.timeIntervalSince1970.isFinite, through.timeIntervalSince1970.isFinite else { throw ContinuityError.invalidData }
+        case .siteHistoryClear(let profile, let domain, let through):
+            guard first == "clear", String(parts[1]) == profile.uuidString, domain.utf8.count <= 253,
+                  BrowserSite(host: domain)?.domain == domain,
+                  through.timeIntervalSince1970.isFinite else { throw ContinuityError.invalidData }
         case .preference(let profile, let key, let value):
             guard Self.preferenceKeys.contains(key), id == Self.preferenceKey(profile, key), value.utf8.count <= 100_000 else { throw ContinuityError.invalidData }
         case .tab(let profile, let device, let tab, let position):
@@ -136,7 +141,7 @@ public struct ContinuityRecord: Codable, Equatable, Sendable, Identifiable {
         struct Header: Decodable { let id: String; let version: Int; let payload: Kind? }
         let header = try JSONDecoder().decode(Header.self, from: data)
         let prefixes: Set<String> = ["profile", "bookmark", "history", "clear", "preference", "tab", "device", "open"]
-        let kinds: Set<String> = ["profile", "bookmark", "history", "historyClear", "preference", "tab", "device", "openRequest"]
+        let kinds: Set<String> = ["profile", "bookmark", "history", "historyClear", "siteHistoryClear", "preference", "tab", "device", "openRequest"]
         guard let prefix = header.id.split(separator: ".").first, prefixes.contains(String(prefix)),
               header.payload.map({ kinds.contains($0.name) }) ?? true else { return nil }
         return try JSONDecoder().decode(Self.self, from: data).validated()
@@ -268,7 +273,9 @@ public struct ContinuityReplica: Codable, Sendable {
         }
         if previous?.history != history {
             let oldHistory = Dictionary((previous?.history ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            for entry in history where oldHistory[entry.id] != entry && ContinuityRecord.safeURL(entry.url) && !historyWasCleared(profile.id, entry.visitedAt) {
+            let cutoffs = SiteHistoryDeletion.cutoffs(siteHistoryDeletions(for: profile.id))
+            for entry in history where oldHistory[entry.id] != entry && ContinuityRecord.safeURL(entry.url)
+                && !historyWasCleared(profile.id, entry.visitedAt) && !Self.matchesSiteDeletion(entry, cutoffs: cutoffs) {
                 let key = ContinuityRecord.historyKey(profile.id, entry.id)
                 if records[key] == nil { try put(key, .history(profile.id, entry), seed: true) }
                 else if case .history = records[key]?.payload {
@@ -307,9 +314,42 @@ public struct ContinuityReplica: Codable, Sendable {
         try put("clear.\(profile).\(UUID())", .historyClear(profile, since: since, through: through))
         try redactClearedHistory()
     }
+    public mutating func captureSiteHistoryDeletions(profile: UUID, deletions: [UUID: SiteHistoryDeletion]) throws {
+        guard !isProfileDeleted(profile) else { return }
+        let previous = counter
+        for (id, deletion) in deletions {
+            let key = "clear.\(profile).\(id)"
+            if case .siteHistoryClear(_, _, let through) = records[key]?.payload, through >= deletion.through { continue }
+            try put(key, .siteHistoryClear(profile, domain: deletion.site.domain, through: deletion.through))
+        }
+        if counter != previous { try redactClearedHistory() }
+    }
+
+    public func siteHistoryDeletions(for profile: UUID) -> Set<SiteHistoryDeletion> {
+        Set(records.values.compactMap { record in
+            guard case .siteHistoryClear(let owner, let domain, let through) = record.payload,
+                  owner == profile, let site = BrowserSite(host: domain) else { return nil }
+            return SiteHistoryDeletion(site: site, through: through)
+        })
+    }
+
+    private static func matchesSiteDeletion(_ entry: HistoryEntry, cutoffs: [BrowserSite: Date]) -> Bool {
+        guard !cutoffs.isEmpty, let site = BrowserSite(url: entry.url), let through = cutoffs[site] else { return false }
+        return entry.visitedAt <= through
+    }
+
     private mutating func redactClearedHistory() throws {
+        var siteDeletions: [UUID: [SiteHistoryDeletion]] = [:]
+        for record in records.values {
+            if case .siteHistoryClear(let profile, let domain, let through) = record.payload,
+               let site = BrowserSite(host: domain) {
+                siteDeletions[profile, default: []].append(SiteHistoryDeletion(site: site, through: through))
+            }
+        }
+        let cutoffs = siteDeletions.mapValues { SiteHistoryDeletion.cutoffs($0) }
         let erased = records.values.compactMap { record -> String? in
-            if case .history(let profile, let value) = record.payload, historyWasCleared(profile, value.visitedAt) { return record.id }; return nil
+            guard case .history(let profile, let value) = record.payload else { return nil }
+            return historyWasCleared(profile, value.visitedAt) || Self.matchesSiteDeletion(value, cutoffs: cutoffs[profile] ?? [:]) ? record.id : nil
         }
         for key in erased { try put(key, nil) }
     }
@@ -363,8 +403,10 @@ public struct ContinuityReplica: Codable, Sendable {
     }
     public func history(for profile: UUID) -> [HistoryEntry] {
         var urls = Set<URL>()
+        let cutoffs = SiteHistoryDeletion.cutoffs(siteHistoryDeletions(for: profile))
         return Array(records.values.compactMap { record -> HistoryEntry? in
-            if case .history(let owner, let value) = record.payload, owner == profile, !historyWasCleared(profile, value.visitedAt) { return value }; return nil
+            if case .history(let owner, let value) = record.payload, owner == profile,
+               !historyWasCleared(profile, value.visitedAt), !Self.matchesSiteDeletion(value, cutoffs: cutoffs) { return value }; return nil
         }.sorted { $0.visitedAt == $1.visitedAt ? $0.id.uuidString < $1.id.uuidString : $0.visitedAt > $1.visitedAt }.filter { urls.insert($0.url).inserted }.prefix(500))
     }
     public func preferences(for profile: UUID) -> [String: String] {

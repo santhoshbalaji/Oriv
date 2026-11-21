@@ -61,11 +61,23 @@ public actor SiteIconDiskCache {
     public static let maximumBytes = 4 * 1_024 * 1_024
     private let directory: URL?
     public init(directory: URL?) { self.directory = directory }
+    private func digest(_ key: String) -> String {
+        SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
     private func file(_ key: String) -> URL? {
-        directory?.appendingPathComponent(SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined() + ".png")
+        guard let site = SiteIconStore.regularSite(for: key) else { return nil }
+        return directory?.appendingPathComponent(digest(site.domain) + "-" + digest(key) + ".png")
     }
     public func read(_ key: String) -> SiteIcon? {
-        guard let file = file(key), let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+        let filename = digest(key) + ".png"
+        let paths = [file(key), directory?.appendingPathComponent(filename)].compactMap { $0 }
+        for file in paths {
+            if let icon = readFile(file) { return icon }
+        }
+        return nil
+    }
+    private func readFile(_ file: URL) -> SiteIcon? {
+        guard let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
               let date = values.contentModificationDate, Date().timeIntervalSince(date) < 7 * 86_400,
               (values.fileSize ?? .max) <= 128 * 1_024, let data = try? Data(contentsOf: file) else { return nil }
         return Self.decode(data)
@@ -87,6 +99,15 @@ public actor SiteIconDiskCache {
         } catch { /* A cache failure never interrupts browsing. */ }
     }
     public func clear() { if let directory { try? FileManager.default.removeItem(at: directory) } }
+    func forget(_ site: BrowserSite) throws {
+        guard let directory, FileManager.default.fileExists(atPath: directory.path) else { return }
+        let prefix = digest(site.domain) + "-"
+        // Older cache entries were keyed by an irreversible origin hash.
+        for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where file.pathExtension == "png" {
+            let name = file.deletingPathExtension().lastPathComponent
+            if name.hasPrefix(prefix) || name.utf8.count == 64 { try FileManager.default.removeItem(at: file) }
+        }
+    }
     public func decode(_ data: Data) -> SiteIcon? { Self.decode(data) }
     private static func decode(_ data: Data) -> SiteIcon? {
         guard data.count <= 1_048_576, let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -122,6 +143,9 @@ struct SiteIconMissCache {
     mutating func remove(isPrivate: Bool) {
         entries.removeAll { $0.key.hasPrefix("private:") == isPrivate }
     }
+    mutating func remove(site: BrowserSite) {
+        entries.removeAll { SiteIconStore.regularSite(for: $0.key) == site }
+    }
 }
 
 @MainActor @Observable public final class SiteIconStore {
@@ -135,13 +159,19 @@ struct SiteIconMissCache {
     @ObservationIgnored private var misses = SiteIconMissCache()
     @ObservationIgnored private var privateGeneration = 0
     @ObservationIgnored private let disk: SiteIconDiskCache
+    @ObservationIgnored private var forgettingSites = Set<BrowserSite>()
     /// Returns only an already instantiated, loaded page. Looking up an icon
     /// must never restore a sleeping tab or navigate a bookmark/history entry.
     @ObservationIgnored public var document: ((URL, Bool) -> WKWebView?)?
     public init(directory: URL? = nil) { disk = SiteIconDiskCache(directory: directory) }
     public nonisolated static func key(_ url: URL, isPrivate: Bool) -> String? {
         guard AddressResolver.isWebURL(url), let host = url.host?.lowercased() else { return nil }
-        return (isPrivate ? "private:" : "regular:") + (url.scheme ?? "https") + "://" + host + (url.port.map { ":\($0)" } ?? "")
+        let authority = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        return (isPrivate ? "private:" : "regular:") + (url.scheme ?? "https") + "://" + authority + (url.port.map { ":\($0)" } ?? "")
+    }
+    nonisolated static func regularSite(for key: String) -> BrowserSite? {
+        guard key.hasPrefix("regular:"), let url = URL(string: String(key.dropFirst("regular:".count))) else { return nil }
+        return BrowserSite(url: url)
     }
     public func icon(for url: URL?, isPrivate: Bool) -> SiteIcon? {
         _ = revision
@@ -150,6 +180,7 @@ struct SiteIconMissCache {
     }
     public func load(_ url: URL, isPrivate: Bool) async {
         guard let key = Self.key(url, isPrivate: isPrivate) else { return }
+        if !isPrivate, let site = BrowserSite(url: url), forgettingSites.contains(site) { return }
         if icons[key] != nil { touch(key); return }
         if let request = requests[key] { await request.value; return }
         if misses.contains(key) { return }
@@ -189,6 +220,7 @@ struct SiteIconMissCache {
     /// Disk reads do not occupy discovery slots or swallow a racing didFinish.
     public func loadCached(_ url: URL) async {
         guard let key = Self.key(url, isPrivate: false) else { return }
+        if let site = BrowserSite(url: url), forgettingSites.contains(site) { return }
         if icons[key] != nil { touch(key); return }
         let generation = cacheGeneration
         guard let icon = await disk.read(key), !Task.isCancelled,
@@ -226,6 +258,20 @@ struct SiteIconMissCache {
         order.removeAll { !$0.hasPrefix("private:") }
         revision += 1
         await disk.clear()
+    }
+    func forget(_ site: BrowserSite) async throws {
+        guard forgettingSites.insert(site).inserted else { return }
+        defer { forgettingSites.remove(site) }
+        cacheGeneration += 1
+        for key in Array(requests.keys) where Self.regularSite(for: key) == site {
+            requests.removeValue(forKey: key)?.cancel()
+            requestTokens[key] = nil
+        }
+        for key in order where Self.regularSite(for: key) == site { icons[key] = nil }
+        order.removeAll { Self.regularSite(for: $0) == site }
+        misses.remove(site: site)
+        revision += 1
+        try await disk.forget(site)
     }
     private func canDiscover(in view: WKWebView, pageURL: URL, isPrivate: Bool) -> Bool {
         !Task.isCancelled && !view.isLoading && view.url == pageURL && document?(pageURL, isPrivate) === view

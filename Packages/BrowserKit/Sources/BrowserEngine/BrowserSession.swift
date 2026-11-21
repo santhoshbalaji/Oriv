@@ -86,6 +86,11 @@ public final class BrowserSession {
     @ObservationIgnored private var sharedHistory: [HistoryEntry] = []
     @ObservationIgnored private var appliedHistoryRemovals = Set<UUID>()
     @ObservationIgnored private var appliedHistoryClears = Set<ClosedRange<Date>>()
+    @ObservationIgnored private var appliedSiteHistoryDeletions = Set<SiteHistoryDeletion>()
+    @ObservationIgnored private(set) var siteHistoryDeletions: [UUID: SiteHistoryDeletion] = [:]
+    private var forgettingSite: BrowserSite?
+    public private(set) var forgottenSiteRevision = 0
+    @ObservationIgnored public var didResetSiteTab: ((UUID) -> Void)?
     private var suggestionRevision = 0
     private var legacyBookmarksImported = false
     private var importingLegacyBookmarks = false
@@ -118,6 +123,7 @@ public final class BrowserSession {
                 let fileURL = (store as? SessionFileStore)?.fileURL.deletingLastPathComponent().appendingPathComponent("history.sqlite")
                 let historyStore = try VisitHistoryStore(fileURL: fileURL)
                 self.historyStore = historyStore
+                siteHistoryDeletions = try historyStore.siteHistoryDeletions()
                 if let snapshot = result?.snapshot {
                     lastSavedSnapshot = snapshot; lastQueuedSnapshot = snapshot
                     legacyBookmarksImported = snapshot.legacyBookmarksImported == true
@@ -531,6 +537,46 @@ public final class BrowserSession {
             saveNow(discardPrevious: true)
         } catch { persistenceNotice = error.localizedDescription }
     }
+
+    public func forgettableSite(for tab: BrowserTab?) -> BrowserSite? {
+        guard let tab, !tab.isPrivate, tabs.contains(where: { $0 === tab }), let url = tab.url else { return nil }
+        return forgettableSite(forHistoryURL: url)
+    }
+
+    public func forgettableSite(forHistoryURL url: URL) -> BrowserSite? {
+        guard !isExternalPrivate, canPersist, historyStore != nil else { return nil }
+        return BrowserSite(url: url)
+    }
+
+    public func forgetSite(_ site: BrowserSite) async throws {
+        guard !isExternalPrivate, !isShutDown, canPersist, let historyStore else { throw ContinuityError.invalidData }
+        guard forgettingSite == nil, !websiteData.isWorking else {
+            throw CocoaError(.fileLocking, userInfo: [NSLocalizedDescriptionKey: "Website data is busy. Try again when the other operation finishes."])
+        }
+        forgettingSite = site
+        defer { forgettingSite = nil }
+
+        siteHistoryDeletions = try historyStore.forget(site)
+        refreshSharedHistory()
+        historyRevision += 1
+        forgottenSiteRevision += 1
+        recentlyClosed.removeAll { $0.url.map(site.contains) == true }
+        onContinuitySnapshotChange?()
+        let affected = tabs.filter { !$0.isPrivate && $0.url.map(site.contains) == true }
+        let resetTabs = affected.map { tab in
+            let wasLive = tab.beginSiteDataReset()
+            didResetSiteTab?(tab.id)
+            return (tab, wasLive)
+        }
+        defer {
+            for (tab, wasLive) in resetTabs where tabs.contains(where: { $0 === tab }) {
+                tab.finishSiteDataReset(reload: wasLive || tab.id == selectedTabID)
+            }
+        }
+        try await websiteData.remove(site: site)
+        try await siteIcons.forget(site)
+        await suggestionIndex.refreshHistory(from: historyStore)
+    }
     public func dismissNotice() { if canPersist { persistenceNotice = nil } }
 
     public func snapshot() -> BrowserSnapshot {
@@ -629,23 +675,27 @@ public final class BrowserSession {
     /// Never replaces local tabs, website state or edited forms when receiving cloud changes.
     public func applyContinuity(bookmarks: [Bookmark], history: [HistoryEntry],
                                 removedIDs: Set<UUID> = [],
-                                clearRanges: [ClosedRange<Date>] = []) throws {
+                                clearRanges: [ClosedRange<Date>] = [],
+                                siteDeletions: Set<SiteHistoryDeletion> = []) throws {
         guard canPersist, let historyStore else { throw ContinuityError.invalidData }
         // Data bookmarks are local documents and are outside the continuity URL policy.
         let bookmarks = bookmarks + self.bookmarks.filter { AddressResolver.isDataURL($0.url) }
         let history = history.filter { historyAllows($0.url) }
         let removedIDs = removedIDs.subtracting(appliedHistoryRemovals)
         let clearRanges = Set(clearRanges).subtracting(appliedHistoryClears)
-        guard self.bookmarks != bookmarks || sharedHistory != history || !removedIDs.isEmpty || !clearRanges.isEmpty else { return }
+        let siteDeletions = siteDeletions.subtracting(appliedSiteHistoryDeletions)
+        guard self.bookmarks != bookmarks || sharedHistory != history || !removedIDs.isEmpty || !clearRanges.isEmpty || !siteDeletions.isEmpty else { return }
         let oldBookmarks = self.bookmarks
         self.bookmarks = bookmarks
         let current = snapshot()
         do {
-            try historyStore.applyShared(history, removedIDs: removedIDs, clearRanges: Array(clearRanges)) {
+            try historyStore.applyShared(history, removedIDs: removedIDs, clearRanges: Array(clearRanges), siteDeletions: siteDeletions) {
                 try writer?.saveAndWait(current, discardPrevious: true)
             }
             appliedHistoryRemovals.formUnion(removedIDs)
             appliedHistoryClears.formUnion(clearRanges)
+            appliedSiteHistoryDeletions.formUnion(siteDeletions)
+            if !siteDeletions.isEmpty { forgottenSiteRevision += 1 }
             if !clearRanges.isEmpty {
                 tabs.forEach { $0.cancelPendingHistory() }
                 Task { await siteIcons.clearRegular() }
@@ -694,6 +744,7 @@ public final class BrowserSession {
         if recordVisits {
             tab.recordHistoryVisit = { [weak self] entry, shared in
                 guard let self, !self.isShutDown, self.historyAllows(entry.url),
+                      self.forgettingSite?.contains(entry.url) != true,
                       let historyStore = self.historyStore else { return }
                 do {
                     try historyStore.record(entry, shared: shared)

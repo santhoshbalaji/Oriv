@@ -299,6 +299,7 @@ import Observation
     private func capture(_ profile: BrowserProfile, readPreferences: Bool = true) throws {
         guard let source = sources[profile.id] else { return }
         guard source.session.canPersist else { throw ContinuityError.invalidData }
+        try state.captureSiteHistoryDeletions(profile: profile.id, deletions: source.session.siteHistoryDeletions)
         let snapshot = source.session.continuitySnapshot()
         let preferences = readPreferences ? source.preferences() : (capturedPreferences[profile.id] ?? source.preferences())
         // Selection and receipt changes are local-only and do not dirty continuity records.
@@ -453,7 +454,8 @@ import Observation
             guard source.session.canPersist else { throw ContinuityError.invalidData }
             let changes = state.historyChanges(for: profile.id)
             try source.session.applyContinuity(bookmarks: state.bookmarks(for: profile.id), history: state.history(for: profile.id),
-                                               removedIDs: changes.removed, clearRanges: changes.cleared)
+                                               removedIDs: changes.removed, clearRanges: changes.cleared,
+                                               siteDeletions: state.siteHistoryDeletions(for: profile.id))
             source.applyPreferences(state.preferences(for: profile.id))
             state.observedBookmarks[profile.id] = source.session.bookmarks
         }

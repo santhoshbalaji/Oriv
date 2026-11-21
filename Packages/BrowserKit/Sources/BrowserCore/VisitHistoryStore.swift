@@ -47,6 +47,12 @@ public final class VisitHistoryStore: @unchecked Sendable {
             COMMIT;
             """)
         }
+        // Additive table. Older releases can still open the existing visits schema.
+        try run("""
+            CREATE TABLE IF NOT EXISTS site_history_deletions (
+                domain TEXT PRIMARY KEY NOT NULL, id TEXT NOT NULL, through REAL NOT NULL
+            )
+            """)
         if let fileURL {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         }
@@ -98,6 +104,43 @@ public final class VisitHistoryStore: @unchecked Sendable {
 
     public func remove(_ id: UUID) throws {
         try write { try delete(where: "id = ?", [.text(id.uuidString)]) }
+    }
+
+    public func forget(_ site: BrowserSite) throws -> [UUID: SiteHistoryDeletion] {
+        var deletions: [UUID: SiteHistoryDeletion] = [:]
+        try write {
+            let cutoff = Date.now
+            try execute("""
+                INSERT INTO site_history_deletions VALUES (?, ?, ?)
+                ON CONFLICT(domain) DO UPDATE SET through = max(through, excluded.through)
+                """, [.text(site.domain), .text(UUID().uuidString), .real(cutoff.timeIntervalSinceReferenceDate)])
+            deletions = try readSiteHistoryDeletions()
+            return try deleteSiteVisits([site: Date(timeIntervalSinceReferenceDate: .greatestFiniteMagnitude)])
+        }
+        return deletions
+    }
+
+    public func siteHistoryDeletions() throws -> [UUID: SiteHistoryDeletion] {
+        try lock.withLock { try readSiteHistoryDeletions() }
+    }
+
+    private func readSiteHistoryDeletions() throws -> [UUID: SiteHistoryDeletion] {
+        let rows = try query("SELECT domain, id, through FROM site_history_deletions") { row in
+            guard let site = BrowserSite(host: string(row, 0)), let id = UUID(uuidString: string(row, 1)) else { throw Failure() }
+            return (id, SiteHistoryDeletion(site: site, through: Date(timeIntervalSinceReferenceDate: sqlite3_column_double(row, 2))))
+        }
+        return Dictionary(uniqueKeysWithValues: rows)
+    }
+
+    private func deleteSiteVisits(_ cutoffs: [BrowserSite: Date]) throws -> [URL] {
+        guard !cutoffs.isEmpty else { return [] }
+        let urls = try query("SELECT DISTINCT url FROM visits", row: readURL)
+        var changed: [URL] = []
+        for url in urls {
+            guard let site = BrowserSite(url: url), let through = cutoffs[site] else { continue }
+            changed += try delete(where: "url = ? AND date <= ?", [.text(url.absoluteString), .real(through.timeIntervalSinceReferenceDate)])
+        }
+        return changed
     }
 
     public func clear(since: Date) throws {
@@ -163,9 +206,11 @@ public final class VisitHistoryStore: @unchecked Sendable {
 
     /// The continuity journal retries this operation if either store fails.
     public func applyShared(_ entries: [HistoryEntry], removedIDs: Set<UUID>,
-                            clearRanges: [ClosedRange<Date>], saveSession: () throws -> Void) throws {
+                            clearRanges: [ClosedRange<Date>], siteDeletions: Set<SiteHistoryDeletion> = [],
+                            saveSession: () throws -> Void) throws {
         try write(prune: true) {
             var changed = Set<URL>()
+            let localCutoffs = SiteHistoryDeletion.cutoffs(try readSiteHistoryDeletions().values)
             let incoming = Set(entries.map(\.id))
             let previous = try query("SELECT \(columns) FROM visits WHERE shared = 1", row: readEntry)
             for entry in previous where !incoming.contains(entry.id) {
@@ -176,6 +221,8 @@ public final class VisitHistoryStore: @unchecked Sendable {
             for id in removedIDs { changed.formUnion(try delete(where: "id = ?", [.text(id.uuidString)])) }
             let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
             for entry in entries where entry != previousByID[entry.id] && AddressResolver.isWebURL(entry.url) {
+                if !localCutoffs.isEmpty, let site = BrowserSite(url: entry.url),
+                   let through = localCutoffs[site], entry.visitedAt <= through { continue }
                 try insert(entry, local: false, shared: true)
                 changed.insert(entry.url)
             }
@@ -184,6 +231,7 @@ public final class VisitHistoryStore: @unchecked Sendable {
                     .real(range.lowerBound.timeIntervalSinceReferenceDate), .real(range.upperBound.timeIntervalSinceReferenceDate)
                 ]))
             }
+            changed.formUnion(try deleteSiteVisits(SiteHistoryDeletion.cutoffs(siteDeletions)))
             try saveSession()
             return Array(changed)
         }

@@ -13,3 +13,9 @@ Oriv modifications: original supported-subset conversion to WebKit network and p
 The manifest records immutable source URLs, SHA-256 digests, conversion counts and component sizes. Obtain the unencumbered list data, original sources and converter from the public Oriv source distribution; no additional restrictions are imposed on these list resources. Updates are bundled with app releases. No list fetching occurs inside the app.
 
 DuckDuckGo Autoconsent is separately licensed under MPL-2.0. See Autoconsent/NOTICE.txt and Autoconsent/MPL-2.0.txt.
+
+AdGuard CNAME disguised trackers list
+Copyright 2021 Adguard Software Ltd
+Source: https://github.com/AdguardTeam/cname-trackers/tree/dd5bd59eda209a97efeee1ee7898e119c582a13b
+Licence: MIT. See AdGuard-MIT.txt.
+Oriv converts the disguised tracker host list to WebKit subresource blocking rules, deduplicates listed descendants already covered by a listed parent, and splits and compresses the result. The list updates with Oriv releases.
