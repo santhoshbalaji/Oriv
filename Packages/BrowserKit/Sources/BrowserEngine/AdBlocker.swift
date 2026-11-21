@@ -13,7 +13,7 @@ public enum AdBlockingMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .off: "Allow ads and trackers."
         case .balanced: "Block known advertising networks and common trackers."
-        case .strict: "Also block analytics and hide common ad slots. Some sites may need an exception."
+        case .strict: "Also block analytics and disguised (CNAME-cloaked) trackers and hide common ad slots. Uses extra storage. Some sites may need an exception."
         }
     }
 }
@@ -27,8 +27,10 @@ public final class AdBlocker {
     public private(set) var privateExceptions: Set<String> = []
     public private(set) var isPreparing = false
     public private(set) var preparationError: String?
-    public private(set) var isPreparingCNAME = false
-    public private(set) var cnamePreparationError: String?
+    public var isPreparingCNAME: Bool { mode == .strict && preparingCNAME }
+    public var cnamePreparationError: String? { mode == .strict ? cnameError : nil }
+    private var preparingCNAME = false
+    private var cnameError: String?
     public static let rulesVersion = (try? BundledPrivacyRules.manifest().rulesVersion) ?? "Unavailable"
     public var cookieBannersEnabled = false
     @ObservationIgnored public var privacy: BrowserPrivacy?
@@ -58,8 +60,10 @@ public final class AdBlocker {
     }
     private static let ruleStore = WKContentRuleListStore.default()
     private static let logger = Logger(subsystem: "Oriv", category: "ContentBlocking")
+    private static let bundledNamespace = "oriv.privacy"
     private static var sharedCompilation: Task<CompiledRules, Error>?
     private static var sharedCNAMECompilation: Task<CompiledRules, Error>?
+    private static var cnameCleanup: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var compilation: Task<CompiledRules, Error>?
     @ObservationIgnored private var didStartCNAME = false
     @ObservationIgnored private var isWarming = false
@@ -93,7 +97,9 @@ public final class AdBlocker {
     private static func compile(namespace: String, fixture: [String: String]? = nil, cnameOnly: Bool = false,
                                 cnameFixture: (@Sendable () async throws -> String)? = nil) -> Task<CompiledRules, Error> {
         let priority: TaskPriority = cnameOnly ? .background : .userInitiated
+        let cleanup = cnameOnly ? cnameCleanup[namespace] : nil
         return Task(priority: priority) { @MainActor in
+            await cleanup?.value
             guard let store = ruleStore else { throw CocoaError(.fileReadNoSuchFile) }
             let rules = try await Task.detached(priority: priority) {
                 let rules: [RuleSource]
@@ -118,7 +124,7 @@ public final class AdBlocker {
             var result: [String: WKContentRuleList] = [:]
             var measurements: [RuleCompilationMeasurement] = []
             for rule in rules.sorted(by: { $0.key < $1.key }) {
-                let identifier = "\(namespace).\(rule.digest)"
+                let identifier = cnameOnly ? "\(namespace).cname.\(rule.digest)" : "\(namespace).\(rule.digest)"
                 #if DEBUG
                 let started = ProcessInfo.processInfo.systemUptime
                 let before = RuleCompilationMeasurement.residentBytes()
@@ -141,6 +147,64 @@ public final class AdBlocker {
             }
             return CompiledRules(lists: result, measurements: measurements)
         }
+    }
+
+    /// Run once against the saved profiles at app startup. A Strict profile can
+    /// need the cache even if its controller has not been created yet.
+    static func prepareCNAMEAtLaunch(hasStrictProfile: @escaping @MainActor () -> Bool) {
+        let needsCNAME = hasStrictProfile()
+        if sharedCNAMECompilation == nil {
+            removeCNAMECache(namespace: bundledNamespace, legacyOnly: needsCNAME)
+        }
+        guard needsCNAME else { return }
+        #if os(macOS) && ORIV_BENCH
+        guard !BenchmarkOptions.disabled.contains("content-blocker") else { return }
+        #endif
+        let core = prepareSharedCore()
+        Task(priority: .background) {
+            do {
+                _ = try await core.value
+                if hasStrictProfile() { _ = prepareSharedCNAME() }
+            } catch {
+                if sharedCompilation == core { sharedCompilation = nil }
+            }
+        }
+    }
+
+    /// Enumerate identifiers without looking up compiled lists. Include the
+    /// current bundle's legacy digest-only identifiers for Phase 6 upgrades.
+    @discardableResult
+    static func removeCNAMECache(namespace: String, legacyOnly: Bool = false) -> Task<Void, Never> {
+        if let pending = cnameCleanup[namespace] { return pending }
+        let pending = Task(priority: .background) {
+            defer { cnameCleanup[namespace] = nil }
+            guard let store = ruleStore else { return }
+            let prefix = "\(namespace).cname."
+            let legacy = (try? BundledPrivacyRules.manifest().outputs[BundledPrivacyRules.cnameComponent]) ?? []
+            let legacyIdentifiers = Set(legacy.map { "\(namespace).\($0.sha256)" })
+            let identifiers = await store.availableIdentifiers() ?? []
+            for identifier in identifiers
+                where (!legacyOnly && identifier.hasPrefix(prefix)) || legacyIdentifiers.contains(identifier) {
+                do { try await store.removeContentRuleList(forIdentifier: identifier) }
+                catch { logger.error("Could not remove cached CNAME tracker rules (code \((error as NSError).code, privacy: .public))") }
+            }
+        }
+        cnameCleanup[namespace] = pending
+        return pending
+    }
+
+    private static func prepareSharedCore() -> Task<CompiledRules, Error> {
+        if let sharedCompilation { return sharedCompilation }
+        let pending = compile(namespace: bundledNamespace)
+        sharedCompilation = pending
+        return pending
+    }
+
+    private static func prepareSharedCNAME() -> Task<CompiledRules, Error> {
+        if let sharedCNAMECompilation { return sharedCNAMECompilation }
+        let pending = compile(namespace: bundledNamespace, cnameOnly: true)
+        sharedCNAMECompilation = pending
+        return pending
     }
 
     #if os(macOS) && ORIV_BENCH
@@ -186,9 +250,12 @@ public final class AdBlocker {
 
     public func setMode(_ value: AdBlockingMode) {
         guard mode != value else { return }
+        let wasStrict = mode == .strict
         mode = value
         if value == .off { preparationError = nil }
         defaults?.set(value.rawValue, forKey: "adBlockingMode")
+        if wasStrict || value == .strict { refreshInstalledRules() }
+        if value == .strict { warmUp() }
         onChange?()
     }
 
@@ -241,15 +308,12 @@ public final class AdBlocker {
             startCNAMEPreparation()
             return
         }
-        let sharesBundledRules = fixtureSource == nil && cacheNamespace == "oriv.privacy"
+        let sharesBundledRules = fixtureSource == nil && cacheNamespace == Self.bundledNamespace
         if compilation == nil {
             isPreparing = true
             preparationError = nil
             if sharesBundledRules {
-                if Self.sharedCompilation == nil {
-                    Self.sharedCompilation = Self.compile(namespace: cacheNamespace, fixture: nil)
-                }
-                compilation = Self.sharedCompilation
+                compilation = Self.prepareSharedCore()
             } else { compilation = Self.compile(namespace: cacheNamespace, fixture: fixtureSource) }
         }
         let pending = compilation!
@@ -272,15 +336,12 @@ public final class AdBlocker {
     }
 
     private func startCNAMEPreparation() {
-        guard mode != .off, !lists.isEmpty, !didStartCNAME, fixtureSource == nil || cnameFixture != nil else { return }
+        guard mode == .strict, !lists.isEmpty, !didStartCNAME, fixtureSource == nil || cnameFixture != nil else { return }
         didStartCNAME = true
-        isPreparingCNAME = true
+        preparingCNAME = true
         let pending: Task<CompiledRules, Error>
-        if cacheNamespace == "oriv.privacy", cnameFixture == nil {
-            if Self.sharedCNAMECompilation == nil {
-                Self.sharedCNAMECompilation = Self.compile(namespace: cacheNamespace, cnameOnly: true)
-            }
-            pending = Self.sharedCNAMECompilation!
+        if cacheNamespace == Self.bundledNamespace, cnameFixture == nil {
+            pending = Self.prepareSharedCNAME()
         } else {
             pending = Self.compile(namespace: cacheNamespace, cnameOnly: true, cnameFixture: cnameFixture)
         }
@@ -291,19 +352,22 @@ public final class AdBlocker {
                 guard let self else { return }
                 self.lists.merge(compiled.lists) { _, new in new }
                 self.compilationMeasurements += compiled.measurements
-                for case let controller as WKUserContentController in self.installations.keyEnumerator().allObjects {
-                    if let installation = self.installations.object(forKey: controller) {
-                        let hideCookies = self.usesCookieHideRules &&
-                            (self.privacy?.isEnabled(.cookieBanners, forHost: installation.host, isPrivate: installation.isPrivate) ?? true)
-                        self.updateRules(on: controller, installation: installation, hideCookies: hideCookies)
-                    }
-                }
-                self.isPreparingCNAME = false
+                if self.mode == .strict { self.refreshInstalledRules() }
+                self.preparingCNAME = false
             } catch {
                 Self.logger.error("CNAME tracker rules failed to prepare (code \((error as NSError).code, privacy: .public))")
-                self?.cnamePreparationError = "CNAME tracker protection is unavailable. Other privacy filters are still active."
-                self?.isPreparingCNAME = false
+                self?.cnameError = "CNAME tracker protection is unavailable. Other privacy filters are still active."
+                self?.preparingCNAME = false
             }
+        }
+    }
+
+    private func refreshInstalledRules() {
+        for case let controller as WKUserContentController in installations.keyEnumerator().allObjects {
+            guard let installation = installations.object(forKey: controller) else { continue }
+            let hideCookies = usesCookieHideRules &&
+                (privacy?.isEnabled(.cookieBanners, forHost: installation.host, isPrivate: installation.isPrivate) ?? true)
+            updateRules(on: controller, installation: installation, hideCookies: hideCookies)
         }
     }
 
@@ -385,7 +449,11 @@ public final class AdBlocker {
             if key.hasPrefix("cookies") {
                 if hideCookies { desired[list.identifier] = list }
             } else if blockAds {
-                if key == mode.rawValue || key.hasPrefix("network") || key.hasPrefix(mode == .strict ? "cosmetics-strict" : "cosmetics-light") || key == "original-strict" && mode == .strict { desired[list.identifier] = list }
+                if key.hasPrefix(BundledPrivacyRules.cnameComponent) {
+                    if mode == .strict { desired[list.identifier] = list }
+                } else if key == mode.rawValue || key.hasPrefix("network") || key.hasPrefix(mode == .strict ? "cosmetics-strict" : "cosmetics-light") || key == "original-strict" && mode == .strict {
+                    desired[list.identifier] = list
+                }
             }
         }
         let installed = installation.lists

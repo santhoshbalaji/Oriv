@@ -5,8 +5,8 @@ Oriv uses public WebKit content rules in both normal and private tabs. The shiel
 | Mode | Behavior |
 | --- | --- |
 | Off | Removes Oriv's content rules. |
-| Balanced (default) | Uses the supported network subset of EasyList and EasyPrivacy and the AdGuard CNAME disguised tracker list. Adds light generic class/ID cosmetics. |
-| Strict | Adds broader EasyList cosmetics and the original first-party analytics supplement. |
+| Balanced (default) | Uses the supported network subset of EasyList and EasyPrivacy. Adds light generic class/ID cosmetics. |
+| Strict | Adds broader EasyList cosmetics, the original first-party analytics supplement, and the AdGuard list of disguised (CNAME-cloaked) trackers. The compiled CNAME lists use about 139 MiB of extra storage per device. |
 
 The mode applies per profile, including that profile's private tabs. “Block on this site” applies to the exact hostname, across schemes and ports; it does not implicitly exempt sibling domains or subdomains. Regular exceptions are saved locally. Private exceptions are separate, stay in memory and are erased when the last private tab closes. No private hostname is written into a compiled rule list or saved preferences.
 
@@ -14,7 +14,9 @@ Changing a setting updates existing WebKit controllers and subsequent loads. Use
 
 ## Implementation
 
-`AdBlocker` is in the shared BrowserEngine package and compiles for macOS and iOS. `BrowserTab` waits for rules before allowing a main-frame navigation, so the first load is protected. Compilation failure stops that load and shows a recoverable error; it does not silently browse unfiltered. The user can explicitly choose Off. Compiled rules are cached under a digest of their contents.
+`AdBlocker` is in the shared BrowserEngine package and compiles for macOS and iOS. `BrowserTab` waits for core rules before allowing a main-frame navigation. A core compilation failure stops that load and shows a recoverable error. The user can explicitly choose Off. Compiled rules are cached under a digest of their contents.
+
+When a profile or a private window uses Strict, Oriv prepares the CNAME rules in the background after the core rules. They attach to open Strict tabs when ready and apply to subsequent requests. Changing to Balanced or Off detaches them immediately. Oriv removes the compiled CNAME cache on the next launch when no saved profile uses Strict. Balanced and Off never look up or compile these lists. A CNAME compilation failure appears only in Strict, with core protection still active.
 
 Each tab owns its user-content controller, including WebKit-created popups. The original popup request, website data store, opener semantics and supplied user scripts are preserved. Filters update on redirects before the destination's subresources load. Private tabs retain the ephemeral website data store and remain excluded from history/session persistence.
 

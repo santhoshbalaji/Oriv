@@ -31,8 +31,7 @@ import WebKit
                 bundleID: String, websiteStore: WKWebsiteDataStore? = nil,
                 privateTabIsolation: PrivateTabIsolation? = nil) {
         if !testing, let profile {
-            defaults = profile.defaultsName(bundleID: bundleID).flatMap { UserDefaults(suiteName: $0) }
-                ?? (profile.isPersonal ? .standard : nil)
+            defaults = Self.profileDefaults(for: profile, bundleID: bundleID)
         } else {
             defaults = nil
         }
@@ -56,6 +55,18 @@ import WebKit
                 privateTabIsolation ?? PrivateTabIsolation(defaults: testing ? nil : .standard)), externalPrivate: profile == nil,
             faviconDirectory: profileDirectory?.appendingPathComponent("Favicons", isDirectory: true)
         )
+    }
+
+    private static func profileDefaults(for profile: BrowserProfile, bundleID: String) -> UserDefaults? {
+        profile.defaultsName(bundleID: bundleID).flatMap { UserDefaults(suiteName: $0) }
+            ?? (profile.isPersonal ? .standard : nil)
+    }
+
+    public static func prepareCNAMEAtLaunch(profiles: [BrowserProfile], bundleID: String) {
+        let defaults = profiles.compactMap { profileDefaults(for: $0, bundleID: bundleID) }
+        AdBlocker.prepareCNAMEAtLaunch {
+            defaults.contains { $0.string(forKey: "adBlockingMode") == AdBlockingMode.strict.rawValue }
+        }
     }
 
     /// Remove only the named profile's data. The legacy Personal paths also

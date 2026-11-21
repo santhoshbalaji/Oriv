@@ -176,6 +176,10 @@ struct AppearanceSettings: View {
                     ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.segmented).tint(theme.accent)
                 Text(adBlocker.mode.detail).font(.callout).foregroundStyle(theme.secondaryText)
+                if adBlocker.mode == .strict {
+                    if adBlocker.isPreparingCNAME { ProgressView("Preparing CNAME tracker protection…") }
+                    if let error = adBlocker.cnamePreparationError { Text(error).foregroundStyle(.red) }
+                }
                 if !adBlocker.regularExceptions.isEmpty {
                     DisclosureGroup("Allowed sites (\(adBlocker.regularExceptions.count))") {
                         ForEach(adBlocker.regularExceptions.sorted(), id: \.self) { host in

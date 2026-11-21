@@ -41,6 +41,12 @@ import BrowserEngine
         let selected = (testing ? nil : (UserDefaults.standard.string(forKey: "BrowserProfileID") ?? UserDefaults.standard.string(forKey: "WorkspaceProfileID"))).flatMap(UUID.init(uuidString:))
         storedProfiles = ChromeVisualFixture.mode != nil ? [.personal, BrowserProfile(name: "Work")] : known
         let replica = continuity.state
+        if !testing {
+            SessionFactory.prepareCNAMEAtLaunch(
+                profiles: known.filter { !replica.isProfileDeleted($0.id) },
+                bundleID: Bundle.main.bundleIdentifier ?? "OrivMobile"
+            )
+        }
         let initialProfile = known.first { $0.id == selected && $0.archivedAt == nil && !replica.isProfileDeleted($0.id) } ?? .personal
         lastRegularProfileID = initialProfile.id
         current = MobileController(profile: initialProfile, privateTabIsolation: privateTabIsolation, forceEphemeral: forceEphemeral)

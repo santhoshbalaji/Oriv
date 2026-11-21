@@ -22,7 +22,7 @@ struct AdBlockingPopover: View {
             if let error = blocker.preparationError {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
-            if blocker.mode != .off {
+            if blocker.mode == .strict {
                 if blocker.isPreparingCNAME { ProgressView("Preparing CNAME tracker protection…").controlSize(.small) }
                 if let error = blocker.cnamePreparationError { Text(error).font(.caption).foregroundStyle(.red) }
             }

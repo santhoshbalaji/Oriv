@@ -68,3 +68,15 @@ Executed the 0.21.3 decoder and replica merge with a synthetic mixed batch conta
 - The full Mac gate remains red. The first run executed 295 native tests, with 283 passes, 11 skips, and one failure in `testNativeArrowNavigationInShortWindowsAtOnePointScale`. The isolated retry passed that test and all privacy cases. During the sidebar reorder and search budget test, the background audit recorded 13 frontmost samples, one activation, and zero display overlaps despite `ORIV_BACKGROUND_UI=1`. The test runner restarted after an XCTest assertion, and the retry was interrupted. The background-mode privacy and timing runs reported zero focus, activation, and display violations.
 - The generic iPhone build and 169 shared tests passed in the Mac gate. Mac code signature and entitlements were verified separately after the interruption. All eight converter tests passed.
 - The outgoing range scan uses `python3 scripts/check-public-safety.py --range origin/main..HEAD`.
+
+## Strict-only CNAME protection
+
+The four CNAME chunks are prepared only for Strict. At launch Oriv checks all saved profile modes, including unopened profiles. Switching a loaded profile or private window to Strict also starts preparation after the core rules. Completed lists attach to live Strict tabs and respect the current regular or private site exceptions. The CNAME progress and failure messages appear only in Strict.
+
+Switching away from Strict detaches the lists immediately. At the next launch, when no saved profile uses Strict, Oriv removes all CNAME identifiers from the shared WebKit store. CNAME entries have a distinct prefix so cleanup also covers earlier versions of the list. Startup removes the four legacy Phase 6 digest-only identifiers. If Strict is enabled during cleanup, its background preparation waits for the removals to finish. Navigation continues through the core rule gate.
+
+The loopback WebKit test uses a host covered by the bundled CNAME rules alone. It verifies zero CNAME store identifiers after Balanced browsing, four after switching the open tab to Strict, immediate script loading after switching back, and zero CNAME identifiers after cleanup with the core cache intact. Other native cases cover late attachment to open private tabs, regular and private exception scoping, Strict-only error status, and re-enabling Strict during cache cleanup.
+
+The Mac gate passed with 284 native tests and 11 skips, along with the generic iPhone build, 169 shared tests, and signing and entitlement checks. The initial build caught the optional WebKit identifier array. The first native run exposed the original fixture's overlap with EasyPrivacy. Both previously flaky sidebar tests passed on the first native run and the rerun. The background audit recorded zero focus, activation, or display violations.
+
+The iPhone gate passed with 106 tests and 3 skips on a temporary iPhone 17 simulator running iOS 26.5. All CNAME cases passed. The simulator was deleted and its absence verified.

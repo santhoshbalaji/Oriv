@@ -427,10 +427,12 @@ import UIKit
     func testBundledRulesCompileColdAndWarm() async throws {
         let namespace = "oriv.privacy-benchmark." + UUID().uuidString
         let cold = AdBlocker(cacheNamespace: namespace)
+        cold.setMode(.strict)
         try await cold.prepare()
         try await wait { !cold.isPreparingCNAME }
         XCTAssertNil(cold.cnamePreparationError)
         let warm = AdBlocker(cacheNamespace: namespace)
+        warm.setMode(.strict)
         try await warm.prepare()
         try await wait { !warm.isPreparingCNAME }
         XCTAssertNil(warm.cnamePreparationError)
@@ -506,16 +508,25 @@ import UIKit
         let settings = BrowserSettings(defaults: nil)
         settings.privacy.setEnabled(false, .httpsUpgrade)
         settings.privacy.setCookieBannerMode(.off)
-        let blocker = AdBlocker()
+        let namespace = "oriv.tests.cname-bundled." + UUID().uuidString
+        let blocker = AdBlocker(cacheNamespace: namespace)
+        let ruleStore = try XCTUnwrap(WKContentRuleListStore.default())
+        let oldIdentifiers = Set(try BundledPrivacyRules.resources(cnameOnly: true).map { "\(namespace).\($0.sha256)" })
+        let cnamePrefix = namespace + ".cname."
+        func cacheIdentifiers() async throws -> [String] {
+            let identifiers = await ruleStore.availableIdentifiers()
+            return try XCTUnwrap(identifiers).filter { $0.hasPrefix(namespace + ".") }
+        }
+        func cnameIdentifiers() async throws -> [String] {
+            try await cacheIdentifiers().filter { $0.hasPrefix(cnamePrefix) || oldIdentifiers.contains($0) }
+        }
         let session = BrowserSession(dataStore: data, adBlocker: blocker, settings: settings)
         defer { session.shutdown() }
         session.siteIcons.document = nil // The synthetic origin is reachable only through the WebKit proxy.
         let tab = try XCTUnwrap(session.selectedTab)
         try hostFixture(tab)
-        try await blocker.prepare()
-        try await wait { !blocker.isPreparingCNAME }
-        XCTAssertNil(blocker.cnamePreparationError)
-        let url = URL(string: "http://analytics.sixt.com/cname-page")!
+        // This host is in the bundled CNAME list and absent from the core filters.
+        let url = URL(string: "http://analytics.airtm.com/cname-page")!
         func loadProbe() async throws -> String? {
             tab.navigate(to: URL(string: url.absoluteString + "?run=" + UUID().uuidString)!)
             try await wait { tab.errorMessage != nil || (tab.title == "CNAME fixture" && !tab.isLoading) }
@@ -524,24 +535,58 @@ import UIKit
             return try await tab.webView.evaluateJavaScript("window.probe ?? null") as? String
         }
         let balanced = try await loadProbe()
-        XCTAssertEqual(balanced, "blocked")
+        XCTAssertEqual(balanced, "loaded")
+        XCTAssertFalse(blocker.isPreparingCNAME)
+        XCTAssertFalse(blocker.compilationMeasurements.contains { $0.component.hasPrefix("network-cname") })
+        let balancedIdentifiers = try await cnameIdentifiers()
+        XCTAssertEqual(balancedIdentifiers, [])
+        let coreIdentifiers = try await cacheIdentifiers()
+        XCTAssertFalse(coreIdentifiers.isEmpty)
+
         blocker.setMode(.strict)
+        try await wait { !blocker.isPreparingCNAME }
+        XCTAssertNil(blocker.cnamePreparationError)
+        let strictIdentifiers = try await cnameIdentifiers()
+        XCTAssertEqual(strictIdentifiers.count, 4)
+        let liveStrict = try await loadCNAMEProbe(in: tab)
+        XCTAssertEqual(liveStrict, "blocked")
         let strict = try await loadProbe()
         XCTAssertEqual(strict, "blocked")
         blocker.setException(true, for: url, isPrivate: false)
         let excepted = try await loadProbe()
         XCTAssertEqual(excepted, "loaded")
         blocker.setException(false, for: url, isPrivate: false)
+        let liveUnexcepted = try await loadCNAMEProbe(in: tab)
+        XCTAssertEqual(liveUnexcepted, "blocked")
+        blocker.setMode(.balanced)
+        let liveBalanced = try await loadCNAMEProbe(in: tab)
+        XCTAssertEqual(liveBalanced, "loaded")
         blocker.setMode(.off)
         let off = try await loadProbe()
         XCTAssertEqual(off, "loaded")
+        let offIdentifiers = try await cnameIdentifiers()
+        XCTAssertEqual(Set(offIdentifiers), Set(strictIdentifiers))
+
+        // Exercise the next-launch cleanup against the same WebKit store.
+        session.shutdown()
+        await AdBlocker.removeCNAMECache(namespace: namespace).value
+        let remaining = try await cacheIdentifiers()
+        XCTAssertEqual(Set(remaining), Set(coreIdentifiers))
+        for identifier in remaining {
+            try await ruleStore.removeContentRuleList(forIdentifier: identifier)
+        }
     }
 
     func testDeferredCNAMEDoesNotGateNavigationAndAppliesToOpenTabs() async throws {
         let (rules, release) = AsyncStream<String>.makeStream()
         defer { release.finish() }
-        let blocker = AdBlocker(rules: [.balanced: "[{\"trigger\":{\"url-filter\":\"blocked.example\"},\"action\":{\"type\":\"block\"}}]"],
-                                cacheNamespace: "oriv.tests.cname-late", cnameFixture: {
+        let suite = "oriv.tests.cname-late." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(AdBlockingMode.strict.rawValue, forKey: "adBlockingMode")
+        let blocker = AdBlocker(defaults: defaults,
+                                rules: [.strict: "[{\"trigger\":{\"url-filter\":\"blocked.example\"},\"action\":{\"type\":\"block\"}}]"],
+                                cacheNamespace: suite, cnameFixture: {
             for await rule in rules { return rule }
             throw CancellationError()
         })
@@ -576,49 +621,82 @@ import UIKit
         try await wait { !blocker.isPreparingCNAME }
         XCTAssertNil(blocker.cnamePreparationError)
         for (tab, expected) in [(first, "loaded"), (second, "blocked")] {
-            let result = try await tab.webView.callAsyncJavaScript("""
-            return await new Promise(resolve => {
-                const script = document.createElement('script');
-                script.onload = () => resolve('loaded');
-                script.onerror = () => resolve('blocked');
-                script.src = '/cname-probe.js?late=' + Math.random();
-                document.head.append(script);
-            });
-            """, arguments: [:], contentWorld: .page) as? String
+            let result = try await loadCNAMEProbe(in: tab)
             XCTAssertEqual(result, expected)
         }
+    }
+
+    private func loadCNAMEProbe(in tab: BrowserTab) async throws -> String? {
+        try await tab.webView.callAsyncJavaScript("""
+        return await new Promise(resolve => {
+            const script = document.createElement('script');
+            script.onload = () => resolve('loaded');
+            script.onerror = () => resolve('blocked');
+            script.src = '/cname-probe.js?late=' + Math.random();
+            document.head.append(script);
+        });
+        """, arguments: [:], contentWorld: .page) as? String
     }
 
     func testDeferredCNAMEKeepsOffAndDoesNotAddRulesTwice() async throws {
         let (rules, release) = AsyncStream<String>.makeStream()
         defer { release.finish() }
-        let blocker = AdBlocker(rules: [.balanced: "[{\"trigger\":{\"url-filter\":\"core.example\"},\"action\":{\"type\":\"block\"}}]"],
-                                cacheNamespace: "oriv.tests.cname-off", cnameFixture: {
+        let core = "[{\"trigger\":{\"url-filter\":\"core.example\"},\"action\":{\"type\":\"block\"}}]"
+        let cname = "[{\"trigger\":{\"url-filter\":\"tracker.example\"},\"action\":{\"type\":\"block\"}}]"
+        let namespace = "oriv.tests.cname-off." + UUID().uuidString
+        let blocker = AdBlocker(rules: [.balanced: core, .strict: core],
+                                cacheNamespace: namespace, cnameFixture: {
             for await rule in rules { return rule }
             throw CancellationError()
         })
         let controller = PrivacyCountingContentController()
         let url = URL(string: "https://fixture.example")!
+        blocker.setMode(.strict)
         try await blocker.apply(to: controller, url: url, isPrivate: false)
         XCTAssertTrue(blocker.isPreparingCNAME)
         blocker.setMode(.off)
         blocker.refreshPrepared(on: controller)
         controller.resetCounts()
-        release.yield("[{\"trigger\":{\"url-filter\":\"tracker.example\"},\"action\":{\"type\":\"block\"}}]")
+        release.yield(cname)
         release.finish()
-        try await wait { !blocker.isPreparingCNAME }
+        // The completed compilation is measured even though the Off status is hidden.
+        try await wait { blocker.compilationMeasurements.contains { $0.component == "network-cname" } }
         XCTAssertNil(blocker.cnamePreparationError)
         XCTAssertEqual(controller.ruleAdds, 0)
         blocker.setMode(.balanced)
         blocker.refreshPrepared(on: controller)
         blocker.refreshPrepared(on: controller)
+        XCTAssertEqual(controller.ruleAdds, 1)
+        blocker.setMode(.strict)
+        blocker.refreshPrepared(on: controller)
         XCTAssertEqual(controller.ruleAdds, 2)
+
+        blocker.setMode(.balanced)
+        XCTAssertEqual(controller.ruleRemoves, 1)
+
+        // A switch to Strict while next-launch cleanup is pending must leave
+        // the newly prepared lists in the store.
+        let cleanup = AdBlocker.removeCNAMECache(namespace: namespace)
+        let reopened = AdBlocker(rules: [.strict: core], cacheNamespace: namespace, cnameFixture: { cname })
+        reopened.setMode(.strict)
+        try await reopened.prepare()
+        try await wait { !reopened.isPreparingCNAME }
+        await cleanup.value
+        let compiled = try XCTUnwrap(reopened.compilationMeasurements.first { $0.component == "network-cname" })
+        XCTAssertFalse(compiled.cached)
+        let ruleStore = try XCTUnwrap(WKContentRuleListStore.default())
+        let identifiers = await ruleStore.availableIdentifiers()
+        XCTAssertTrue(try XCTUnwrap(identifiers).contains(compiled.identifier))
+        reopened.setMode(.balanced)
+        await AdBlocker.removeCNAMECache(namespace: namespace).value
+        try await ruleStore.removeContentRuleList(forIdentifier: "\(namespace).\(BundledPrivacyRules.digest(Data(core.utf8)))")
     }
 
     func testDeferredCNAMEFailurePreservesCorePreparation() async throws {
-        let blocker = AdBlocker(rules: [.balanced: "[{\"trigger\":{\"url-filter\":\"core.example\"},\"action\":{\"type\":\"block\"}}]"],
+        let blocker = AdBlocker(rules: [.strict: "[{\"trigger\":{\"url-filter\":\"core.example\"},\"action\":{\"type\":\"block\"}}]"],
                                 cacheNamespace: "oriv.tests.cname-failure", cnameFixture: { "invalid" })
         let controller = PrivacyCountingContentController()
+        blocker.setMode(.strict)
         try await blocker.apply(to: controller, url: base, isPrivate: false)
         try await wait { !blocker.isPreparingCNAME }
         XCTAssertNotNil(blocker.cnamePreparationError)
@@ -626,6 +704,10 @@ import UIKit
         XCTAssertTrue(blocker.applyIfPrepared(to: controller, url: base, isPrivate: false))
         XCTAssertEqual(controller.ruleAdds, 1)
         XCTAssertEqual(controller.ruleRemoves, 0)
+        blocker.setMode(.balanced)
+        XCTAssertNil(blocker.cnamePreparationError)
+        blocker.setMode(.off)
+        XCTAssertNil(blocker.cnamePreparationError)
     }
     func testShippedCookieListAndLayerIndependence() async throws {
         let settings = BrowserSettings(defaults: nil), blocker = AdBlocker()

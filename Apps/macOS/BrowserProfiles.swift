@@ -64,6 +64,13 @@ import Observation
         catch { loadError = error.localizedDescription }
         registry = loaded
         if continuity.state.isProfileDeleted(loaded.activeID) { loaded.activeID = BrowserProfile.personalID; registry = loaded }
+        if !isTesting, loadError == nil {
+            let replica = continuity.state
+            SessionFactory.prepareCNAMEAtLaunch(
+                profiles: loaded.profiles.filter { !replica.isProfileDeleted($0.id) },
+                bundleID: Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac"
+            )
+        }
         let selected = loaded.profiles.first { $0.id == loaded.activeID } ?? .personal
         controller = BrowserController(profile: selected, rootDirectory: root, testing: isTesting, privateTabIsolation: privateTabIsolation)
         controllers[selected.id] = controller

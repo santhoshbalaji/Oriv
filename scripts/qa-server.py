@@ -25,7 +25,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_CONNECT(self):
         # A synthetic origin for the CNAME integration test. Never open an
         # upstream connection. Only these fixture hosts may enter the tunnel.
-        if self.path not in ('analytics.sixt.com:80', 'analytics.seagate.com:80'):
+        if self.path not in ('analytics.airtm.com:80', 'analytics.sixt.com:80', 'analytics.seagate.com:80'):
             self.send_error(403)
             return
         self.send_response_only(200, 'Connection Established')

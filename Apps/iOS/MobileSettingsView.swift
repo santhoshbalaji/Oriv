@@ -32,7 +32,8 @@ struct MobileSettingsView: View {
                 PrivacySettingsControls(session: controller.session)
                 Picker("Ad blocking", selection: Binding(get: { controller.session.adBlocker.mode }, set: { controller.session.adBlocker.setMode($0) })) { ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) } }.id(controller.appearance)
                 if let error = controller.session.adBlocker.preparationError { Text(error).foregroundStyle(.red) }
-                if controller.session.adBlocker.mode != .off {
+                if controller.session.adBlocker.mode == .strict {
+                    Text(AdBlockingMode.strict.detail).font(.footnote).foregroundStyle(theme.secondaryText)
                     if controller.session.adBlocker.isPreparingCNAME { ProgressView("Preparing CNAME tracker protection…") }
                     if let error = controller.session.adBlocker.cnamePreparationError { Text(error).foregroundStyle(.red) }
                 }
