@@ -428,8 +428,12 @@ import UIKit
         let namespace = "oriv.privacy-benchmark." + UUID().uuidString
         let cold = AdBlocker(cacheNamespace: namespace)
         try await cold.prepare()
+        try await wait { !cold.isPreparingCNAME }
+        XCTAssertNil(cold.cnamePreparationError)
         let warm = AdBlocker(cacheNamespace: namespace)
         try await warm.prepare()
+        try await wait { !warm.isPreparingCNAME }
+        XCTAssertNil(warm.cnamePreparationError)
         for (name, blocker) in [("first", cold), ("warm", warm)] {
             let data = try JSONEncoder().encode(blocker.compilationMeasurements)
             let text = String(decoding: data, as: UTF8.self)
@@ -508,6 +512,9 @@ import UIKit
         session.siteIcons.document = nil // The synthetic origin is reachable only through the WebKit proxy.
         let tab = try XCTUnwrap(session.selectedTab)
         try hostFixture(tab)
+        try await blocker.prepare()
+        try await wait { !blocker.isPreparingCNAME }
+        XCTAssertNil(blocker.cnamePreparationError)
         let url = URL(string: "http://analytics.sixt.com/cname-page")!
         func loadProbe() async throws -> String? {
             tab.navigate(to: URL(string: url.absoluteString + "?run=" + UUID().uuidString)!)
@@ -528,6 +535,97 @@ import UIKit
         blocker.setMode(.off)
         let off = try await loadProbe()
         XCTAssertEqual(off, "loaded")
+    }
+
+    func testDeferredCNAMEDoesNotGateNavigationAndAppliesToOpenTabs() async throws {
+        let (rules, release) = AsyncStream<String>.makeStream()
+        defer { release.finish() }
+        let blocker = AdBlocker(rules: [.balanced: "[{\"trigger\":{\"url-filter\":\"blocked.example\"},\"action\":{\"type\":\"block\"}}]"],
+                                cacheNamespace: "oriv.tests.cname-late", cnameFixture: {
+            for await rule in rules { return rule }
+            throw CancellationError()
+        })
+        var proxy = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: 18768))
+        proxy.allowFailover = false
+        let settings = BrowserSettings(defaults: nil)
+        settings.privacy.setEnabled(false, .httpsUpgrade)
+        settings.privacy.setCookieBannerMode(.off)
+        let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: blocker, settings: settings, externalPrivate: true)
+        defer { session.shutdown() }
+        session.siteIcons.document = nil
+        let first = try XCTUnwrap(session.selectedTab)
+        let second = session.addTab(isPrivate: true, load: false)
+        let allowedURL = URL(string: "http://analytics.sixt.com/cname-page")!
+        let blockedURL = URL(string: "http://analytics.seagate.com/cname-page")!
+        for (tab, url) in [(first, allowedURL), (second, blockedURL)] {
+            tab.websiteDataStore?.proxyConfigurations = [proxy]
+            try hostFixture(tab)
+            tab.navigate(to: url)
+            try await wait { tab.title == "CNAME fixture" && !tab.isLoading }
+            let initial = try await tab.webView.evaluateJavaScript("window.probe") as? String
+            XCTAssertEqual(initial, "loaded")
+            XCTAssertTrue(blocker.isPreparingCNAME)
+        }
+        blocker.setException(true, for: allowedURL, isPrivate: true)
+        // An exception in the regular profile must not disable a private tab.
+        blocker.setException(true, for: blockedURL, isPrivate: false)
+        release.yield("""
+        [{"trigger":{"url-filter":"^http://analytics","resource-type":["script"]},"action":{"type":"block"}}]
+        """)
+        release.finish()
+        try await wait { !blocker.isPreparingCNAME }
+        XCTAssertNil(blocker.cnamePreparationError)
+        for (tab, expected) in [(first, "loaded"), (second, "blocked")] {
+            let result = try await tab.webView.callAsyncJavaScript("""
+            return await new Promise(resolve => {
+                const script = document.createElement('script');
+                script.onload = () => resolve('loaded');
+                script.onerror = () => resolve('blocked');
+                script.src = '/cname-probe.js?late=' + Math.random();
+                document.head.append(script);
+            });
+            """, arguments: [:], contentWorld: .page) as? String
+            XCTAssertEqual(result, expected)
+        }
+    }
+
+    func testDeferredCNAMEKeepsOffAndDoesNotAddRulesTwice() async throws {
+        let (rules, release) = AsyncStream<String>.makeStream()
+        defer { release.finish() }
+        let blocker = AdBlocker(rules: [.balanced: "[{\"trigger\":{\"url-filter\":\"core.example\"},\"action\":{\"type\":\"block\"}}]"],
+                                cacheNamespace: "oriv.tests.cname-off", cnameFixture: {
+            for await rule in rules { return rule }
+            throw CancellationError()
+        })
+        let controller = PrivacyCountingContentController()
+        let url = URL(string: "https://fixture.example")!
+        try await blocker.apply(to: controller, url: url, isPrivate: false)
+        XCTAssertTrue(blocker.isPreparingCNAME)
+        blocker.setMode(.off)
+        blocker.refreshPrepared(on: controller)
+        controller.resetCounts()
+        release.yield("[{\"trigger\":{\"url-filter\":\"tracker.example\"},\"action\":{\"type\":\"block\"}}]")
+        release.finish()
+        try await wait { !blocker.isPreparingCNAME }
+        XCTAssertNil(blocker.cnamePreparationError)
+        XCTAssertEqual(controller.ruleAdds, 0)
+        blocker.setMode(.balanced)
+        blocker.refreshPrepared(on: controller)
+        blocker.refreshPrepared(on: controller)
+        XCTAssertEqual(controller.ruleAdds, 2)
+    }
+
+    func testDeferredCNAMEFailurePreservesCorePreparation() async throws {
+        let blocker = AdBlocker(rules: [.balanced: "[{\"trigger\":{\"url-filter\":\"core.example\"},\"action\":{\"type\":\"block\"}}]"],
+                                cacheNamespace: "oriv.tests.cname-failure", cnameFixture: { "invalid" })
+        let controller = PrivacyCountingContentController()
+        try await blocker.apply(to: controller, url: base, isPrivate: false)
+        try await wait { !blocker.isPreparingCNAME }
+        XCTAssertNotNil(blocker.cnamePreparationError)
+        XCTAssertNil(blocker.preparationError)
+        XCTAssertTrue(blocker.applyIfPrepared(to: controller, url: base, isPrivate: false))
+        XCTAssertEqual(controller.ruleAdds, 1)
+        XCTAssertEqual(controller.ruleRemoves, 0)
     }
     func testShippedCookieListAndLayerIndependence() async throws {
         let settings = BrowserSettings(defaults: nil), blocker = AdBlocker()

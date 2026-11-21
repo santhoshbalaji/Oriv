@@ -947,12 +947,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     public func refreshContentBlocking() {
         guard let view = backingWebView, let adBlocker else { return }
+        if adBlocker.canApplyWithoutPreparing {
+            adBlocker.refreshPrepared(on: view.configuration.userContentController)
+            return
+        }
         Task { @MainActor [weak self] in
             do {
                 if adBlocker.requiresRulePreparation { try await adBlocker.prepare() }
-                guard let self, !self.isClosed else { return }
-                adBlocker.applyPrepared(to: view.configuration.userContentController,
-                                        url: view.url ?? self.url, isPrivate: self.isPrivate)
+                guard let self, self.backingWebView === view else { return }
+                adBlocker.refreshPrepared(on: view.configuration.userContentController)
             } catch { /* Navigation reports preparation failure before loading. */ }
         }
     }
@@ -1133,6 +1136,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         observeHistory(from: webView)
     }
     public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+        guard backingWebView === webView else { return }
         adBlocker?.applyPrepared(to: webView.configuration.userContentController,
                                 url: webView.url, isPrivate: isPrivate)
     }

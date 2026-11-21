@@ -191,6 +191,7 @@ public final class BrowserSession {
     private func updateTabSelection() { tabs.forEach { $0.setSelected($0.id == selectedTabID) } }
 
     public func activateSelectedTab() {
+        adBlocker.warmUp()
         if let selectedTab {
             if !selectedTab.isPrivate, let historyStore {
                 let index = suggestionIndex
@@ -216,6 +217,7 @@ public final class BrowserSession {
     public func setProfileActive(_ active: Bool) {
         if !active { saveNow(); flushPersistence() }
         isProfileActive = active
+        if active { adBlocker.warmUp() }
         tabs.forEach { $0.setProfileActive(active) }
     }
     public func shutdown() {

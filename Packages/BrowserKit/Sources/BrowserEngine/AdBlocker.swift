@@ -3,6 +3,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import Observation
+import OSLog
 import WebKit
 
 public enum AdBlockingMode: String, CaseIterable, Identifiable, Sendable {
@@ -26,6 +27,8 @@ public final class AdBlocker {
     public private(set) var privateExceptions: Set<String> = []
     public private(set) var isPreparing = false
     public private(set) var preparationError: String?
+    public private(set) var isPreparingCNAME = false
+    public private(set) var cnamePreparationError: String?
     public static let rulesVersion = (try? BundledPrivacyRules.manifest().rulesVersion) ?? "Unavailable"
     public var cookieBannersEnabled = false
     @ObservationIgnored public var privacy: BrowserPrivacy?
@@ -34,6 +37,7 @@ public final class AdBlocker {
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private let cacheNamespace: String
     @ObservationIgnored private let fixtureSource: [String: String]?
+    @ObservationIgnored private let cnameFixture: (@Sendable () async throws -> String)?
     @ObservationIgnored private var lists: [String: WKContentRuleList] = [:]
     private struct CompiledRules {
         let lists: [String: WKContentRuleList]
@@ -53,19 +57,30 @@ public final class AdBlocker {
         }
     }
     private static let ruleStore = WKContentRuleListStore.default()
+    private static let logger = Logger(subsystem: "Oriv", category: "ContentBlocking")
     private static var sharedCompilation: Task<CompiledRules, Error>?
+    private static var sharedCNAMECompilation: Task<CompiledRules, Error>?
     @ObservationIgnored private var compilation: Task<CompiledRules, Error>?
-    private final class InstalledRules {
-        let lists:[String:WKContentRuleList]
-        init(_ lists:[String:WKContentRuleList]) { self.lists = lists }
+    @ObservationIgnored private var didStartCNAME = false
+    @ObservationIgnored private var isWarming = false
+    private final class Installation {
+        var host: String?
+        var isPrivate = false
+        var lists: [String: WKContentRuleList] = [:]
     }
-    // Each tab owns its controller. Weak keys release closed/private tabs;
-    // values contain only compiled public rules, never hosts or browsing data.
-    @ObservationIgnored private let installations = NSMapTable<WKUserContentController,InstalledRules>(keyOptions:.weakMemory,valueOptions:.strongMemory)
+    // Keep only the current policy host in memory, including during provisional
+    // navigation when WKWebView.url may describe the previous document.
+    @ObservationIgnored private let installations = NSMapTable<WKUserContentController, Installation>(keyOptions: .weakMemory, valueOptions: .strongMemory)
 
-    public init(defaults: UserDefaults? = nil, rules: [AdBlockingMode: String]? = nil, cookieRules: String? = nil, cacheNamespace: String = "oriv.privacy") {
+    public convenience init(defaults: UserDefaults? = nil, rules: [AdBlockingMode: String]? = nil, cookieRules: String? = nil, cacheNamespace: String = "oriv.privacy") {
+        self.init(defaults: defaults, rules: rules, cookieRules: cookieRules, cacheNamespace: cacheNamespace, cnameFixture: nil)
+    }
+
+    init(defaults: UserDefaults? = nil, rules: [AdBlockingMode: String]? = nil, cookieRules: String? = nil,
+         cacheNamespace: String, cnameFixture: (@Sendable () async throws -> String)?) {
         self.cacheNamespace = cacheNamespace
         self.defaults = defaults
+        self.cnameFixture = cnameFixture
         mode = defaults?.string(forKey: "adBlockingMode").flatMap(AdBlockingMode.init(rawValue:)) ?? .balanced
         regularExceptions = Set(defaults?.stringArray(forKey: "adBlockingExceptions") ?? [])
         fixtureSource = rules.map { rules in
@@ -75,16 +90,21 @@ public final class AdBlocker {
         }
     }
 
-    private static func compile(namespace: String, fixture: [String: String]?) -> Task<CompiledRules, Error> {
-        Task { @MainActor in
+    private static func compile(namespace: String, fixture: [String: String]? = nil, cnameOnly: Bool = false,
+                                cnameFixture: (@Sendable () async throws -> String)? = nil) -> Task<CompiledRules, Error> {
+        let priority: TaskPriority = cnameOnly ? .background : .userInitiated
+        return Task(priority: priority) { @MainActor in
             guard let store = ruleStore else { throw CocoaError(.fileReadNoSuchFile) }
-            let rules = try await Task.detached(priority: .userInitiated) {
+            let rules = try await Task.detached(priority: priority) {
                 let rules: [RuleSource]
-                if let fixture { rules = fixture.map { RuleSource(key: $0.key, json: $0.value) } }
+                if let cnameFixture {
+                    rules = [RuleSource(key: BundledPrivacyRules.cnameComponent, json: try await cnameFixture())]
+                } else if let fixture { rules = fixture.map { RuleSource(key: $0.key, json: $0.value) } }
                 else {
-                    rules = try BundledPrivacyRules.resources().map { resource in
+                    let resources = try BundledPrivacyRules.resources(cnameOnly: cnameOnly)
+                    rules = resources.map { resource in
                         RuleSource(key: resource.key, digest: resource.sha256, read: resource.read)
-                    } + [RuleSource(key: "original-strict", json: AdBlockingRules.bundled[.strict]!)]
+                    } + (cnameOnly ? [] : [RuleSource(key: "original-strict", json: AdBlockingRules.bundled[.strict]!)])
                 }
                 #if os(macOS) && ORIV_BENCH
                 if BenchmarkOptions.disabled.contains("cosmetics") {
@@ -106,7 +126,7 @@ public final class AdBlocker {
                 let cached = try? await store.contentRuleList(forIdentifier: identifier)
                 if let cached { result[rule.key] = cached }
                 else {
-                    let json = try await Task.detached(priority: .userInitiated, operation: rule.read).value
+                    let json = try await Task.detached(priority: priority, operation: rule.read).value
                     guard let list = try await store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: json) else {
                         throw CocoaError(.coderReadCorrupt)
                     }
@@ -152,7 +172,11 @@ public final class AdBlocker {
     }
 
     public func isException(_ url: URL?, isPrivate: Bool) -> Bool {
-        guard let host = Self.host(for: url) else { return false }
+        isException(host: Self.host(for: url), isPrivate: isPrivate)
+    }
+
+    private func isException(host: String?, isPrivate: Bool) -> Bool {
+        guard let host else { return false }
         return (isPrivate ? privateExceptions : regularExceptions).contains(host)
     }
 
@@ -194,11 +218,29 @@ public final class AdBlocker {
     }
     public func endPrivateSession() { privateExceptions.removeAll() }
 
+    func warmUp() {
+        guard requiresRulePreparation, !isWarming else { return }
+        if !lists.isEmpty {
+            startCNAMEPreparation()
+            return
+        }
+        isWarming = true
+        Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            defer { self.isWarming = false }
+            // A core failure is reported by prepare() and retried on navigation.
+            try? await self.prepare()
+        }
+    }
+
     public func prepare() async throws {
         #if os(macOS) && ORIV_BENCH
         guard !BenchmarkOptions.disabled.contains("content-blocker") else { return }
         #endif
-        if !lists.isEmpty { return }
+        if !lists.isEmpty {
+            startCNAMEPreparation()
+            return
+        }
         let sharesBundledRules = fixtureSource == nil && cacheNamespace == "oriv.privacy"
         if compilation == nil {
             isPreparing = true
@@ -213,10 +255,12 @@ public final class AdBlocker {
         let pending = compilation!
         do {
             let compiled = try await pending.value
+            guard compilation == pending else { return }
             lists = compiled.lists
             compilationMeasurements = compiled.measurements
             compilation = nil
             isPreparing = false
+            startCNAMEPreparation()
         } catch {
             if sharesBundledRules && Self.sharedCompilation == pending { Self.sharedCompilation = nil }
             guard compilation == pending else { throw error }
@@ -224,6 +268,42 @@ public final class AdBlocker {
             preparationError = "Privacy filtering could not start. Try again or choose Off and turn off cookie-banner handling to load without filtering."
             compilation = nil
             throw error
+        }
+    }
+
+    private func startCNAMEPreparation() {
+        guard mode != .off, !lists.isEmpty, !didStartCNAME, fixtureSource == nil || cnameFixture != nil else { return }
+        didStartCNAME = true
+        isPreparingCNAME = true
+        let pending: Task<CompiledRules, Error>
+        if cacheNamespace == "oriv.privacy", cnameFixture == nil {
+            if Self.sharedCNAMECompilation == nil {
+                Self.sharedCNAMECompilation = Self.compile(namespace: cacheNamespace, cnameOnly: true)
+            }
+            pending = Self.sharedCNAMECompilation!
+        } else {
+            pending = Self.compile(namespace: cacheNamespace, cnameOnly: true, cnameFixture: cnameFixture)
+        }
+        // Join only from a background task, never from the navigation gate.
+        Task(priority: .background) { [weak self] in
+            do {
+                let compiled = try await pending.value
+                guard let self else { return }
+                self.lists.merge(compiled.lists) { _, new in new }
+                self.compilationMeasurements += compiled.measurements
+                for case let controller as WKUserContentController in self.installations.keyEnumerator().allObjects {
+                    if let installation = self.installations.object(forKey: controller) {
+                        let hideCookies = self.usesCookieHideRules &&
+                            (self.privacy?.isEnabled(.cookieBanners, forHost: installation.host, isPrivate: installation.isPrivate) ?? true)
+                        self.updateRules(on: controller, installation: installation, hideCookies: hideCookies)
+                    }
+                }
+                self.isPreparingCNAME = false
+            } catch {
+                Self.logger.error("CNAME tracker rules failed to prepare (code \((error as NSError).code, privacy: .public))")
+                self?.cnamePreparationError = "CNAME tracker protection is unavailable. Other privacy filters are still active."
+                self?.isPreparingCNAME = false
+            }
         }
     }
 
@@ -240,8 +320,10 @@ public final class AdBlocker {
 
     /// The prepared hot path needs no actor hop. A partial/failed preparation
     /// cannot enter it, preserving the first-navigation protection gate.
+    var canApplyWithoutPreparing: Bool { !requiresRulePreparation || !lists.isEmpty }
+
     func applyIfPrepared(to controller:WKUserContentController,url:URL?,isPrivate:Bool) -> Bool {
-        guard !requiresRulePreparation || !lists.isEmpty else { return false }
+        guard canApplyWithoutPreparing else { return false }
         applyPrepared(to:controller,url:url,isPrivate:isPrivate)
         return true
     }
@@ -257,9 +339,29 @@ public final class AdBlocker {
 
     /// Compiled components contain no profile or private site data.
     func applyPrepared(to controller: WKUserContentController, url: URL?, isPrivate: Bool) {
+        let installation: Installation
+        if let existing = installations.object(forKey: controller) {
+            installation = existing
+        } else {
+            installation = Installation()
+            installations.setObject(installation, forKey: controller)
+        }
+        installation.host = Self.host(for: url)
+        installation.isPrivate = isPrivate
+        applyPolicy(to: controller, installation: installation)
+    }
+
+    func refreshPrepared(on controller: WKUserContentController) {
+        guard let installation = installations.object(forKey: controller) else { return }
+        applyPolicy(to: controller, installation: installation)
+    }
+
+    private func applyPolicy(to controller: WKUserContentController, installation: Installation) {
+        let host = installation.host
+        let isPrivate = installation.isPrivate
         var youtubeSource: String?
-        if YouTubeProtection.supports(url), isEnabled(for: url, isPrivate: isPrivate),
-           let privacy, privacy.isEnabled(.youtubeAds, for: url, isPrivate: isPrivate) {
+        if let host, YouTubeProtection.hosts.contains(host), mode != .off, !isException(host: host, isPrivate: isPrivate),
+           let privacy, privacy.isEnabled(.youtubeAds, forHost: host, isPrivate: isPrivate) {
             let disabled = YouTubeProtection.hosts.filter { host in
                 let frameURL = URL(string: "https://" + host)
                 return !isEnabled(for: frameURL, isPrivate: isPrivate)
@@ -268,24 +370,28 @@ public final class AdBlocker {
             youtubeSource = YouTubeProtection.source(disabledHosts: disabled, skipAds: privacy.skipYouTubeAds)
         }
         YouTubeProtection.update(controller, source: youtubeSource)
-        let handleCookies = cookieBannersEnabled && (privacy?.isEnabled(.cookieBanners, for: url, isPrivate: isPrivate) ?? true)
+        let handleCookies = cookieBannersEnabled && (privacy?.isEnabled(.cookieBanners, forHost: host, isPrivate: isPrivate) ?? true)
         let hideCookies = handleCookies && usesCookieHideRules
-        CookieConsent.update(controller, enabled: handleCookies && !hideCookies && AdBlocker.host(for: url) != nil)
+        CookieConsent.update(controller, enabled: handleCookies && !hideCookies && host != nil)
         CookieBannerRestoration.update(controller, enabled: hideCookies)
-        var desired:[String:WKContentRuleList] = [:]
+        updateRules(on: controller, installation: installation, hideCookies: hideCookies)
+        startCNAMEPreparation()
+    }
+
+    private func updateRules(on controller: WKUserContentController, installation: Installation, hideCookies: Bool) {
+        let blockAds = mode != .off && !isException(host: installation.host, isPrivate: installation.isPrivate)
+        var desired: [String: WKContentRuleList] = [:]
         for (key, list) in lists {
             if key.hasPrefix("cookies") {
                 if hideCookies { desired[list.identifier] = list }
-            } else if isEnabled(for: url, isPrivate: isPrivate) {
+            } else if blockAds {
                 if key == mode.rawValue || key.hasPrefix("network") || key.hasPrefix(mode == .strict ? "cosmetics-strict" : "cosmetics-light") || key == "original-strict" && mode == .strict { desired[list.identifier] = list }
             }
         }
-        let installed = installations.object(forKey:controller)?.lists ?? [:]
+        let installed = installation.lists
         for (id,list) in installed where desired[id] == nil { controller.remove(list) }
         for (id,list) in desired where installed[id] == nil { controller.add(list) }
-        if Set(installed.keys) != Set(desired.keys) || installations.object(forKey:controller) == nil {
-            installations.setObject(InstalledRules(desired),forKey:controller)
-        }
+        installation.lists = desired
     }
 
 }
@@ -359,6 +465,7 @@ public struct RuleCompilationMeasurement: Codable, Sendable {
 }
 
 public enum BundledPrivacyRules {
+    static let cnameComponent = "network-cname"
     public static var acknowledgements: String {
         guard let root = Bundle.module.url(forResource: "Privacy", withExtension: nil) else { return "Privacy acknowledgements could not be read." }
         let notice = (try? String(contentsOf: root.appendingPathComponent("NOTICE.txt"), encoding: .utf8)) ?? ""
@@ -402,9 +509,9 @@ public enum BundledPrivacyRules {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    static func resources() throws -> [Resource] {
+    static func resources(cnameOnly: Bool = false) throws -> [Resource] {
         guard let root else { throw CocoaError(.fileReadNoSuchFile) }
-        let entries = try manifest().outputs.values.flatMap { $0 }
+        let entries = try manifest().outputs.filter { ($0.key == cnameComponent) == cnameOnly }.values.flatMap { $0 }
         guard !entries.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
         return entries.map { Resource(file: root.appendingPathComponent($0.file), sha256: $0.sha256) }
     }

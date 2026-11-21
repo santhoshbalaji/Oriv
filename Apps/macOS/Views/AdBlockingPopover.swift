@@ -22,6 +22,10 @@ struct AdBlockingPopover: View {
             if let error = blocker.preparationError {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
+            if blocker.mode != .off {
+                if blocker.isPreparingCNAME { ProgressView("Preparing CNAME tracker protection…").controlSize(.small) }
+                if let error = blocker.cnamePreparationError { Text(error).font(.caption).foregroundStyle(.red) }
+            }
             Text("Works in normal and private tabs. Reload to apply changes fully. Filters update with Oriv releases; some ads may remain.")
                 .font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
         }

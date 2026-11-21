@@ -62,11 +62,16 @@ public enum CookieBannerMode: String, CaseIterable, Identifiable, Sendable {
         onChange?()
     }
     public func isEnabled(_ layer: PrivacyLayer, for url: URL?, isPrivate: Bool) -> Bool {
-        guard isEnabled(layer) else { return false }
-        return !isException(layer, for: url, isPrivate: isPrivate)
+        isEnabled(layer, forHost: AdBlocker.host(for: url), isPrivate: isPrivate)
+    }
+    func isEnabled(_ layer: PrivacyLayer, forHost host: String?, isPrivate: Bool) -> Bool {
+        isEnabled(layer) && !isException(layer, forHost: host, isPrivate: isPrivate)
     }
     public func isException(_ layer: PrivacyLayer, for url: URL?, isPrivate: Bool) -> Bool {
-        guard let host = AdBlocker.host(for: url) else { return false }
+        isException(layer, forHost: AdBlocker.host(for: url), isPrivate: isPrivate)
+    }
+    private func isException(_ layer: PrivacyLayer, forHost host: String?, isPrivate: Bool) -> Bool {
+        guard let host else { return false }
         return (isPrivate ? privateExceptions : regularExceptions)[host]?.contains(layer) == true
     }
     public func setEnabled(_ enabled: Bool, _ layer: PrivacyLayer) {
