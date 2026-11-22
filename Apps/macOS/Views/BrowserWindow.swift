@@ -30,6 +30,7 @@ struct BrowserWindow: View {
     @Environment(\.dismissWindow) private var dismissWindow
 
     private var ui: BrowserProfileUI { controller.profileUI }
+    private var pageChrome: PageChrome { ui.pageChrome }
     private var session: BrowserSession { controller.session }
     private var tab: BrowserTab? { session.selectedTab }
     private var showsExternalPrivateBar: Bool { session.isExternalPrivate && profiles?.externalBannerVisible == true }
@@ -49,10 +50,10 @@ struct BrowserWindow: View {
         return min(ceil(width) + 4, max(60, addressWidth - 180))
     }
     private var emptyPageColor: ChromeColor { PageChrome.resolveCanvas(theme.page, scheme: colorScheme) }
-    private var contentUnderChrome: Bool { ui.pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
-    private var chromeForeground: Color { ui.pageChrome.foreground }
-    private var chromeGlass: MacAddressGlass { MacAddressGlass(color: ui.pageChrome.color, isDark: ui.pageChrome.isDark) }
-    private var privateCue: Color { ui.pageChrome.contrasting(ui.pageChrome.isDark ? Theme.privateDark : Theme.privateLight) }
+    private var contentUnderChrome: Bool { pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
+    private var chromeForeground: Color { pageChrome.foreground }
+    private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark) }
+    private var privateCue: Color { pageChrome.contrasting(pageChrome.isDark ? Theme.privateDark : Theme.privateLight) }
 
     private var sceneContent: some View {
         routedContent
@@ -106,9 +107,9 @@ struct BrowserWindow: View {
             }
             .onChange(of: scenePhase) { _, phase in if phase != .active { session.saveNow() } }
             .task(id: controller.scoped(selectedPage)) { observeSelectedPage() }
-            .onChange(of: controller.scoped(emptyPageColor), initial: true) { _, color in ui.pageChrome.setEmptyPageColor(color.value) }
-            .onChange(of: colorScheme) { _, _ in ui.pageChrome.requestSample() }
-            .onDisappear { ui.pageChrome.observe(nil) }
+            .onChange(of: controller.scoped(emptyPageColor), initial: true) { _, color in pageChrome.setEmptyPageColor(color.value) }
+            .onChange(of: colorScheme) { _, _ in pageChrome.requestSample() }
+            .onDisappear { pageChrome.observe(nil) }
     }
 
     private func prepareWindow() {
@@ -140,9 +141,9 @@ struct BrowserWindow: View {
         let selected = tab
         let isPrivate = selected?.isPrivate == true
         if let selected, selected.url != nil || selected.hasLoaded {
-            ui.pageChrome.observe(selected.webView, isPrivate: isPrivate)
+            pageChrome.observe(selected.webView, isPrivate: isPrivate)
         } else {
-            ui.pageChrome.observe(nil, isPrivate: isPrivate)
+            pageChrome.observe(nil, isPrivate: isPrivate)
         }
     }
 
@@ -197,8 +198,8 @@ struct BrowserWindow: View {
         .onDisappear { controller.sidebar.cancel(); controller.sidebarTooltip.dismiss() }
         .background(SidebarWindowEvents(controller: controller, profiles: controller === profiles?.controller ? profiles : nil, tabList: sidebarTabs, layoutDirection: layoutDirection, dismiss: dismissSidebarOverlay))
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
-        .background(ui.pageChrome.color, ignoresSafeAreaEdges: [])
-        .background(BrowserTitlebar(color: ui.pageChrome.color, reduceMotion: reduceMotion || !ui.pageChrome.animatesColor, profileEpoch: controller.sidebarDragID))
+        .background(pageChrome.color, ignoresSafeAreaEdges: [])
+        .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor, profileEpoch: controller.sidebarDragID))
         .background(BrowserWindowChrome(windowContext: windowContext, compact: controller.sidebar.reservesRail,
             initialContentFocus: tab?.url != nil || tab?.hasLoaded == true ? tab?.webView : nil,
             shouldApplyProfileSwitchFocus: profileSwitchFocus, profileEpoch: controller.sidebarDragID,
@@ -340,9 +341,9 @@ struct BrowserWindow: View {
             toolbarMenu
         }
         .padding(.horizontal, 12).frame(height: MacBrowserLayout.headerHeight)
-        .background(ui.pageChrome.color)
+        .background(pageChrome.color)
         .background(BrowserDragRegion())
-        .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
+        .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
         .accessibilityIdentifier("mainTopBar")
         .browserGeometryMarker("browserTopBarGeometry")
     }
@@ -356,7 +357,7 @@ struct BrowserWindow: View {
                     .disabled(tab?.canGoForward != true).help("Forward (⌘])").accessibilityLabel("Forward")
                     .foregroundStyle(chromeForeground)
                 }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
-                    .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
+                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
     }
 
     private var addressCapsule: some View {
@@ -418,7 +419,7 @@ struct BrowserWindow: View {
                 }
                 .foregroundStyle(chromeForeground)
                 .modifier(chromeGlass)
-                .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
+                .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
                 .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
                 .browserGeometryMarker("browserAddressGeometry")
     }
@@ -452,7 +453,7 @@ struct BrowserWindow: View {
                     .browserGeometryMarker("browserOverviewGeometry")
             }
         }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
-            .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
+            .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
     }
 
     private var toolbarMenu: some View {
@@ -470,7 +471,7 @@ struct BrowserWindow: View {
         .help("Browser Actions").accessibilityLabel("Browser Actions")
         .accessibilityIdentifier("browserPageMenu")
         .foregroundStyle(chromeForeground)
-        .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
+        .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
         .browserGeometryMarker("browserPageMenuGeometry")
         .popover(isPresented: $ui.showPasswords) { PasswordsGuide(compact: true) }
     }
@@ -587,21 +588,21 @@ struct BrowserWindow: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(ui.pageChrome.color, ignoresSafeAreaEdges: [])
+            .background(pageChrome.color, ignoresSafeAreaEdges: [])
     }
 
     @ViewBuilder private func tabContent(_ tab: BrowserTab) -> some View {
         if tab.isResettingSiteData {
             Color.clear
         } else if tab.url != nil || tab.hasLoaded {
-            WebPageView(tab: tab, chrome: ui.pageChrome, contentUnderChrome: contentUnderChrome, headerInset: MacBrowserLayout.headerHeight, profileTransition: profiles?.sidebarSwitch.isPresenting(controller.profile?.id) == true, profileEpoch: controller.sidebarDragID, fullscreenChanged: { controller.sidebar.fullscreen($0) })
+            WebPageView(tab: tab, chrome: pageChrome, contentUnderChrome: contentUnderChrome, headerInset: MacBrowserLayout.headerHeight, profileTransition: profiles?.sidebarSwitch.isPresenting(controller.profile?.id) == true, profileEpoch: controller.sidebarDragID, fullscreenChanged: { controller.sidebar.fullscreen($0) })
                 .scrollEdgeEffectStyle(.automatic, for: .top)
 
         }
         else {
             StartPage(controller: controller, isPrivate: tab.isPrivate)
                 .overlay {
-                    HomeProfileFade(epoch: controller.sidebarDragID, color: ui.pageChrome.color,
+                    HomeProfileFade(epoch: controller.sidebarDragID, color: pageChrome.color,
                                     startsOnMount: profiles?.sidebarSwitch.isPresenting(controller.profile?.id) == true,
                                     reduceMotion: reduceMotion)
                         .allowsHitTesting(false)
