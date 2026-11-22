@@ -338,8 +338,13 @@ final class ProfileSwipeTests: XCTestCase {
         }
         try await eventually("source profile mounted") { previousDestinationField.currentEditor() == nil }
         XCTAssertTrue(addressField() === previousDestinationField)
-        let sourceField = try await editAddress(in: profiles.controller)
+        _ = try await editAddress(in: profiles.controller)
         XCTAssertEqual(profiles.controller.addressFocusRequest, destination.addressFocusRequest)
+        // The next destination command will reuse the source field's last
+        // handled request number. A coordinator keyed by number alone loses it.
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        let sourceField = try await editAddress(in: profiles.controller)
+        let lastSourceRequest = profiles.controller.addressFocusRequest
         let sourceHost = hasPage ? sourceTab.webView.superview as? WebViewHost : nil
         let collection = try XCTUnwrap(descendants(content).compactMap { $0 as? SidebarTabCollection }.first)
         let chrome = try XCTUnwrap(descendants(content).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first)
@@ -399,6 +404,7 @@ final class ProfileSwipeTests: XCTestCase {
         }
 
         _ = try await editAddress(in: destination)
+        XCTAssertEqual(destination.addressFocusRequest, lastSourceRequest)
         XCTAssertTrue(window.makeFirstResponder(nil))
         XCTAssertNil(field.currentEditor())
         destination.newTab()
