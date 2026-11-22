@@ -238,6 +238,11 @@ final class ProfileSwipeTests: XCTestCase {
         let dot = try XCTUnwrap(marker("sidebarProfileDot-1"))
         let point = dot.convert(NSPoint(x: dot.bounds.midX, y: dot.bounds.midY), to: nil)
 
+        var springBeforeSelection = false
+        let source = profiles.controller
+        profiles.sidebarSwitch.springCommitted = { [weak profiles] in
+            springBeforeSelection = profiles?.controller === source
+        }
         if viaSwipe {
             let events: [(NSEvent.Phase, Int32, TimeInterval)] = [
                 (.began, -4, 1), (.changed, -150, 1.02), (.ended, 0, 1.04)
@@ -255,7 +260,8 @@ final class ProfileSwipeTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(profiles.active.id, target.id)
+        try await eventually("destination selected") { profiles.active.id == target.id }
+        XCTAssertTrue(springBeforeSelection)
         try await eventually("destination window rebuilt and overlay settled") {
             content.layoutSubtreeIfNeeded()
             return !profiles.sidebarSwitch.isCovering &&
@@ -363,7 +369,7 @@ final class ProfileSwipeTests: XCTestCase {
             XCTAssertFalse(host.routeScrollWheel(try event(.began, x: -5)))
             scroll.scrollWheel(with: try event(.changed, x: -150))
             scroll.scrollWheel(with: try event(.ended))
-            XCTAssertEqual(profiles.active.id, target.id)
+            try await eventually("destination selected") { profiles.active.id == target.id }
             let momentum = try event([], x: -50, momentum: 1)
             scroll.scrollWheel(with: momentum)
             XCTAssertTrue(host.routeScrollWheel(momentum), "Horizontal momentum remains claimed after selection")
@@ -441,7 +447,7 @@ final class ProfileSwipeTests: XCTestCase {
             XCTAssertTrue(profiles.sidebarSwitch.isCovering)
             XCTAssertNil(profiles.loadedController(target.id), "Preview must leave the profile asleep")
             XCTAssertTrue(try route(.ended, at: pagePoint, after: 0.22))
-            XCTAssertEqual(profiles.active.id, target.id)
+            try await eventually("destination selected") { profiles.active.id == target.id }
             XCTAssertFalse(source.session.isProfileActive)
             XCTAssertTrue(profiles.controller.session.isProfileActive)
             XCTAssertTrue(try route([], momentum: 1, at: pagePoint))
@@ -460,13 +466,13 @@ final class ProfileSwipeTests: XCTestCase {
                 _ = try route(.changed, x: -delta * sign, at: dots, after: 0.008)
             }
             XCTAssertTrue(try route(.ended, at: dots, after: 0.135))
-            XCTAssertEqual(profiles.active.id, BrowserProfile.personalID)
+            try await eventually("source selected") { profiles.active.id == BrowserProfile.personalID }
             try await eventually("settled overlay removed") { !profiles.sidebarSwitch.isCovering }
 
             XCTAssertFalse(try route(.began, at: footer))
             XCTAssertTrue(try route(.changed, x: dx, at: footer))
             XCTAssertTrue(try route(.ended, at: footer))
-            XCTAssertEqual(profiles.active.id, target.id)
+            try await eventually("destination selected") { profiles.active.id == target.id }
             try await eventually("next settled overlay removed") { !profiles.sidebarSwitch.isCovering }
         }
     }

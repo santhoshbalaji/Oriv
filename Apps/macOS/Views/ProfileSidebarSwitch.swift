@@ -143,7 +143,13 @@ class ProfileSidebarScrollView: NSScrollView {
     @ObservationIgnored private weak var hitRegion: ProfileSidebarSwipeRegion.Region?
     @ObservationIgnored private weak var editingRegion: ProfileSidebarSwipeRegion.Region?
     @ObservationIgnored private weak var titlebarControl: ProfileSidebarSwipeRegion.Region?
+    static let signposter = OSSignposter(subsystem: "Oriv", category: "ProfileSwitch")
+    static var diagnosticsEnabled: Bool { UserDefaults.standard.bool(forKey: "ProfileSwipeDiagnostics") }
     private static let diagnostics = Logger(subsystem: "Oriv", category: "ProfileSwipe")
+    @ObservationIgnored var springCommitted: (() -> Void)?
+    @ObservationIgnored var selectTurnMeasured: ((Double) -> Void)?
+    @ObservationIgnored private var selectionPending = false
+    @ObservationIgnored private var mountInterval: OSSignpostIntervalState?
     @ObservationIgnored private var overlay: ProfileSidebarOverlay?
     @ObservationIgnored private var swipe = ProfileSwipe()
     @ObservationIgnored private var settleToken = UUID()
@@ -199,14 +205,14 @@ class ProfileSidebarScrollView: NSScrollView {
     }
 
     func select(_ target: BrowserProfile, profiles: BrowserProfiles, source: BrowserController, direction: Int?) throws {
-        guard target.id != profiles.active.id else { return }
+        guard !selectionPending, target.id != profiles.active.id else { return }
         let available = profiles.available.map(\.id)
         let forward = (available.firstIndex(of: target.id) ?? 0) > (available.firstIndex(of: profiles.active.id) ?? 0)
         let step = direction ?? (forward ? 1 : -1)
         if let anchor, anchor.controller === source, !source.sidebar.rail && !source.sidebar.peeking,
            let effect = prepare(profiles: profiles, anchor: anchor) {
             effect.setImage(render(target, profiles: profiles, anchor: anchor), step: step)
-            try commit(target, step: step, profiles: profiles)
+            commit(target, step: step, profiles: profiles)
         } else {
             try profiles.select(target.id, deferSelectionSave: true)
         }
@@ -244,6 +250,7 @@ class ProfileSidebarScrollView: NSScrollView {
         let point = location ?? event.locationInWindow
         let systemEnabled = NSEvent.isSwipeTrackingFromScrollEventsEnabled
         func blocker() -> String? {
+            if selectionPending { return "selection-pending" }
             if !event.hasPreciseScrollingDeltas { return "non-precise" }
             if !profiles.profileSwipePreference.enabled(system: systemEnabled) { return "preference" }
             if !profiles.canSwitchProfiles(from: source) { return "profile" }
@@ -287,13 +294,15 @@ class ProfileSidebarScrollView: NSScrollView {
                                   at: event.timestamp, eligible: reason == nil, width: gestureWidth,
                                   previous: previous != nil, next: next != nil,
                                   presentationOffset: overlay?.offset(relativeTo: profiles.active.id) ?? 0)
-        if UserDefaults.standard.bool(forKey: "ProfileSwipeDiagnostics") {
+        if Self.diagnosticsEnabled {
             Self.diagnostics.notice("source=\(input.rawValue, privacy: .public) phase=\(event.phase.rawValue) routed=\(String(describing: phase), privacy: .public) momentumPhase=\(event.momentumPhase.rawValue) dx=\(Double(event.scrollingDeltaX)) dy=\(Double(event.scrollingDeltaY)) precise=\(event.hasPreciseScrollingDeltas) system=\(systemEnabled) eligibility=\(reason ?? "eligible", privacy: .public) axis=\(String(describing: axisBefore), privacy: .public)->\(String(describing: self.swipe.axis), privacy: .public) settling=\(self.overlay?.isSettling ?? false) result=\(String(describing: result), privacy: .public)")
         }
         switch result {
         case .pass: return false
         case .swallow: return true
         case .track(let offset):
+            let drag = axisBefore == .horizontal ? nil : Self.signposter.beginInterval("DragStart")
+            defer { if let drag { Self.signposter.endInterval("DragStart", drag) } }
             if let anchor, let effect = prepare(profiles: profiles, anchor: anchor) {
                 let step = offset < 0 ? 1 : -1
                 if !effect.hasImage(step: step), let target = step > 0 ? next : previous {
@@ -307,8 +316,7 @@ class ProfileSidebarScrollView: NSScrollView {
                 if !overlay.hasImage(step: step) {
                     overlay.setImage(render(target, profiles: profiles, anchor: anchor), step: step)
                 }
-                do { try commit(target, step: step, profiles: profiles) }
-                catch { profiles.error = error.localizedDescription }
+                commit(target, step: step, profiles: profiles)
             } else { settle(step: 0) }
             return true
         }
@@ -365,18 +373,83 @@ class ProfileSidebarScrollView: NSScrollView {
         return renderer.cgImage
     }
 
-    private func commit(_ target: BrowserProfile, step: Int, profiles: BrowserProfiles) throws {
+    private func commit(_ target: BrowserProfile, step: Int, profiles: BrowserProfiles) {
+        let release = Self.signposter.beginInterval("Commit")
+        let tracing = Self.diagnosticsEnabled
+        if tracing { Self.probeSettleTurns() }
+        if let mountInterval { Self.signposter.endInterval("Mount", mountInterval) }
+        mountInterval = Self.signposter.beginInterval("Mount")
+        let source = profiles.controller
         overlay?.destinationProfile = target.id
         waitingForProfile = target.id
-        do {
-            try profiles.select(target.id, deferSelectionSave: true)
-        } catch {
-            waitingForProfile = nil
-            overlay?.destinationProfile = nil
-            settle(step: 0)
-            throw error
-        }
+        selectionPending = true
         settle(step: step)
+
+        Self.atTurnEnd { [weak self, weak profiles] in
+            Self.signposter.endInterval("Commit", release)
+            // The late observer gives Core Animation the rest of this turn
+            // to submit the spring. Selection runs in the next dispatch turn.
+            DispatchQueue.main.async {
+                guard let self, let profiles else { return }
+                self.selectionPending = false
+                self.springCommitted?()
+                guard profiles.controller === source else {
+                    self.clear()
+                    return
+                }
+                let start = ProcessInfo.processInfo.systemUptime
+                let select = Self.signposter.beginInterval("Select")
+                do {
+                    try profiles.select(target.id, deferSelectionSave: true)
+                } catch {
+                    self.waitingForProfile = nil
+                    self.overlay?.destinationProfile = nil
+                    self.settle(step: 0)
+                    profiles.error = error.localizedDescription
+                }
+                Self.signposter.endInterval("Select", select)
+                if tracing || self.selectTurnMeasured != nil {
+                    Self.atTurnEnd { [weak self] in
+                        let ms = (ProcessInfo.processInfo.systemUptime - start) * 1_000
+                        self?.selectTurnMeasured?(ms)
+                        if tracing { Self.diagnostics.notice("Selection turn ms=\(ms)") }
+                    }
+                }
+            }
+        }
+    }
+
+    private static func atTurnEnd(_ work: @escaping @MainActor () -> Void) {
+        let observer = CFRunLoopObserverCreateWithHandler(nil,
+            CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
+            false, CFIndex.max) { _, _ in
+                MainActor.assumeIsolated { work() }
+            }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    private static func probeSettleTurns() {
+        let start = ProcessInfo.processInfo.systemUptime
+        var turn = start
+        var longest: Double = 0
+        let observer = CFRunLoopObserverCreateWithHandler(nil,
+            CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue |
+            CFRunLoopActivity.entry.rawValue | CFRunLoopActivity.exit.rawValue,
+            true, CFIndex.max) { _, activity in
+                MainActor.assumeIsolated {
+                    let now = ProcessInfo.processInfo.systemUptime
+                    if activity == .afterWaiting || activity == .entry {
+                        turn = now
+                    } else {
+                        longest = max(longest, now - turn)
+                    }
+                }
+            }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            CFRunLoopObserverInvalidate(observer)
+            Self.diagnostics.notice("Longest settle turn ms=\(longest * 1_000)")
+        }
     }
 
     private func settle(step: Int) {
@@ -394,12 +467,20 @@ class ProfileSidebarScrollView: NSScrollView {
         if waitingForProfile != nil {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(1))
-                if self?.settleToken == token { self?.clear() }
+                if let self, self.settleToken == token, self.overlay != nil {
+                    Self.signposter.emitEvent("FallbackClear")
+                    if Self.diagnosticsEnabled { Self.diagnostics.notice("FallbackClear") }
+                    self.clear()
+                }
             }
         }
     }
 
     private func clear() {
+        if let mountInterval {
+            Self.signposter.endInterval("Mount", mountInterval)
+            self.mountInterval = nil
+        }
         overlay?.removeFromSuperview()
         overlay = nil
         waitingForProfile = nil

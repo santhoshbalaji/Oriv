@@ -251,8 +251,14 @@ import Observation
             // The synchronous path leaves the visible profile intact on a write failure.
             try commit(next)
         }
+        let persistence = ProfileSidebarSwitch.signposter.beginInterval("DeactivateAndFlush")
+        let start = ProcessInfo.processInfo.systemUptime
         controller.session.saveNow()
         controller.session.setProfileActive(false)
+        ProfileSidebarSwitch.signposter.endInterval("DeactivateAndFlush", persistence)
+        if ProfileSidebarSwitch.diagnosticsEnabled {
+            print("ProfileSwitch deactivate/flush ms=\((ProcessInfo.processInfo.systemUptime - start) * 1_000)")
+        }
         target.prepareForProfileSwitch()
         controller = target
         target.session.setProfileActive(true)
