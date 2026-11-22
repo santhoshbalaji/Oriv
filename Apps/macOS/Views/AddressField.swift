@@ -12,6 +12,8 @@ struct AddressField: NSViewRepresentable {
     var displayText: String? = nil
     var foreground: Color? = nil
     let focusRequest: Int
+    var profileEpoch: UUID? = nil
+    var focusStillValid: () -> Bool = { true }
     let submit: () -> Bool
     let cancel: () -> Void
     var completion: String? = nil
@@ -41,6 +43,10 @@ struct AddressField: NSViewRepresentable {
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
+        if context.coordinator.parent.profileEpoch != profileEpoch {
+            context.coordinator.lastFocusRequest = 0
+            context.coordinator.suppressCompletion = false
+        }
         context.coordinator.parent = self
         field.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
         field.textColor = foreground.map(NSColor.init) ?? (theme.isT3Code ? NSColor(theme.text) : .labelColor)
@@ -61,8 +67,10 @@ struct AddressField: NSViewRepresentable {
         field.setAccessibilityValue(text)
         guard focusRequest > 0, context.coordinator.lastFocusRequest != focusRequest else { return }
         context.coordinator.lastFocusRequest = focusRequest
-        DispatchQueue.main.async {
-            guard let window = field.window else { return }
+        DispatchQueue.main.async { [weak coordinator = context.coordinator] in
+            guard let window = field.window, let coordinator,
+                  coordinator.parent.profileEpoch == profileEpoch,
+                  coordinator.parent.focusRequest == focusRequest, focusStillValid() else { return }
             window.makeFirstResponder(field)
             field.currentEditor()?.selectAll(nil)
         }

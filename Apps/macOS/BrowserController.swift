@@ -4,6 +4,38 @@ import BrowserEngine
 import Observation
 import WebKit
 
+@MainActor @Observable final class BrowserProfileUI {
+    var address = ""
+    let addressMatches = AddressSuggestions()
+    var findText = ""
+    var findCaseSensitive = false
+    var showFind = false
+    var showProtection = false
+    var siteToForget: BrowserSite?
+    var showPasswords = false
+    var showSiteInfo = false
+    var showTabs = false
+    let pageChrome = PageChrome()
+    var closeOthers: UUID?
+    var closeToRight = false
+    var settledQuery = ""
+
+    func dismissPresentations() {
+        showProtection = false
+        siteToForget = nil
+        showPasswords = false
+        showSiteInfo = false
+        showTabs = false
+        closeOthers = nil
+        closeToRight = false
+    }
+}
+
+struct ProfileScoped<Value: Equatable>: Equatable {
+    let owner: UUID
+    let value: Value
+}
+
 @MainActor @Observable
 final class BrowserController {
     let profile: BrowserProfile?
@@ -13,6 +45,24 @@ final class BrowserController {
     let downloads = DownloadManager()
     let sidebar = SidebarPresentation()
     let sidebarTooltip = SidebarTooltip()
+    let profileUI = BrowserProfileUI()
+
+    func scoped<Value: Equatable>(_ value: Value) -> ProfileScoped<Value> {
+        ProfileScoped(owner: sidebarDragID, value: value)
+    }
+
+    func leaveProfile() {
+        // Resign the old field editor while its bindings still target this profile.
+        sidebarWindow?.makeFirstResponder(nil)
+        sidebarWindow = nil
+        sidebar.cancel()
+        sidebarTooltip.dismiss()
+        tabSearchReturnFocus = nil
+        tabSearchPanel = false
+        sidebar.searchOpen = false
+        profileUI.dismissPresentations()
+        profileUI.pageChrome.observe(nil)
+    }
     var compactSidebar: Bool {
         get { sidebar.preferredRail }
         set {
@@ -150,8 +200,7 @@ final class BrowserController {
     func newTab(isPrivate: Bool? = nil) { session.addTab(isPrivate: isPrivate ?? session.selectedTab?.isPrivate ?? session.isExternalPrivate); focusAddress() }
     func focusAddress() { addressFocusRequest += 1 }
     func prepareForProfileSwitch() {
-        // The keyed window creates a new address field when this profile is selected.
-        // Only requests made after selection should reach that new field.
+        // Only requests made after selection should reach the retained address field.
         addressFocusRequestAtProfileSwitch = addressFocusRequest
     }
     func closeTabOrPanel() {

@@ -35,7 +35,7 @@ import Observation
     @ObservationIgnored private var deleting: Set<UUID> = []
     @ObservationIgnored private var selectionSave: Task<Void, Never>?
     @ObservationIgnored private var selectionNeedsSave = false
-    @ObservationIgnored private var profilePreviews: [UUID: ProfileSidebarPreview] = [:]
+    private var profilePreviews: [UUID: ProfileSidebarPreview] = [:]
     let sidebarSwitch = ProfileSidebarSwitch()
     var profileSwipePreference: ProfileSwipePreference {
         didSet { linkDefaults?.set(profileSwipePreference.rawValue, forKey: ProfileSwipePreference.key) }
@@ -98,6 +98,7 @@ import Observation
     private func finishDeletedProfiles() {
         if continuity.state.isProfileDeleted(active.id) {
             let old = controller
+            old.leaveProfile()
             registry.activeID = BrowserProfile.personalID
             if let personal = try? obtain(BrowserProfile.personalID) {
                 personal.prepareForProfileSwitch()
@@ -205,6 +206,13 @@ import Observation
         source === controller && !source.session.isExternalPrivate && source.profile != nil && available.count > 1
     }
 
+    func swipeNeighbors(from source: BrowserController) -> (previous: BrowserProfile?, next: BrowserProfile?) {
+        guard source === controller, !source.session.isExternalPrivate else { return (nil, nil) }
+        let profiles = available
+        guard let index = profiles.firstIndex(where: { $0.id == registry.activeID }) else { return (nil, nil) }
+        return (index > 0 ? profiles[index - 1] : nil, index + 1 < profiles.count ? profiles[index + 1] : nil)
+    }
+
     func relativeProfile(_ step: Int, wrapping: Bool) -> BrowserProfile? {
         let profiles = available
         guard profiles.count > 1, let index = profiles.firstIndex(where: { $0.id == active.id }) else { return nil }
@@ -215,7 +223,8 @@ import Observation
 
     func warmProfilePreviews() async {
         guard let root else { return }
-        let neighbors = [-1, 1].compactMap { relativeProfile($0, wrapping: false) }
+        let adjacent = swipeNeighbors(from: controller)
+        let neighbors = [adjacent.previous, adjacent.next].compactMap { $0 }
         profilePreviews = profilePreviews.filter { id, _ in neighbors.contains { $0.id == id } }
         for profile in neighbors where loadedController(profile.id) == nil {
             let directory = profile.directory(in: root)
@@ -251,6 +260,7 @@ import Observation
             // The synchronous path leaves the visible profile intact on a write failure.
             try commit(next)
         }
+        controller.leaveProfile()
         let persistence = ProfileSidebarSwitch.signposter.beginInterval("DeactivateAndFlush")
         let start = ProcessInfo.processInfo.systemUptime
         controller.session.saveNow()
@@ -379,7 +389,7 @@ import Observation
     }
 }
 
-private enum BrowserProfileOperationError: LocalizedError {
+enum BrowserProfileOperationError: LocalizedError {
     case unavailable(String)
     var errorDescription: String? { if case .unavailable(let message) = self { return message }; return nil }
 }

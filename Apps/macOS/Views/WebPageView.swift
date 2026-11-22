@@ -8,15 +8,17 @@ struct WebPageView: NSViewRepresentable {
     var contentUnderChrome = false
     var headerInset: CGFloat = 0
     var profileTransition = false
+    var profileEpoch: UUID? = nil
     var fullscreenChanged: ((Bool) -> Void)? = nil
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.browserReduceMotion) private var reduceMotion
 
-    func makeNSView(context: Context) -> WebViewHost { WebViewHost(webView: tab.webView, tab: tab, profileTransition: profileTransition) }
+    func makeNSView(context: Context) -> WebViewHost { WebViewHost(webView: tab.webView, tab: tab, profileTransition: profileTransition, profileEpoch: profileEpoch) }
     static func dismantleNSView(_ host: WebViewHost, coordinator: ()) { host.switchCover.cancel() }
     func updateNSView(_ host: WebViewHost, context: Context) {
         host.fullscreenChanged = fullscreenChanged
-        host.setTab(tab); host.headerInset = headerInset; host.onGeometryChange = { chrome?.requestSample() }
         host.switchCover.reduceMotion = reduceMotion
+        host.setTab(tab, profileEpoch: profileEpoch)
+        host.headerInset = headerInset; host.onGeometryChange = { chrome?.requestSample() }
         host.clipsToBounds = !contentUnderChrome; host.attachIfWindowed(); host.needsLayout = true
     }
 }
@@ -31,13 +33,16 @@ final class WebViewHost: NSView {
     var fullscreenChanged: ((Bool) -> Void)?
     private var fullscreenObservation: NSKeyValueObservation?
     private weak var pendingTab: BrowserTab?
+    private var pendingProfileEpoch: UUID?
+    private var profileEpoch: UUID?
     private var closingPresentation = false
     private weak var tab: BrowserTab?
     let switchCover = TabSwitchCover()
 
-    init(webView: WKWebView, tab: BrowserTab? = nil, profileTransition: Bool = false) {
+    init(webView: WKWebView, tab: BrowserTab? = nil, profileTransition: Bool = false, profileEpoch: UUID? = nil) {
         self.webView = webView
         self.tab = tab
+        self.profileEpoch = profileEpoch
         super.init(frame: .zero)
         clipsToBounds = true
         switchCover.fadesWhenReady = profileTransition
@@ -46,7 +51,7 @@ final class WebViewHost: NSView {
         if let tab { switchCover.begin(tab,in:webView,waitForLayout:true) }
         observeFullscreen()
     }
-    func setTab(_ tab:BrowserTab) {
+    func setTab(_ tab: BrowserTab, profileEpoch: UUID? = nil) {
         // A retained SwiftUI graph can receive one final update after close.
         // Do not invoke that same tab's lazy getter and resurrect its view.
         if self.tab === tab && !tab.isInstantiated { return }
@@ -57,6 +62,7 @@ final class WebViewHost: NSView {
             // changing children. Rapid selection keeps only the latest target.
             if webView.fullscreenState != .notInFullscreen {
                 pendingTab = tab
+                pendingProfileEpoch = profileEpoch
                 guard !closingPresentation else { return }
                 closingPresentation = true
                 let outgoing = webView
@@ -71,7 +77,8 @@ final class WebViewHost: NSView {
             fullscreenObservation = nil
             webView.removeFromSuperview()
             webView = view; self.tab = tab
-            switchCover.fadesWhenReady = false
+            switchCover.fadesWhenReady = self.profileEpoch != profileEpoch
+            self.profileEpoch = profileEpoch
             attachIfWindowed(); switchCover.begin(tab,in:view,waitForLayout:true); needsLayout = true; observeFullscreen()
         } else { pendingTab = nil }
         switchCover.confirmIfReady(tab)
@@ -80,7 +87,7 @@ final class WebViewHost: NSView {
         guard webView.fullscreenState == .notInFullscreen, let pendingTab else { return }
         self.pendingTab = nil; closingPresentation = false
         guard pendingTab.isInstantiated else { return }
-        setTab(pendingTab)
+        setTab(pendingTab, profileEpoch: pendingProfileEpoch)
     }
     private func observeFullscreen() {
         fullscreenObservation = webView.observe(\.fullscreenState, options: [.new]) { [weak self] _, _ in
@@ -142,36 +149,88 @@ final class WebViewHost: NSView {
     }
 }
 
+/// The start page has no WebKit cover. Reveal it over its own window canvas.
+struct HomeProfileFade: NSViewRepresentable {
+    let epoch: UUID
+    let color: Color
+    let startsOnMount: Bool
+    let reduceMotion: Bool
+
+    func makeNSView(context: Context) -> Veil {
+        let view = Veil()
+        view.wantsLayer = true
+        return view
+    }
+
+    func updateNSView(_ view: Veil, context: Context) {
+        let changed = view.epoch.map { $0 != epoch } ?? startsOnMount
+        view.epoch = epoch
+        guard changed, let layer = view.layer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.backgroundColor = NSColor(color).cgColor
+        layer.opacity = 0
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = reduceMotion ? 0.15 : 0.20
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(fade, forKey: "profileFade")
+        CATransaction.commit()
+    }
+
+    final class Veil: NSView {
+        var epoch: UUID?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
 /// A window-local bridge; never changes another window or the process appearance.
 struct BrowserTitlebar: NSViewRepresentable {
     var color: Color
     var reduceMotion = false
+    var profileEpoch: UUID? = nil
     func makeNSView(context: Context) -> TitlebarView { TitlebarView() }
     func updateNSView(_ view: TitlebarView, context: Context) {
         view.color = NSColor(color)
         view.reduceMotion = reduceMotion
-        view.configure()
+        view.profileEpoch = profileEpoch
+        view.scheduleConfigure()
     }
     final class TitlebarView: NSView {
         var color = NSColor.windowBackgroundColor
         var reduceMotion = false
+        var profileEpoch: UUID?
+        private var configuredProfile: UUID?
+        private var scheduled = false
         private var transitionTimer: Timer?
         private var transitionSource = NSColor.black
         private var transitionTarget: NSColor?
         private var transitionStart = 0.0
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); configure() }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); scheduleConfigure() }
+        func scheduleConfigure() {
+            guard !scheduled, window != nil else { return }
+            scheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.scheduled = false
+                self.configure()
+            }
+        }
         func configure() {
             guard let window else { return }
+            let profileChanged = configuredProfile != profileEpoch
+            configuredProfile = profileEpoch
             // BrowserWindowChrome owns transparency, including the opaque
             // fullscreen reveal host. Page-color changes must not reset it.
-            window.titlebarSeparatorStyle = .none
-            window.titleVisibility = .hidden
-            window.toolbarStyle = .unified
-            if reduceMotion {
+            if window.titlebarSeparatorStyle != .none { window.titlebarSeparatorStyle = .none }
+            if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
+            if window.toolbarStyle != .unified { window.toolbarStyle = .unified }
+            if reduceMotion || profileChanged {
                 transitionTimer?.invalidate()
                 transitionTimer = nil
                 transitionTarget = nil
-                window.backgroundColor = color
+                if window.backgroundColor != color { window.backgroundColor = color }
             } else if transitionTarget != color && window.backgroundColor != color {
                 transitionTimer?.invalidate()
                 transitionSource = window.backgroundColor.usingColorSpace(.sRGB) ?? .black
@@ -194,9 +253,9 @@ struct BrowserTitlebar: NSViewRepresentable {
             }
             let progress = min(1, (Date.timeIntervalSinceReferenceDate - transitionStart) / 0.2)
             let fraction = progress * progress * (3 - 2 * progress)
-            window.backgroundColor = transitionSource.blended(withFraction: fraction, of: target)
+            let next = progress >= 1 ? target : transitionSource.blended(withFraction: fraction, of: target)
+            if window.backgroundColor != next { window.backgroundColor = next }
             if progress >= 1 {
-                window.backgroundColor = target
                 transitionTimer?.invalidate()
                 transitionTimer = nil
             }

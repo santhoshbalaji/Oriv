@@ -46,6 +46,12 @@ struct ProfileSidebarPreview: Sendable {
         }
     }
 
+    func matches(_ other: Self) -> Bool {
+        selected == other.selected && rows.map(\.record) == other.rows.map(\.record) &&
+            rows.map(\.isPrivate) == other.rows.map(\.isPrivate) &&
+            icons.mapValues { ObjectIdentifier($0.image) } == other.icons.mapValues { ObjectIdentifier($0.image) }
+    }
+
     init(rows: [Row] = [], selected: UUID? = nil, icons: [String: SiteIcon] = [:]) {
         self.rows = rows; self.selected = selected; self.icons = icons
     }
@@ -58,7 +64,6 @@ struct ProfileSidebarPreviewArtwork: View {
     let preview: ProfileSidebarPreview
     let size: CGSize
     var query = ""
-    var tabListImage: NSImage?
     var profileTrailingInset: CGFloat = 0
 
     var body: some View {
@@ -77,11 +82,7 @@ struct ProfileSidebarPreviewArtwork: View {
             .background(theme.sidebar.field.opacity(0.7), in: .rect(cornerRadius: OrivRadius.small))
             .padding(.bottom, 10)
             GeometryReader { _ in
-                if let tabListImage {
-                    Image(nsImage: tabListImage).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                } else {
-                    list.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                }
+                list.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }.clipped()
             HStack(spacing: 8) {
                 Image(systemName: "plus").frame(width: 19)

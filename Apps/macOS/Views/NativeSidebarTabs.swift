@@ -72,7 +72,18 @@ struct NativeSidebarTabs: NSViewRepresentable {
         scroll.scrollerStyle = iconLayout ? .overlay : NSScroller.preferredScrollerStyle
         scroll.hasVerticalScroller = !iconLayout
         handle.collection = list
+        let profileChanged = context.coordinator.controller.map { $0 !== controller } ?? false
+        if profileChanged { list.resetKeyboardNavigation() }
         context.coordinator.update(self, environment: context.environment)
+        if iconLayout, profileChanged {
+            scroll.wantsLayer = true
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.15
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            scroll.layer?.add(fade, forKey: "profileRailFade")
+        }
         scroll.tile()
     }
 
@@ -257,7 +268,8 @@ private struct SidebarSection {
         let directionChanged = self.environment.layoutDirection != environment.layoutDirection
         let oldShown = selectedID
         let newSections = makeSections(value)
-        let changesContent = sections.map(\.kind) != newSections.map(\.kind) ||
+        let profileChanged = old?.controller !== value.controller
+        let changesContent = profileChanged || sections.map(\.kind) != newSections.map(\.kind) ||
             sections.map { $0.tabs.map(\.id) } != newSections.map { $0.tabs.map(\.id) }
         let newActive = value.controller.session.selectedTabID
         let changesActive = activeID != newActive
@@ -273,7 +285,7 @@ private struct SidebarSection {
         if changesLayout || changesContent || oldSize != environment.dynamicTypeSize || directionChanged {
             list.collectionViewLayout?.invalidateLayout()
         }
-        if changesLayout || changesActive {
+        if changesLayout || changesActive || profileChanged {
             cancelPreview()
             select(newActive, reveal: true)
         } else if changesContent {
@@ -592,6 +604,11 @@ final class SidebarTabCollection: NSCollectionView {
     private func updateFocusRing() {
         guard let path = selectionIndexPaths.first, let item = item(at: path) as? SidebarCollectionItem else { return }
         item.updateFocusRing()
+    }
+
+    func resetKeyboardNavigation() {
+        keyboardNavigation = false
+        updateFocusRing()
     }
 
     func updateFocusInput(for event: NSEvent) {

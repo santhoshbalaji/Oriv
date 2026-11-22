@@ -23,23 +23,13 @@ struct BrowserWindow: View {
     @State private var sidebarTabs = SidebarListHandle()
     @FocusState private var sidebarHeaderToggleFocused: Bool
     @State private var sidebarContainsKeyboardFocus = false
-    @State private var address = ""
-    @State private var findText = ""
-    @State private var showFind = false
-    @State private var showProtection = false
-    @State private var siteToForget: BrowserSite?
-    @State private var showPasswords = false
-    @State private var showSiteInfo = false
-    @State private var findCaseSensitive = false
     @State private var addressFocused = false
-    @State private var addressMatches = AddressSuggestions()
-    @State private var pageChrome = PageChrome()
-    @State private var showTabs = false
     @FocusState private var findFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
+    private var ui: BrowserProfileUI { controller.profileUI }
     private var session: BrowserSession { controller.session }
     private var tab: BrowserTab? { session.selectedTab }
     private var showsExternalPrivateBar: Bool { session.isExternalPrivate && profiles?.externalBannerVisible == true }
@@ -59,14 +49,14 @@ struct BrowserWindow: View {
         return min(ceil(width) + 4, max(60, addressWidth - 180))
     }
     private var emptyPageColor: ChromeColor { PageChrome.resolveCanvas(theme.page, scheme: colorScheme) }
-    private var contentUnderChrome: Bool { pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
-    private var chromeForeground: Color { pageChrome.foreground }
-    private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark) }
-    private var privateCue: Color { pageChrome.contrasting(pageChrome.isDark ? Theme.privateDark : Theme.privateLight) }
+    private var contentUnderChrome: Bool { ui.pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
+    private var chromeForeground: Color { ui.pageChrome.foreground }
+    private var chromeGlass: MacAddressGlass { MacAddressGlass(color: ui.pageChrome.color, isDark: ui.pageChrome.isDark) }
+    private var privateCue: Color { ui.pageChrome.contrasting(ui.pageChrome.isDark ? Theme.privateDark : Theme.privateLight) }
 
     private var sceneContent: some View {
         routedContent
-            .background(BrowserKeyRouter(session: session, overviewVisible: showTabs))
+            .background(BrowserKeyRouter(session: session, overviewVisible: ui.showTabs))
             .environment(\.siteIcons, session.siteIcons)
             .focusedSceneValue(\.browserController, controller)
     }
@@ -74,27 +64,51 @@ struct BrowserWindow: View {
     private var windowLifecycle: some View {
         sceneContent
             .onAppear(perform: prepareWindow)
-            .task(id: "\(address)-\(addressFocused)-\(session.selectedTabID?.uuidString ?? "")-\(session.forgottenSiteRevision)") {
-                await addressMatches.update(addressFocused ? address : "", session: session, isPrivate: tab?.isPrivate == true)
+            .task(id: controller.scoped("\(ui.address)-\(addressFocused)-\(session.selectedTabID?.uuidString ?? "")-\(session.forgottenSiteRevision)")) {
+                await ui.addressMatches.update(addressFocused ? ui.address : "", session: session, isPrivate: tab?.isPrivate == true)
             }
-            .onChange(of: session.selectedTabID) { _, _ in addressFocused = false; syncAddress(); showFind = false; showSiteInfo = false; showProtection = false }
-            .onChange(of: tab?.url) { _, _ in if !addressFocused { syncAddress() } }
+            .onChange(of: controller.sidebarDragID) { _, _ in
+                addressFocused = false
+                findFocused = false
+                sidebarHeaderToggleFocused = false
+                sidebarContainsKeyboardFocus = false
+                peekReturnFocus = nil
+                session.activateSelectedTab()
+                syncAddress()
+            }
+            .onChange(of: controller.scoped(session.selectedTabID)) { old, new in
+                guard old.owner == new.owner else { return }
+                addressFocused = false; syncAddress()
+                ui.showFind = false; ui.showSiteInfo = false; ui.showProtection = false
+            }
+            .onChange(of: controller.scoped(tab?.url)) { old, new in
+                if old.owner == new.owner, !addressFocused { syncAddress() }
+            }
     }
 
     var body: some View {
         windowLifecycle
-            .onChange(of: controller.findRequest) { _, _ in showFind = true; findFocused = true }
-            .onChange(of: controller.findNextRequest) { _, _ in
-                showFind = true
-                if findText.isEmpty { findFocused = true }
-                else { tab?.find(findText, backwards: controller.findBackwards, caseSensitive: findCaseSensitive) }
+            .onChange(of: controller.scoped(controller.findRequest)) { old, new in
+                guard old.owner == new.owner else { return }
+                ui.showFind = true
+                findFocused = true
             }
-            .onChange(of: controller.passwordsGuideRequest) { _, _ in showPasswords = true }
+            .onChange(of: controller.scoped(controller.findNextRequest)) { old, new in
+                guard old.owner == new.owner else { return }
+
+                ui.showFind = true
+                if ui.findText.isEmpty { findFocused = true }
+                else { tab?.find(ui.findText, backwards: controller.findBackwards, caseSensitive: ui.findCaseSensitive) }
+            }
+            .onChange(of: controller.scoped(controller.passwordsGuideRequest)) { old, new in
+                guard old.owner == new.owner else { return }
+                ui.showPasswords = true
+            }
             .onChange(of: scenePhase) { _, phase in if phase != .active { session.saveNow() } }
-            .task(id: selectedPage) { observeSelectedPage() }
-            .onChange(of: emptyPageColor, initial: true) { _, color in pageChrome.setEmptyPageColor(color) }
-            .onChange(of: colorScheme) { _, _ in pageChrome.requestSample() }
-            .onDisappear { pageChrome.observe(nil) }
+            .task(id: controller.scoped(selectedPage)) { observeSelectedPage() }
+            .onChange(of: controller.scoped(emptyPageColor), initial: true) { _, color in ui.pageChrome.setEmptyPageColor(color.value) }
+            .onChange(of: colorScheme) { _, _ in ui.pageChrome.requestSample() }
+            .onDisappear { ui.pageChrome.observe(nil) }
     }
 
     private func prepareWindow() {
@@ -126,9 +140,9 @@ struct BrowserWindow: View {
         let selected = tab
         let isPrivate = selected?.isPrivate == true
         if let selected, selected.url != nil || selected.hasLoaded {
-            pageChrome.observe(selected.webView, isPrivate: isPrivate)
+            ui.pageChrome.observe(selected.webView, isPrivate: isPrivate)
         } else {
-            pageChrome.observe(nil, isPrivate: isPrivate)
+            ui.pageChrome.observe(nil, isPrivate: isPrivate)
         }
     }
 
@@ -157,30 +171,37 @@ struct BrowserWindow: View {
             windowWidth = $0
         }
         .onAppear { sidebarClipWidth = controller.sidebar.width }
-        .onChange(of: controller.sidebar.transition) { previous, next in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: previous.peeking || next.peeking ? 0.18 : 0.2)) {
-                sidebarClipWidth = next.width
+        .onChange(of: controller.scoped(controller.sidebar.transition)) { previous, next in
+            withAnimation(reduceMotion || previous.owner != next.owner ? nil : .easeOut(duration: previous.value.peeking || next.value.peeking ? 0.18 : 0.2)) {
+                sidebarClipWidth = next.value.width
             }
         }
-        .onChange(of: controller.sidebar.peeking) { _, open in
+        .onChange(of: controller.scoped(controller.sidebar.peeking)) { old, new in
+            guard old.owner == new.owner else { return }
+            let open = new.value
             if open { peekReturnFocus = windowContext.window?.firstResponder }
             else if sidebarContainsKeyboardFocus {
                 if let peekReturnFocus { windowContext.window?.makeFirstResponder(peekReturnFocus) }
                 peekReturnFocus = nil
             }
         }
-        .onChange(of: controller.sidebarToggleRequest) { _, _ in toggleSidebar() }
-        .onChange(of: controller.tabSearchPanel) { _, open in
+        .onChange(of: controller.scoped(controller.sidebarToggleRequest)) { old, new in
+            guard old.owner == new.owner else { return }
+            toggleSidebar()
+        }
+        .onChange(of: controller.scoped(controller.tabSearchPanel)) { old, new in
+            guard old.owner == new.owner else { return }
+            let open = new.value
             if !open { restoreSearchFocus() }
         }
         .onDisappear { controller.sidebar.cancel(); controller.sidebarTooltip.dismiss() }
         .background(SidebarWindowEvents(controller: controller, profiles: controller === profiles?.controller ? profiles : nil, tabList: sidebarTabs, layoutDirection: layoutDirection, dismiss: dismissSidebarOverlay))
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
-        .background(pageChrome.color, ignoresSafeAreaEdges: [])
-        .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor))
+        .background(ui.pageChrome.color, ignoresSafeAreaEdges: [])
+        .background(BrowserTitlebar(color: ui.pageChrome.color, reduceMotion: reduceMotion || !ui.pageChrome.animatesColor, profileEpoch: controller.sidebarDragID))
         .background(BrowserWindowChrome(windowContext: windowContext, compact: controller.sidebar.reservesRail,
             initialContentFocus: tab?.url != nil || tab?.hasLoaded == true ? tab?.webView : nil,
-            shouldApplyProfileSwitchFocus: profileSwitchFocus,
+            shouldApplyProfileSwitchFocus: profileSwitchFocus, profileEpoch: controller.sidebarDragID,
             externalPresentationRequest: session.isExternalPrivate ? profiles?.externalPresentationRequest : nil,
             stateChanged: { fullscreen = $0; windowActive = $1 },
             contentWidthChanged: { controller.sidebar.resize(availableWidth: $0) }))
@@ -208,7 +229,7 @@ struct BrowserWindow: View {
         }
         .overlayPreferenceValue(MacAddressBounds.self) { anchor in
             GeometryReader { geometry in
-                if let anchor, addressFocused && !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let anchor, addressFocused && !ui.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     let rect = geometry[anchor]
                     let leading = layoutDirection == .rightToLeft ? geometry.size.width - rect.maxX : rect.minX
                     addressSuggestions.frame(width: rect.width)
@@ -258,7 +279,7 @@ struct BrowserWindow: View {
         controller.tabSearchReturnFocus = nil
         let window = windowContext.window
         DispatchQueue.main.async {
-            guard !controller.tabSearchPanel else { return }
+            guard controller.session.isProfileActive, !controller.tabSearchPanel else { return }
             window?.makeFirstResponder(target)
         }
     }
@@ -303,6 +324,7 @@ struct BrowserWindow: View {
         controller.toggleSidebar()
         if returnFocus {
             DispatchQueue.main.async {
+                guard controller.session.isProfileActive else { return }
                 sidebarHeaderToggleFocused = true
             }
         }
@@ -318,9 +340,9 @@ struct BrowserWindow: View {
             toolbarMenu
         }
         .padding(.horizontal, 12).frame(height: MacBrowserLayout.headerHeight)
-        .background(pageChrome.color)
+        .background(ui.pageChrome.color)
         .background(BrowserDragRegion())
-        .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+        .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
         .accessibilityIdentifier("mainTopBar")
         .browserGeometryMarker("browserTopBarGeometry")
     }
@@ -334,24 +356,25 @@ struct BrowserWindow: View {
                     .disabled(tab?.canGoForward != true).help("Forward (⌘])").accessibilityLabel("Forward")
                     .foregroundStyle(chromeForeground)
                 }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
-                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+                    .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
     }
 
     private var addressCapsule: some View {
-                HStack(spacing: 7) {
+        @Bindable var ui = self.ui
+        return HStack(spacing: 7) {
                     if tab?.isPrivate == true {
                         Image(systemName: "eyeglasses").font(OrivType.detail)
                             .foregroundStyle(privateCue).accessibilityLabel("Private browsing")
                     }
                     if let tab, tab.url != nil {
                         let cue = ConnectionCue(tab)
-                        Button { showSiteInfo.toggle() } label: {
+                        Button { ui.showSiteInfo.toggle() } label: {
                             HStack(spacing: OrivSpacing.xs) {
                                 Image(systemName: cue.symbol)
                                 if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
                             }.font(OrivType.detail).foregroundStyle(chromeForeground).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
                         }.buttonStyle(MacChromeButtonStyle()).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
-                            .popover(isPresented: $showSiteInfo) {
+                            .popover(isPresented: $ui.showSiteInfo) {
                                 SiteInformationView(session: session, tab: tab)
                                     .preferredColorScheme(colorScheme)
                                     .environment(\.colorScheme, colorScheme)
@@ -360,15 +383,16 @@ struct BrowserWindow: View {
                         Image(systemName: "magnifyingglass").font(OrivType.detail)
                             .foregroundStyle(chromeForeground).accessibilityHidden(true)
                     }
-                    AddressField(text: $address, isEditing: $addressFocused,
+                    AddressField(text: $ui.address, isEditing: $addressFocused,
                                  placeholder: "Search or enter website",
                                  displayText: compactAddress,
                                  foreground: chromeForeground,
-                                 focusRequest: controller.activeAddressFocusRequest, submit: {
-                            if addressMatches.query == address, let index = addressMatches.selected, suggestions.indices.contains(index) { chooseSuggestion(suggestions[index]); return true }
-                            controller.navigate(address)
+                                 focusRequest: controller.activeAddressFocusRequest,
+                                 profileEpoch: controller.sidebarDragID, focusStillValid: { controller.session.isProfileActive }, submit: {
+                            if ui.addressMatches.query == ui.address, let index = ui.addressMatches.selected, suggestions.indices.contains(index) { chooseSuggestion(suggestions[index]); return true }
+                            controller.navigate(ui.address)
                             return controller.addressError == nil
-                        }, cancel: { syncAddress() }, completion: addressMatches.completion, hasSelectedSuggestion: addressMatches.selected != nil && addressMatches.query == address, moveSelection: { addressMatches.move($0) })
+                        }, cancel: { syncAddress() }, completion: ui.addressMatches.completion, hasSelectedSuggestion: ui.addressMatches.selected != nil && ui.addressMatches.query == ui.address, moveSelection: { ui.addressMatches.move($0) })
                         .frame(width: compactAddressWidth, height: 20)
                         .frame(maxWidth: compactAddressWidth == nil ? .infinity : nil)
                 }
@@ -394,25 +418,26 @@ struct BrowserWindow: View {
                 }
                 .foregroundStyle(chromeForeground)
                 .modifier(chromeGlass)
-                .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+                .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
                 .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
                 .browserGeometryMarker("browserAddressGeometry")
     }
 
     // Site privacy shares the content header's glass and adaptive foreground.
     private var toolbarActions: some View {
-        HStack(spacing: 2) {
+        @Bindable var ui = self.ui
+        return HStack(spacing: 2) {
             if showsToolbarDownloads && showsExpandedToolbarActions {
                 Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
                     .labelStyle(.iconOnly).help("View downloads in progress")
             }
-            Button { showProtection.toggle() } label: {
+            Button { ui.showProtection.toggle() } label: {
                 Image(systemName: "shield.lefthalf.filled").frame(width: 28, height: 28).foregroundStyle(chromeForeground)
             }
             .help("Site Privacy").accessibilityLabel("Site Privacy")
             .accessibilityIdentifier("sitePrivacyButton")
             .browserGeometryMarker("browserPrivacyGeometry")
-            .popover(isPresented: $showProtection) {
+            .popover(isPresented: $ui.showProtection) {
                 AdBlockingPopover(session: session)
                     .preferredColorScheme(colorScheme)
                     .environment(\.colorScheme, colorScheme)
@@ -422,20 +447,21 @@ struct BrowserWindow: View {
                     ShareLink(item: URLCleaner.clean(url)) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                         .help("Share Page").accessibilityLabel("Share Page")
                 }
-                Button { showTabs = true } label: { Image(systemName: "square.on.square").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
+                Button { ui.showTabs = true } label: { Image(systemName: "square.on.square").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
                     .help("Tab Overview").accessibilityLabel("Tab Overview")
                     .browserGeometryMarker("browserOverviewGeometry")
             }
         }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
-            .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+            .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
     }
 
     private var toolbarMenu: some View {
-        MacPageMenu {
+        @Bindable var ui = self.ui
+        return MacPageMenu {
             MacPageActions(controller: controller, profiles: profiles,
-                findOnPage: { showFind = true; findFocused = true },
-                showSitePrivacy: { showProtection = true }, showPasswordsGuide: { showPasswords = true },
-                requestSiteForget: { siteToForget = $0 })
+                findOnPage: { ui.showFind = true; findFocused = true },
+                showSitePrivacy: { ui.showProtection = true }, showPasswordsGuide: { ui.showPasswords = true },
+                requestSiteForget: { ui.siteToForget = $0 })
         } label: {
             Image(systemName: "ellipsis")
                 .frame(width: 36, height: 32)
@@ -444,15 +470,16 @@ struct BrowserWindow: View {
         .help("Browser Actions").accessibilityLabel("Browser Actions")
         .accessibilityIdentifier("browserPageMenu")
         .foregroundStyle(chromeForeground)
-        .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+        .environment(\.colorScheme, ui.pageChrome.isDark ? .dark : .light)
         .browserGeometryMarker("browserPageMenuGeometry")
-        .popover(isPresented: $showPasswords) { PasswordsGuide(compact: true) }
+        .popover(isPresented: $ui.showPasswords) { PasswordsGuide(compact: true) }
     }
 
     private var panels: some View {
-        shell
-        .sheet(isPresented: $showTabs) {
-            MacTabOverview(session: session) { showTabs = false }
+        @Bindable var ui = self.ui
+        return shell
+        .sheet(isPresented: $ui.showTabs) {
+            MacTabOverview(session: session) { ui.showTabs = false }
         }
         .sheet(item: $controller.library) { section in
             LibraryView(controller: controller, profiles: profiles, section: section)
@@ -469,7 +496,7 @@ struct BrowserWindow: View {
         .alert("Browser", isPresented: Binding(get: { controller.browserError != nil }, set: { if !$0 { controller.browserError = nil } })) {
             Button("OK") { controller.browserError = nil }
         } message: { Text(controller.browserError ?? "") }
-        .forgetSiteAlert($siteToForget, session: session) { controller.browserError = $0 }
+        .forgetSiteAlert($ui.siteToForget, session: session) { controller.browserError = $0 }
     }
 
     private var routedContent: some View {
@@ -480,7 +507,8 @@ struct BrowserWindow: View {
     }
 
     private var page: some View {
-            VStack(spacing: 0) {
+        @Bindable var ui = self.ui
+        return VStack(spacing: 0) {
                 if showsExternalPrivateBar, let profiles {
                     ExternalPrivateBar(sourceName: profiles.externalSourceName, profiles: profiles.available,
                         selection: Binding(get: { profiles.externalMoveProfileID }, set: { profiles.externalMoveProfileID = $0 }),
@@ -512,18 +540,18 @@ struct BrowserWindow: View {
                     .background(theme.field)
                     .accessibilityElement(children: .combine)
                 }
-                if showFind {
+                if ui.showFind {
                     HStack {
                         Image(systemName: "magnifyingglass").foregroundStyle(theme.secondaryText)
-                        TextField("Find in page", text: $findText)
+                        TextField("Find in page", text: $ui.findText)
                             .textFieldStyle(.plain).focused($findFocused)
-                            .onSubmit { tab?.find(findText, caseSensitive: findCaseSensitive) }
-                            .onExitCommand { showFind = false; tab?.clearFind() }
+                            .onSubmit { tab?.find(ui.findText, caseSensitive: ui.findCaseSensitive) }
+                            .onExitCommand { ui.showFind = false; tab?.clearFind() }
                         if tab?.findResult == false { Text("No match").font(.caption).foregroundStyle(theme.secondaryText) }
-                        Toggle("Match case", isOn: $findCaseSensitive).toggleStyle(.checkbox)
-                        Button { tab?.find(findText, backwards: true, caseSensitive: findCaseSensitive) } label: { Image(systemName: "chevron.up") }.accessibilityLabel("Find previous").disabled(findText.isEmpty)
-                        Button { tab?.find(findText, caseSensitive: findCaseSensitive) } label: { Image(systemName: "chevron.down") }.accessibilityLabel("Find next").disabled(findText.isEmpty)
-                        Button { showFind = false; tab?.clearFind() } label: { Image(systemName: "xmark") }
+                        Toggle("Match case", isOn: $ui.findCaseSensitive).toggleStyle(.checkbox)
+                        Button { tab?.find(ui.findText, backwards: true, caseSensitive: ui.findCaseSensitive) } label: { Image(systemName: "chevron.up") }.accessibilityLabel("Find previous").disabled(ui.findText.isEmpty)
+                        Button { tab?.find(ui.findText, caseSensitive: ui.findCaseSensitive) } label: { Image(systemName: "chevron.down") }.accessibilityLabel("Find next").disabled(ui.findText.isEmpty)
+                        Button { ui.showFind = false; tab?.clearFind() } label: { Image(systemName: "xmark") }
                             .buttonStyle(.borderless).accessibilityLabel("Close find bar")
                     }
                     .padding(10)
@@ -559,26 +587,35 @@ struct BrowserWindow: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(pageChrome.color, ignoresSafeAreaEdges: [])
+            .background(ui.pageChrome.color, ignoresSafeAreaEdges: [])
     }
 
     @ViewBuilder private func tabContent(_ tab: BrowserTab) -> some View {
         if tab.isResettingSiteData {
             Color.clear
         } else if tab.url != nil || tab.hasLoaded {
-            WebPageView(tab: tab, chrome: pageChrome, contentUnderChrome: contentUnderChrome, headerInset: MacBrowserLayout.headerHeight, profileTransition: profiles?.sidebarSwitch.isPresenting(controller.profile?.id) == true, fullscreenChanged: { controller.sidebar.fullscreen($0) })
+            WebPageView(tab: tab, chrome: ui.pageChrome, contentUnderChrome: contentUnderChrome, headerInset: MacBrowserLayout.headerHeight, profileTransition: profiles?.sidebarSwitch.isPresenting(controller.profile?.id) == true, profileEpoch: controller.sidebarDragID, fullscreenChanged: { controller.sidebar.fullscreen($0) })
                 .scrollEdgeEffectStyle(.automatic, for: .top)
 
         }
-        else { StartPage(controller: controller, isPrivate: tab.isPrivate) }
+        else {
+            StartPage(controller: controller, isPrivate: tab.isPrivate)
+                .overlay {
+                    HomeProfileFade(epoch: controller.sidebarDragID, color: ui.pageChrome.color,
+                                    startsOnMount: profiles?.sidebarSwitch.isPresenting(controller.profile?.id) == true,
+                                    reduceMotion: reduceMotion)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+        }
     }
 
-    private var suggestions: [BrowserSuggestion] { addressMatches.rows }
+    private var suggestions: [BrowserSuggestion] { ui.addressMatches.rows }
     private var addressSuggestions: some View {
-        AddressSuggestionList(suggestions: suggestions, selectedIndex: addressMatches.selected, address: address,
+        AddressSuggestionList(suggestions: suggestions, selectedIndex: ui.addressMatches.selected, address: ui.address,
                               engine: session.settings.searchEngine, isPrivate: tab?.isPrivate == true,
                               choose: chooseSuggestion,
-                              submit: { controller.navigate(address); if controller.addressError == nil { addressFocused = false; NSApp.keyWindow?.makeFirstResponder(nil) } })
+                              submit: { controller.navigate(ui.address); if controller.addressError == nil { addressFocused = false; NSApp.keyWindow?.makeFirstResponder(nil) } })
     }
     private func chooseSuggestion(_ match: BrowserSuggestion) {
         addressFocused = false
@@ -586,7 +623,7 @@ struct BrowserWindow: View {
         if let id = match.tabID { session.selectTab(id) } else { controller.navigate(match.url.absoluteString) }
         syncAddress()
     }
-    private func syncAddress() { address = tab?.url?.absoluteString ?? "" }
+    private func syncAddress() { ui.address = tab?.url?.absoluteString ?? "" }
 
     private func noticeBar(_ message: String, symbol: String, isWarning: Bool = true, dismiss: @escaping () -> Void) -> some View {
         HStack {

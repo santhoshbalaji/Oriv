@@ -79,8 +79,7 @@ struct ProfileSidebarSwipeRegion: NSViewRepresentable {
     }
 }
 
-/// The regular scene owns the input monitor and artwork host outside the keyed
-/// BrowserWindow, so both survive the profile switch.
+/// The regular scene owns the input monitor and artwork host for its window.
 struct ProfileSidebarOverlayHost: NSViewRepresentable {
     let profiles: BrowserProfiles
 
@@ -132,8 +131,7 @@ class ProfileSidebarScrollView: NSScrollView {
     }
 }
 
-/// Owned by the profile manager so the overlay and scroll phase survive the
-/// keyed BrowserWindow rebuild. Only the covering flag changes SwiftUI state.
+/// Owns the sidebar overlay and scroll phase across profile changes.
 @MainActor @Observable final class ProfileSidebarSwitch {
     enum Input: String { case monitor, scrollView }
 
@@ -149,6 +147,45 @@ class ProfileSidebarScrollView: NSScrollView {
     @ObservationIgnored var springCommitted: (() -> Void)?
     @ObservationIgnored var selectTurnMeasured: ((Double) -> Void)?
     @ObservationIgnored private var selectionPending = false
+    @ObservationIgnored private var transitionTarget: UUID?
+    @ObservationIgnored private var transitionTime: TimeInterval = 0
+    @ObservationIgnored private var gestureNeighbors: (previous: BrowserProfile?, next: BrowserProfile?) = (nil, nil)
+    @ObservationIgnored private var artworkTask: Task<Void, Never>?
+    @ObservationIgnored private var artworkNeedsRefresh = true
+    @ObservationIgnored private var artworkGeometry: ArtworkGeometry?
+    @ObservationIgnored private var artworkCache: [UUID: CachedArtwork] = [:]
+    @ObservationIgnored private(set) var fallbackClearCount = 0
+
+    private struct ArtworkGeometry: Equatable {
+        let size: CGSize
+        let scale: CGFloat
+        let inset: CGFloat
+        let scheme: ColorScheme
+        let contrast: ColorSchemeContrast
+        let direction: LayoutDirection
+        let typeSize: DynamicTypeSize
+        let customTheme: Bool
+
+        @MainActor init(_ anchor: ProfileSidebarAnchor.Anchor) {
+            let environment = anchor.environment
+            size = anchor.bounds.size
+            scale = anchor.window?.backingScaleFactor ?? 2
+            inset = anchor.profileTrailingInset
+            scheme = environment.colorScheme
+            contrast = environment.colorSchemeContrast
+            direction = environment.layoutDirection
+            typeSize = environment.dynamicTypeSize
+            customTheme = environment.browserTheme.isT3Code
+        }
+    }
+
+    private struct CachedArtwork {
+        let profile: BrowserProfile
+        let preview: ProfileSidebarPreview
+        let query: String
+        let appearance: BrowserAppearance
+        let image: CGImage?
+    }
     @ObservationIgnored private var mountInterval: OSSignpostIntervalState?
     @ObservationIgnored private var overlay: ProfileSidebarOverlay?
     @ObservationIgnored private var swipe = ProfileSwipe()
@@ -156,6 +193,7 @@ class ProfileSidebarScrollView: NSScrollView {
     @ObservationIgnored private var settled = false
     @ObservationIgnored private var waitingForProfile: UUID?
     @ObservationIgnored private var gestureWidth: CGFloat = 0
+    @ObservationIgnored private var gestureArtworkCompatible = false
     @ObservationIgnored private var gestureMirror: CGFloat = 1
     @ObservationIgnored private let routedEvents = NSMapTable<NSEvent, NSNumber>(
         keyOptions: [.weakMemory, .objectPointerPersonality], valueOptions: .strongMemory)
@@ -163,22 +201,25 @@ class ProfileSidebarScrollView: NSScrollView {
     func cancel(in window: NSWindow, includingSettle: Bool = true) {
         guard overlay?.window === window, includingSettle || overlay?.isSettling == false else { return }
         settleToken = UUID()
-        swipe = ProfileSwipe()
+        if !selectionPending, overlay?.isSettling != true { swipe = ProfileSwipe() }
         clear()
     }
 
     func isPresenting(_ profileID: UUID?) -> Bool {
-        profileID != nil && overlay?.destinationProfile == profileID
+        profileID != nil && (overlay?.destinationProfile == profileID ||
+            (transitionTarget == profileID && ProcessInfo.processInfo.systemUptime - transitionTime < 0.4))
     }
 
     func attachHost(_ view: ProfileSidebarOverlayHost.Host) {
         host = view
+        scheduleArtwork()
     }
 
     func attach(_ view: ProfileSidebarAnchor.Anchor) {
         if let active = host?.profiles?.controller, view.controller !== active { return }
         anchor = view
         view.needsLayout = true
+        scheduleArtwork()
     }
 
     func attachRegion(_ view: ProfileSidebarSwipeRegion.Region) {
@@ -191,12 +232,14 @@ class ProfileSidebarScrollView: NSScrollView {
     }
 
     func anchorLaidOut(_ view: ProfileSidebarAnchor.Anchor) {
+        scheduleArtwork()
         guard view === anchor, view.bounds.width > 0, let waitingForProfile,
               view.controller?.profile?.id == waitingForProfile else { return }
         // The sibling collection view lays out in the same AppKit pass.
         DispatchQueue.main.async { [weak self, weak view] in
             guard let self, let view, self.anchor === view,
                   view.list?.collection?.window === view.window,
+                  view.list?.collection?.sidebar?.controller === view.controller,
                   self.waitingForProfile == waitingForProfile,
                   view.controller?.profile?.id == waitingForProfile else { return }
             self.waitingForProfile = nil
@@ -209,12 +252,27 @@ class ProfileSidebarScrollView: NSScrollView {
         let available = profiles.available.map(\.id)
         let forward = (available.firstIndex(of: target.id) ?? 0) > (available.firstIndex(of: profiles.active.id) ?? 0)
         let step = direction ?? (forward ? 1 : -1)
+        if host?.window == nil {
+            // Model-only callers have no render transaction to wait for.
+            try profiles.select(target.id, deferSelectionSave: true)
+            return
+        }
+        if let reason = profiles.switchBlocker { throw BrowserProfileOperationError.unavailable(reason) }
         if let anchor, anchor.controller === source, !source.sidebar.rail && !source.sidebar.peeking,
            let effect = prepare(profiles: profiles, anchor: anchor) {
-            effect.setImage(render(target, profiles: profiles, anchor: anchor), step: step)
-            commit(target, step: step, profiles: profiles)
-        } else {
-            try profiles.select(target.id, deferSelectionSave: true)
+            effect.setImage(cachedImage(target, anchor: anchor), step: step)
+        } else if overlay != nil {
+            settleToken = UUID()
+            clear()
+        }
+        requestOutgoingSnapshot(source)
+        commit(target, step: step, profiles: profiles)
+    }
+
+    private func requestOutgoingSnapshot(_ controller: BrowserController) {
+        DispatchQueue.main.async { [weak controller] in
+            guard let controller, controller.session.isProfileActive else { return }
+            controller.session.selectedTab?.captureProfileSwitchSnapshot()
         }
     }
 
@@ -253,7 +311,8 @@ class ProfileSidebarScrollView: NSScrollView {
             if selectionPending { return "selection-pending" }
             if !event.hasPreciseScrollingDeltas { return "non-precise" }
             if !profiles.profileSwipePreference.enabled(system: systemEnabled) { return "preference" }
-            if !profiles.canSwitchProfiles(from: source) { return "profile" }
+            if source !== profiles.controller || source.profile == nil ||
+                (gestureNeighbors.previous == nil && gestureNeighbors.next == nil) { return "profile" }
             if source.sidebar.rail || source.sidebar.peeking { return "collapsed-sidebar" }
             if source.sidebar.webpageFullscreen { return "webpage-fullscreen" }
             if source.sidebar.dragging { return "dragging" }
@@ -279,16 +338,17 @@ class ProfileSidebarScrollView: NSScrollView {
                 (anchor?.bounds.isEmpty ?? true) { return "anchor-reattaching" }
             return nil
         }
-        let reason = blocker()
         if phase == .began {
+            gestureNeighbors = profiles.swipeNeighbors(from: source)
             // If the prior horizontal gesture lost its terminal event, bring
             // its artwork home even when this new gesture locks vertically.
             if swipe.axis == .horizontal, overlay?.isSettling == false { settle(step: 0) }
+            gestureArtworkCompatible = anchor.map { ArtworkGeometry($0) == artworkGeometry } ?? false
             gestureWidth = anchor?.bounds.width ?? 0
             gestureMirror = anchor?.environment.layoutDirection == .rightToLeft ? -1 : 1
         }
-        let previous = profiles.relativeProfile(-1, wrapping: false)
-        let next = profiles.relativeProfile(1, wrapping: false)
+        let reason = blocker()
+        let (previous, next) = gestureNeighbors
         let axisBefore = swipe.axis
         let result = swipe.update(phase, dx: event.scrollingDeltaX * gestureMirror, dy: event.scrollingDeltaY,
                                   at: event.timestamp, eligible: reason == nil, width: gestureWidth,
@@ -298,23 +358,26 @@ class ProfileSidebarScrollView: NSScrollView {
             Self.diagnostics.notice("source=\(input.rawValue, privacy: .public) phase=\(event.phase.rawValue) routed=\(String(describing: phase), privacy: .public) momentumPhase=\(event.momentumPhase.rawValue) dx=\(Double(event.scrollingDeltaX)) dy=\(Double(event.scrollingDeltaY)) precise=\(event.hasPreciseScrollingDeltas) system=\(systemEnabled) eligibility=\(reason ?? "eligible", privacy: .public) axis=\(String(describing: axisBefore), privacy: .public)->\(String(describing: self.swipe.axis), privacy: .public) settling=\(self.overlay?.isSettling ?? false) result=\(String(describing: result), privacy: .public)")
         }
         switch result {
-        case .pass: return false
+        case .pass:
+            if phase == .ended || phase == .cancelled { scheduleArtwork() }
+            return false
         case .swallow: return true
         case .track(let offset):
             let drag = axisBefore == .horizontal ? nil : Self.signposter.beginInterval("DragStart")
             defer { if let drag { Self.signposter.endInterval("DragStart", drag) } }
+            if axisBefore != .horizontal { requestOutgoingSnapshot(source) }
             if let anchor, let effect = prepare(profiles: profiles, anchor: anchor) {
                 let step = offset < 0 ? 1 : -1
-                if !effect.hasImage(step: step), let target = step > 0 ? next : previous {
-                    effect.setImage(render(target, profiles: profiles, anchor: anchor), step: step)
+                if gestureArtworkCompatible, !effect.hasImage(step: step), let target = step > 0 ? next : previous {
+                    effect.setImage(cachedNeighborImage(target), step: step)
                 }
                 effect.place(offset: offset)
             }
             return true
         case .settle(let step):
-            if let step, let target = step > 0 ? next : previous, let anchor, let overlay {
-                if !overlay.hasImage(step: step) {
-                    overlay.setImage(render(target, profiles: profiles, anchor: anchor), step: step)
+            if let step, let target = step > 0 ? next : previous, let overlay {
+                if gestureArtworkCompatible, !overlay.hasImage(step: step) {
+                    overlay.setImage(cachedNeighborImage(target), step: step)
                 }
                 commit(target, step: step, profiles: profiles)
             } else { settle(step: 0) }
@@ -329,6 +392,7 @@ class ProfileSidebarScrollView: NSScrollView {
                 settleToken = UUID()
                 waitingForProfile = nil
                 settled = false
+                endMount()
                 overlay.interrupt(active: profiles.active.id)
             }
             return overlay
@@ -339,54 +403,111 @@ class ProfileSidebarScrollView: NSScrollView {
         let effect = ProfileSidebarOverlay(frame: frame, rtl: anchor.environment.layoutDirection == .rightToLeft,
                                            reduceMotion: anchor.environment.browserReduceMotion)
         effect.baseProfile = profiles.active.id
-        effect.setImage(render(profiles.active, profiles: profiles, anchor: anchor, current: true), step: 0)
+        let cached = artworkGeometry == ArtworkGeometry(anchor) ? artworkCache[profiles.active.id] : nil
+        if let cached, cached.query == anchor.controller?.tabSearch { effect.setImage(cached.image, step: 0) }
+        if let list = anchor.list?.collection, list.sidebar?.controller === profiles.controller,
+           let scroll = list.enclosingScrollView {
+            let rect = scroll.bounds
+            if !rect.isEmpty, let bitmap = scroll.bitmapImageRepForCachingDisplay(in: rect) {
+                scroll.cacheDisplay(in: rect, to: bitmap)
+                let listFrame = scroll.convert(rect, to: anchor).offsetBy(dx: -anchor.bounds.minX, dy: -anchor.bounds.minY)
+                effect.setListImage(bitmap.cgImage, frame: listFrame)
+            }
+        }
         host.addSubview(effect)
         overlay = effect
         isCovering = true
         return effect
     }
 
-    private func render(_ profile: BrowserProfile, profiles: BrowserProfiles, anchor: ProfileSidebarAnchor.Anchor,
-                        current: Bool = false) -> CGImage? {
-        let scroll = current ? anchor.list?.collection?.enclosingScrollView : nil
-        let tabListImage = scroll.flatMap { view -> NSImage? in
-            let rect = view.bounds
-            guard !rect.isEmpty, let bitmap = view.bitmapImageRepForCachingDisplay(in: rect) else { return nil }
-            view.cacheDisplay(in: rect, to: bitmap)
-            let image = NSImage(size: rect.size)
-            image.addRepresentation(bitmap)
-            return image
+    private func cachedImage(_ profile: BrowserProfile, anchor: ProfileSidebarAnchor.Anchor) -> CGImage? {
+        guard artworkGeometry == ArtworkGeometry(anchor) else { return nil }
+        return cachedNeighborImage(profile)
+    }
+
+    private func cachedNeighborImage(_ profile: BrowserProfile) -> CGImage? {
+        guard let cached = artworkCache[profile.id], cached.profile == profile, cached.query.isEmpty else { return nil }
+        return cached.image
+    }
+
+    private func scheduleArtwork() {
+        guard let anchor, !anchor.bounds.isEmpty, anchor.window != nil else { return }
+        let geometry = ArtworkGeometry(anchor)
+        if artworkGeometry != geometry { artworkNeedsRefresh = true }
+        guard artworkNeedsRefresh, artworkTask == nil, overlay == nil,
+              !selectionPending, swipe.axis != .undecided else { return }
+        artworkTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(60))
+            guard let self else { return }
+            self.artworkTask = nil
+            guard !Task.isCancelled, self.overlay == nil, !self.selectionPending, self.swipe.axis != .undecided,
+                  let anchor = self.anchor, let profiles = self.host?.profiles,
+                  anchor.window != nil, !anchor.bounds.isEmpty else { return }
+            self.warmArtwork(profiles: profiles, anchor: anchor)
         }
-        let appearance = profiles.loadedController(profile.id)?.appearance
-        var environment = anchor.environment
-        if let appearance, !current {
-            environment.browserTheme = appearance.theme.respecting(environment.colorSchemeContrast)
-            if let scheme = appearance.colorScheme { environment.colorScheme = scheme }
+    }
+
+    private func warmArtwork(profiles: BrowserProfiles, anchor: ProfileSidebarAnchor.Anchor) {
+        let geometry = ArtworkGeometry(anchor)
+        let previous = artworkGeometry == geometry ? artworkCache : [:]
+        artworkNeedsRefresh = false
+        artworkGeometry = geometry
+        artworkCache = withObservationTracking {
+            let active = profiles.active
+            let neighbors = profiles.swipeNeighbors(from: profiles.controller)
+            let visibleProfiles = [active] + [neighbors.previous, neighbors.next].compactMap { $0 }
+            return Dictionary(uniqueKeysWithValues: visibleProfiles.map { profile in
+                let current = profile.id == active.id
+                let controller = profiles.loadedController(profile.id)
+                let preview = profiles.preview(for: profile)
+                let appearance = controller?.appearance ?? .system
+                let query = current ? controller?.tabSearch ?? "" : ""
+                if let cached = previous[profile.id], cached.profile == profile,
+                   cached.query == query, cached.appearance == appearance,
+                   cached.preview.matches(preview) {
+                    return (profile.id, cached)
+                }
+                var environment = anchor.environment
+                if !current {
+                    environment.browserTheme = appearance.theme.respecting(geometry.contrast)
+                    environment.colorScheme = appearance.colorScheme ?? anchor.window?.effectiveAppearance
+                        .bestMatch(from: [.aqua, .darkAqua]).map { $0 == .darkAqua ? .dark : .light } ?? geometry.scheme
+                }
+                let artwork = ProfileSidebarPreviewArtwork(profile: profile, preview: preview,
+                    size: geometry.size, query: query, profileTrailingInset: geometry.inset)
+                let renderer = ImageRenderer(content: artwork.environment(\.self, environment))
+                renderer.scale = geometry.scale
+                return (profile.id, CachedArtwork(profile: profile, preview: preview, query: query,
+                    appearance: appearance, image: renderer.cgImage))
+            })
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.artworkNeedsRefresh = true
+                self.scheduleArtwork()
+            }
         }
-        let artwork = ProfileSidebarPreviewArtwork(profile: profile, preview: profiles.preview(for: profile),
-                                                   size: anchor.bounds.size,
-                                                   query: current ? anchor.controller?.tabSearch ?? "" : "",
-                                                   tabListImage: tabListImage,
-                                                   profileTrailingInset: anchor.profileTrailingInset)
-        let renderer = ImageRenderer(content: artwork.environment(\.self, environment))
-        renderer.scale = anchor.window?.backingScaleFactor ?? 2
-        return renderer.cgImage
     }
 
     private func commit(_ target: BrowserProfile, step: Int, profiles: BrowserProfiles) {
+        let releaseStart = ProcessInfo.processInfo.systemUptime
         let release = Self.signposter.beginInterval("Commit")
         let tracing = Self.diagnosticsEnabled
         if tracing { Self.probeSettleTurns() }
-        if let mountInterval { Self.signposter.endInterval("Mount", mountInterval) }
-        mountInterval = Self.signposter.beginInterval("Mount")
+        endMount()
+        if overlay != nil { mountInterval = Self.signposter.beginInterval("Mount") }
         let source = profiles.controller
         overlay?.destinationProfile = target.id
-        waitingForProfile = target.id
+        waitingForProfile = overlay == nil ? nil : target.id
         selectionPending = true
         settle(step: step)
 
         Self.atTurnEnd { [weak self, weak profiles] in
             Self.signposter.endInterval("Commit", release)
+            if tracing {
+                let elapsed = (ProcessInfo.processInfo.systemUptime - releaseStart) * 1_000
+                Self.diagnostics.notice("Commit turn ms=\(elapsed)")
+            }
             // The late observer gives Core Animation the rest of this turn
             // to submit the spring. Selection runs in the next dispatch turn.
             DispatchQueue.main.async {
@@ -400,8 +521,12 @@ class ProfileSidebarScrollView: NSScrollView {
                 let start = ProcessInfo.processInfo.systemUptime
                 let select = Self.signposter.beginInterval("Select")
                 do {
+                    self.transitionTarget = target.id
                     try profiles.select(target.id, deferSelectionSave: true)
+                    self.transitionTime = ProcessInfo.processInfo.systemUptime
+                    self.rebindSidebar(from: source, to: profiles.controller)
                 } catch {
+                    self.transitionTarget = nil
                     self.waitingForProfile = nil
                     self.overlay?.destinationProfile = nil
                     self.settle(step: 0)
@@ -419,7 +544,24 @@ class ProfileSidebarScrollView: NSScrollView {
         }
     }
 
-    private static func atTurnEnd(_ work: @escaping @MainActor () -> Void) {
+    private func rebindSidebar(from source: BrowserController, to target: BrowserController) {
+        if let width = host?.window?.contentView?.bounds.width { target.sidebar.resize(availableWidth: width) }
+        if target.sidebar.rail || target.sidebar.peeking {
+            waitingForProfile = nil
+            if settled { finishSettle() }
+        } else {
+            // The next scroll phase can arrive before SwiftUI updates the
+            // representables. Retain their geometry for expanded-to-expanded.
+            if anchor?.controller === source { anchor?.controller = target; anchor?.needsLayout = true }
+            for region in [hitRegion, editingRegion, titlebarControl] where region?.controller === source {
+                region?.controller = target
+            }
+        }
+        artworkNeedsRefresh = true
+        scheduleArtwork()
+    }
+
+    static func atTurnEnd(_ work: @escaping @MainActor () -> Void) {
         let observer = CFRunLoopObserverCreateWithHandler(nil,
             CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
             false, CFIndex.max) { _, _ in
@@ -460,7 +602,7 @@ class ProfileSidebarScrollView: NSScrollView {
         overlay.animate(step: step) { [weak self] in
             guard let self, self.settleToken == token else { return }
             self.settled = true
-            if self.waitingForProfile == nil { self.clear() }
+            if self.waitingForProfile == nil { self.finishSettle() }
         }
         // A closed window, fullscreen transition, or rail destination may
         // never lay out an expanded sidebar.
@@ -468,6 +610,7 @@ class ProfileSidebarScrollView: NSScrollView {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(1))
                 if let self, self.settleToken == token, self.overlay != nil {
+                    self.fallbackClearCount += 1
                     Self.signposter.emitEvent("FallbackClear")
                     if Self.diagnosticsEnabled { Self.diagnostics.notice("FallbackClear") }
                     self.clear()
@@ -476,15 +619,29 @@ class ProfileSidebarScrollView: NSScrollView {
         }
     }
 
-    private func clear() {
+    private func finishSettle() {
+        if let sidebar = host?.profiles?.controller.sidebar, sidebar.rail || sidebar.peeking, let overlay {
+            let token = settleToken
+            overlay.fadeOut { [weak self] in
+                if self?.settleToken == token { self?.clear() }
+            }
+        } else { clear() }
+    }
+
+    private func endMount() {
         if let mountInterval {
             Self.signposter.endInterval("Mount", mountInterval)
             self.mountInterval = nil
         }
+    }
+
+    private func clear() {
+        endMount()
         overlay?.removeFromSuperview()
         overlay = nil
         waitingForProfile = nil
         isCovering = false
+        scheduleArtwork()
     }
 }
 
@@ -517,8 +674,12 @@ private final class ProfileSidebarOverlay: NSView {
     func hasImage(step: Int) -> Bool { images[step] != nil }
 
     func setImage(_ image: CGImage?, step: Int) {
-        guard let image else { return }
+        guard let image else {
+            images.removeValue(forKey: step)?.removeFromSuperlayer()
+            return
+        }
         let piece = images[step] ?? CALayer()
+        piece.sublayers = nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         piece.contents = image
@@ -527,6 +688,46 @@ private final class ProfileSidebarOverlay: NSView {
         if images[step] == nil { strip.addSublayer(piece) }
         images[step] = piece
         CATransaction.commit()
+    }
+
+    func setListImage(_ image: CGImage?, frame: CGRect) {
+        guard let image else { return }
+        if images[0] == nil {
+            let piece = CALayer()
+            piece.frame = bounds
+            strip.addSublayer(piece)
+            images[0] = piece
+        }
+        guard let piece = images[0] else { return }
+        if let contents = piece.contents {
+            // Keep the cached header, search field and footer. Punch out the
+            // synthetic rows so only the single native list capture shows.
+            let chrome = CALayer()
+            chrome.frame = piece.bounds
+            chrome.contents = contents
+            let mask = CAShapeLayer()
+            let cutout = CGMutablePath()
+            cutout.addRect(piece.bounds)
+            cutout.addRect(frame.intersection(piece.bounds))
+            mask.path = cutout
+            mask.fillRule = .evenOdd
+            chrome.mask = mask
+            piece.contents = nil
+            piece.addSublayer(chrome)
+        }
+        let list = CALayer()
+        list.frame = frame
+        list.contents = image
+        piece.addSublayer(list)
+    }
+
+    func fadeOut(completion: @escaping @MainActor () -> Void) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            animator().alphaValue = 0
+        } completionHandler: {
+            DispatchQueue.main.async { completion() }
+        }
     }
 
     func offset(relativeTo active: UUID) -> CGFloat {

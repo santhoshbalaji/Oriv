@@ -873,6 +873,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     private func invalidateSwitchSnapshot() {
         snapshotGeneration += 1; snapshotCache?.remove(id)
     }
+    #if os(macOS)
+    public func captureProfileSwitchSnapshot() { captureSwitchSnapshot() }
+    #endif
+
     private func captureSwitchSnapshot() {
         #if os(macOS) && ORIV_BENCH
         guard !BenchmarkOptions.disabled.contains("snapshot") else { return }

@@ -50,7 +50,7 @@ struct ProfileMenu: View {
         Menu {
             ForEach(profiles.available) { profile in
                 Button {
-                    profiles.perform { try profiles.select(profile.id) }
+                    profiles.switchFromSidebar(profile.id, source: profiles.controller)
                 } label: {
                     Label(profile.name + (profile.id == profiles.active.id ? " — Current" : ""), systemImage: profile.id == profiles.active.id ? "checkmark" : profile.symbol.rawValue)
                 }

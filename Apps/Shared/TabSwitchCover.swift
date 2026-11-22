@@ -63,7 +63,12 @@ final class TabSwitchCover: CoverView {
     deinit { NotificationCenter.default.removeObserver(self) }
     @objc private func invalidateImage(_ note:Notification) {
         if let id = note.userInfo?["tabID"] as? UUID, id != tabID { return }
-        imageView.image = nil; label.isHidden = false
+        imageView.image = nil
+        #if os(macOS)
+        label.isHidden = fadesWhenReady
+        #else
+        label.isHidden = false
+        #endif
     }
 
     func begin(_ tab: BrowserTab, in webView: WKWebView, waitForLayout: Bool = false) {
@@ -91,7 +96,11 @@ final class TabSwitchCover: CoverView {
             imageView.image = UIImage(cgImage:cg)
             #endif
         } else { imageView.image = nil }
+        #if os(macOS)
+        label.isHidden = fadesWhenReady || imageView.image != nil
+        #else
         label.isHidden = imageView.image != nil
+        #endif
         let background = tab.lastPageBackground ?? ChromeColor(0.94,0.95,0.94)
         #if os(macOS)
         layer?.backgroundColor = NSColor(srgbRed:background.red,green:background.green,blue:background.blue,alpha:1).cgColor
@@ -176,9 +185,9 @@ final class TabSwitchCover: CoverView {
             // The public rendering barrier has painted this exact viewport.
             // An instant swap has no inherited SwiftUI or layer animation.
             if self.fadesWhenReady {
-                self.fadesWhenReady = false
                 NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.15
+                    context.duration = self.reduceMotion ? 0.15 : 0.20
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                     self.animator().alphaValue = 0
                 } completionHandler: {
                     DispatchQueue.main.async { if self.generation == token { self.clear() } }

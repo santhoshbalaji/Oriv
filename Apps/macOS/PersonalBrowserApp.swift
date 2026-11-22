@@ -30,8 +30,9 @@ struct PersonalBrowserApp: App {
     var body: some Scene {
         Window(AppIdentity.name, id: "browser") {
             BrowserWindow(controller: controller, profiles: profiles)
-                .id(profiles.active.id)
-                .onAppear { appDelegate.controller = controller; appDelegate.profiles = profiles }
+                .onChange(of: controller.sidebarDragID, initial: true) { _, _ in
+                    appDelegate.controller = controller; appDelegate.profiles = profiles
+                }
                 .modifier(BrowserHandoff(continuity: profiles.continuity, session: controller.session, profile: profiles.active, open: profiles.openContinuityPage))
                 .onChange(of: phase, initial: true) { _, value in
                     if value != .active { profiles.saveAll() }

@@ -14,6 +14,59 @@ import XCTest
     func testResizedSnapshotToLiveFrameSequence() async throws {
         try await captureSwitch(resize: true)
     }
+    func testProfileFadeKeepsLoadingLabelHiddenUntilDestinationPaint() async throws {
+        let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil))
+        defer { session.shutdown() }
+        let destination = session.addTab(load: false)
+        destination.createWebView = { GeometrySnapshotWebView(frame: .zero, configuration: $0) }
+        let web = try XCTUnwrap(destination.webView as? GeometrySnapshotWebView)
+        let window = BackgroundUIMode.Window(contentRect: CGRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = WebViewHost(webView: web, tab: destination, profileEpoch: UUID())
+        host.wantsLayer = true
+        window.contentView = host; BackgroundUIMode.show(window, key: false)
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        web.loadHTMLString("<body style='background:#e32354'></body>", baseURL: URL(string: "https://profile-fade.test"))
+        for _ in 0..<200 {
+            if destination.hasRenderedContent && host.switchCover.isHidden { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(destination.hasRenderedContent)
+        XCTAssertTrue(host.switchCover.isHidden)
+
+        // Compare the native backing a fade can use with WebKit's snapshot.
+        // An offscreen window does not provide a WindowServer frame recording.
+        let native = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: native)
+        let page = try await pixels(web)
+        let data = try XCTUnwrap(page.tiffRepresentation)
+        let webBitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
+        func redPage(_ bitmap: NSBitmapImageRep) -> Bool {
+            guard let color = bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB) else { return false }
+            return color.redComponent > 0.7 && color.greenComponent < 0.3 && color.blueComponent < 0.5
+        }
+        XCTAssertTrue(redPage(webBitmap))
+        print("PROFILE_CONTENT WebKitPixels=\(redPage(webBitmap)) nativeBackingPixels=\(redPage(native))")
+
+        let source = session.addTab(load: false)
+        host.setTab(source, profileEpoch: UUID())
+        web.holdBarrier = true
+        session.selectTab(destination.id)
+        host.setTab(destination, profileEpoch: UUID())
+        host.layoutSubtreeIfNeeded()
+        let cover = host.switchCover
+        let label = try XCTUnwrap(cover.subviews.compactMap { $0 as? NSTextField }.first)
+        XCTAssertFalse(cover.isHidden)
+        XCTAssertTrue(label.isHidden)
+        XCTAssertFalse(web.barrierSizes.isEmpty)
+        web.releaseBarrier()
+        XCTAssertFalse(cover.isHidden, "Profile changes fade the destination cover after paint")
+        for _ in 0..<60 where !cover.isHidden { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(cover.isHidden)
+    }
+
     private func captureSwitch(resize: Bool) async throws {
         let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil))
         defer { session.shutdown() }

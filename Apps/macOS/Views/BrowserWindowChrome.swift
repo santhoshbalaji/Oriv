@@ -52,6 +52,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
     var compact = false
     var initialContentFocus: NSView? = nil
     var shouldApplyProfileSwitchFocus: (() -> Bool)? = nil
+    var profileEpoch: UUID? = nil
     var externalPresentationRequest: Int? = nil
     var stateChanged: (Bool, Bool) -> Void
     var contentWidthChanged: (CGFloat) -> Void = { _ in }
@@ -65,6 +66,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         view.contentWidthChanged = contentWidthChanged
         windowContext.layoutDirection = context.environment.layoutDirection
         view.windowContext = windowContext
+        view.profileEpoch = profileEpoch
         view.externalPresentationRequest = externalPresentationRequest
         view.configure()
     }
@@ -74,6 +76,13 @@ struct BrowserWindowChrome: NSViewRepresentable {
         weak var initialContentFocus: NSView?
         var shouldApplyProfileSwitchFocus: (() -> Bool)?
         private var didSetInitialFocus = false
+        var profileEpoch: UUID? {
+            didSet {
+                guard oldValue != profileEpoch else { return }
+                didSetInitialFocus = false
+                lastContentWidth = nil
+            }
+        }
         var compact = false
         var stateChanged: ((Bool, Bool) -> Void)?
         var contentWidthChanged: ((CGFloat) -> Void)?
@@ -138,8 +147,9 @@ struct BrowserWindowChrome: NSViewRepresentable {
             if !didSetInitialFocus, target?.window === window || (target == nil && shouldApplyProfileSwitchFocus != nil) {
                 didSetInitialFocus = true
                 if shouldApplyProfileSwitchFocus == nil { window.initialFirstResponder = target }
+                let epoch = profileEpoch
                 DispatchQueue.main.async { [weak self, weak window, weak target] in
-                    guard let self, let window, self.window === window,
+                    guard let self, let window, self.window === window, self.profileEpoch == epoch,
                           self.initialContentFocus === target, target == nil || target?.window === window else { return }
                     if let shouldApplyProfileSwitchFocus = self.shouldApplyProfileSwitchFocus {
                         // A profile switch replaces the previous responder, unless

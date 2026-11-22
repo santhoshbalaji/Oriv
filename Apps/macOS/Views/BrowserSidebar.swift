@@ -82,6 +82,13 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
     }
 }
 
+private struct SidebarProfileCover: ViewModifier {
+    var switcher: ProfileSidebarSwitch?
+    func body(content: Content) -> some View {
+        content.opacity(switcher?.isCovering == true ? 0 : 1)
+    }
+}
+
 struct BrowserSidebar: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.sidebarContrast) private var contrast
@@ -89,9 +96,6 @@ struct BrowserSidebar: View {
     var profiles: BrowserProfiles? = nil
     @State var tabList = SidebarListHandle()
     var profileTrailingInset: CGFloat = 0
-    @State private var closeOthers: UUID?
-    @State private var closeToRight = false
-    @State private var settledQuery = ""
     @FocusState private var searchFocused: Bool
     @FocusState private var utilityFocus: String?
     private var session: BrowserSession { controller.session }
@@ -99,7 +103,7 @@ struct BrowserSidebar: View {
     private var compact: Bool { controller.sidebar.rail }
     private var peeking: Bool { controller.sidebar.peeking }
     private var railLayout: Bool { compact || peeking }
-    private var filteredTabs: [BrowserTab] { SidebarTabs.filtered(session.orderedTabs, query: settledQuery) }
+    private var filteredTabs: [BrowserTab] { SidebarTabs.filtered(session.orderedTabs, query: controller.profileUI.settledQuery) }
 
     var body: some View {
         let tabs = filteredTabs
@@ -113,19 +117,19 @@ struct BrowserSidebar: View {
                 }
                 NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
                                   searching: !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { id, right in
-                    closeToRight = right
-                    closeOthers = id
+                    controller.profileUI.closeToRight = right
+                    controller.profileUI.closeOthers = id
                 }
                 if !railLayout { newTab.padding(.bottom, MacBrowserLayout.sidebarFooterGap) }
             }
-            .opacity(!railLayout && profiles?.sidebarSwitch.isCovering == true && !privateWindow ? 0 : 1)
+            .modifier(SidebarProfileCover(switcher: !railLayout && !privateWindow ? profiles?.sidebarSwitch : nil))
             .background {
                 if !railLayout, let profiles, profiles.canSwitchProfiles(from: controller) {
                     ProfileSidebarAnchor(switcher: profiles.sidebarSwitch, controller: controller, list: tabList,
                                          profileTrailingInset: profileTrailingInset)
                 }
             }
-            .task(id: profiles.map { $0.available.map(\.id) }) {
+            .task(id: controller.scoped(profiles.map { $0.available.map(\.id) })) {
                 if !privateWindow { await profiles?.warmProfilePreviews() }
             }
             if !railLayout, let profiles, profiles.canSwitchProfiles(from: controller) {
@@ -143,18 +147,26 @@ struct BrowserSidebar: View {
         .font(OrivType.body)
         .foregroundStyle(.primary)
         .transformPreference(SidebarKeyboardFocusKey.self) { $0 = $0 || searchFocused || utilityFocus != nil || tabList.hasFocus }
-        .task(id: controller.tabSearch) {
+        .task(id: controller.scoped(controller.tabSearch)) {
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             guard !Task.isCancelled else { return }
-            settledQuery = controller.tabSearch
+            controller.profileUI.settledQuery = controller.tabSearch
         }
-        .onChange(of: controller.tabSearchFocusRequest) { _, _ in if !controller.tabSearchPanel { searchFocused = true } }
-        .onChange(of: session.selectedTabID) { _, id in
+        .onChange(of: controller.scoped(controller.tabSearchFocusRequest)) { old, new in
+            if old.owner == new.owner, !controller.tabSearchPanel { searchFocused = true }
+        }
+        .onChange(of: controller.sidebarDragID) { _, _ in
+            searchFocused = false
+            utilityFocus = nil
+        }
+        .onChange(of: controller.scoped(session.selectedTabID)) { old, new in
+            guard old.owner == new.owner else { return }
+            let id = new.value
             controller.sidebarTooltip.dismiss()
             if let id, !SidebarTabs.filtered(session.orderedTabs, query: controller.tabSearch).contains(where: { $0.id == id }) { controller.tabSearch = "" }
         }
-        .confirmationDialog(closeToRight ? "Close tabs to the right?" : "Close other tabs?", isPresented: Binding(get: { closeOthers != nil }, set: { if !$0 { closeOthers = nil } })) {
-            Button("Close Tabs", role: .destructive) { if let id = closeOthers { session.closeOtherTabs(id, toRight: closeToRight) }; closeOthers = nil }
+        .confirmationDialog(controller.profileUI.closeToRight ? "Close tabs to the right?" : "Close other tabs?", isPresented: Binding(get: { controller.profileUI.closeOthers != nil }, set: { if !$0 { controller.profileUI.closeOthers = nil } })) {
+            Button("Close Tabs", role: .destructive) { if let id = controller.profileUI.closeOthers { session.closeOtherTabs(id, toRight: controller.profileUI.closeToRight) }; controller.profileUI.closeOthers = nil }
         } message: { Text("Pinned tabs and tabs in the other privacy group stay open. Unsaved website forms in closed tabs may be lost.") }
     }
 

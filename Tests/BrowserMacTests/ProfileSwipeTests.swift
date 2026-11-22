@@ -143,7 +143,7 @@ final class ProfileSwipeTests: XCTestCase {
     private struct Fixture: View {
         let profiles: BrowserProfiles
         var body: some View {
-            BrowserWindow(controller: profiles.controller, profiles: profiles).id(profiles.active.id)
+            BrowserWindow(controller: profiles.controller, profiles: profiles)
                 .overlay { ProfileSidebarOverlayHost(profiles: profiles) }
         }
     }
@@ -177,6 +177,90 @@ final class ProfileSwipeTests: XCTestCase {
         window.setContentSize(NSSize(width: 1000, height: 600))
         BackgroundUIMode.show(window)
         return window
+    }
+
+    func testProfileSwitchTurnBudget() async throws {
+        guard ProcessInfo.processInfo.environment["ORIV_PROFILE_SWITCH_BUDGET"] == "1" else {
+            throw XCTSkip("Opt-in profile switch timing")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        profiles.profileSwipePreference = .on
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        let cold = try profiles.create(name: "Cold", color: .fern, symbol: .work)
+        for id in [work.id, BrowserProfile.personalID] {
+            try profiles.select(id)
+            profiles.controller.sidebar.setPreference(false)
+            let session = profiles.controller.session
+            for _ in 0..<12 { session.addTab(select: false, load: false) }
+            let tab = try XCTUnwrap(session.selectedTab)
+            tab.webView.loadHTMLString("<title>Profile timing fixture</title><body>Profile timing fixture</body>",
+                                       baseURL: URL(string: "https://profile-timing.test"))
+            try await eventually("timing page loaded") { tab.hasLoaded && !tab.isLoading }
+        }
+        let window = makeWindow(Fixture(profiles: profiles).frame(width: 1000, height: 600))
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        func anchor() -> ProfileSidebarAnchor.Anchor? {
+            content.layoutSubtreeIfNeeded()
+            return descendants(content).compactMap { $0 as? ProfileSidebarAnchor.Anchor }
+                .first { $0.window === window && $0.controller === profiles.controller && !$0.bounds.isEmpty }
+        }
+        var measured: Double?
+        profiles.sidebarSwitch.selectTurnMeasured = { measured = $0 }
+        var drag: [Double] = []
+        var revisit: [Double] = []
+        var tabTurns: [Double] = []
+        let session = profiles.controller.session
+        let originalTab = try XCTUnwrap(session.selectedTabID)
+        let secondTab = try XCTUnwrap(session.tabs.first { $0.id != originalTab }).id
+        for id in [secondTab, originalTab, secondTab, originalTab, secondTab, originalTab] {
+            let start = ProcessInfo.processInfo.systemUptime
+            session.selectTab(id)
+            await withCheckedContinuation { continuation in
+                ProfileSidebarSwitch.atTurnEnd {
+                    tabTurns.append((ProcessInfo.processInfo.systemUptime - start) * 1_000)
+                    continuation.resume()
+                }
+            }
+            try await Task.sleep(for: .milliseconds(80))
+        }
+        for index in 0...24 {
+            try await eventually("expanded sidebar ready at sample \(index)") { anchor() != nil && !profiles.sidebarSwitch.isCovering }
+            let view = try XCTUnwrap(anchor())
+            let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+            let step: Int32 = index == 24 || index.isMultiple(of: 2) ? -150 : 150
+            let destination = index == 24 ? cold.id : (step < 0 ? work.id : BrowserProfile.personalID)
+            measured = nil
+            func route(_ event: NSEvent) -> Bool {
+                profiles.sidebarSwitch.route(event, window: window, profiles: profiles,
+                                             source: profiles.controller, location: point)
+            }
+            if index == 24 {
+                profiles.switchFromSidebar(destination, source: profiles.controller)
+            } else {
+                _ = route(try wheel(.began, x: 0, time: 1))
+                let track = try wheel(.changed, x: step, time: 1.02)
+                let start = ProcessInfo.processInfo.systemUptime
+                XCTAssertTrue(route(track))
+                drag.append((ProcessInfo.processInfo.systemUptime - start) * 1_000)
+                XCTAssertTrue(route(try wheel(.ended, time: 1.04)))
+            }
+            try await eventually("switch turn recorded") { measured != nil && profiles.active.id == destination }
+            let ms = try XCTUnwrap(measured)
+            if index == 24 { print("PROFILE_BUDGET firstVisit=\(ms)") }
+            else { revisit.append(ms) }
+        }
+        func percentile(_ samples: [Double], _ fraction: Double) -> Double {
+            samples.sorted()[Int(ceil(Double(samples.count) * fraction)) - 1]
+        }
+        for (name, samples) in [("selectTurn", revisit), ("dragStart", drag), ("tabTurn", tabTurns)] {
+            print("PROFILE_BUDGET \(name) n=\(samples.count) p50=\(percentile(samples, 0.5)) p95=\(percentile(samples, 0.95)) max=\(samples.max() ?? 0)")
+        }
+        XCTAssertLessThanOrEqual(percentile(revisit, 0.95), 40)
+        XCTAssertLessThanOrEqual(percentile(revisit, 0.95), 3 * percentile(tabTurns, 0.95))
     }
 
     func testSwipeSwitchFocusesLoadedPage() async throws {
@@ -225,15 +309,26 @@ final class ProfileSwipeTests: XCTestCase {
             return try XCTUnwrap(addressField())
         }
 
-        // Use the destination's editor before leaving so its rebuilt field would
-        // replay a real, previously handled focus request on the old code.
+        // Seed the same first focus request in both profiles.
         let previousDestinationField = try await editAddress(in: destination)
         try profiles.select(BrowserProfile.personalID)
         profiles.controller.sidebar.setPreference(false)
-        try await eventually("source profile mounted") {
-            addressField().map { $0 !== previousDestinationField } == true
+        let sourceTab = try XCTUnwrap(profiles.controller.session.selectedTab)
+        if hasPage {
+            sourceTab.webView.loadHTMLString("<title>Source profile</title><p>Source page</p>",
+                                             baseURL: URL(string: "https://source-profile.test"))
+            try await eventually("source page mounted") { sourceTab.webView.superview is WebViewHost }
         }
+        try await eventually("source profile mounted") { previousDestinationField.currentEditor() == nil }
+        XCTAssertTrue(addressField() === previousDestinationField)
         let sourceField = try await editAddress(in: profiles.controller)
+        XCTAssertEqual(profiles.controller.addressFocusRequest, destination.addressFocusRequest)
+        let sourceHost = hasPage ? sourceTab.webView.superview as? WebViewHost : nil
+        let collection = try XCTUnwrap(descendants(content).compactMap { $0 as? SidebarTabCollection }.first)
+        let chrome = try XCTUnwrap(descendants(content).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first)
+        let sourceText = "source-only address"
+        let editor = try XCTUnwrap(sourceField.currentEditor() as? NSTextView)
+        editor.insertText(sourceText, replacementRange: editor.selectedRange())
         try await eventually("source profile dots laid out") { marker("sidebarProfileDot-1") != nil }
         let dot = try XCTUnwrap(marker("sidebarProfileDot-1"))
         let point = dot.convert(NSPoint(x: dot.bounds.midX, y: dot.bounds.midY), to: nil)
@@ -262,13 +357,22 @@ final class ProfileSwipeTests: XCTestCase {
 
         try await eventually("destination selected") { profiles.active.id == target.id }
         XCTAssertTrue(springBeforeSelection)
-        try await eventually("destination window rebuilt and overlay settled") {
+        XCTAssertEqual(profiles.sidebarSwitch.fallbackClearCount, 0)
+        try await eventually("destination rebound and overlay settled") {
             content.layoutSubtreeIfNeeded()
-            return !profiles.sidebarSwitch.isCovering &&
-                addressField().map { $0 !== sourceField && $0 !== previousDestinationField } == true
+            return !profiles.sidebarSwitch.isCovering
+        }
+        XCTAssertTrue(addressField() === sourceField)
+        XCTAssertTrue(descendants(content).contains { $0 === collection })
+        XCTAssertTrue(descendants(content).contains { $0 === chrome })
+        if hasPage {
+            XCTAssertNotNil(sourceHost)
+            XCTAssertTrue(tab.webView.superview === sourceHost)
+            XCTAssertNil(sourceTab.webView.superview)
         }
         let field = try XCTUnwrap(addressField())
         XCTAssertNil(field.currentEditor())
+        XCTAssertFalse(field.stringValue.contains(sourceText))
         XCTAssertFalse(window.firstResponder === field)
         if hasPage {
             let responder = try XCTUnwrap(window.firstResponder as? NSView)
@@ -283,6 +387,90 @@ final class ProfileSwipeTests: XCTestCase {
         destination.newTab()
         XCTAssertNotEqual(destination.session.selectedTabID, tab.id)
         try await eventually("new tab starts address editing") { addressField()?.currentEditor() != nil }
+    }
+
+    func testProfileRebindIsolatesFindSearchSuggestionsAndPresentations() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        let source = profiles.controller
+        let window = makeWindow(Fixture(profiles: profiles).frame(width: 1000, height: 600))
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        let query = "only in the source"
+        source.tabSearch = query
+        source.profileUI.findText = query
+        source.profileUI.findCaseSensitive = true
+        source.profileUI.showFind = true
+        source.focusAddress()
+        func editor() -> NSTextView? {
+            descendants(content).compactMap { ($0 as? FocusAwareAddressField)?.currentEditor() as? NSTextView }.first
+        }
+        try await eventually("source address editing") { editor() != nil }
+        let fieldEditor = try XCTUnwrap(editor())
+        fieldEditor.insertText(query, replacementRange: fieldEditor.selectedRange())
+        try await eventually("source suggestions populated") {
+            source.profileUI.addressMatches.query == query && !source.profileUI.addressMatches.rows.isEmpty
+        }
+        try await eventually("source tab query applied") { source.profileUI.settledQuery == query }
+        source.profileUI.showProtection = true
+        source.profileUI.showPasswords = true
+        source.profileUI.showSiteInfo = true
+        source.profileUI.showTabs = true
+        source.profileUI.siteToForget = BrowserSite(url: try XCTUnwrap(URL(string: "https://source-only.test")))
+        source.profileUI.closeOthers = source.session.selectedTabID
+        source.profileUI.closeToRight = true
+
+        // The synthetic state above has not yet presented a native sheet.
+        try profiles.select(work.id)
+        let destination = profiles.controller
+        content.layoutSubtreeIfNeeded()
+        XCTAssertEqual(destination.profileUI.address, "")
+        XCTAssertEqual(destination.profileUI.addressMatches.rows.count, 0)
+        XCTAssertEqual(destination.profileUI.findText, "")
+        XCTAssertFalse(destination.profileUI.findCaseSensitive)
+        XCTAssertFalse(destination.profileUI.showFind)
+        XCTAssertEqual(destination.tabSearch, "")
+        XCTAssertEqual(destination.profileUI.settledQuery, "")
+        XCTAssertFalse(destination.profileUI.showProtection)
+        XCTAssertFalse(destination.profileUI.showPasswords)
+        XCTAssertFalse(destination.profileUI.showSiteInfo)
+        XCTAssertFalse(destination.profileUI.showTabs)
+        XCTAssertNil(destination.profileUI.siteToForget)
+        XCTAssertNil(destination.profileUI.closeOthers)
+        XCTAssertFalse(destination.profileUI.closeToRight)
+        XCTAssertFalse(destination.profileUI.pageChrome === source.profileUI.pageChrome)
+        XCTAssertFalse(source.profileUI.showPasswords)
+        XCTAssertNil(source.profileUI.siteToForget)
+        XCTAssertNil(source.profileUI.closeOthers)
+        try profiles.select(BrowserProfile.personalID)
+        XCTAssertEqual(source.profileUI.findText, query)
+        XCTAssertTrue(source.profileUI.showFind)
+        XCTAssertEqual(source.tabSearch, query)
+    }
+
+    func testExpandedToRailSettlesWithoutFallback() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Rail", color: .ocean, symbol: .work)
+        try profiles.select(work.id)
+        profiles.controller.sidebar.setPreference(true)
+        try profiles.select(BrowserProfile.personalID)
+        profiles.controller.sidebar.setPreference(false)
+        let window = makeWindow(Fixture(profiles: profiles).frame(width: 1000, height: 600))
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        try await eventually("source anchor attached") {
+            content.layoutSubtreeIfNeeded()
+            return descendants(content).contains { ($0 as? ProfileSidebarAnchor.Anchor)?.controller === profiles.controller }
+        }
+        profiles.switchFromSidebar(work.id, source: profiles.controller)
+        try await eventually("rail profile selected and artwork cleared") {
+            content.layoutSubtreeIfNeeded()
+            return profiles.active.id == work.id && !profiles.sidebarSwitch.isCovering
+        }
+        XCTAssertTrue(profiles.controller.sidebar.rail)
+        XCTAssertEqual(profiles.sidebarSwitch.fallbackClearCount, 0)
     }
 
     func testScrollViewReceivesGestureTailWithoutTheMonitorAndPreservesVerticalMomentum() async throws {
@@ -384,7 +572,8 @@ final class ProfileSwipeTests: XCTestCase {
             let source = profiles.controller
             let target = try profiles.create(name: "Work", color: .ocean, symbol: .work)
             let window = makeWindow(Fixture(profiles: profiles)
-                .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight))
+                .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
+                .frame(width: 1000, height: 600))
             defer { window.close() }
             let content = try XCTUnwrap(window.contentView)
             func point(_ identifier: String) -> NSPoint? {
@@ -453,13 +642,7 @@ final class ProfileSwipeTests: XCTestCase {
             XCTAssertTrue(try route([], momentum: 1, at: pagePoint))
             XCTAssertTrue(try route([], momentum: 3, at: pagePoint))
 
-            try await eventually("destination anchor reattached") {
-                window.contentView?.layoutSubtreeIfNeeded()
-                return self.descendants(content).contains {
-                    guard let anchor = $0 as? ProfileSidebarAnchor.Anchor else { return false }
-                    return anchor.window === window && anchor.controller === profiles.controller && anchor.bounds.width > 0
-                }
-            }
+            XCTAssertTrue(profiles.sidebarSwitch.isCovering, "The second swipe interrupts the first spring")
             XCTAssertFalse(try route(.mayBegin, at: dots))
             XCTAssertFalse(try route(.began, at: dots))
             for delta: Int32 in [5, 13, 14, 8, 2, 1] {
@@ -474,6 +657,7 @@ final class ProfileSwipeTests: XCTestCase {
             XCTAssertTrue(try route(.ended, at: footer))
             try await eventually("destination selected") { profiles.active.id == target.id }
             try await eventually("next settled overlay removed") { !profiles.sidebarSwitch.isCovering }
+            XCTAssertEqual(profiles.sidebarSwitch.fallbackClearCount, 0)
         }
     }
 }
