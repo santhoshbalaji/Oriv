@@ -29,11 +29,12 @@ import Observation
     }
     private(set) var controller: BrowserController
     @ObservationIgnored private var controllers: [UUID: BrowserController] = [:]
-    @ObservationIgnored private let store: ProfileRegistryStore?
+    @ObservationIgnored private let registryWriter: ProfileRegistryWriter?
     @ObservationIgnored private let root: URL?
     @ObservationIgnored private let testing: Bool
     @ObservationIgnored private var deleting: Set<UUID> = []
     @ObservationIgnored private var selectionSave: Task<Void, Never>?
+    @ObservationIgnored private var selectionRevision = 0
     @ObservationIgnored private var selectionNeedsSave = false
     private var profilePreviews: [UUID: ProfileSidebarPreview] = [:]
     let sidebarSwitch = ProfileSidebarSwitch()
@@ -57,7 +58,8 @@ import Observation
         openExternalLinksPrivately = ExternalLinkRouting.opensPrivately(defaults: isTesting ? nil : .standard)
         root = rootDirectory ?? (isTesting ? nil : URL.applicationSupportDirectory.appendingPathComponent("PersonalBrowser", isDirectory: true))
         continuity = BrowserContinuity(root: root, deviceName: "Mac")
-        store = root.map { ProfileRegistryStore(fileURL: $0.appendingPathComponent("profiles.json")) }
+        let store = root.map { ProfileRegistryStore(fileURL: $0.appendingPathComponent("profiles.json")) }
+        registryWriter = store.map(ProfileRegistryWriter.init)
         var loaded = ProfileRegistry()
         var loadError: String?, recovered = false
         do { if let store { let result = try store.load(); loaded = result.registry; recovered = result.recovered } }
@@ -136,7 +138,7 @@ import Observation
             bundleID: Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac", testing: testing)
         var next = registry
         next.profiles.removeAll { $0.id == profile.id }
-        try store?.save(next, preservingPrevious: false)
+        try registryWriter?.saveAndWait(next, preservingPrevious: false)
         selectionDidSave()
         registry = next
     }
@@ -144,7 +146,7 @@ import Observation
     private func commit(_ next: ProfileRegistry) throws {
         guard canModify else { throw ProfileError.invalidRegistry }
         _ = try next.validated()
-        try store?.save(next)
+        try registryWriter?.saveAndWait(next)
         selectionDidSave()
         registry = next
         continuity.profilesChanged()
@@ -189,7 +191,8 @@ import Observation
         guard let profile = available.first(where: { $0.id == id }) else { throw ProfileError.missing }
         if let existing = controllers[id] { return existing }
         let created = BrowserController(profile: profile, rootDirectory: root, testing: testing, privateTabIsolation: privateTabIsolation)
-        created.session.setProfileActive(false)
+        let barrier = created.session.deactivateForProfileSwitch()
+        registryWriter?.order(after: barrier)
         controllers[id] = created
         return created
     }
@@ -253,21 +256,19 @@ import Observation
         let target = try obtain(id)
         var next = registry
         next.activeID = id
-        if deferSelectionSave {
-            registry = next
-            scheduleSelectionSave()
-        } else {
-            // The synchronous path leaves the visible profile intact on a write failure.
+        if !deferSelectionSave {
+            // Keep model-driven selection on the current profile if its
+            // metadata write fails.
             try commit(next)
         }
         controller.leaveProfile()
-        let persistence = ProfileSidebarSwitch.signposter.beginInterval("DeactivateAndFlush")
-        let start = ProcessInfo.processInfo.systemUptime
-        controller.session.saveNow()
-        controller.session.setProfileActive(false)
-        ProfileSidebarSwitch.signposter.endInterval("DeactivateAndFlush", persistence)
-        if ProfileSidebarSwitch.diagnosticsEnabled {
-            print("ProfileSwitch deactivate/flush ms=\((ProcessInfo.processInfo.systemUptime - start) * 1_000)")
+        let persistence = ProfileSidebarSwitch.signposter.beginInterval("DeactivateAndEnqueue")
+        let barrier = controller.session.deactivateForProfileSwitch()
+        registryWriter?.order(after: barrier)
+        ProfileSidebarSwitch.signposter.endInterval("DeactivateAndEnqueue", persistence)
+        if deferSelectionSave {
+            registry = next
+            scheduleSelectionSave()
         }
         target.prepareForProfileSwitch()
         controller = target
@@ -275,24 +276,37 @@ import Observation
     }
 
     private func scheduleSelectionSave() {
-        guard store != nil else { return }
+        guard let registryWriter else { return }
         selectionNeedsSave = true
         selectionSave?.cancel()
+        selectionRevision += 1
+        let revision = selectionRevision
+        let snapshot = registry
         selectionSave = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
-            self?.flushSelection()
+            guard let self else { return }
+            registryWriter.enqueue(snapshot) { [weak self] result in
+                Task { @MainActor [weak self] in
+                    guard let self, self.selectionRevision == revision else { return }
+                    switch result {
+                    case .success: self.selectionDidSave()
+                    case .failure(let error): self.error = error.localizedDescription
+                    }
+                }
+            }
         }
     }
 
     private func flushSelection() {
         guard selectionNeedsSave else { return }
         do {
-            try store?.save(registry)
+            try registryWriter?.saveAndWait(registry)
             selectionDidSave()
         } catch { self.error = error.localizedDescription }
     }
 
     private func selectionDidSave() {
+        selectionRevision += 1
         selectionNeedsSave = false
         selectionSave?.cancel()
         selectionSave = nil
@@ -321,7 +335,11 @@ import Observation
         flushSelection()
         allControllers.forEach { $0.session.saveNow(); $0.session.flushPersistence() }
     }
-    func shutdown() { continuity.shutdown(); allControllers.forEach { $0.shutdown() } }
+    func shutdown() {
+        flushSelection()
+        continuity.shutdown()
+        allControllers.forEach { $0.shutdown() }
+    }
 
     func openContinuityPage(_ page: ContinuityPage) {
         Task { @MainActor [weak self] in
@@ -386,6 +404,33 @@ import Observation
     }
     func endExternalPrivate() {
         externalPrivate?.shutdown(); externalPrivate = nil
+    }
+}
+
+/// Serialize debounced selections with synchronous metadata edits and quit.
+private final class ProfileRegistryWriter: @unchecked Sendable {
+    private let store: ProfileRegistryStore
+    private let queue = DispatchQueue(label: "oriv.profile-registry", qos: .utility)
+    private var lastSaved: ProfileRegistry? // Only accessed on queue.
+
+    init(_ store: ProfileRegistryStore) { self.store = store }
+
+    func order(after barrier: @escaping @Sendable () -> Void) {
+        queue.async(execute: barrier)
+    }
+
+    func enqueue(_ registry: ProfileRegistry, completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
+        queue.async { completion(Result { try self.save(registry, preservingPrevious: true) }) }
+    }
+
+    func saveAndWait(_ registry: ProfileRegistry, preservingPrevious: Bool = true) throws {
+        try queue.sync { try save(registry, preservingPrevious: preservingPrevious) }
+    }
+
+    private func save(_ registry: ProfileRegistry, preservingPrevious: Bool) throws {
+        if preservingPrevious, lastSaved == registry { return }
+        try store.save(registry, preservingPrevious: preservingPrevious)
+        lastSaved = registry
     }
 }
 

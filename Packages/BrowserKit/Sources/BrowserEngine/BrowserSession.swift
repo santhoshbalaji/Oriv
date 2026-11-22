@@ -216,6 +216,24 @@ public final class BrowserSession {
 
     public func setProfileActive(_ active: Bool) {
         if !active { saveNow(); flushPersistence() }
+        applyProfileActivity(active)
+    }
+
+    #if os(macOS)
+    /// Enqueue one snapshot before changing activity. The profile registry
+    /// writer runs the barrier before it publishes the new active profile.
+    public func deactivateForProfileSwitch() -> @Sendable () -> Void {
+        saveNow()
+        applyProfileActivity(false)
+        let writer = self.writer
+        return {
+            // Snapshot write failures also arrive through completeWrites().
+            try? writer?.flush()
+        }
+    }
+    #endif
+
+    private func applyProfileActivity(_ active: Bool) {
         isProfileActive = active
         if active { adBlocker.warmUp() }
         tabs.forEach { $0.setProfileActive(active) }

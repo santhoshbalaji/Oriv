@@ -62,6 +62,30 @@ import SwiftUI
         XCTAssertThrowsError(try reopened.archive(BrowserProfile.personalID))
         XCTAssertThrowsError(try reopened.create(name: " work ", color: .ocean, symbol: .work))
     }
+    func testSelectionSaveOrdersOutgoingSessionAndProfileMetadata() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Work", color: .fern, symbol: .work)
+        let personal = profiles.controller
+        let tab = personal.session.addTab(url: URL(string: "https://retained.test"), load: false)
+        try profiles.select(work.id, deferSelectionSave: true)
+        let store = ProfileRegistryStore(fileURL: root.appendingPathComponent("profiles.json"))
+        try await eventually("deferred active ID reaches disk") {
+            (try? store.load().registry.activeID) == work.id
+        }
+        let savedSession = try XCTUnwrap(SessionFileStore(fileURL: root.appendingPathComponent("session.json")).load().snapshot)
+        XCTAssertTrue(savedSession.tabs.contains { $0.id == tab.id })
+
+        try profiles.select(BrowserProfile.personalID, deferSelectionSave: true)
+        try profiles.update(work.id, name: "Renamed", color: .ocean, symbol: .work)
+        try await Task.sleep(for: .milliseconds(600))
+        let latest = try store.load().registry
+        XCTAssertEqual(latest.activeID, BrowserProfile.personalID)
+        XCTAssertEqual(latest.profiles.first { $0.id == work.id }?.name, "Renamed")
+    }
+
     func testWebsiteCookiesAndDataClearingStayInTheirNamedPersistentStore() async throws {
         let a = UUID(), b = UUID()
         do {

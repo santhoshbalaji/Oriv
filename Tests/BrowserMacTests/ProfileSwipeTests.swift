@@ -214,6 +214,22 @@ final class ProfileSwipeTests: XCTestCase {
         var revisit: [Double] = []
         var tabTurns: [Double] = []
         let session = profiles.controller.session
+        var legacyPersistence: [Double] = []
+        var enqueuedPersistence: [Double] = []
+        for _ in 0..<6 {
+            let pending = session.addTab(select: false, load: false)
+            let legacyStart = ProcessInfo.processInfo.systemUptime
+            session.saveNow()
+            session.setProfileActive(false)
+            legacyPersistence.append((ProcessInfo.processInfo.systemUptime - legacyStart) * 1_000)
+            session.setProfileActive(true)
+            session.closeTab(pending.id)
+            let enqueueStart = ProcessInfo.processInfo.systemUptime
+            let barrier = session.deactivateForProfileSwitch()
+            enqueuedPersistence.append((ProcessInfo.processInfo.systemUptime - enqueueStart) * 1_000)
+            await Task.detached { barrier() }.value
+            session.setProfileActive(true)
+        }
         let originalTab = try XCTUnwrap(session.selectedTabID)
         let secondTab = try XCTUnwrap(session.tabs.first { $0.id != originalTab }).id
         for id in [secondTab, originalTab, secondTab, originalTab, secondTab, originalTab] {
@@ -256,7 +272,8 @@ final class ProfileSwipeTests: XCTestCase {
         func percentile(_ samples: [Double], _ fraction: Double) -> Double {
             samples.sorted()[Int(ceil(Double(samples.count) * fraction)) - 1]
         }
-        for (name, samples) in [("selectTurn", revisit), ("dragStart", drag), ("tabTurn", tabTurns)] {
+        for (name, samples) in [("selectTurn", revisit), ("dragStart", drag), ("tabTurn", tabTurns),
+                                ("legacyPersistence", legacyPersistence), ("enqueuedPersistence", enqueuedPersistence)] {
             print("PROFILE_BUDGET \(name) n=\(samples.count) p50=\(percentile(samples, 0.5)) p95=\(percentile(samples, 0.95)) max=\(samples.max() ?? 0)")
         }
         XCTAssertLessThanOrEqual(percentile(revisit, 0.95), 40)
