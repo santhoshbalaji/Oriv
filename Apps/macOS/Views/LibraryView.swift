@@ -204,7 +204,7 @@ struct LibraryView: View {
                                 Text(item.totalBytes > 0 ? "\(ByteCountFormatter.string(fromByteCount: item.bytesReceived, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: item.totalBytes, countStyle: .file))" : ByteCountFormatter.string(fromByteCount: item.bytesReceived, countStyle: .file))
                                     .font(.caption).foregroundStyle(theme.secondaryText)
                             }
-                            if item.isPrivate { Label("Private download", systemImage: "eyeglasses").font(.caption2).foregroundStyle(theme.secondaryText) }
+                            if item.isPrivate { Badge(text: "Private download", kind: .privateBrowsing) }
                         }
                         Spacer()
                         if item.status == "Completed", let url = item.destination {

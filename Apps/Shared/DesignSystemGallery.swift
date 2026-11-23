@@ -25,7 +25,7 @@ struct DesignSystemGallery: View {
                         SiteIdentity(url: URL(string: "https://atlas.example"))
                         Text("Atlas").font(OrivType.bodyEmphasized)
                         Spacer()
-                        SwitchToTabBadge()
+                        Badge.alreadyOpen
                     }.padding(OrivSpacing.small).modifier(ListSelection(selected: true))
                     HStack {
                         Button("Continue") {}.orivButton(.primary)

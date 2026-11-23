@@ -79,7 +79,7 @@ struct PageRowContent: View {
     @ViewBuilder private var trailing: some View {
         switch accessory {
         case .none: EmptyView()
-        case .alreadyOpen: SwitchToTabBadge()
+        case .alreadyOpen: Badge.alreadyOpen
         case .selected:
             Image(systemName: "checkmark").font(OrivType.detail.weight(.semibold))
                 .foregroundStyle(theme.secondaryText).accessibilityHidden(true)

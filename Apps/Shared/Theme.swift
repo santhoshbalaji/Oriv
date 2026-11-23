@@ -421,17 +421,6 @@ struct AppearancePreview: View {
     }
 }
 
-/// Marks a suggestion that switches to an open tab instead of loading the page again.
-struct SwitchToTabBadge: View {
-    @Environment(\.browserTheme) private var theme
-    var body: some View {
-        Text(OrivStrings.alreadyOpen).font(.caption2.weight(.medium)).foregroundStyle(theme.secondaryText).lineLimit(1).fixedSize()
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(theme.field, in: Capsule())
-            .accessibilityLabel(OrivStrings.alreadyOpen)
-    }
-}
-
 /// Site-owned favicons, with a local monogram while unavailable.
 struct SiteIdentity: View {
     @Environment(\.siteIcons) private var icons

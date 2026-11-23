@@ -30,6 +30,7 @@
 		1CAB6F98BE83B4B124F762F8 /* BrowserPageActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4B903396B10F2EE650D0525 /* BrowserPageActions.swift */; };
 		1D93592B01B1DC1D1B222B91 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = FC3144A9E8E4182209400E53 /* THIRD_PARTY_NOTICES.md */; };
 		1F656D3BE3CF9AFE71AE3369 /* OrivBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E670E02ED561956B29736333 /* OrivBanner.swift */; };
+		223CF4896383DE7277D868F1 /* Badge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A88745EFC975C33988BCB1E /* Badge.swift */; };
 		2297557A0DFD8145C97717A8 /* SidebarGlassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100961E091A57276804EB9BD /* SidebarGlassTests.swift */; };
 		236D70B0AAF3A48DE9B686D2 /* BrowserChromeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 324BE85EA541CBE4D23483CA /* BrowserChromeTests.swift */; };
 		247DDE82ABC067884DC79F41 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 65AC8784832B938C51CD3FBB /* AppIcon.icon */; };
@@ -117,6 +118,7 @@
 		A56BF89B9713036A9A972AB9 /* BrowserCore in Frameworks */ = {isa = PBXBuildFile; productRef = A02C69FDC5057F49DD04C6C1 /* BrowserCore */; };
 		A5D7D6F875D41BCBD21FBC6E /* OrivStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81E2E2FD52F9E555DBE1321 /* OrivStrings.swift */; };
 		A70453E4355AFCAA2F9224F1 /* AccessibilityAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243D91BF404183996A8BF8A0 /* AccessibilityAuditTests.swift */; };
+		A8055B0E4CF44476B6E2D8DC /* Badge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A88745EFC975C33988BCB1E /* Badge.swift */; };
 		AB90B584BAAC991A9DE7D697 /* MobileGridMorph.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D06EBE2249EBB7DA386317 /* MobileGridMorph.swift */; };
 		AC8BF2F30504BEB3A55BDC44 /* Eventually.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33574558F88C2351D8CE0A3A /* Eventually.swift */; };
 		AE071FB1F9C886A322C9BD45 /* SettingsToolbarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54EC913433B46977A52ACF48 /* SettingsToolbarTests.swift */; };
@@ -259,6 +261,7 @@
 		566CCED9ED81C9E8A3EE2952 /* AppIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIdentity.swift; sourceTree = "<group>"; };
 		57455593DDC0D73552125AB2 /* SiteIconAndSuggestionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteIconAndSuggestionTests.swift; sourceTree = "<group>"; };
 		57E04441C5C69848F2B0058D /* Continuity.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Continuity.entitlements; sourceTree = "<group>"; };
+		5A88745EFC975C33988BCB1E /* Badge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Badge.swift; sourceTree = "<group>"; };
 		5DE378E0D33F3FF1E1368B7E /* SettingRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingRow.swift; sourceTree = "<group>"; };
 		5F9AD26FBDB63B2FF947B0D9 /* OrivMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OrivMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		621822E29CF66CE2F8D9A84B /* BrowserKeyRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserKeyRouter.swift; sourceTree = "<group>"; };
@@ -625,6 +628,7 @@
 		E25731425CFA1FE8AA3EB054 /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				5A88745EFC975C33988BCB1E /* Badge.swift */,
 				4D1D6921E208F8739CFD3669 /* ListSelection.swift */,
 				E670E02ED561956B29736333 /* OrivBanner.swift */,
 				964480D72B2F65884062A245 /* OrivButtonStyles.swift */,
@@ -946,6 +950,7 @@
 				399E641FE1A05FA21AE9981B /* AppearanceSettings.swift in Sources */,
 				9FFF59A8080C7B6202FF6202 /* ApplePasswords.swift in Sources */,
 				B44264910455A64371EA1A57 /* BackgroundUIMode.swift in Sources */,
+				A8055B0E4CF44476B6E2D8DC /* Badge.swift in Sources */,
 				C8D981D100E3355BEB88E7F4 /* BrowserChrome.swift in Sources */,
 				D3B2FC2A4CC349CA60CEA729 /* BrowserCommands.swift in Sources */,
 				C8A2D8A21637115D627C67DD /* BrowserController.swift in Sources */,
@@ -1019,6 +1024,7 @@
 			files = (
 				5CA25ECB0921EADB463BE82F /* AddressSuggestions.swift in Sources */,
 				522597638862FB37485074B1 /* AppIdentity.swift in Sources */,
+				223CF4896383DE7277D868F1 /* Badge.swift in Sources */,
 				F06D058378B63F7337F718B0 /* BarButton.swift in Sources */,
 				7932564464659643CD361692 /* BrowserChrome.swift in Sources */,
 				E8EDCB9AD952B8693638A9A3 /* BrowserEmptyState.swift in Sources */,

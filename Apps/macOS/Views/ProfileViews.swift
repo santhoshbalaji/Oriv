@@ -189,9 +189,9 @@ struct ProfilesView: View {
                 Image(systemName: profile.symbol.rawValue).foregroundStyle(profile.color.tint(in: theme)).frame(width: 20)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(profile.name).lineLimit(1)
-                    if profile.id == profiles.active.id { Text("Current profile").font(.caption2).foregroundStyle(theme.secondaryText) }
+                    if profile.id == profiles.active.id { Badge(text: "Current profile", padsLabel: false) }
                     else if let count = profiles.loadedController(profile.id)?.downloads.items.filter({ !$0.isFinished }).count, count > 0 {
-                        Text("\(count) active downloads").font(.caption2).foregroundStyle(theme.secondaryText)
+                        Badge(text: "\(count) active downloads", kind: .count, padsLabel: false)
                     }
                 }
                 Spacer(minLength: 0)
