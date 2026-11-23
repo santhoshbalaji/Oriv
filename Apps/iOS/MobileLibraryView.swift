@@ -138,9 +138,7 @@ struct MobileTabsView: View {
                             Button("Close All Tabs", role: .destructive) { closeModeTabs() }
                         } label: { Image(systemName: "ellipsis").font(.system(size: 22)).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Tab actions").menuOrder(.fixed).tint(.primary)
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
-                    }
+                    DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
                     ToolbarItem(placement: .bottomBar) {
                         Button { controller.newTab(isPrivate: privateMode) } label: { Image(systemName: "plus").font(.system(size: 22)).frame(minWidth: 44, minHeight: 44) }
                             .accessibilityLabel("New Tab").tint(.primary).contextMenu { recentlyClosed }.menuOrder(.fixed)
