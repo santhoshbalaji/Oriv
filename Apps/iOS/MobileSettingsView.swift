@@ -30,10 +30,13 @@ struct MobileSettingsView: View {
             }.listRowBackground(theme.row)
             Section {
                 PrivacySettingsControls(session: controller.session)
-                Picker("Ad blocking", selection: Binding(get: { controller.session.adBlocker.mode }, set: { controller.session.adBlocker.setMode($0) })) { ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) } }.id(controller.appearance)
+                SettingRow(detail: controller.session.adBlocker.mode == .strict ? AdBlockingMode.strict.detail : nil) {
+                    Picker("Ad blocking", selection: Binding(get: { controller.session.adBlocker.mode }, set: { controller.session.adBlocker.setMode($0) })) {
+                        ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
+                    }.id(controller.appearance)
+                }
                 if let error = controller.session.adBlocker.preparationError { Text(error).foregroundStyle(theme.danger) }
                 if controller.session.adBlocker.mode == .strict {
-                    Text(AdBlockingMode.strict.detail).font(.footnote).foregroundStyle(theme.secondaryText)
                     if controller.session.adBlocker.isPreparingCNAME { ProgressView(OrivStrings.preparingTrackerProtection) }
                     if let error = controller.session.adBlocker.cnamePreparationError { Text(error).foregroundStyle(theme.danger) }
                 }

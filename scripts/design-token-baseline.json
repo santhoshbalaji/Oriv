@@ -8,7 +8,7 @@
     "retired copy": 3
   },
   "Apps/Shared/ContinuityViews.swift": {
-    "font style": 7,
+    "font style": 4,
     "padding": 1,
     "spacing": 1
   },
@@ -17,7 +17,7 @@
     "spacing": 1
   },
   "Apps/Shared/PrivacyControls.swift": {
-    "font style": 10,
+    "font style": 6,
     "padding": 1,
     "raw color": 1,
     "retired copy": 1,
@@ -44,7 +44,7 @@
     "spacing": 3
   },
   "Apps/iOS/MobileSettingsView.swift": {
-    "font style": 11,
+    "font style": 10,
     "padding": 1,
     "spacing": 1
   },
@@ -66,7 +66,7 @@
     "raw color": 3
   },
   "Apps/macOS/Views/AppearanceSettings.swift": {
-    "font style": 10,
+    "font style": 7,
     "padding": 2,
     "spacing": 1
   },

@@ -79,14 +79,17 @@ struct AppearanceSettings: View {
                     Toggle(OrivStrings.openLinksPrivately, isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
                     Text("External links open signed out, separate from every profile. Move a page to a profile when you choose.").font(OrivType.caption).foregroundStyle(theme.secondaryText)
                 }
-                BrowsingPreferencePicker(title: "Search engine", selection: $settings.searchEngine,
-                                         options: SearchEngine.allCases, label: \.rawValue)
-                Text("Searches are sent only when you submit them. Address suggestions use local tabs, saved pages and history.").font(.caption).foregroundStyle(theme.secondaryText)
-                Toggle("Restore tabs when Oriv starts", isOn: $settings.restoreTabs).tint(theme.accent)
-                Text("Pinned tabs always return. Private tabs are never restored. This takes effect on the next launch.").font(.caption).foregroundStyle(theme.secondaryText)
-                BrowsingPreferencePicker(title: "Default page zoom", selection: $settings.defaultZoom,
-                                         options: [0.75, 0.9, 1, 1.1, 1.25, 1.5, 2], label: { "\(Int($0 * 100))%" })
-                Text("Applies to newly opened tabs.").font(.caption).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: "Searches are sent only when you submit them. Address suggestions use local tabs, saved pages and history.") {
+                    BrowsingPreferencePicker(title: "Search engine", selection: $settings.searchEngine,
+                                             options: SearchEngine.allCases, label: \.rawValue)
+                }
+                SettingRow(detail: "Pinned tabs always return. Private tabs are never restored. This takes effect on the next launch.") {
+                    Toggle("Restore tabs when Oriv starts", isOn: $settings.restoreTabs).tint(theme.accent)
+                }
+                SettingRow(detail: "Applies to newly opened tabs.") {
+                    BrowsingPreferencePicker(title: "Default page zoom", selection: $settings.defaultZoom,
+                                             options: [0.75, 0.9, 1, 1.1, 1.25, 1.5, 2], label: { "\(Int($0 * 100))%" })
+                }
             }
             Section("Default browser") {
                 Button("Make \(AppIdentity.name) the Default Browser…") {
@@ -167,9 +170,9 @@ struct AppearanceSettings: View {
                 }.pickerStyle(.segmented)
             }
             Section("Sidebar for this profile") {
-                Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
-                Text("Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.")
-                    .font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: "Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.") {
+                    Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
+                }
             }
         }.formStyle(.grouped)
     }

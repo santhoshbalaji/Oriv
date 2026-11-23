@@ -33,6 +33,12 @@ struct DesignSystemGallery: View {
                         Button(OrivStrings.deleteProfile, role: .destructive) {}.orivButton(.destructive)
                         Button("Unavailable") {}.orivButton(.quiet).disabled(true)
                     }
+                    SettingRow(detail: "Private tabs are never restored.") {
+                        Toggle("Restore tabs", isOn: .constant(true))
+                    }
+                    SettingRow(detail: "Unavailable for this session.") {
+                        Toggle("Sync", isOn: .constant(false)).disabled(true)
+                    }
                     Text("Control").padding(OrivSpacing.medium).modifier(OrivMaterial.control())
                     Text("Overlay").padding(OrivSpacing.medium).modifier(OrivMaterial.overlay())
                 }.modifier(OrivMaterial.sheet)
