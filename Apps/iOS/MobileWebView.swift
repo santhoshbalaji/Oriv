@@ -397,9 +397,10 @@ final class MobileWebHost: UIView {
 }
 
 /// UIKit owns keyboard geometry and timing. The transparent controller receives
-/// touches only inside the actual bar, leaving the sibling WebKit surface live.
+/// touches only inside the bar and its suggestions, leaving WebKit live elsewhere.
 struct MobileKeyboardBar: UIViewControllerRepresentable {
     let content: () -> AnyView
+    var suggestions: AnyView? = nil
     var contentVersion:[AnyHashable]? = nil
     var handoff:UUID? = nil
     var reduceMotion = false
@@ -428,6 +429,12 @@ struct MobileKeyboardBar: UIViewControllerRepresentable {
         controller.handoff = handoff
         controller.onMetrics = onMetrics
         controller.loadViewIfNeeded()
+        controller.updateSuggestions(suggestions.map {
+            AnyView($0.environment(\.browserTheme, context.environment.browserTheme)
+                .environment(\.colorScheme, context.environment.colorScheme)
+                .environment(\.siteIcons, context.environment.siteIcons)
+                .environment(\.dynamicTypeSize, context.environment.dynamicTypeSize))
+        })
         if controller.view.isHidden != hidden { controller.view.isHidden = hidden }
         if controller.view.isUserInteractionEnabled != interactive { controller.view.isUserInteractionEnabled = interactive }
         if controller.view.accessibilityElementsHidden != accessibilityHidden { controller.view.accessibilityElementsHidden = accessibilityHidden }
@@ -438,10 +445,12 @@ struct MobileKeyboardBar: UIViewControllerRepresentable {
     }
     static func dismantleUIViewController(_ controller:Controller,coordinator:()) {
         controller.onMetrics = nil
+        controller.updateSuggestions(nil)
         controller.hosting.rootView = AnyView(EmptyView())
     }
     final class Controller:UIViewController {
         let hosting:UIHostingController<AnyView>
+        private var suggestionHost: UIHostingController<AnyView>?
         var contentVersion:[AnyHashable]?
         var handoff:UUID?
         var contentScheme:ColorScheme?
@@ -475,8 +484,54 @@ struct MobileKeyboardBar: UIViewControllerRepresentable {
             ])
             hosting.didMove(toParent:self)
         }
+        func updateSuggestions(_ content: AnyView?) {
+            if let content {
+                if let suggestionHost {
+                    suggestionHost.rootView = content
+                } else {
+                    let child = UIHostingController(rootView: content)
+                    suggestionHost = child
+                    addChild(child)
+                    child.safeAreaRegions = []
+                    child.view.backgroundColor = .clear
+                    view.insertSubview(child.view, belowSubview: hosting.view)
+                    child.didMove(toParent: self)
+                    (view as? PassthroughView)?.suggestions = child.view
+                    // Traverse the address editor first, then the ranked results.
+                    view.accessibilityElements = [hosting.view as UIView, child.view as UIView]
+                }
+                view.setNeedsLayout()
+            } else if let suggestionHost {
+                suggestionHost.willMove(toParent: nil)
+                suggestionHost.view.removeFromSuperview()
+                suggestionHost.removeFromParent()
+                (view as? PassthroughView)?.suggestions = nil
+                view.accessibilityElements = nil
+                self.suggestionHost = nil
+            }
+        }
+
+        private func layoutSuggestions() {
+            guard let suggestionHost else { return }
+            // Both hosts use the same coordinate space and keyboard layout guide.
+            let bottom = hosting.view.frame.minY
+            let safeArea = view.safeAreaLayoutGuide.layoutFrame
+            let width = safeArea.width - 2 * OrivSpacing.medium
+            let available = bottom - safeArea.minY - OrivSpacing.small
+            guard width > 0, available > 0 else {
+                suggestionHost.view.isHidden = true
+                return
+            }
+            let size = suggestionHost.sizeThatFits(in: CGSize(width: width, height: available))
+            let height = min(available, size.height)
+            suggestionHost.view.frame = CGRect(x: safeArea.minX + OrivSpacing.medium,
+                y: bottom - height, width: width, height: height)
+            suggestionHost.view.isHidden = height <= 0
+        }
+
         override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
+            layoutSuggestions()
             let height = hosting.view.bounds.height
             let occlusion = max(0,view.bounds.maxY-view.keyboardLayoutGuide.layoutFrame.minY)
             guard height > 0, abs(height-lastHeight)>0.5 || abs(occlusion-lastOcclusion)>0.5 else { return }
@@ -486,11 +541,16 @@ struct MobileKeyboardBar: UIViewControllerRepresentable {
     }
     final class PassthroughView:UIView {
         weak var bar:UIView?
+        weak var suggestions: UIView?
+
         override func hitTest(_ point:CGPoint,with event:UIEvent?) -> UIView? {
             guard !isHidden, isUserInteractionEnabled, alpha > 0.01, let bar else { return nil }
             let local = bar.convert(point,from:self)
-            guard bar.point(inside:local,with:event) else { return nil }
-            return bar.hitTest(local,with:event)
+            if bar.point(inside: local, with: event) { return bar.hitTest(local, with: event) }
+            guard let suggestions else { return nil }
+            let resultPoint = suggestions.convert(point, from: self)
+            guard suggestions.point(inside: resultPoint, with: event) else { return nil }
+            return suggestions.hitTest(resultPoint, with: event)
         }
     }
 }

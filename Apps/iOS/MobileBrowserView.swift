@@ -68,11 +68,10 @@ struct MobileBrowserView: View {
         return dark ? .dark : .light
     }
 
-    private var browserWindow: UIWindow? {
-        if let tab, tab.isInstantiated, let window = tab.webView.window { return window }
-        return (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.keyWindow
+    private var windowInsets: UIEdgeInsets {
+        if let tab, tab.isInstantiated, let window = tab.webView.window { return window.safeAreaInsets }
+        return (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.keyWindow?.safeAreaInsets ?? .zero
     }
-    private var windowInsets: UIEdgeInsets { browserWindow?.safeAreaInsets ?? .zero }
     private var barContentVersion:[AnyHashable]? {
         // Geometry and WebKit progress must not rebuild the bar's separate
         // SwiftUI graph. Native history/address providers read current state
@@ -164,19 +163,6 @@ struct MobileBrowserView: View {
                     .animation(reduceMotion || !pageChrome.animatesColor ? nil : OrivMotion.standard, value: pageChrome.color)
                 if editingAddress {
                     theme.canvas.ignoresSafeArea()
-                    let area = geometry.frame(in: .global)
-                    let editorTop = (browserWindow?.bounds.maxY ?? area.maxY) - bottomOcclusion - barHeight
-                    let bottomInset = max(0, area.maxY - editorTop)
-                    let topInset = max(0, windowInsets.top - area.minY)
-                    let available = max(0, area.height - topInset - bottomInset - OrivSpacing.small)
-                    if addressMatches.query == address, !addressMatches.rows.isEmpty, available > 0 {
-                        suggestions
-                            .frame(maxHeight: available)
-                            .padding(.leading, windowInsets.left + OrivSpacing.medium)
-                            .padding(.trailing, windowInsets.right + OrivSpacing.medium)
-                            .padding(.bottom, bottomInset)
-                            .frame(maxHeight: .infinity, alignment: .bottom)
-                    }
                 } else {
                     page(top: max(geometry.safeAreaInsets.top, windowInsets.top), bottom: max(geometry.safeAreaInsets.bottom, windowInsets.bottom) + (nativeFinding ? 0 : barHeight))
                         .opacity(reduceMotion ? 1-min(abs(gestures.translation)/max(geometry.size.width,1),1) : 1)
@@ -199,7 +185,9 @@ struct MobileBrowserView: View {
     }
 
     private var keyboardBar: some View {
-        MobileKeyboardBar(content:{ AnyView(barContent) },contentVersion:barContentVersion,handoff:swipeHandoff,reduceMotion:reduceMotion,
+        MobileKeyboardBar(content:{ AnyView(barContent) },
+            suggestions: editingAddress && addressMatches.query == address && !addressMatches.rows.isEmpty ? AnyView(suggestions) : nil,
+            contentVersion:barContentVersion,handoff:swipeHandoff,reduceMotion:reduceMotion,
             hidden:nativeFinding || (controller.sheet == .tabs && presentation.activeID == nil && gestures.gridProgress == 1),
             interactive:!gestures.finishingSwipe && (gestures.source != nil || (controller.sheet == nil && !gestures.gridClosing && gestures.gridProgress == 0)),
             accessibilityHidden:gestures.gridProgress > 0 || controller.sheet == .tabs || gestures.gridClosing) { height,occlusion in
@@ -210,7 +198,7 @@ struct MobileBrowserView: View {
     }
 
     private var browserLifecycle: some View {
-        browserSurface.overlay { keyboardBar.accessibilitySortPriority(1) }
+        browserSurface.overlay { keyboardBar }
             .toolbar(.hidden, for: .navigationBar)
             .onDisappear { cancelTransition(); presentation.discard() }
             .task(id:tab?.isLoading) {
