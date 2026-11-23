@@ -210,6 +210,12 @@ import WebKit
         }
         let blank = session.addTab()
         try await shot("light-35-ax-start", wait: 1500)
+        controller.addressFocusRequest += 1
+        try await shot("light-36-ax-address-editing", wait: 1400)
+        let largeField = try XCTUnwrap(firstResponder(in: window) as? UITextField)
+        largeField.insertText("ex")
+        try await shot("light-37-ax-address-suggestions", wait: 1400)
+        window.endEditing(true)
         session.closeTab(blank.id)
         window.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
         // External private link with its banner.

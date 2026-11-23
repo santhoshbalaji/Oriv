@@ -206,6 +206,16 @@ main run-loop wake-to-wait duration, first observed motion and settlement.
 The matrix has signposts and records timing without a hard threshold.
 These simulator scheduling measurements do not measure physical frame delivery.
 
+For visual changes to the iPhone grid or bottom controls, collect before and
+after runs on the same simulator. Compare the open, close and tap-to-open
+callback maxima and the 30-private-tab opening matrix. Keep the capture
+inventory separate from timing runs. In the iPhone design inventory, compare
+Light, Dark and accessibility XL, including the address editor and suggestions.
+On a physical iPhone, verify both grid gestures, mode and profile switching,
+and the suggestions panel with the keyboard visible in portrait and landscape.
+Check VoiceOver order and Dynamic Type with the keyboard, and test control
+glass with Reduce Transparency and Increase Contrast.
+
 ## CloudKit timing on Mac and iPhone
 
 The DEBUG timing probe uses the ContinuityDevelopment CloudKit environment and
