@@ -59,7 +59,7 @@ struct MobileSettingsView: View {
             Section {
                 Button("Open iOS Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
             } header: { Text("Passwords and permissions") } footer: {
-                Text("Passwords and passkeys use iOS AutoFill. Camera, microphone and location always ask for your permission.")
+                Text("Passwords come from iOS AutoFill. Tap the key above the keyboard, then choose the account. Camera, microphone and location always ask for your permission.")
             }.listRowBackground(theme.row)
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
