@@ -78,6 +78,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity-pastels" { await renderSidebarOpacity(into: directory, pastels: true) }
         else if environment["ORIV_GLASS_SCENE"] == "design-system" { await renderDesignSystem(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-v3" { await renderSidebarV3(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-width" { await renderSidebarWidthScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-attached" { await renderAttachedSidebarScenes(into: directory, activate: activate) }
@@ -847,6 +848,75 @@ import WebKit
 
     /// Same real-window fixture before and after the sidebar change. Sleeping tabs
     /// are metadata only; generated local icons go through the production cache.
+    private static func renderSidebarV3(into directory: URL) async {
+        manifest.limitations.append("The sidebar and toolbar are rendered from the actual browser window off-screen. Standard scenes use a synthetic flat glass input. No native compositor, pointer ergonomics or animation evidence.")
+        let root = directory.appendingPathComponent("sidebar-v3-fixture")
+        let sites = ["WebKit", "Swift", "Wikipedia", "GitHub", "Apple", "OpenStreetMap", "MDN", "Hacker News"]
+        let hosts = ["webkit.org", "swift.org", "wikipedia.org", "github.com", "apple.com", "openstreetmap.org", "mozilla.org", "ycombinator.com"]
+        let urls = hosts.compactMap { URL(string: "https://\($0)") }
+        let bookmarks = zip(sites, urls).map { Bookmark(title: $0, url: $1) }
+        let home = TabRecord()
+        let records = zip(sites, urls).enumerated().map { index, site in
+            TabRecord(title: site.0, url: site.1, isPinned: index < 4)
+        }
+        do {
+            try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: records + [home], selectedTabID: home.id, bookmarks: bookmarks))
+        } catch { manifest.failures.append("Sidebar v3 fixture: \(error)"); return }
+
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        do {
+            try profiles.update(profiles.active.id, name: "Studio", color: .ocean, symbol: .work)
+            try profiles.create(name: "Reading", color: .fern, symbol: .study)
+        } catch { manifest.failures.append("Sidebar v3 profiles: \(error)"); return }
+        let controller = profiles.controller
+        let privateTab = controller.session.addTab(isPrivate: true, select: false, load: false)
+        let privateID = profiles.createPrivateWindow()
+        guard let privateController = profiles.privateWindows[privateID] else {
+            manifest.failures.append("Sidebar v3 private window missing"); return
+        }
+
+        for (appearance, color, label) in [(BrowserAppearance.light, SidebarColor.graphite, "light-graphite"),
+                                           (.dark, .graphite, "dark-graphite"), (.t3Code, .graphite, "black-graphite"),
+                                           (.light, .sky, "light-sky"), (.dark, .rose, "dark-rose")] {
+            controller.sidebarColor = color
+            for (layout, rail, width) in [("expanded", false, 256), ("rail", true, 256), ("220", false, 220), ("360", false, 360)] {
+                guard layout == "expanded" || layout == "rail" || label == "light-graphite" else { continue }
+                controller.sidebar.setExpandedWidth(CGFloat(width))
+                controller.compactSidebar = rail
+                await scene(label + "-" + layout, controller, appearance)
+            }
+        }
+        controller.sidebar.setExpandedWidth(MacBrowserLayout.sidebarWidth)
+        controller.compactSidebar = false
+        controller.sidebarColor = .rose
+        controller.session.selectTab(privateTab.id)
+        await scene("mixed-private", controller, .dark)
+        privateController.compactSidebar = true
+        await scene("private-rail", privateController, .light)
+        controller.session.selectTab(home.id)
+        await scene("increased-contrast", controller, .dark, increased: true)
+        controller.sidebar.setExpandedWidth(MacBrowserLayout.sidebarWidthRange.upperBound)
+        await scene("rtl-360", controller, .light, rtl: true)
+
+        func scene(_ label: String, _ active: BrowserController, _ appearance: BrowserAppearance,
+                   increased: Bool = false, rtl: Bool = false) async {
+            let name = "mac-glass-sidebar-v3-\(label)"
+            await capture(name, directory, CGSize(width: 1120, height: 650), key: false, settle: 280,
+                          appearance: appearance, prepare: { window in
+                writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+            }) {
+                BrowserWindow(controller: active, profiles: active === controller ? profiles : nil)
+                    .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
+                    .environment(\.sidebarCaptureOpacity, .balanced)
+                    .environment(\.sidebarCaptureBackdrop, appearance == .light ? Color(white: 0.88) : Color(white: 0.18))
+                    .environment(\.sidebarCaptureContrast, increased ? .increased : .standard)
+                    .environment(\.sidebarCaptureState, SidebarCaptureState(hover: records.last?.id, audio: records.dropLast().last?.id))
+            }
+        }
+    }
+
     private static func renderSidebarWidthScenes(into directory: URL) async {
         let root = directory.appendingPathComponent("sidebar-fixture")
         let home = TabRecord()
@@ -1627,7 +1697,7 @@ import WebKit
         // Capture stable geometry, without an inferred WindowServer opening animation.
         window.animationBehavior = .none
         window.toolbarStyle = toolbarStyle
-        if name.hasPrefix("mac-glass-sidebar-contrast-") {
+        if name.hasPrefix("mac-glass-sidebar-contrast-") || name.hasPrefix("mac-glass-sidebar-v3-") {
             // Direct hosting avoids scene toolbar/title bridging, whose remote
             // layer tree is absent from AppKit's off-screen bitmap cache.
             window.contentView = NSHostingView(rootView: content().browserAppearance(appearance))
@@ -1789,7 +1859,8 @@ import WebKit
             save(data, suffix: "page", note: "In-process WKWebView.takeSnapshot, page only; no glass/chrome acceptance")
         } else if webView != nil { manifest.skipped.append("\(name)-page: visual-foreground-only; off-screen WebKit fixture stayed blank after three in-process snapshot attempts") }
         let contrastFixture = name.hasPrefix("mac-glass-sidebar-contrast-")
-        let target = contrastFixture ? window.contentView : window.contentView?.superview
+        let sidebarV3 = name.hasPrefix("mac-glass-sidebar-v3-")
+        let target = contrastFixture || sidebarV3 ? window.contentView : window.contentView?.superview
         if let frame = target, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
             frame.layoutSubtreeIfNeeded()
             frame.needsDisplay = true
@@ -1824,9 +1895,14 @@ import WebKit
                 NSGraphicsContext.restoreGraphicsState()
             }
             if let data = bitmap.representation(using: .png, properties: [:]) {
-                save(data, suffix: contrastFixture ? "synthetic-composite" : "opaque-fallback", note: contrastFixture
+                if sidebarV3 {
+                    save(data, suffix: "synthetic-composite",
+                         note: "Actual browser-window content with a synthetic sidebar glass input. WindowServer effects and native titlebar pixels are outside this capture.")
+                } else {
+                    save(data, suffix: contrastFixture ? "synthetic-composite" : "opaque-fallback", note: contrastFixture
                      ? "Real sidebar over synthetic sampled glass input and labelled page swatch, with production contrast backing/controls. Header is a layout spacer. Reduced/increased scenes use opaque accessibility material. No live Liquid Glass acceptance."
                      : "cacheDisplay non-glass chrome plus clipped WKWebView snapshot. Reduce Transparency variant; no Liquid Glass acceptance. Inspect before accepting.")
+                }
             }
         }
     }

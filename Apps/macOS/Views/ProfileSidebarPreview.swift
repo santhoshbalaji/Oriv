@@ -68,19 +68,19 @@ struct ProfileSidebarPreviewArtwork: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ProfileHeaderArtwork(name: profile.name, tabCount: preview.rows.count, marksGeometry: false)
-                .padding(.trailing, profileTrailingInset).padding(.vertical, 8)
-            HStack(spacing: 7) {
+            ProfileHeaderArtwork(profile: profile, tabCount: preview.rows.count, marksGeometry: false)
+                .padding(.trailing, profileTrailingInset).padding(.vertical, OrivSpacing.xs)
+            HStack(spacing: OrivSpacing.small) {
                 Image(systemName: "magnifyingglass")
                 Text(query.isEmpty ? OrivStrings.searchTabs : query).lineLimit(1)
                 Spacer(minLength: 0)
-                if query.isEmpty { Text("⇧⌘A").font(.system(size: 10)) }
+                if query.isEmpty { Text("⇧⌘A").font(OrivType.badge) }
                 else { Image(systemName: "xmark.circle.fill").frame(width: 24) }
             }
-            .font(OrivType.detail).foregroundStyle(theme.secondaryText)
+            .font(OrivType.detail).foregroundStyle(theme.textSecondary)
             .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 32)
-            .background(theme.sidebar.field.opacity(0.7), in: .rect(cornerRadius: OrivRadius.small))
-            .padding(.bottom, 10)
+            .modifier(SidebarToneSurface(tone: .search))
+            .padding(.bottom, OrivSpacing.small)
             GeometryReader { _ in
                 list.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }.clipped()
@@ -88,7 +88,7 @@ struct ProfileSidebarPreviewArtwork: View {
                 Image(systemName: "plus").frame(width: 19)
                 Text("New Tab")
                 Spacer()
-                Text("⌘T").font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                Text("⌘T").font(OrivType.badge).foregroundStyle(theme.textSecondary)
             }.font(OrivType.body).padding(.horizontal, MacBrowserLayout.sidebarRowInset)
                 .frame(height: 36).padding(.bottom, MacBrowserLayout.sidebarFooterGap)
         }
@@ -101,30 +101,34 @@ struct ProfileSidebarPreviewArtwork: View {
         let regular = preview.rows.filter { !$0.isPrivate && !$0.record.isPinned }
         let privateRows = preview.rows.filter(\.isPrivate)
         let duplicateTitles = Set(Dictionary(grouping: preview.rows, by: { $0.record.title }).filter { $0.value.count > 1 }.keys)
-        let limit = max(1, Int(size.height / 36) + 1)
-        return VStack(spacing: 0) {
+        let limit = max(1, Int(size.height / OrivLayout.tabRowHeight) + 1)
+        let pinRows = SidebarTabs.pinRows(count: pins.count)
+        return VStack(spacing: OrivSpacing.xxs) {
             if !pins.isEmpty {
                 SidebarSectionHeading(title: "Pinned", count: pins.count, marksGeometry: false)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 9) {
-                    ForEach(pins.prefix(SidebarTabs.gridLimit)) { row in
-                        artwork(row, tile: true, duplicateTitles: duplicateTitles).frame(height: 48)
+                ForEach(pinRows.indices, id: \.self) { index in
+                    let offset = pinRows.prefix(index).reduce(0, +)
+                    HStack(spacing: OrivSpacing.xs) {
+                        ForEach(pins.dropFirst(offset).prefix(pinRows[index])) { row in
+                            artwork(row, tile: true, duplicateTitles: duplicateTitles).frame(height: OrivLayout.sidebarPinHeight)
+                        }
                     }
-                }.padding(.vertical, 4)
+                }
             }
-            rows("More pinned tabs", Array(pins.dropFirst(SidebarTabs.gridLimit)), limit: limit, duplicates: duplicateTitles)
+            rows(nil, Array(pins.dropFirst(pinRows.reduce(0, +))), limit: limit, duplicates: duplicateTitles)
             rows("Tabs", regular, limit: limit, duplicates: duplicateTitles)
             rows("Private", privateRows, limit: limit, duplicates: duplicateTitles)
             if preview.rows.isEmpty { SidebarSectionHeading(title: "No tabs", count: 0, marksGeometry: false) }
         }.fixedSize(horizontal: false, vertical: true)
     }
 
-    @ViewBuilder private func rows(_ title: String, _ rows: [ProfileSidebarPreview.Row],
+    @ViewBuilder private func rows(_ title: String?, _ rows: [ProfileSidebarPreview.Row],
                                    limit: Int, duplicates: Set<String>) -> some View {
         if !rows.isEmpty {
-            SidebarSectionHeading(title: title, count: rows.count, marksGeometry: false)
-            VStack(spacing: 1) {
+            if let title { SidebarSectionHeading(title: title, count: rows.count, marksGeometry: false) }
+            VStack(spacing: OrivSpacing.xxs) {
                 ForEach(rows.prefix(limit)) { row in
-                    artwork(row, tile: false, duplicateTitles: duplicates).frame(height: textSize.isAccessibilitySize ? 60 : 36)
+                    artwork(row, tile: false, duplicateTitles: duplicates).frame(height: textSize.isAccessibilitySize ? OrivLayout.sidebarAccessibilityRowHeight : OrivLayout.tabRowHeight)
                 }
             }
         }

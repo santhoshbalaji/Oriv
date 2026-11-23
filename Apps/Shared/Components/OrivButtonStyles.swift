@@ -33,7 +33,7 @@ private struct OrivButtonAppearance: ViewModifier {
         case .secondary: content.buttonStyle(.bordered)
         case .quiet: content.buttonStyle(OrivQuietButtonStyle())
         case .destructive: content.buttonStyle(.bordered).tint(theme.danger).foregroundStyle(theme.danger)
-        case .link: content.buttonStyle(.borderless).tint(theme.accent)
+        case .link: content.buttonStyle(.borderless).tint(theme.accent).foregroundStyle(theme.accent)
         #if os(iOS)
         case .accentFill: content.buttonStyle(OrivAccentFillStyle())
         #endif

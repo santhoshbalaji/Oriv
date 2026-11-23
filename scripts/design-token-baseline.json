@@ -29,32 +29,23 @@
     "raw color": 3
   },
   "Apps/macOS/Views/BrowserSidebar.swift": {
-    "font size": 3,
-    "padding": 2,
+    "focus state": 1,
+    "font size": 2,
     "spacing": 3
   },
   "Apps/macOS/Views/BrowserWindow.swift": {
-    "motion": 1,
     "padding": 1,
-    "raw color": 6,
+    "raw color": 5,
     "spacing": 3
   },
   "Apps/macOS/Views/LibraryView.swift": {
     "spacing": 2
   },
   "Apps/macOS/Views/NativeSidebarTabs.swift": {
+    "focus state": 2,
     "raw color": 1
   },
   "Apps/macOS/Views/ProfileSidebarPreview.swift": {
-    "font size": 2,
-    "padding": 3,
-    "spacing": 7
-  },
-  "Apps/macOS/Views/ProfileViews.swift": {
-    "font size": 1
-  },
-  "Apps/macOS/Views/SidebarSearchPanel.swift": {
-    "padding": 1,
     "spacing": 2
   },
   "Apps/macOS/Views/WebPageView.swift": {

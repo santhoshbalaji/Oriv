@@ -9,7 +9,7 @@ struct SidebarTabTransfer: Codable {
     let owner: UUID
 }
 
-enum SidebarDropTarget { case tab(UUID), pinned(Bool) }
+enum SidebarDropTarget { case tab(UUID), between(UUID, after: Bool), pinned(Bool) }
 enum SidebarTabCommand { case pin, duplicate, moveUp, moveDown, reload, copyLink, mute, media, close, newPrivate }
 
 /// SwiftUI focus can use a window-sized AppKit responder. Publish ownership
@@ -19,10 +19,51 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
+struct SidebarTabQuery: Equatable {
+    let text: String
+    let isPrivate: Bool
+
+    init(text: String, isPrivate: Bool) {
+        self.text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        self.isPrivate = isPrivate
+    }
+
+    @MainActor func matches(_ tab: BrowserTab) -> Bool {
+        isPrivate == tab.isPrivate && (text.isEmpty || [tab.displayTitle, tab.hostname].contains {
+            $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).contains(text)
+        })
+    }
+}
+
+struct SidebarSearchScope: View {
+    @Bindable var controller: BrowserController
+    var body: some View {
+        if controller.tabSearchHasBothScopes {
+            Picker("Search scope", selection: Binding(
+                get: { controller.tabSearchIsPrivate },
+                set: { controller.tabSearchPrivacyOverride = $0 }
+            )) {
+                Text("Tabs").tag(false)
+                Text("Private").tag(true)
+            }.pickerStyle(.segmented).labelsHidden()
+        }
+    }
+}
+
 /// Shared by the real drop targets and their tests. Cross-section drops are
 /// explicit on headings; a row drop never silently changes privacy or pin state.
 @MainActor enum SidebarTabs {
-    static let gridLimit = 8
+    /// Up to two complete rows, with a full-width tile when there is one pin.
+    static func pinRows(count: Int) -> [Int] {
+        switch count {
+        case ...0: []
+        case 1...3: [count]
+        case 4: [2, 2]
+        case 5: [3, 2]
+        default: [3, 3]
+        }
+    }
     static func countLabel(_ count: Int) -> String { count == 1 ? "1 tab" : "\(count) tabs" }
     static func perform(_ command: SidebarTabCommand, tab: BrowserTab, controller: BrowserController) {
         guard controller.session.tabs.contains(where: { $0 === tab }) else { return }
@@ -38,10 +79,6 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
         case .close: controller.requestCloseTab(tab.id)
         case .newPrivate: controller.newTab(isPrivate: true)
         }
-    }
-    static func filtered(_ tabs: [BrowserTab], query: String) -> [BrowserTab] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return tabs.filter { query.isEmpty || $0.displayTitle.localizedCaseInsensitiveContains(query) || $0.hostname.localizedCaseInsensitiveContains(query) }
     }
     static func duplicateTitles(in tabs: [BrowserTab]) -> Set<String> {
         var seen = Set<String>()
@@ -66,7 +103,7 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
               let source = controller.session.tabs.first(where: { $0.id == item.id }) else { return false }
         switch target {
         case .pinned: return !source.isPrivate
-        case .tab(let id):
+        case .tab(let id), .between(let id, _):
             guard let destination = controller.session.tabs.first(where: { $0.id == id }) else { return false }
             return source.id != id && source.isPrivate == destination.isPrivate && source.isPinned == destination.isPinned
         }
@@ -77,6 +114,13 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
         switch target {
         case .pinned(let pinned): controller.session.moveTab(item.id, intoPinnedSection: pinned)
         case .tab(let id): controller.session.moveTab(item.id, to: id)
+        case .between(let id, let after):
+            let ordered = controller.session.orderedTabs
+            guard let source = ordered.first(where: { $0.id == item.id }) else { return false }
+            let peers = ordered.filter { $0.isPrivate == source.isPrivate && $0.isPinned == source.isPinned }
+            guard let start = peers.firstIndex(where: { $0.id == item.id }),
+                  let end = peers.firstIndex(where: { $0.id == id }) else { return false }
+            controller.session.moveTab(item.id, offset: end - start - (start < end ? 1 : 0) + (after ? 1 : 0))
         }
         return true
     }
@@ -92,6 +136,7 @@ private struct SidebarProfileCover: ViewModifier {
 struct BrowserSidebar: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.sidebarContrast) private var contrast
+    @Environment(\.colorScheme) private var scheme
     @Bindable var controller: BrowserController
     var profiles: BrowserProfiles? = nil
     @State var tabList = SidebarListHandle()
@@ -103,20 +148,24 @@ struct BrowserSidebar: View {
     private var compact: Bool { controller.sidebar.rail }
     private var peeking: Bool { controller.sidebar.peeking }
     private var railLayout: Bool { compact || peeking }
-    private var filteredTabs: [BrowserTab] { SidebarTabs.filtered(session.orderedTabs, query: controller.profileUI.settledQuery) }
+
 
     var body: some View {
-        let tabs = filteredTabs
+        let request = !compact && (searchFocused || controller.tabSearchIsFiltering) ? controller.tabSearchRequest : nil
+        let tabs = request.map(controller.tabSearchResults) ?? session.orderedTabs
         return VStack(spacing: railLayout ? 6 : 0) {
             VStack(spacing: railLayout ? 6 : 0) {
-                if !railLayout { profileHeader.focused($utilityFocus, equals: "profile") }
-                searchField
+                profileHeader
+                searchField(firstResult: request == nil ? nil : tabs.first?.id)
+                if !railLayout && (searchFocused || request != nil) {
+                    SidebarSearchScope(controller: controller).padding(.bottom, OrivSpacing.xs)
+                }
                 if railLayout { newTab }
                 if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
                     Text(notice).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)).padding(.horizontal, OrivSpacing.large)
                 }
                 NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
-                                  searching: !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { id, right in
+                                  searchRequest: request) { id, right in
                     controller.profileUI.closeToRight = right
                     controller.profileUI.closeOthers = id
                 }
@@ -147,11 +196,6 @@ struct BrowserSidebar: View {
         .font(OrivType.body)
         .foregroundStyle(theme.text)
         .transformPreference(SidebarKeyboardFocusKey.self) { $0 = $0 || searchFocused || utilityFocus != nil || tabList.hasFocus }
-        .task(id: controller.scoped(controller.tabSearch)) {
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            guard !Task.isCancelled else { return }
-            controller.profileUI.settledQuery = controller.tabSearch
-        }
         .onChange(of: controller.scoped(controller.tabSearchFocusRequest)) { old, new in
             if old.owner == new.owner, !controller.tabSearchPanel { searchFocused = true }
         }
@@ -163,7 +207,10 @@ struct BrowserSidebar: View {
             guard old.owner == new.owner else { return }
             let id = new.value
             controller.sidebarTooltip.dismiss()
-            if let id, !SidebarTabs.filtered(session.orderedTabs, query: controller.tabSearch).contains(where: { $0.id == id }) { controller.tabSearch = "" }
+            if let id, controller.tabSearchIsFiltering,
+               !controller.tabSearchResults(controller.tabSearchRequest).contains(where: { $0.id == id }) {
+                controller.dismissTabSearch()
+            }
         }
         .confirmationDialog(controller.profileUI.closeToRight ? "Close tabs to the right?" : "Close other tabs?", isPresented: Binding(get: { controller.profileUI.closeOthers != nil }, set: { if !$0 { controller.profileUI.closeOthers = nil } })) {
             Button("Close Tabs", role: .destructive) { if let id = controller.profileUI.closeOthers { session.closeOtherTabs(id, toRight: controller.profileUI.closeToRight) }; controller.profileUI.closeOthers = nil }
@@ -172,32 +219,25 @@ struct BrowserSidebar: View {
 
     private var profileHeader: some View {
         Group {
-            if let profiles, !session.isExternalPrivate {
-                ProfileMenu(profiles: profiles, iconOnly: compact, tabCount: session.tabs.count)
+            if let profiles, !privateWindow {
+                ProfileMenu(profiles: profiles, iconOnly: railLayout, tabCount: session.tabs.count,
+                            showsKeyboardFocus: controller.sidebar.showsUtilityKeyboardFocus)
             } else {
-                HStack(spacing: OrivSpacing.small) {
-                    Image(systemName: privateWindow ? "eyeglasses" : "rectangle.stack").font(.system(size: 17, weight: .semibold))
-                    if !compact {
-                        VStack(alignment: .leading, spacing: OrivSpacing.xs) {
-                            Text(privateWindow ? "Private" : controller.profile?.name ?? "Personal").font(OrivType.windowTitle)
-                            if !session.tabs.isEmpty { Text(SidebarTabs.countLabel(session.tabs.count)).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)) }
-                        }
-                        Spacer(minLength: 0)
-                    }
-                }
-                .padding(.horizontal, MacBrowserLayout.sidebarRowInset)
-                .foregroundStyle(privateWindow ? theme.sidebarPrivateAccent : theme.text)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(privateWindow ? "Private browsing, \(SidebarTabs.countLabel(session.tabs.count))" : "\(controller.profile?.name ?? "Personal"), \(SidebarTabs.countLabel(session.tabs.count))")
+                ProfileHeaderArtwork(profile: privateWindow ? nil : controller.profile,
+                                     tabCount: session.tabs.count, iconOnly: railLayout)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(privateWindow ? "Private browsing" : controller.profile?.name ?? "Personal")
+                    .accessibilityValue(SidebarTabs.countLabel(session.tabs.count))
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: railLayout ? .center : .leading)
         .browserGeometryMarker("sidebarProfileGeometry")
         .padding(.trailing, profileTrailingInset)
-        .padding(.vertical, OrivSpacing.small)
+        .padding(.vertical, OrivSpacing.xs)
     }
 
-    @ViewBuilder private var searchField: some View {
+    @ViewBuilder private func searchField(firstResult: UUID?) -> some View {
+        let request = controller.tabSearchRequest
         if railLayout {
             Button { controller.searchTabs() } label: {
                 HStack(spacing: OrivSpacing.small) {
@@ -205,7 +245,7 @@ struct BrowserSidebar: View {
                     if peeking { Text(OrivStrings.searchTabs).modifier(SidebarLabelFade()); Spacer() }
                 }
             }.frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
-                .orivButton(.quiet).focused($utilityFocus, equals: "search")
+                .buttonStyle(SidebarToneButtonStyle()).focused($utilityFocus, equals: "search")
                 .browserGeometryMarker("sidebarSearchGeometry")
                 .accessibilityLabel(OrivStrings.searchTabs).help("Search Tabs (⇧⌘A)")
                 .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
@@ -218,13 +258,16 @@ struct BrowserSidebar: View {
                           prompt: Text(OrivStrings.searchTabs).foregroundStyle(theme.sidebarSecondaryText(contrast)))
                     .focused($searchFocused).accessibilityLabel(OrivStrings.searchTabs).accessibilityIdentifier("tabSearchField")
                     .accessibilityHint("Press Shift-Command-A to focus Search tabs.")
-                    .onExitCommand { controller.tabSearch = ""; focusTabAfterSearch(session.selectedTabID) }
+                    .onExitCommand { controller.dismissTabSearch(); focusTabAfterSearch(session.selectedTabID) }
                     .onKeyPress(.downArrow) {
-                        guard let first = filteredTabs.first else { return .ignored }
-                        focusTabAfterSearch(first.id); return .handled
+                        guard request == controller.tabSearchRequest,
+                              let first = controller.tabSearchResults(request).first else { return .ignored }
+                        focusTabAfterSearch(first.id)
+                        return .handled
                     }
                     .onSubmit {
-                        if let first = filteredTabs.first { focusTabAfterSearch(first.id); session.selectTab(first.id) }
+                        guard let firstResult, controller.activateSidebarTab(firstResult, request: request) else { return }
+                        focusTabAfterSearch(firstResult)
                     }
             }
             .background {
@@ -244,17 +287,19 @@ struct BrowserSidebar: View {
     }
 
     private var newTab: some View {
-        Button { controller.newTab(isPrivate: session.selectedTab?.isPrivate ?? session.isExternalPrivate) } label: {
+        let isPrivate = session.selectedTab?.isPrivate ?? session.isExternalPrivate
+        let title = isPrivate ? "New Private Tab" : "New Tab"
+        return Button { controller.newTab(isPrivate: isPrivate) } label: {
             HStack(spacing: OrivSpacing.small) {
                 Image(systemName: "plus").frame(width: railLayout ? 42 : 19)
-                if peeking { Text("New Tab").modifier(SidebarLabelFade()); Spacer() }
-                if !railLayout { Text("New Tab"); Spacer(); Text("⌘T").font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)) }
+                if peeking { Text(title).modifier(SidebarLabelFade()); Spacer() }
+                if !railLayout { Text(title); Spacer(); Text("⌘T").font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)) }
             }.font(OrivType.body).padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarRowInset).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
-        }.orivButton(.quiet).frame(width: compact ? 42 : nil)
+        }.buttonStyle(SidebarToneButtonStyle()).frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
             .padding(.horizontal, peeking ? MacBrowserLayout.railInset : 0)
             .browserGeometryMarker("sidebarNewTabGeometry")
             .focused($utilityFocus, equals: "new-tab")
-            .accessibilityLabel("New Tab").accessibilityIdentifier(railLayout ? "railNewTabButton" : "newTabButton").help("New Tab (⌘T)")
+            .accessibilityLabel(title).accessibilityIdentifier(railLayout ? "railNewTabButton" : "newTabButton").help("\(title) (⌘T)")
     }
 
     private func profileDots(_ profiles: BrowserProfiles) -> some View {
@@ -269,11 +314,14 @@ struct BrowserSidebar: View {
                         profiles.switchFromSidebar(profile.id, source: controller)
                     } label: {
                         Circle()
-                            .fill(selected ? theme.accent : theme.sidebarSecondaryText(contrast).opacity(contrast == .increased ? 1 : 0.60))
+                            .fill(profile.color.sidebarInk(dark: scheme == .dark))
+                            .frame(width: OrivSpacing.small, height: OrivSpacing.small)
+                            .padding(OrivSpacing.xxs)
                             .overlay {
-                                if contrast == .increased { Circle().strokeBorder(theme.text, lineWidth: 1) }
+                                if selected || contrast == .increased {
+                                    Circle().strokeBorder(theme.text, lineWidth: OrivOutline.hairline)
+                                }
                             }
-                            .frame(width: selected ? 8 : 6, height: selected ? 8 : 6)
                             .frame(width: ProfileDotsScrollMetrics.itemWidth, height: OrivTarget.macMinimum.height)
                             .contentShape(Rectangle())
                     }
@@ -289,61 +337,77 @@ struct BrowserSidebar: View {
         .browserGeometryMarker("sidebarProfileDotsGeometry")
     }
 
-    @ViewBuilder private var footer: some View {
-        if railLayout {
-            VStack(alignment: .leading, spacing: OrivSpacing.small) { footerButtons }.frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, MacBrowserLayout.railInset).foregroundStyle(theme.sidebarSecondaryText(contrast))
-                .browserGeometryMarker("sidebarFooterGeometry")
-        } else {
-            HStack(spacing: 0) { footerButtons }.padding(.horizontal, OrivSpacing.small).frame(height: OrivTarget.macRail.width)
-                .browserGeometryMarker("sidebarFooterGeometry")
-        }
-    }
-    @ViewBuilder private var footerButtons: some View {
-        ForEach(LibrarySection.allCases) { section in
-            Button { controller.library = section } label: {
-                HStack(spacing: OrivSpacing.small) {
-                    Image(systemName: section.symbol).font(.system(size: OrivIcon.footer))
-                        .frame(width: railLayout ? OrivTarget.macRail.width : OrivLayout.controlHeight,
-                               height: railLayout ? OrivTarget.macRail.height : OrivLayout.controlHeight)
-                    .overlay(alignment: .topTrailing) {
-                        if section == .downloads && controller.downloads.hasActiveDownloads {
-                            Circle().fill(theme.accent).frame(width: 6, height: 6).padding(3).accessibilityHidden(true)
-                        }
-                    }
-                    if peeking { Text(section.title).font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
-                }
-            }.orivButton(.quiet).foregroundStyle(theme.sidebarSecondaryText(contrast))
-                .focused($utilityFocus, equals: section.rawValue)
-                .focusEffectDisabled()
-                .overlay { footerFocusIndicator(section.rawValue) }
-                .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.title)
-                .help(section.title).browserGeometryMarker("sidebarFooter-\(section.rawValue)")
-        }
-        if !railLayout { Spacer(minLength: 0) }
-        SettingsLink {
-            HStack(spacing: OrivSpacing.small) {
-                Image(systemName: "gearshape").font(.system(size: OrivIcon.footer))
-                        .frame(width: railLayout ? OrivTarget.macRail.width : OrivLayout.controlHeight,
-                               height: railLayout ? OrivTarget.macRail.height : OrivLayout.controlHeight)
-                if peeking { Text("Settings").font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
+    private var footer: some View {
+        VStack(spacing: OrivSpacing.xs) {
+            Rectangle().fill(contrast == .increased ? theme.text : theme.separator)
+                .frame(height: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                .accessibilityHidden(true)
+            if railLayout {
+                VStack(spacing: OrivSpacing.xs) { footerButtons }
+                    .padding(.bottom, OrivSpacing.small)
+            } else {
+                HStack(spacing: OrivSpacing.xs) { footerButtons }
+                    .frame(height: OrivLayout.sidebarFooterHeight)
             }
         }
-            .orivButton(.quiet).foregroundStyle(theme.sidebarSecondaryText(contrast)).accessibilityLabel("Settings").help("Settings (⌘,)")
+        .padding(.horizontal, railLayout ? MacBrowserLayout.railInset : 0)
+        .foregroundStyle(theme.sidebarSecondaryText(contrast))
+        .browserGeometryMarker("sidebarFooterGeometry")
+    }
+
+    @ViewBuilder private var footerButtons: some View {
+        Menu {
+            ForEach(LibrarySection.allCases) { section in
+                Button(section.title, systemImage: section.symbol) { controller.library = section }
+            }
+        } label: {
+            footerLabel("Library", symbol: "books.vertical", showsText: !railLayout)
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+        .accessibilityLabel("Library").help("Library")
+        .browserGeometryMarker("sidebarFooter-Library")
+        if !railLayout { Spacer(minLength: 0) }
+        if controller.downloads.hasActiveDownloads {
+            Button { controller.library = .downloads } label: {
+                ZStack {
+                    footerLabel("Downloads", symbol: "arrow.down", showsText: false)
+                    if let fraction = controller.downloads.items.first(where: { !$0.isFinished })?.fractionCompleted {
+                        Circle().trim(from: 0, to: fraction)
+                            .stroke(theme.accent, style: StrokeStyle(lineWidth: OrivOutline.enhanced, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
+                    } else {
+                        Circle().strokeBorder(theme.accent, lineWidth: OrivOutline.enhanced)
+                            .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
+                    }
+                }.accessibilityHidden(true)
+            }
+            .buttonStyle(SidebarToneButtonStyle())
+            .accessibilityLabel("Downloads in progress").help("Downloads in progress")
+            .browserGeometryMarker("sidebarFooter-Downloads")
+        }
+        SettingsLink { footerLabel("Settings", symbol: "gearshape", showsText: false) }
+            .buttonStyle(SidebarToneButtonStyle())
             .focused($utilityFocus, equals: "settings")
-            .focusEffectDisabled()
-            .overlay { footerFocusIndicator("settings") }
+            .modifier(SidebarFocusRing(visible: utilityFocus == "settings" && controller.sidebar.showsUtilityKeyboardFocus))
+            .accessibilityLabel("Settings").help("Settings (⌘,)")
             .browserGeometryMarker("sidebarFooter-Settings")
     }
 
-    @ViewBuilder private func footerFocusIndicator(_ id: String) -> some View {
-        if utilityFocus == id && controller.sidebar.showsUtilityKeyboardFocus {
-            RoundedRectangle(cornerRadius: OrivRadius.tile)
-                .strokeBorder(theme.accent, lineWidth: 2)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+    private func footerLabel(_ title: String, symbol: String, showsText: Bool) -> some View {
+        HStack(spacing: OrivSpacing.xs) {
+            Image(systemName: symbol).font(OrivIcon.toolbarFont)
+            if showsText {
+                Text(title).font(OrivType.detail)
+                Image(systemName: "chevron.down").font(OrivIcon.close)
+            }
         }
+        .padding(.horizontal, showsText ? OrivSpacing.small : 0)
+        .frame(width: railLayout ? OrivTarget.macRail.width : (showsText ? nil : OrivLayout.controlHeight),
+               height: railLayout ? OrivTarget.macRail.height : OrivLayout.controlHeight)
+        .contentShape(Rectangle())
     }
+
 }
 
 private enum ProfileDotsScrollMetrics {
@@ -430,6 +494,66 @@ struct SidebarSectionHeading: View {
     }
 }
 
+struct SidebarToneSurface: ViewModifier {
+    @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.chromeReduceTransparencyOverride) private var captureTransparency
+    @Environment(\.sidebarContrast) private var contrast
+    let tone: Theme.SidebarTone?
+    var radius = OrivRadius.control
+
+    func body(content: Content) -> some View {
+        let opaque = reduceTransparency || captureTransparency || contrast == .increased || theme.isT3Code
+        let dark = scheme == .dark
+        let shape = RoundedRectangle(cornerRadius: radius)
+        content.background {
+            if let tone {
+                shape.fill(tone.fill(in: theme, dark: dark, opaque: opaque))
+                    .overlay {
+                        shape.strokeBorder(theme.sidebarRim(dark: dark, opaque: opaque),
+                                           lineWidth: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                    }
+            }
+        }
+    }
+}
+
+struct SidebarToneButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Face(configuration: configuration)
+    }
+
+    private struct Face: View {
+        let configuration: Configuration
+        @State private var hovered = false
+
+        var body: some View {
+            configuration.label
+                .modifier(SidebarToneSurface(tone: configuration.isPressed ? .selection : hovered ? .hover : nil))
+                .onHover { hovered = $0 }
+        }
+    }
+}
+
+struct SidebarFocusRing: ViewModifier {
+    @Environment(\.browserTheme) private var theme
+    var visible: Bool
+
+    func body(content: Content) -> some View {
+        content.focusEffectDisabled().overlay {
+            if visible {
+                RoundedRectangle(cornerRadius: OrivRadius.control)
+                    .strokeBorder(theme.accent, lineWidth: OrivOutline.focus)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+enum SidebarRowAccessory { case close, audio }
+
 struct SidebarTabArtwork: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.sidebarContrast) private var contrast
@@ -440,6 +564,10 @@ struct SidebarTabArtwork: View {
     private let id: UUID
     private var title: String { tab?.displayTitle ?? record?.title ?? "" }
     private var url: URL? { tab?.url ?? record?.url }
+    private var pinLabel: String {
+        guard let site = SiteMonogram.label(for: url?.host()) else { return title }
+        return title.caseInsensitiveCompare(site) == .orderedSame ? title : site.capitalized
+    }
     private var isPrivate: Bool { tab?.isPrivate ?? previewIsPrivate }
     let selected: Bool
     let active: Bool
@@ -447,6 +575,7 @@ struct SidebarTabArtwork: View {
     let rail: Bool
     let peek: Bool
     let hovered: Bool
+    var hoveredAccessory: SidebarRowAccessory?
     let subtitle: String?
     var previewIcons: [String: SiteIcon]? = nil
     #if DEBUG
@@ -454,10 +583,10 @@ struct SidebarTabArtwork: View {
     #endif
 
     init(tab: BrowserTab, selected: Bool, active: Bool, tile: Bool, rail: Bool, peek: Bool,
-         hovered: Bool, subtitle: String?) {
+         hovered: Bool, hoveredAccessory: SidebarRowAccessory? = nil, subtitle: String?) {
         self.tab = tab; id = tab.id; record = nil; previewIsPrivate = false
         self.selected = selected; self.active = active; self.tile = tile; self.rail = rail
-        self.peek = peek; self.hovered = hovered; self.subtitle = subtitle
+        self.peek = peek; self.hovered = hovered; self.hoveredAccessory = hoveredAccessory; self.subtitle = subtitle
     }
 
     init(record: TabRecord, selected: Bool, tile: Bool, subtitle: String?, icons: [String: SiteIcon],
@@ -494,71 +623,76 @@ struct SidebarTabArtwork: View {
                     .overlay(alignment: .bottomTrailing) {
                         if let mediaSymbol { badge(mediaSymbol) }
                     }
-                    .overlay(alignment: .topTrailing) { if isPrivate { badge("eyeglasses") } }
                 if peek { Text(title).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
+            } else if tile {
+                VStack(spacing: OrivSpacing.xxs) {
+                    favicon
+                    Text(pinLabel)
+                        .font(OrivType.badge).lineLimit(1)
+                }
             } else {
                 favicon
-                if !tile {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(title)
-                            .font(textSize.isAccessibilitySize ? .system(size: 26, weight: active ? .medium : .regular)
-                                  : (active ? OrivType.bodyEmphasized : OrivType.body))
-                            .lineLimit(subtitle == nil && textSize.isAccessibilitySize ? 2 : 1)
-                        if let subtitle {
-                            Text(subtitle)
-                                .font(textSize.isAccessibilitySize ? OrivType.windowTitle : OrivType.caption)
-                                .foregroundStyle(theme.sidebarSecondaryText(contrast))
-                                .lineLimit(1).truncationMode(.middle)
-                                .browserGeometryMarker("sidebarHost-\(id)", when: previewIcons == nil)
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    if let mediaSymbol {
-                        Image(systemName: mediaSymbol)
-                            .font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast))
-                            .frame(width: 24, height: 24).padding(.leading, -8)
-                            .browserGeometryMarker("sidebarMedia-\(id)")
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title)
+                        .font(textSize.isAccessibilitySize ? .system(size: 26, weight: active ? .medium : .regular)
+                              : (active ? OrivType.bodyEmphasized : OrivType.body))
+                        .lineLimit(subtitle == nil && textSize.isAccessibilitySize ? 2 : 1)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(textSize.isAccessibilitySize ? OrivType.windowTitle : OrivType.caption)
+                            .foregroundStyle(theme.sidebarSecondaryText(contrast))
+                            .lineLimit(1).truncationMode(.middle)
+                            .browserGeometryMarker("sidebarHost-\(id)", when: previewIcons == nil)
                     }
-                    Image(systemName: "xmark").font(OrivIcon.close)
-                        .foregroundStyle(theme.sidebarSecondaryText(contrast)).frame(width: 24, height: 24).padding(.leading, -8)
-                        .opacity(hovered || selected || active ? 1 : 0)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 0) {
+                    if tab != nil {
+                        accessory(mediaSymbol, kind: .audio).browserGeometryMarker("sidebarMedia-\(id)", when: mediaSymbol != nil)
+                    }
+                    accessory(hovered || selected || active ? "xmark" : nil, kind: .close)
                         .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
                 }
             }
         }
-        .padding(.horizontal, rail || tile ? 0 : MacBrowserLayout.sidebarRowInset)
+        .padding(.horizontal, rail ? 0 : MacBrowserLayout.sidebarRowInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(theme.text)
-        .background {
-            let fill = selected ? theme.sidebar.selection : hovered ? theme.sidebar.hover : .clear
-            if rail || tile {
-                Rectangle().fill(.clear).modifier(Tile(kind: .pinned(tile && !rail && !selected && !hovered ? theme.sidebar.field.opacity(0.6) : fill)))
-            } else {
-                RoundedRectangle(cornerRadius: OrivRadius.control).fill(fill)
-            }
-        }
+        .modifier(SidebarToneSurface(tone: selected ? .selection : hovered ? .hover : tile ? .pin : nil, radius: radius))
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .leading) {
-            if active { SelectionMarker(height: 16, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil).padding(.leading, 1) }
+            if active { SelectionMarker(height: OrivIcon.toolbar, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil).padding(.leading, OrivSpacing.xs) }
         }
         .overlay {
             if selected && contrast == .increased {
-                RoundedRectangle(cornerRadius: radius).strokeBorder(theme.text, lineWidth: 2)
+                RoundedRectangle(cornerRadius: radius).strokeBorder(theme.text, lineWidth: OrivOutline.focus)
             }
         }
     }
 
     private var radius: CGFloat { rail || tile ? OrivRadius.tile : OrivRadius.control }
 
+    private func accessory(_ symbol: String?, kind: SidebarRowAccessory) -> some View {
+        ZStack {
+            if let symbol {
+                Image(systemName: symbol).font(kind == .close ? OrivIcon.close : OrivType.caption)
+                    .foregroundStyle(theme.sidebarSecondaryText(contrast))
+            }
+        }
+        .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
+        .modifier(SidebarToneSurface(tone: hoveredAccessory == kind ? .hover : nil))
+    }
+
     private func badge(_ symbol: String) -> some View {
         Image(systemName: symbol).font(.system(size: 10, weight: .bold)).frame(width: 12, height: 12)
-            .foregroundStyle(symbol == "eyeglasses" ? theme.sidebarPrivateAccent : theme.text)
+            .foregroundStyle(theme.text)
             .background(theme.surface, in: Circle())
     }
 
     private var favicon: some View {
-        let size: CGFloat = rail ? 22 : (tile ? 24 : 19)
+        let size = rail ? OrivLayout.sidebarRailFaviconSize : OrivLayout.sidebarFaviconSize
         return ZStack {
-            SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true, previewIcons: previewIcons)
+            SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true,
+                         showsSidebarPrivateBadge: rail, previewIcons: previewIcons)
                 .browserGeometryMarker("sidebarFavicon-\(id)", when: previewIcons == nil)
             if loading {
                 Circle().trim(from: 0, to: 0.75).stroke(theme.accent, lineWidth: 2)
@@ -700,11 +834,12 @@ struct MacSidebarGlass: ViewModifier {
     // A neutral guard bounds the luma of the exposed glass. Dark profile
     // colors need more protection against bright page input than Black.
     private static let balancedTintGuard = Theme.adaptive("SidebarTintGuard", light: 0xFFFFFF, dark: 0x000000)
-    private static let balancedLightGuard = 0.26
-    private static let balancedLightTintGuard = 0.32
-    private static let balancedDarkGuard = 0.30
-    private static let balancedDarkTintGuard = 0.38
+    private static let balancedLightGuard = 0.42
+    private static let balancedLightTintGuard = 0.47
+    private static let balancedDarkGuard = 0.52
+    private static let balancedDarkTintGuard = 0.60
     private static let balancedBlackGuard = 0.18
+    private static let highDarkGuard = 0.38
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -732,7 +867,9 @@ struct MacSidebarGlass: ViewModifier {
             edge(content.background(backing))
         } else {
             let tinted = color.effective(profileColor: profileColor, isT3Code: theme.isT3Code) != .graphite
-            let guardOpacity = effectiveOpacity == .balanced ? balancedGuard(tinted: tinted) : 0
+            let guardOpacity = effectiveOpacity == .balanced
+                ? balancedGuard(tinted: tinted)
+                : (colorScheme == .dark && !theme.isT3Code ? Self.highDarkGuard : 0)
             edge(glass(content.background(backing.opacity(effectiveOpacity.backingOpacity))
                 .background(Self.balancedTintGuard.opacity(guardOpacity))))
         }
@@ -742,26 +879,26 @@ struct MacSidebarGlass: ViewModifier {
         if colorScheme == .dark { return tinted ? Self.balancedDarkTintGuard : Self.balancedDarkGuard }
         return tinted ? Self.balancedLightTintGuard : Self.balancedLightGuard
     }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: OrivRadius.card, style: .continuous) }
+
     private func edge<Surface: View>(_ content: Surface) -> some View {
-        content.overlay(alignment: .trailing) {
-            Canvas { context, size in
-                let color = contrast == .increased ? theme.text : theme.separator.opacity(0.5)
-                context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(color))
+        content.clipShape(shape)
+            .overlay {
+                shape.strokeBorder(contrast == .increased ? theme.text : theme.separator,
+                                   lineWidth: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
-            .frame(width: contrast == .increased ? 1.5 : 0.5)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-        }
     }
     @ViewBuilder private func glass<Surface: View>(_ content: Surface) -> some View {
         #if DEBUG
         if let captureBackdrop {
             content.background(captureBackdrop)
         } else {
-            GlassEffectContainer { content.glassEffect(.clear, in: Rectangle()) }
+            GlassEffectContainer { content.glassEffect(.clear, in: shape) }
         }
         #else
-        GlassEffectContainer { content.glassEffect(.clear, in: Rectangle()) }
+        GlassEffectContainer { content.glassEffect(.clear, in: shape) }
         #endif
     }
 }

@@ -66,11 +66,19 @@ enum OrivLayout {
     #if os(macOS)
     static let sheetPadding = OrivSpacing.xl
     static let popoverPadding = OrivSpacing.large
+    static let macAddressFontSize: CGFloat = 13
     static let sidebarWidth: CGFloat = 256
     static let railWidth: CGFloat = 72
-    static let toolbarHeight: CGFloat = 60
+    static let toolbarHeight: CGFloat = 50
     static let controlHeight: CGFloat = 32
-    static let tabRowHeight: CGFloat = 36
+    static let tabRowHeight: CGFloat = 33
+    static let sidebarProfileHeight: CGFloat = 34
+    static let sidebarPinHeight: CGFloat = 42
+    static let sidebarFooterHeight: CGFloat = 40
+    static let sidebarBadgeSize: CGFloat = 12
+    static let sidebarFaviconSize: CGFloat = 19
+    static let sidebarRailFaviconSize: CGFloat = 22
+    static let sidebarAccessibilityRowHeight: CGFloat = 60
     static let listRowHeight: CGFloat = 28
     static let suggestionRowHeight: CGFloat = 38
     static let rowInset = OrivSpacing.small
@@ -93,6 +101,13 @@ enum OrivMotion {
     static let reduced = Animation.easeInOut(duration: 0.18)
 
     static func navigation(reduceMotion: Bool) -> Animation { reduceMotion ? reduced : navigate }
+}
+
+enum OrivOutline {
+    static let hairline: CGFloat = 0.5
+    static let enhanced: CGFloat = 1.5
+    static let focus: CGFloat = 2
+    static let focusInset: CGFloat = 4
 }
 
 enum OrivIcon {
@@ -193,6 +208,20 @@ enum BrowserAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+#if os(macOS)
+extension ProfileColor {
+    func sidebarInk(dark: Bool) -> Color {
+        switch self {
+        case .mulberry: Theme.hex(dark ? 0xE9B7EF : 0x692978)
+        case .ocean: Theme.hex(dark ? 0x95C8FF : 0x215B9A)
+        case .fern: Theme.hex(dark ? 0xA3D79A : 0x346738)
+        case .amber: Theme.hex(dark ? 0xF4C17E : 0x845214)
+        case .slate: Theme.hex(dark ? 0xB5C7D9 : 0x4B5D70)
+        }
+    }
+}
+#endif
+
 /// Color roles are scoped to the owning window, sheet or preview.
 struct Theme {
     struct SidebarPalette {
@@ -230,6 +259,35 @@ struct Theme {
         return isT3Code ? Self.hex(0xB8B8B8) : Self.highContrastSecondary
     }
     var sidebarPrivateAccent: Color { Self.glassPrivate }
+
+    enum SidebarTone {
+        case selection, hover, search, pin
+
+        // The contrast gate reads these values and composites them over all tint backings.
+        private static let selectionTone = (light: 0.68, dark: 0.12)
+        private static let hoverTone = (light: 0.05, dark: 0.07)
+        private static let searchTone = (light: 0.055, dark: 0.07)
+        private static let pinTone = (light: 0.46, dark: 0.08)
+
+        func fill(in theme: Theme, dark: Bool, opaque: Bool) -> Color {
+            let opacity: (light: Double, dark: Double)
+            let solid: Color
+            switch self {
+            case .selection: (opacity, solid) = (Self.selectionTone, theme.sidebar.selection)
+            case .hover: (opacity, solid) = (Self.hoverTone, theme.sidebar.hover)
+            case .search: (opacity, solid) = (Self.searchTone, theme.sidebar.field)
+            case .pin: (opacity, solid) = (Self.pinTone, theme.sidebar.field)
+            }
+            if opaque || theme.isT3Code { return solid }
+            let white = dark || self == .selection || self == .pin
+            return (white ? Color.white : Color.black).opacity(dark ? opacity.dark : opacity.light)
+        }
+    }
+
+    func sidebarRim(dark: Bool, opaque: Bool) -> Color {
+        opaque ? separatorStrong : Color.white.opacity(dark ? 0.16 : 0.55)
+    }
+
     #endif
 
     var fillHover: Color { sidebar.hover }
@@ -321,7 +379,7 @@ struct Theme {
     private static let highContrastSeparator = adaptive("StrongSeparator", light: 0x646469, dark: 0xA3A3A9)
     private static let highContrastSecondary = adaptive("StrongSecondary", light: 0x36363B, dark: 0xD9D9DD)
 
-    private static func hex(_ value: UInt32) -> Color {
+    fileprivate static func hex(_ value: UInt32) -> Color {
         Color(.sRGB, red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255,
               blue: Double(value & 255) / 255, opacity: 1)
     }
@@ -430,6 +488,7 @@ struct SiteIdentity: View {
     var isPrivate = false
     var isSelected = false
     var sidebarIcon = false
+    var showsSidebarPrivateBadge = false
     var cachedOnly = false
     var previewIcons: [String: SiteIcon]? = nil
     @Environment(\.colorScheme) private var colorScheme
@@ -440,7 +499,8 @@ struct SiteIdentity: View {
     }
     private var symbol: String? {
         if isPrivate { return "eyeglasses" }
-        if url == nil || host.isEmpty || sidebarIcon { return "globe" }
+        if url == nil && sidebarIcon { return "magnifyingglass" }
+        if url == nil || host.isEmpty { return "globe" }
         if host.first?.isLetter != true { return "globe" }
         return nil
     }
@@ -453,8 +513,9 @@ struct SiteIdentity: View {
     }
 
     var body: some View {
-        ZStack {
-            if let icon, sidebarIcon {
+        let artwork = icon
+        return ZStack {
+            if let icon = artwork, sidebarIcon {
                 // Opaque artwork is full bleed. Transparent glyphs get a plate
                 // only when their dominant luminance would disappear on the panel.
                 if let lightPlate = icon.lightPlate(onDark: colorScheme == .dark, selected: isSelected) {
@@ -462,7 +523,7 @@ struct SiteIdentity: View {
                 }
                 Image(decorative: icon.image, scale: 2).resizable().scaledToFit()
                     .clipShape(.rect(cornerRadius: size * 0.2))
-            } else if let image = icon?.image {
+            } else if let image = artwork?.image {
                 RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
                 // A pale plate keeps black/transparent monochrome marks readable
                 // on dark sidebar material as well as light surfaces.
@@ -485,6 +546,18 @@ struct SiteIdentity: View {
         }
         .foregroundStyle(isPrivate ? theme.privateAccent : (isSelected ? theme.text : theme.secondaryText))
         .frame(width: size, height: size)
+        #if os(macOS)
+        .overlay(alignment: .topTrailing) {
+            if sidebarIcon && showsSidebarPrivateBadge && isPrivate && artwork != nil {
+                Image(systemName: "eyeglasses").resizable().scaledToFit()
+                    .padding(OrivSpacing.xxs)
+                    .frame(width: OrivLayout.sidebarBadgeSize, height: OrivLayout.sidebarBadgeSize)
+                    .foregroundStyle(theme.sidebarPrivateAccent)
+                    .background(theme.surface, in: Circle())
+                    .accessibilityHidden(true)
+            }
+        }
+        #endif
         .task(id: "\(url?.absoluteString ?? "")-\(isPrivate)-\((!sidebarIcon && !cachedOnly && url.flatMap { icons?.document?($0, isPrivate) } != nil))") {
             // Sidebar and start-page tiles are cache-only. The
             // session's completed-document path discovers icons. Sleeping

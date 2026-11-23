@@ -17,7 +17,6 @@ import WebKit
     let pageChrome = PageChrome()
     var closeOthers: UUID?
     var closeToRight = false
-    var settledQuery = ""
 
     func dismissPresentations() {
         showProtection = false
@@ -58,6 +57,7 @@ final class BrowserController {
     let session: BrowserSession
     let downloads = DownloadManager()
     let sidebar = SidebarPresentation()
+    let testing: Bool
     let sidebarTooltip = SidebarTooltip()
     let profileUI = BrowserProfileUI()
 
@@ -72,8 +72,7 @@ final class BrowserController {
         sidebar.cancel()
         sidebarTooltip.dismiss()
         tabSearchReturnFocus = nil
-        tabSearchPanel = false
-        sidebar.searchOpen = false
+        if tabSearchPanel { dismissTabSearch() }
         profileUI.dismissPresentations()
         profileUI.pageChrome.observe(nil)
     }
@@ -98,6 +97,33 @@ final class BrowserController {
     @ObservationIgnored weak var tabSearchReturnFocus: NSResponder?
     var tabSearchPanel = false
     var tabSearch = ""
+    var tabSearchPrivacyOverride: Bool?
+    var tabSearchIsPrivate: Bool {
+        tabSearchPrivacyOverride ?? session.selectedTab?.isPrivate ?? session.isExternalPrivate
+    }
+    var tabSearchHasBothScopes: Bool {
+        session.tabs.contains(where: \.isPrivate) && session.tabs.contains { !$0.isPrivate }
+    }
+    var tabSearchRequest: ProfileScoped<SidebarTabQuery> {
+        scoped(SidebarTabQuery(text: tabSearch, isPrivate: tabSearchIsPrivate))
+    }
+    var tabSearchIsFiltering: Bool {
+        tabSearchPanel || tabSearchPrivacyOverride != nil || !tabSearchRequest.value.text.isEmpty
+    }
+
+    func tabSearchResults(_ request: ProfileScoped<SidebarTabQuery>) -> [BrowserTab] {
+        guard request.owner == sidebarDragID else { return [] }
+        return session.orderedTabs.filter { request.value.matches($0) }
+    }
+
+    @discardableResult
+    func activateSidebarTab(_ id: UUID, request: ProfileScoped<SidebarTabQuery>?) -> Bool {
+        guard session.isProfileActive,
+              let tab = session.tabs.first(where: { $0.id == id }),
+              request.map({ $0 == tabSearchRequest && $0.value.matches(tab) }) ?? !tabSearchIsFiltering else { return false }
+        if session.selectedTabID != id { session.selectTab(id) }
+        return session.selectedTabID == id
+    }
     var tabSearchFocusRequest = 0
     let sidebarDragID = UUID()
     func searchTabs() {
@@ -111,7 +137,12 @@ final class BrowserController {
         }
         tabSearchFocusRequest += 1
     }
-    func dismissTabSearch() { tabSearchPanel = false; tabSearch = ""; sidebar.searchOpen = false }
+    func dismissTabSearch() {
+        tabSearchPanel = false
+        tabSearch = ""
+        tabSearchPrivacyOverride = nil
+        sidebar.searchOpen = false
+    }
     func toggleSidebar() {
         let previous = compactSidebar
         let next = sidebar.toggle()
@@ -148,8 +179,13 @@ final class BrowserController {
     init(profile: BrowserProfile? = .personal, rootDirectory: URL? = nil, testing: Bool? = nil, websiteStore: WKWebsiteDataStore? = nil,
          privateTabIsolation: PrivateTabIsolation? = nil) {
         self.profile = profile
+        let isTesting = testing ?? SessionFactory.isTesting
+        self.testing = isTesting
+        if !isTesting, let width = UserDefaults.standard.object(forKey: SidebarPresentation.widthPreferenceKey) as? Double {
+            sidebar.setExpandedWidth(CGFloat(width))
+        }
         let factory = SessionFactory(profile: profile, rootOverride: rootDirectory,
-            testing: testing ?? SessionFactory.isTesting,
+            testing: isTesting,
             bundleID: Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac", websiteStore: websiteStore,
             privateTabIsolation: privateTabIsolation)
         let defaults = factory.defaults

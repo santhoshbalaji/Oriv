@@ -299,10 +299,16 @@ import XCTest
         let host = BrowserTab(record: TabRecord(title: "Reading", url: URL(string: "https://field.example/book")))
         let privateTab = BrowserTab(record: TabRecord(title: "Private field", url: URL(string: "https://private.example")), isPrivate: true)
         defer { [title, host, privateTab].forEach { $0.close() } }
-        XCTAssertEqual(SidebarTabs.filtered([title, host, privateTab], query: " FiELd ").map(\.id), [title.id, host.id, privateTab.id])
-        XCTAssertEqual(SidebarTabs.filtered([title, host], query: "notes.example").map(\.id), [title.id])
-        XCTAssertTrue(SidebarTabs.filtered([title, host], query: "absent").isEmpty)
-        XCTAssertEqual(SidebarTabs.filtered([title, host], query: "  ").count, 2)
+        let tabs = [title, host, privateTab]
+        func matching(_ text: String, isPrivate: Bool = false) -> [UUID] {
+            let query = SidebarTabQuery(text: text, isPrivate: isPrivate)
+            return tabs.filter { query.matches($0) }.map(\.id)
+        }
+        XCTAssertEqual(matching(" FiELd "), [title.id, host.id])
+        XCTAssertEqual(matching("field", isPrivate: true), [privateTab.id])
+        XCTAssertEqual(matching("notes.example"), [title.id])
+        XCTAssertTrue(matching("absent").isEmpty)
+        XCTAssertEqual(matching("  ").count, 2)
         XCTAssertFalse([title, host, privateTab].contains(where: \.isInstantiated))
     }
     func testDropReordersPinsAndExplicitlyPinsUnpinsButRejectsOtherPrivacyAndOwners() throws {
@@ -347,7 +353,7 @@ import XCTest
         XCTAssertNil(marker("sidebarHost", unique.id))
         for record in [first, second, unique] {
             let row = try XCTUnwrap(marker("sidebarItem", record.id))
-            XCTAssertEqual(row.bounds.height, 36, accuracy: 1)
+            XCTAssertEqual(row.bounds.height, OrivLayout.tabRowHeight, accuracy: 1)
             XCTAssertEqual(row.accessibilityLabel()?.contains(record.url!.host!), true)
             if record.id != unique.id {
                 let host = try XCTUnwrap(marker("sidebarHost", record.id))
@@ -478,8 +484,14 @@ import XCTest
         }
         try key(125, "\u{f701}"); try await settle() // Search -> first pin focus.
         try key(36, "\r"); try await settle(); XCTAssertEqual(c.session.selectedTabID, first.id)
-        try key(124, "\u{f703}"); try await settle(); XCTAssertEqual(c.session.selectedTabID, second.id)
-        try key(125, "\u{f701}"); try await settle(); XCTAssertEqual(c.session.selectedTabID, regular.id)
+        try key(124, "\u{f703}"); try await settle()
+        XCTAssertEqual(c.session.selectedTabID, first.id)
+        XCTAssertTrue(hasVisibleKeyboardFocus(second.id, in: w))
+        try key(49, " "); XCTAssertEqual(c.session.selectedTabID, second.id)
+        try key(119, "\u{f72b}"); try await settle()
+        XCTAssertEqual(c.session.selectedTabID, second.id)
+        XCTAssertTrue(hasVisibleKeyboardFocus(regular.id, in: w))
+        try key(36, "\r"); XCTAssertEqual(c.session.selectedTabID, regular.id)
     }
     func testNativeArrowNavigationScrollsThroughSixtyRowsAndRail() async throws {
         try await checkNativeArrowNavigation(size: NSSize(width: 1000, height: 760))
@@ -521,6 +533,8 @@ import XCTest
                 self.hasVisibleKeyboardFocus(tabs[index].id, in: w)
             }
         }
+        try await settle()
+        XCTAssertEqual(c.session.selectedTabID, tabs.first?.id)
         try key(36, "\r")
         XCTAssertEqual(c.session.selectedTabID, tabs.last?.id)
         let toggle = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
@@ -577,7 +591,7 @@ import XCTest
         _ = try XCTUnwrap(w.firstResponder as? NSTextView)
         c.tabSearch = "search.example"; try await settle()
         XCTAssertEqual((w.firstResponder as? NSTextView)?.string, "search.example")
-        XCTAssertEqual(SidebarTabs.filtered(c.session.orderedTabs, query: c.tabSearch).map(\.id), [second.id])
+        XCTAssertEqual(c.tabSearchResults(c.tabSearchRequest).map(\.id), [second.id])
         let escape = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: w.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
         NSApp.sendEvent(escape); try await settle(); XCTAssertEqual(c.tabSearch, "")
@@ -677,7 +691,10 @@ import XCTest
         for count in [12, 50, 100] {
             let tabs = Array(c.session.orderedTabs.prefix(count))
             let start = CACurrentMediaTime()
-            for _ in 0..<100 { _ = SidebarTabs.filtered(tabs, query: "site9") }
+            for _ in 0..<100 {
+                let query = SidebarTabQuery(text: "site9", isPrivate: false)
+                _ = tabs.filter { query.matches($0) }
+            }
             print("SIDEBAR_SEARCH tabs=\(count) mean_ms=\((CACurrentMediaTime() - start) * 10)")
         }
     }

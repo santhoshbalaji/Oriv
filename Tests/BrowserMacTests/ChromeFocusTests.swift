@@ -88,7 +88,7 @@ import XCTest
 
         list.keyDown(with: try keyEvent(125, "\u{f701}", in: w))
         XCTAssertEqual(list.sidebar?.selectedID, next.id)
-        try await wait("Keyboard selection did not settle") { c.session.selectedTabID == next.id }
+        XCTAssertNotEqual(c.session.selectedTabID, next.id)
         XCTAssertTrue(firstRow.focusRingMaskBounds.isEmpty)
         let path = try XCTUnwrap(list.selectionIndexPaths.first)
         let row = try XCTUnwrap(list.item(at: path)?.view)
@@ -108,6 +108,7 @@ import XCTest
         let keyboard = try capture("Sidebar row after keyboard navigation")
         try click("sidebarItem-\(next.id)", in: w)
         XCTAssertTrue(w.firstResponder === list)
+        XCTAssertEqual(c.session.selectedTabID, next.id)
         XCTAssertTrue(row.focusRingMaskBounds.isEmpty)
         XCTAssertNotEqual(keyboard, try capture("Sidebar row after click"))
 
@@ -153,8 +154,8 @@ import XCTest
 
         _ = try await revealFromBottom(first)
         XCTAssertEqual(list.visibleRect.minY, 0, accuracy: 1)
-        let fourth = try XCTUnwrap(c.session.orderedTabs.prefix(5).dropFirst(3).first)
-        _ = try await revealFromBottom(fourth)
+        let firstRowLast = try XCTUnwrap(c.session.orderedTabs.dropFirst(2).first)
+        _ = try await revealFromBottom(firstRowLast)
         XCTAssertEqual(list.visibleRect.minY, 0, accuracy: 1)
         let tabs = try await revealFromBottom(try XCTUnwrap(regular.first))
         XCTAssertEqual(list.visibleRect.minY, tabs.minY, accuracy: 1)
@@ -165,7 +166,7 @@ import XCTest
         XCTAssertEqual(list.visibleRect.minY, 0, accuracy: 1)
     }
 
-    func testArrowPreviewWakesOnlyTheSettledTab() async throws {
+    func testArrowsLeaveTabsSleepingUntilExplicitActivation() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let original = try XCTUnwrap(c.session.selectedTab)
         let tabs = (1...5).map { index in
@@ -182,12 +183,16 @@ import XCTest
             XCTAssertEqual(c.session.selectedTabID, original.id)
             XCTAssertTrue(tabs.allSatisfy { !$0.isInstantiated })
         }
-        try await wait("Keyboard preview did not settle") { c.session.selectedTabID == tabs.last?.id }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(c.session.selectedTabID, original.id)
+        XCTAssertTrue(tabs.allSatisfy { !$0.isInstantiated })
+        list.keyDown(with: try keyEvent(49, " ", in: w))
+        XCTAssertEqual(c.session.selectedTabID, tabs.last?.id)
         XCTAssertTrue(tabs.last?.isInstantiated == true)
         XCTAssertTrue(tabs.dropLast().allSatisfy { !$0.isInstantiated })
     }
 
-    func testReturnCommitsPreviewAndFocusLossCancelsIt() async throws {
+    func testReturnCommitsHighlightAfterReturningToSidebar() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let original = try XCTUnwrap(c.session.selectedTab)
         let sleeping = c.session.addTab(url: URL(string: "https://sleeping.example"), select: false, load: false)
@@ -214,17 +219,26 @@ import XCTest
         for _ in 0..<40 { _ = c.session.addTab(select: false, load: false) }
         c.compactSidebar = true
         let w = host(c); defer { w.close() }
-        try await wait("Rail did not mount") { self.collection(in: w)?.visibleItems().isEmpty == false }
+        func layoutMatches(_ width: CGFloat, showsScrollbar: Bool) -> Bool {
+            w.contentView?.layoutSubtreeIfNeeded()
+            return marker("sidebarSurfaceGeometry", in: w)?.bounds.width == width &&
+                collection(in: w)?.enclosingScrollView?.hasVerticalScroller == showsScrollbar
+        }
+        try await wait("Rail did not mount") { layoutMatches(MacBrowserLayout.railWidth, showsScrollbar: false) }
+        c.compactSidebar = false
+        try await wait("Expanded scroller did not mount") {
+            layoutMatches(MacBrowserLayout.sidebarWidth, showsScrollbar: true)
+        }
+        let expandedScroll = try XCTUnwrap(collection(in: w)?.enclosingScrollView)
+        expandedScroll.scrollerStyle = .legacy
+        expandedScroll.tile()
+        XCTAssertEqual(expandedScroll.scrollerStyle, .legacy)
+        c.compactSidebar = true
+        try await wait("Rail kept legacy scrollbar space") {
+            layoutMatches(MacBrowserLayout.railWidth, showsScrollbar: false)
+        }
         let list = try XCTUnwrap(collection(in: w))
         let scroll = try XCTUnwrap(list.enclosingScrollView)
-        // Switching styles can install a legacy scroller. Exercise the
-        // real transition to the rail after the expanded legacy layout.
-        c.compactSidebar = false
-        try await wait("Expanded scroller did not mount") { scroll.hasVerticalScroller }
-        scroll.scrollerStyle = .legacy
-        XCTAssertEqual(scroll.scrollerStyle, .legacy)
-        c.compactSidebar = true
-        try await wait("Rail kept legacy scrollbar space") { c.sidebar.rail && !scroll.hasVerticalScroller }
         scroll.tile()
         XCTAssertEqual(scroll.contentView.bounds.width, MacBrowserLayout.railWidth, accuracy: 1)
         XCTAssertFalse(scroll.hasVerticalScroller)
@@ -254,7 +268,7 @@ import XCTest
         XCTAssertTrue(info.draggingPasteboard.writeObjects([item]))
         list.layoutSubtreeIfNeeded()
         let row = try XCTUnwrap(list.layoutAttributesForItem(at: destination))
-        info.move(to: row.frame)
+        info.move(to: row.frame, verticalFraction: 0.25)
         var proposed = destination as NSIndexPath
         var operation = NSCollectionView.DropOperation.before
         XCTAssertEqual(data.collectionView(list, validateDrop: info, proposedIndexPath: &proposed, dropOperation: &operation), .move)
@@ -273,7 +287,7 @@ import XCTest
         XCTAssertTrue(data.menu(for: second).items.contains { $0.title == "Unpin Tab" })
     }
 
-    func testNarrowOverlayKeepsNativeLightsAboveAttachedSurface() async throws {
+    func testNarrowOverlayKeepsNativeLightsAboveInsetSurface() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let w = host(c); defer { w.close() }
         w.setContentSize(NSSize(width: 780, height: 760))
@@ -281,21 +295,23 @@ import XCTest
             guard c.sidebar.rail, let surface = self.marker("sidebarSurfaceGeometry", in: w),
                   let toggle = self.marker("sidebarToggleGeometry", in: w) else { return false }
             return surface.bounds.width == MacBrowserLayout.railWidth &&
-                toggle.convert(toggle.bounds, to: nil).maxX <= MacBrowserLayout.railWidth
+                toggle.convert(toggle.bounds, to: nil).maxX <= MacBrowserLayout.railWidth + MacBrowserLayout.panelInset
         }
         try click("sidebarToggleGeometry", in: w)
         try await wait("Explicit overlay did not open") { c.sidebar.narrowOverlay }
         try await Task.sleep(for: .milliseconds(200))
         let surface = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: w))
-        XCTAssertEqual(surface.convert(surface.bounds, to: nil), NSRect(x: 0, y: 0, width: MacBrowserLayout.sidebarWidth, height: w.contentView!.bounds.height))
+        let inset = MacBrowserLayout.panelInset
+        XCTAssertEqual(surface.convert(surface.bounds, to: nil),
+                       NSRect(x: inset, y: inset, width: MacBrowserLayout.sidebarWidth, height: w.contentView!.bounds.height - 2 * inset))
         for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
             let button = try XCTUnwrap(w.standardWindowButton(type))
             XCTAssertFalse(button.isHiddenOrHasHiddenAncestor)
             let rect = button.convert(button.bounds, to: nil)
             XCTAssertGreaterThanOrEqual(rect.minX, 8 - 1)
-            XCTAssertLessThanOrEqual(rect.maxX, MacBrowserLayout.railWidth - 8)
+            XCTAssertLessThanOrEqual(rect.maxX, MacBrowserLayout.railWidth)
             XCTAssertEqual(rect.minX, MacBrowserLayout.railLightsInset + CGFloat(index) * 20, accuracy: 1)
-            XCTAssertEqual(w.contentView!.bounds.maxY - rect.midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)
+            XCTAssertEqual(w.contentView!.bounds.maxY - rect.midY, MacBrowserLayout.headerHeight / 2, accuracy: 1)
         }
     }
 }
@@ -317,8 +333,8 @@ import XCTest
     let springLoadingHighlight = NSSpringLoadingHighlight.none
 
     init(source: SidebarTabCollection) { self.source = source }
-    func move(to rect: NSRect) {
-        draggingLocation = source.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+    func move(to rect: NSRect, verticalFraction: CGFloat = 0.5) {
+        draggingLocation = source.convert(NSPoint(x: rect.midX, y: rect.minY + rect.height * verticalFraction), to: nil)
     }
     func slideDraggedImage(to screenPoint: NSPoint) {}
     func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?,

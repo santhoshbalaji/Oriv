@@ -10,6 +10,13 @@ Scroll restoration reads back the viewport across two 50 ms settling checks. Web
 
 Favicon discovery is optional document work. It cannot access an unpainted, loading or restoring view, or a view whose destination cover remains visible. The cover's weak presentation marker clears when the handoff finishes, is replaced or is dismantled. Icon rows observe eligibility and retry after readiness without waking discarded tabs. Asynchronous icon work checks eligibility again before SVG rasterization, so a delayed download cannot execute JavaScript during a later handoff.
 
+
+On Mac, keyboard navigation in the sidebar moves the highlight, including
+across pinned tiles and the icon rail. Return, Space or clicking a row switches
+to that tab. Ctrl+Tab and Ctrl+Shift+Tab still switch directly in sidebar
+order. ⇧⌘A searches title and hostname metadata in the active profile and
+selected privacy scope. Opening a result rechecks the tab in that scope.
+
 ## Image lifetime and budget
 
 Each browser session has an 8 MiB LRU cache. A snapshot is limited to 640 pixels on its longest edge and stored as JPEG at quality 0.65. Its budget charge includes the JPEG and entry metadata. Only visible covers decode images, and each decoded image has a separate limit of 640 × 640 × 4 bytes. Uniform unpainted images are rejected. Background capture uses updated pixels because navigation completion may precede drawing, but the asynchronous callback never delays selection. There is at most one capture in flight per session, with a 750 ms acceptance deadline. Navigation, close and pressure invalidate late results.

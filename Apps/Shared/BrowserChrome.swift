@@ -812,10 +812,18 @@ struct BrowserGlass: ViewModifier {
 
     func body(content: Content) -> some View {
         let contrast = captureContrast ?? systemContrast
-        let shape = radius.map { AnyShape(RoundedRectangle(cornerRadius: $0)) } ?? AnyShape(Capsule())
+        if let radius {
+            surface(content, in: RoundedRectangle(cornerRadius: radius), contrast: contrast)
+        } else {
+            surface(content, in: Capsule(), contrast: contrast)
+        }
+    }
+
+    @ViewBuilder private func surface(_ content: Content, in shape: some InsettableShape,
+                                      contrast: ColorSchemeContrast) -> some View {
         if reduceTransparency || captureReduceTransparency || contrast == .increased {
             content.background(theme.fill, in: shape)
-                .overlay { shape.stroke(contrast == .increased ? theme.separatorStrong : theme.separator, lineWidth: 1) }
+                .overlay { shape.strokeBorder(contrast == .increased ? theme.separatorStrong : theme.separator) }
         } else {
             content.glassEffect(.regular.interactive(), in: shape)
         }

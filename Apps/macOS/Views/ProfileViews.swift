@@ -27,68 +27,72 @@ private extension ProfileSymbol {
 }
 
 struct ProfileMenu: View {
-    @Environment(\.browserTheme) private var theme
     let profiles: BrowserProfiles
-    var compact = false
-    var iconOnly = false
-    var tabCount: Int? = nil
-    @State private var headerHovered = false
+    let iconOnly: Bool
+    let tabCount: Int
+    let showsKeyboardFocus: Bool
+    @FocusState private var focused: Bool
+    @State private var hovered = false
+
     var body: some View {
-        Group {
-            if tabCount != nil {
-                picker.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).focusEffectDisabled()
-                    .background(headerHovered ? theme.sidebar.hover : .clear, in: .rect(cornerRadius: OrivRadius.control))
-                    .onHover { headerHovered = $0 }
-            }
-            else { picker.menuStyle(.borderlessButton).menuIndicator(iconOnly ? .hidden : .automatic) }
-        }
-        .accessibilityLabel("Profile: \(profiles.active.name)")
-        .accessibilityValue(tabCount.map { SidebarTabs.countLabel($0) } ?? "")
-        .help("Switch profile in this window. Website logins, bookmarks and history are separate.")
-    }
-    private var picker: some View {
         Menu {
             ForEach(profiles.available) { profile in
                 Button {
                     profiles.switchFromSidebar(profile.id, source: profiles.controller)
                 } label: {
-                    Label(profile.name + (profile.id == profiles.active.id ? " — Current" : ""), systemImage: profile.id == profiles.active.id ? "checkmark" : profile.symbol.rawValue)
+                    Label(profile.name + (profile.id == profiles.active.id ? " — Current" : ""),
+                          systemImage: profile.id == profiles.active.id ? "checkmark" : profile.symbol.rawValue)
                 }
             }
             Divider()
             Button("Manage Profiles…", systemImage: "person.crop.rectangle.stack") { profiles.showManager = true }
         } label: {
-            if let tabCount {
-                ProfileHeaderArtwork(name: profiles.active.name, tabCount: tabCount)
-            } else {
-                HStack(spacing: OrivSpacing.small) {
-                    Image(systemName: profiles.active.symbol.rawValue).foregroundStyle(profiles.active.color.tint(in: theme))
-                    if !iconOnly { Text(profiles.active.name).font(OrivType.detail).foregroundStyle(theme.text).lineLimit(1) }
-                    if !compact && !iconOnly { Spacer(minLength: 0) }
-                }.font(OrivType.detail.weight(.medium))
-            }
+            ProfileHeaderArtwork(profile: profiles.active, tabCount: tabCount, iconOnly: iconOnly)
         }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+        .focused($focused)
+        .modifier(SidebarFocusRing(visible: focused && showsKeyboardFocus))
+        .modifier(SidebarToneSurface(tone: hovered ? .hover : nil))
+        .onHover { hovered = $0 }
+        .transformPreference(SidebarKeyboardFocusKey.self) { $0 = $0 || focused }
+        .accessibilityLabel("Profile: \(profiles.active.name)")
+        .accessibilityValue(SidebarTabs.countLabel(tabCount))
+        .help("Switch profile in this window. Website logins, bookmarks and history are separate.")
     }
 }
 
 struct ProfileHeaderArtwork: View {
     @Environment(\.sidebarContrast) private var contrast
     @Environment(\.browserTheme) private var theme
-    let name: String
+    @Environment(\.colorScheme) private var scheme
+    let profile: BrowserProfile?
     let tabCount: Int
+    var iconOnly = false
     var marksGeometry = true
 
     var body: some View {
         HStack(spacing: OrivSpacing.small) {
-            Image(systemName: "rectangle.stack").font(.system(size: 17, weight: .semibold)).frame(width: 19)
-            VStack(alignment: .leading, spacing: OrivSpacing.xxs) {
-                Text(name).font(OrivType.windowTitle).lineLimit(1)
+            Image(systemName: profile?.symbol.rawValue ?? "eyeglasses").font(OrivIcon.toolbarFont)
+                .foregroundStyle(profile?.color.sidebarInk(dark: scheme == .dark) ?? theme.sidebarPrivateAccent)
+                .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
+                .background(theme.surface, in: .rect(cornerRadius: OrivRadius.badge))
+                .accessibilityHidden(true)
+            if !iconOnly {
+                Text(profile?.name ?? "Private").font(OrivType.headline).lineLimit(1)
                     .browserGeometryMarker("sidebarProfileNameGeometry", when: marksGeometry)
-                Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast))
+                Text(tabCount.formatted()).font(OrivType.badge.monospacedDigit())
+                    .foregroundStyle(theme.sidebarSecondaryText(contrast))
+                    .padding(.horizontal, OrivSpacing.xs).padding(.vertical, OrivSpacing.xxs)
+                    .modifier(SidebarToneSurface(tone: .search, radius: OrivRadius.badge))
                     .browserGeometryMarker("sidebarProfileCountGeometry", when: marksGeometry)
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "chevron.down").font(OrivIcon.close)
-        }.foregroundStyle(theme.text).padding(.horizontal, OrivSpacing.small).frame(height: 44).contentShape(Rectangle())
+                Spacer(minLength: 0)
+                if profile != nil { Image(systemName: "chevron.up.chevron.down").font(OrivIcon.close) }
+            }
+        }
+        .foregroundStyle(theme.text)
+        .padding(.horizontal, OrivSpacing.small)
+        .frame(height: OrivLayout.sidebarProfileHeight)
+        .contentShape(Rectangle())
     }
 }
 

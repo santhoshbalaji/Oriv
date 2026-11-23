@@ -6,6 +6,9 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
 
 /// Window-local presentation. Only explicit preference/setting setters write defaults.
 @MainActor @Observable final class SidebarPresentation {
+    static let widthPreferenceKey = "MacSidebarWidth"
+    private(set) var expandedWidth = MacBrowserLayout.sidebarWidth
+    private(set) var isResizing = false
     var preferredRail = false
     private(set) var automaticRail = false
     private(set) var narrowOverlay = false
@@ -25,16 +28,25 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
     var rail: Bool { (preferredRail || automaticRail) && !narrowOverlay && !peeking }
     var reservesRail: Bool { preferredRail || automaticRail }
     var overlay: Bool { peeking || narrowOverlay }
-    var reservation: CGFloat { webpageFullscreen ? 0 : (reservesRail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) }
-    var width: CGFloat { rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth }
+    var reservation: CGFloat {
+        webpageFullscreen ? 0 : (reservesRail ? MacBrowserLayout.railWidth : expandedWidth) + 2 * MacBrowserLayout.panelInset
+    }
+    var width: CGFloat { rail ? MacBrowserLayout.railWidth : expandedWidth }
+
+    func setExpandedWidth(_ width: CGFloat, resizing: Bool = false) {
+        let range = MacBrowserLayout.sidebarWidthRange
+        expandedWidth = min(range.upperBound, max(range.lowerBound, width))
+        isResizing = resizing
+    }
     var transition: SidebarTransition { SidebarTransition(width: width, peeking: peeking) }
     var held: Bool { pointerInside || panelInside || focusInside || menuOpen || searchOpen || dragging }
 
     func resize(availableWidth: CGFloat) {
         // Keep the rail reachable at the 760 pt minimum window width and leave
         // a 40 pt band between collapsing and reopening the attached sidebar.
-        if availableWidth < 796 { automaticRail = true }
-        else if availableWidth >= 836 { automaticRail = false; narrowOverlay = false }
+        let widthAdjustment = expandedWidth - MacBrowserLayout.sidebarWidth
+        if availableWidth < 796 + widthAdjustment { automaticRail = true }
+        else if availableWidth >= 836 + widthAdjustment { automaticRail = false; narrowOverlay = false }
     }
     func setPreference(_ rail: Bool) {
         preferredRail = rail
@@ -210,7 +222,7 @@ struct SidebarWindowEvents: NSViewRepresentable {
                     } else if controller.sidebar.overlay, let width = self.window?.contentView?.bounds.width {
                         let x = event.locationInWindow.x
                         let leading = self.layoutDirection == .rightToLeft ? width - x : x
-                        if leading > controller.sidebar.width { self.dismiss?() }
+                        if leading > controller.sidebar.width + MacBrowserLayout.panelInset { self.dismiss?() }
                     }
                 }
                 if event.type == .otherMouseUp, event.buttonNumber == 2,

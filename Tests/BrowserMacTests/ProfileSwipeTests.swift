@@ -436,7 +436,7 @@ final class ProfileSwipeTests: XCTestCase {
         try await eventually("source suggestions populated") {
             source.profileUI.addressMatches.query == query && !source.profileUI.addressMatches.rows.isEmpty
         }
-        try await eventually("source tab query applied") { source.profileUI.settledQuery == query }
+        try await eventually("source tab query applied") { source.tabSearchRequest.value.text == query }
         source.profileUI.showProtection = true
         source.profileUI.showPasswords = true
         source.profileUI.showSiteInfo = true
@@ -454,7 +454,7 @@ final class ProfileSwipeTests: XCTestCase {
         XCTAssertFalse(destination.profileUI.findCaseSensitive)
         XCTAssertFalse(destination.profileUI.showFind)
         XCTAssertEqual(destination.tabSearch, "")
-        XCTAssertEqual(destination.profileUI.settledQuery, "")
+        XCTAssertEqual(destination.tabSearchRequest.value.text, "")
         XCTAssertFalse(destination.profileUI.showProtection)
         XCTAssertFalse(destination.profileUI.showPasswords)
         XCTAssertFalse(destination.profileUI.showSiteInfo)

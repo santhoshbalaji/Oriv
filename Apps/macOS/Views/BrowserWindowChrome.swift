@@ -3,20 +3,21 @@ import SwiftUI
 
 /// Shared geometry for the content header and the real AppKit window controls.
 enum MacBrowserLayout {
-    static let sidebarWidth: CGFloat = 256
-    // A centered 54 pt group has 9 pt of breathing room on each side.
-    static let railWidth: CGFloat = 72
-    static let headerHeight: CGFloat = 60
-    static let sidebarInset: CGFloat = 8
-    static let sidebarRowInset: CGFloat = 8
-    static let sidebarTitlebarHeight: CGFloat = 32
-    static let sidebarFooterGap: CGFloat = 5
-    static let railItemWidth: CGFloat = 42
-    static let railItemHeight: CGFloat = 36
+    static let sidebarWidth = OrivLayout.sidebarWidth
+    static let sidebarWidthRange: ClosedRange<CGFloat> = 220...360
+    static let railWidth = OrivLayout.railWidth
+    static let headerHeight = OrivLayout.toolbarHeight
+    static let panelInset = OrivSpacing.small
+    static let sidebarInset = OrivSpacing.small
+    static let sidebarRowInset = OrivSpacing.small
+    static let sidebarTitlebarHeight = headerHeight - panelInset
+    static let sidebarFooterGap = OrivSpacing.xs
+    static let railItemWidth = OrivTarget.macRail.width
+    static let railItemHeight = OrivTarget.macRail.height
     static let railInset = (railWidth - railItemWidth) / 2
     static let lightsWidth: CGFloat = 54
-    static let railLightsInset = (railWidth - lightsWidth) / 2
-    static let lightsInset: CGFloat = 26
+    static let railLightsInset = panelInset + (railWidth - lightsWidth) / 2
+    static let lightsInset = panelInset + OrivSpacing.medium
     static let lightsSpacing: CGFloat = 20
 }
 
@@ -25,6 +26,7 @@ enum MacBrowserLayout {
 @MainActor final class MacBrowserWindowContext {
     weak var window: NSWindow?
     var layoutDirection: LayoutDirection = .leftToRight
+    var sidebarWidth = MacBrowserLayout.sidebarWidth
     var sidebarContainsFocus: Bool {
         guard let window, let content = window.contentView else { return false }
         var candidates: [NSRect] = []
@@ -40,7 +42,7 @@ enum MacBrowserLayout {
         let width = content.bounds.width
         return candidates.contains { rect in
             let leading = layoutDirection == .rightToLeft ? width - rect.maxX : rect.minX
-            return rect.width > 0 && leading >= 0 && leading + rect.width <= MacBrowserLayout.sidebarWidth + 1
+            return rect.width > 0 && leading >= 0 && leading + rect.width <= sidebarWidth + MacBrowserLayout.panelInset + 1
         }
     }
 }
@@ -50,6 +52,7 @@ enum MacBrowserLayout {
 struct BrowserWindowChrome: NSViewRepresentable {
     let windowContext: MacBrowserWindowContext
     var compact = false
+    var sidebarWidth = MacBrowserLayout.sidebarWidth
     var initialContentFocus: NSView? = nil
     var shouldApplyProfileSwitchFocus: (() -> Bool)? = nil
     var profileEpoch: UUID? = nil
@@ -65,6 +68,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         view.stateChanged = stateChanged
         view.contentWidthChanged = contentWidthChanged
         windowContext.layoutDirection = context.environment.layoutDirection
+        windowContext.sidebarWidth = sidebarWidth
         view.windowContext = windowContext
         view.profileEpoch = profileEpoch
         view.externalPresentationRequest = externalPresentationRequest
@@ -197,7 +201,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
                     let rtl = windowContext?.layoutDirection == .rightToLeft
                     let x = rtl ? window.frame.width - inset - button.frame.width : inset
                     let target = parent.convert(NSPoint(x: x,
-                        y: window.frame.height - MacBrowserLayout.sidebarTitlebarHeight / 2), from: nil)
+                        y: window.frame.height - MacBrowserLayout.headerHeight / 2), from: nil)
                     button.setFrameOrigin(NSPoint(x: target.x, y: target.y - button.frame.height / 2))
                 }
             }
@@ -277,3 +281,62 @@ struct BrowserGeometryMarker: NSViewRepresentable {
     final class Marker: NSView { override func hitTest(_ point: NSPoint) -> NSView? { nil } }
 }
 #endif
+
+/// Uses window-space coordinates so changing the divider frame during the
+/// gesture cannot feed the new origin back into the drag.
+struct SidebarResizeGrip: NSViewRepresentable {
+    let width: CGFloat
+    let direction: LayoutDirection
+    let resize: (CGFloat, Bool) -> Void
+
+    func makeNSView(context: Context) -> Grip { Grip() }
+
+    func updateNSView(_ view: Grip, context: Context) {
+        view.width = width
+        view.sign = direction == .rightToLeft ? -1 : 1
+        view.resize = resize
+    }
+
+    final class Grip: NSView {
+        var width = MacBrowserLayout.sidebarWidth
+        var sign: CGFloat = 1
+        var resize: ((CGFloat, Bool) -> Void)?
+        private var start: (x: CGFloat, width: CGFloat)?
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2 {
+                resize?(MacBrowserLayout.sidebarWidth, false)
+            } else {
+                start = (event.locationInWindow.x, width)
+            }
+        }
+
+        override func mouseDragged(with event: NSEvent) { updateWidth(event, dragging: true) }
+        override func mouseUp(with event: NSEvent) {
+            updateWidth(event, dragging: false)
+            start = nil
+        }
+
+        private func updateWidth(_ event: NSEvent, dragging: Bool) {
+            guard let start else { return }
+            resize?(start.width + sign * (event.locationInWindow.x - start.x), dragging)
+        }
+
+        override func isAccessibilityElement() -> Bool { true }
+        override func accessibilityRole() -> NSAccessibility.Role? { .slider }
+        override func accessibilityLabel() -> String? { "Sidebar width" }
+        override func accessibilityValue() -> Any? { Int(width) }
+        override func accessibilityPerformIncrement() -> Bool { adjust(OrivSpacing.large) }
+        override func accessibilityPerformDecrement() -> Bool { adjust(-OrivSpacing.large) }
+
+        private func adjust(_ offset: CGFloat) -> Bool {
+            guard let resize else { return false }
+            resize(width + offset, false)
+            return true
+        }
+    }
+}

@@ -146,6 +146,11 @@ remain foreground acceptance checks. The native AX-tree test explicitly skips
 when SwiftUI exposes no descendants in an off-screen accessory window; model
 labels and native key-event tests continue to run.
 
+Run `ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=sidebar-v3 ./scripts/capture-mac-visuals.sh --glass build/sidebar-v3`
+for full browser window layouts in Light, Dark, Black, Sky and Rose, including
+the rail, 220 and 360 pt widths, private states, Increase Contrast and RTL.
+The manifest labels the synthetic glass input and records the background UI audit.
+
 For sidebar contrast regression evidence, run
 `ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=sidebar-contrast ORIV_CAPTURE_TICKS=600 ./scripts/capture-mac-visuals.sh --glass build/release-0.15.0/contrast`
 with a fresh output directory. It covers window light/dark appearances ×
@@ -170,7 +175,7 @@ Appearance → Sidebar sets the backing live for all Mac windows. Balanced
 and Increase Contrast force the opaque backing at every step. To capture all
 three steps in Light, Dark and T3 Code for the expanded sidebar and rail, plus the settings control, off-screen, run
 `ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=sidebar-opacity ./scripts/capture-mac-visuals.sh --glass build/sidebar-opacity`.
-The captures blend the production backing over a colourful synthetic desktop pattern. Selection and hover use the opaque sidebar palette fills.
+The captures blend the production backing over a synthetic desktop pattern. Row fills composite over that backing.
 The filled Mac address capsule follows the page colour with a guarded 10% dark
 lift / 6% light shade;
 plain header glyphs use the page's explicit contrasting foreground. It avoids colour-scheme flips
