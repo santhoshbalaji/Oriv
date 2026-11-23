@@ -342,8 +342,7 @@ import XCTest
         for rail in [false, true] {
             controller.compactSidebar = rail
             try await eventually("sidebar fixture state") {
-                self.marker("browserOverviewGeometry", in: window) != nil &&
-                    (self.marker("sidebarSurfaceGeometry", in: window)?.bounds.width ?? 0) ==
+                (self.marker("sidebarSurfaceGeometry", in: window)?.bounds.width ?? 0) ==
                         (rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
             }
             let sidebar = try frame("sidebarSurfaceGeometry", in: window)
@@ -351,7 +350,7 @@ import XCTest
             let toolbar = try frame("browserTopBarGeometry", in: window)
             XCTAssertTrue(sidebar.contains(newTab))
             XCTAssertFalse(toolbar.intersects(newTab))
-            for name in ["browserPrivacyGeometry", "browserOverviewGeometry", "browserPageMenuGeometry"] {
+            for name in ["browserPrivacyGeometry", "browserPageMenuGeometry"] {
                 XCTAssertTrue(toolbar.contains(try frame(name, in: window)))
             }
             XCTAssertGreaterThan(try frame("browserAddressGeometry", in: window).width, rail ? 600 : 570)

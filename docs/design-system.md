@@ -153,7 +153,7 @@ indication is event-driven for HTML audio/video, including child frames; there
 are no per-row timers or playback polling loops. Web Audio-only pages require a
 separate future public-API strategy; pause/block still applies through WebKit.
 
-At narrow expanded widths, Share, New Tab and Overview remain in Browser Actions
+At narrow expanded widths, Share and New Tab remain in Browser Actions
 and the fixed sidebar controls, leaving the 230 pt address minimum and privacy
 button reachable. Active downloads also have a sidebar badge.
 

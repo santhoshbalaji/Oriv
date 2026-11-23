@@ -79,7 +79,7 @@ The navigation fixture compares full Oriv chrome against a bare view with the sa
 ## Shortcuts, icons and local suggestions
 
 `BrowserShortcutTests` sends actual AppKit key-down events through `NSApp` while
-WebKit content, the native address editor and a tab-overview-style sheet own
+WebKit content and the native address editor own
 focus. It checks wrapping/sidebar order, both hard-reload focus paths, and unique
 reload menu equivalents. `AddressCompletionTests` verifies suffix selection,
 Backspace suppression and Right Arrow acceptance with the real editor.

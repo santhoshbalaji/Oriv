@@ -19,9 +19,8 @@ Each **New Private Window** opens a separate window with its own sidebar and pri
 tabs. Use ⌘T there to open another private tab. Closing the window discards its
 tabs and their browsing data. External private links keep their own window.
 
-Ctrl+Tab works in web content and the address field. In Tab Overview it moves
-the selected item and keeps the sheet open. The router is window scoped; other
-windows, Settings, and unrelated sheets retain their own keyboard handling.
+Ctrl+Tab works in web content and the address field. Other windows, Settings,
+and sheets retain their own keyboard handling. Oriv leaves ⇧⌘\ unassigned.
 Reader / Read Page Text remains available in the menus without a shortcut.
 No Reader menu owns ⌘⇧R.
 

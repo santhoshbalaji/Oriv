@@ -75,22 +75,23 @@ import XCTest
         try key(48, flags: .control, characters: "\t", window: window)
         XCTAssertEqual(session.selectedTabID, second.id)
     }
-    func testControlTabRoutesSheetItemsButNotOtherWindows() async throws {
+    func testControlTabLeavesSheetKeyHandlingAlone() async throws {
         let session = BrowserSession(dataStore: .nonPersistent())
         defer { session.shutdown() }
-        let first = try XCTUnwrap(session.selectedTabID), second = session.addTab(load: false).id
+        _ = session.addTab(load: false)
+        let selected = try XCTUnwrap(session.selectedTabID)
         let parent = BackgroundUIMode.Window(contentRect: NSRect(x: 0,y: 0,width: 700,height: 500), styleMask: [.titled], backing: .buffered, defer: false)
         parent.isReleasedWhenClosed = false; defer { parent.close() }
-        parent.contentViewController = NSHostingController(rootView: BrowserKeyRouter(session: session, overviewVisible: true))
+        parent.contentViewController = NSHostingController(rootView: BrowserKeyRouter(session: session))
         BackgroundUIMode.show(parent)
         let sheet = BackgroundUIMode.Window(contentRect: NSRect(x: 0,y: 0,width: 500,height: 300), styleMask: [.titled], backing: .buffered, defer: false)
         sheet.isReleasedWhenClosed = false
         parent.beginSheet(sheet, completionHandler: { _ in }); defer { parent.endSheet(sheet); sheet.close() }
         BackgroundUIMode.checkFrontmost()
         try key(48, flags: .control, characters: "\t", window: sheet)
-        XCTAssertEqual(session.selectedTabID, first)
+        XCTAssertEqual(session.selectedTabID, selected)
         try key(48, flags: [.control, .shift], characters: "\u{19}", window: sheet)
-        XCTAssertEqual(session.selectedTabID, second)
+        XCTAssertEqual(session.selectedTabID, selected)
     }
     func testFileMenuPrivateShortcutsAndTabShortcutsAreUnique() throws {
         func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
@@ -189,6 +190,10 @@ import XCTest
         }
         XCTAssertEqual(matches.count, 1)
         XCTAssertEqual(matches.first?.title, "Search Tabs…")
+        XCTAssertFalse(items(try XCTUnwrap(NSApp.mainMenu)).contains {
+            ["\\", "|"].contains($0.keyEquivalent)
+                && $0.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control]) == [.command, .shift]
+        })
     }
     func testCommandShiftRRealEventReloadsOriginFromAddressFocus() async throws {
         let controller = BrowserController(testing: true); defer { controller.shutdown() }

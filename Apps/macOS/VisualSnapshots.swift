@@ -290,9 +290,6 @@ import WebKit
                     LibraryView(controller: controller, profiles: profiles, section: section)
                 }
             }
-            await capture("\(prefix)-tab-overview", directory, CGSize(width: 760, height: 500), key: false, settle: 350, appearance: appearance) {
-                MacTabOverview(session: session, dismiss: {})
-            }
             let browserSize = CGSize(width: 1120, height: 700)
             await capture("\(prefix)-find-bar-and-browser-actions-trigger", directory, browserSize,
                           key: false, settle: 350, appearance: appearance, prepare: { window in

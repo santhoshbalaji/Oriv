@@ -63,7 +63,7 @@ struct BrowserWindow: View {
 
     private var sceneContent: some View {
         routedContent
-            .background(BrowserKeyRouter(session: session, overviewVisible: ui.showTabs, fillPassword: fillPassword))
+            .background(BrowserKeyRouter(session: session, fillPassword: fillPassword))
             .environment(\.siteIcons, session.siteIcons)
             .focusedSceneValue(\.browserController, controller)
     }
@@ -504,8 +504,6 @@ struct BrowserWindow: View {
                     }
                     .buttonStyle(ToolbarButtonStyle()).help("Share Page").accessibilityLabel("Share Page")
                 }
-                ToolbarButton(label: "Tab Overview", symbol: "square.on.square", active: ui.showTabs) { ui.showTabs = true }
-                    .browserGeometryMarker("browserOverviewGeometry")
             }
         }.foregroundStyle(chromeForeground).frame(height: OrivLayout.controlHeight)
             .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
@@ -541,9 +539,6 @@ struct BrowserWindow: View {
     private var panels: some View {
         @Bindable var ui = self.ui
         return shell
-        .sheet(isPresented: $ui.showTabs) {
-            MacTabOverview(session: session) { ui.showTabs = false }
-        }
         .sheet(item: $controller.library) { section in
             LibraryView(controller: controller, profiles: profiles, section: section)
         }
@@ -705,37 +700,6 @@ struct MacAddressGlass: ViewModifier {
                 if contrast == .increased { Capsule().strokeBorder((isDark ? Color.white : .black).opacity(0.8), lineWidth: 1) }
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: color)
-    }
-}
-
-/// Disabled navigation keeps its disabled action/AX state without reducing the
-/// glyph's contrast against a page of arbitrary colour.
-struct MacTabOverview: View {
-    @Environment(\.browserTheme) private var theme
-    let session: BrowserSession
-    let dismiss: () -> Void
-
-    var body: some View {
-        OrivSheet(title: "Tabs", size: .large, height: 500) {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))]) {
-                    ForEach(session.orderedTabs) { tab in
-                        let selected = tab.id == session.selectedTabID
-                        Button {
-                            session.selectTab(tab.id)
-                            dismiss()
-                        } label: {
-                            PageRowContent(title: tab.displayTitle, url: tab.url, isPrivate: tab.isPrivate,
-                                           isSelected: selected, accessory: selected ? .selected : .none)
-                                .padding(16).frame(maxWidth: .infinity, minHeight: 90)
-                                .background(selected ? theme.selection : theme.surface, in: .rect(cornerRadius: 12))
-                        }.buttonStyle(.plain)
-                    }
-                }
-            }
-        } actions: {
-            Button("Done", action: dismiss).keyboardShortcut(.cancelAction)
-        }
     }
 }
 

@@ -14,7 +14,6 @@ import WebKit
     var siteToForget: BrowserSite?
     var showPasswords = false
     var showSiteInfo = false
-    var showTabs = false
     let pageChrome = PageChrome()
     var closeOthers: UUID?
     var closeToRight = false
@@ -25,7 +24,6 @@ import WebKit
         siteToForget = nil
         showPasswords = false
         showSiteInfo = false
-        showTabs = false
         closeOthers = nil
         closeToRight = false
     }
