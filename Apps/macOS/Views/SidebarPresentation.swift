@@ -261,13 +261,13 @@ struct SidebarTooltipBubble: View {
     @State private var textHeight: CGFloat = 40
     var body: some View {
         ScrollView {
-            Text(text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+            Text(text).font(OrivType.detail).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(OrivSpacing.medium)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
         }
         .frame(width: width, height: min(textHeight, maximumHeight))
-        .background(theme.surface, in: .rect(cornerRadius: 8)).foregroundStyle(theme.text)
-        .overlay { RoundedRectangle(cornerRadius: 8).stroke(theme.separator) }
+        .foregroundStyle(theme.text)
+        .modifier(OrivMaterial.overlay(radius: OrivRadius.control))
         .accessibilityHidden(true)
     }
 }

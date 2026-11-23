@@ -100,10 +100,7 @@
     "spacing": 1
   },
   "Apps/macOS/Views/SidebarPresentation.swift": {
-    "font size": 1,
-    "motion": 1,
-    "padding": 1,
-    "radius": 2
+    "motion": 1
   },
   "Apps/macOS/Views/SidebarSearchPanel.swift": {
     "padding": 1,
