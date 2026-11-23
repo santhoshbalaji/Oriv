@@ -356,23 +356,25 @@ struct MobileBrowserView: View {
     }
 
     private var backButton: some View {
-        ZStack {
-            Image(systemName: "chevron.left").font(.system(size: 21, weight: .medium)).frame(width: 48, height: 48)
-                .allowsHitTesting(false).accessibilityHidden(true)
-            MobileHistoryMenuSource(tab:tab,forward:false)
-        }.frame(width:48,height:48).tint(.primary)
-            .disabled(tab?.canGoBack != true).buttonStyle(.plain).modifier(OrivMaterial.control()).accessibilityLabel("Back")
-            .accessibilityAction(named: "Show History") { showHistory(forward: false) }
+        BarButton {
+            ZStack {
+                BarButtonIcon(symbol: "chevron.left").allowsHitTesting(false)
+                MobileHistoryMenuSource(tab: tab, forward: false)
+            }
+        }
+        .disabled(tab?.canGoBack != true).accessibilityLabel("Back")
+        .accessibilityAction(named: "Show History") { showHistory(forward: false) }
     }
 
     private var forwardButton: some View {
-        ZStack {
-            Image(systemName: "chevron.right").font(.system(size: 21, weight: .medium)).frame(width: 44, height: 48)
-                .allowsHitTesting(false).accessibilityHidden(true)
-            MobileHistoryMenuSource(tab:tab,forward:true)
-        }.frame(width:44,height:48).tint(.primary)
-            .buttonStyle(.plain).modifier(OrivMaterial.control()).accessibilityLabel("Forward")
-            .accessibilityAction(named: "Show History") { showHistory(forward: true) }
+        BarButton(width: OrivTarget.touch.width) {
+            ZStack {
+                BarButtonIcon(symbol: "chevron.right", width: OrivTarget.touch.width).allowsHitTesting(false)
+                MobileHistoryMenuSource(tab: tab, forward: true)
+            }
+        }
+        .accessibilityLabel("Forward")
+        .accessibilityAction(named: "Show History") { showHistory(forward: true) }
     }
     @ViewBuilder private var tabsMenu: some View {
         Button("New Tab", systemImage: "plus") { controller.newTab() }
@@ -387,16 +389,18 @@ struct MobileBrowserView: View {
     }
 
     private var tabsButton: some View {
-        Menu {
-            tabsMenu
-        } label: {
-            Image(systemName: "square.on.square").font(.system(size: 21, weight: .medium)).frame(width: 48, height: 48)
-        } primaryAction: { controller.sheet = .tabs }
-            .menuOrder(.fixed).tint(.primary)
-            .buttonStyle(.plain).modifier(OrivMaterial.control())
-            .accessibilityLabel("Show All Tabs").accessibilityValue("\(controller.session.tabsInSelectedMode.count) tabs")
-            .accessibilityIdentifier("browserTabs")
+        BarButton {
+            Menu {
+                tabsMenu
+            } label: {
+                BarButtonIcon(symbol: "square.on.square")
+            } primaryAction: { controller.sheet = .tabs }
+                .menuOrder(.fixed)
+        }
+        .accessibilityLabel("Show All Tabs").accessibilityValue("\(controller.session.tabsInSelectedMode.count) tabs")
+        .accessibilityIdentifier("browserTabs")
     }
+
     private func showHistory(forward: Bool) {
         guard let tab else { return }
         let items = forward ? tab.webView.backForwardList.forwardList : Array(tab.webView.backForwardList.backList.reversed())
