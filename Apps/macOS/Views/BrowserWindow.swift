@@ -203,22 +203,12 @@ struct BrowserWindow: View {
         }
     }
 
+    private var displayedSidebarWidth: CGFloat {
+        controller.sidebar.isResizing ? controller.sidebar.width : sidebarClipWidth
+    }
+
     private var shell: some View {
         ZStack(alignment: .topLeading) {
-            if !controller.sidebar.webpageFullscreen {
-                Group {
-                    if usesWindowMaterial {
-                        WindowBackdropMaterial(material: .sidebar)
-                    } else {
-                        theme.chrome
-                    }
-                }
-                .frame(width: controller.sidebar.reservation)
-                .frame(maxHeight: .infinity)
-                .accessibilityHidden(true)
-                .allowsHitTesting(false)
-                .browserGeometryMarker("sidebarBackdropGeometry")
-            }
             VStack(spacing: 0) {
                 mainTopBar.zIndex(1)
                     .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
@@ -230,8 +220,22 @@ struct BrowserWindow: View {
             // The page receives one final viewport update, never interpolated widths.
             .transaction(value: controller.sidebar.reservation) { $0.animation = nil; $0.disablesAnimations = true }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if !controller.sidebar.webpageFullscreen {
+                Group {
+                    if usesWindowMaterial {
+                        WindowBackdropMaterial(material: .sidebar)
+                    } else {
+                        theme.chrome
+                    }
+                }
+                .frame(width: displayedSidebarWidth + 2 * MacBrowserLayout.panelInset)
+                .frame(maxHeight: .infinity)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+                .browserGeometryMarker("sidebarBackdropGeometry")
+            }
             sidebarPanel
-                .frame(width: controller.sidebar.isResizing ? controller.sidebar.width : sidebarClipWidth, alignment: .leading)
+                .frame(width: displayedSidebarWidth, alignment: .leading)
                 .clipped()
                 .padding([.top, .bottom, .leading], MacBrowserLayout.panelInset)
                 .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)

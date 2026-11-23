@@ -123,8 +123,9 @@ overlays the page.
 The sidebar and rail share one full-height `MacSidebarGlass` surface. The
 traffic lights and expanded toggle align at the toolbar midpoint. The
 8 pt gutter shows the window’s sidebar material, with a theme chrome fill in
-Black, accessibility fallbacks and fullscreen. Page tinting starts at the
-toolbar’s leading edge. Per-profile
+Black, accessibility fallbacks and fullscreen. This backdrop follows panel
+width even when the sidebar overlays the page. The toolbar retains its own
+page-derived tint. Per-profile
 **Sidebar color** offers Graphite, Profile color and seven pastels. Black keeps
 its near-black backing while retaining the saved color choice. The Mac-wide
 **Glass opacity** applies a contrast guard below the selected backing. White

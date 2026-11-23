@@ -196,7 +196,12 @@ import XCTest
             XCTAssertEqual(backdrop.minX, 0, accuracy: 1)
             XCTAssertEqual(surface.minX - backdrop.minX, MacBrowserLayout.panelInset, accuracy: 1)
             XCTAssertEqual(backdrop.maxX - surface.maxX, MacBrowserLayout.panelInset, accuracy: 1)
-            XCTAssertEqual(backdrop.maxX, toolbar.minX, accuracy: 1)
+            XCTAssertEqual(toolbar.minX, controller.sidebar.reservation, accuracy: 1)
+            if controller.sidebar.narrowOverlay {
+                XCTAssertGreaterThan(backdrop.maxX, toolbar.minX)
+            } else {
+                XCTAssertEqual(backdrop.maxX, toolbar.minX, accuracy: 1)
+            }
             XCTAssertEqual(backdrop.maxY, toolbar.maxY, accuracy: 1)
             XCTAssertEqual(try frame("sidebarSearchGeometry", in: window).height, OrivLayout.sidebarSearchHeight, accuracy: 1)
             let footer = try frame("sidebarFooterGeometry", in: window)
