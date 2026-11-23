@@ -55,9 +55,17 @@ public final class BrowserSession {
     public var canReopenTab: Bool { !recentlyClosed.isEmpty }
     public var canUndoBookmarkRemoval: Bool { removedBookmark != nil }
     private var removedBookmark: (bookmark: Bookmark, index: Int)?
-    public var orderedTabs: [BrowserTab] { [false, true].flatMap { mode in
-        tabs.filter { $0.isPrivate == mode && $0.isPinned } + tabs.filter { $0.isPrivate == mode && !$0.isPinned }
-    } }
+    public var orderedTabs: [BrowserTab] {
+        let pinned = tabs.filter { $0.isPinned && !$0.isPrivate }
+        let regular = tabs.filter { !$0.isPinned && !$0.isPrivate }
+        let privatePins = tabs.filter { $0.isPinned && $0.isPrivate }
+        let privateTabs = tabs.filter { !$0.isPinned && $0.isPrivate }
+        #if os(macOS)
+        return pinned + privatePins + regular + privateTabs
+        #else
+        return pinned + regular + privatePins + privateTabs
+        #endif
+    }
     /// Newest first, memory only. Private tabs never enter this list.
     public var recentlyClosedTabs: [TabRecord] { recentlyClosed.reversed() }
     public var tabsInSelectedMode: [BrowserTab] {
@@ -412,17 +420,18 @@ public final class BrowserSession {
     }
 
     public func togglePinned(_ id: UUID) {
-        guard let tab = tabs.first(where: { $0.id == id }), !tab.isPrivate else { return }
-        tab.setPinned(!tab.isPinned); scheduleSave()
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        tab.setPinned(!tab.isPinned)
     }
-    /// An explicit drop on a section heading changes pin state, then appends to
-    /// that section. Row drops continue to preserve pin and privacy boundaries.
+
+    /// An explicit drop on a section heading changes pin state, then appends
+    /// within the source tab's privacy group.
     public func moveTab(_ id: UUID, intoPinnedSection pinned: Bool) {
-        guard let tab = tabs.first(where: { $0.id == id }), !tab.isPrivate else { return }
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
         tab.setPinned(pinned)
-        let peers = orderedTabs.filter { !$0.isPrivate && $0.isPinned == pinned }
+        guard tab.isPinned == pinned else { return }
+        let peers = tabs.filter { $0.isPrivate == tab.isPrivate && $0.isPinned == pinned }
         if let position = peers.firstIndex(where: { $0.id == id }) { moveTab(id, offset: peers.count - position - 1) }
-        scheduleSave()
     }
     public func moveTab(_ id: UUID, offset: Int) {
         guard let source = tabs.firstIndex(where: { $0.id == id }) else { return }
@@ -432,7 +441,7 @@ public final class BrowserSession {
         peers.insert(peers.remove(at: position), at: position + offset)
         var next = peers.makeIterator()
         tabs = tabs.map { $0.isPrivate == tab.isPrivate && $0.isPinned == tab.isPinned ? next.next()! : $0 }
-        scheduleSave()
+        if !tab.isPrivate { scheduleSave() }
     }
     /// A drag cannot move a tab across pin or privacy sections.
     public func moveTab(_ id: UUID, to target: UUID) {

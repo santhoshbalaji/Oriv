@@ -76,9 +76,13 @@ enum OrivLayout {
     static let sidebarProfileIconSize: CGFloat = 22
     static let sidebarSearchHeight: CGFloat = 28
     static let sidebarSectionHeight: CGFloat = 24
-    static let sidebarPinHeight: CGFloat = 42
-    static let sidebarPinThreeColumnWidth: CGFloat = 250
-    static let sidebarPinIconSize: CGFloat = 22
+    static let sidebarPinWidth: CGFloat = 44
+    static let sidebarPinHeight: CGFloat = 36
+    static let sidebarPinGap = OrivSpacing.small - OrivSpacing.xxs
+    static let sidebarPinIconSize: CGFloat = 20
+    static let sidebarPinCloseWidth: CGFloat = 20
+    static let sidebarPinCloseHeight = sidebarPinHeight / 2
+    static let sidebarPinRadius: CGFloat = 10
     static let sidebarFooterHeight: CGFloat = 36
     static let sidebarDownloadBadgeSize: CGFloat = 6
     static let sidebarAccessoryWidth = OrivTarget.macMinimum.width

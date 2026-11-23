@@ -92,7 +92,7 @@ Release acceptance still includes real-device reachability, VoiceOver and Full K
 ## Site identities and address results
 
 `SiteIdentity` uses the profile/session icon environment. Keep the monogram as a
-fallback and the separate glasses/text cue for private browsing. The Mac sidebar draws site artwork at 19 pt in rows and pins and 22 pt in the rail.
+fallback and the separate glasses/text cue for private browsing. The Mac sidebar draws site artwork at 19 pt in rows, 20 pt in pinned tiles and 22 pt in the rail.
 Uncached regular sites use a local monogram. Private tabs use a glasses glyph
 when a favicon is unavailable. The rail places one glasses badge inside a
 private tab’s cached favicon. Decode-time alpha and dominant glyph luminance analysis
@@ -164,7 +164,9 @@ a download is active.
 | Section height and extra spacing before Tabs and Private | 24 and 4 |
 | Standard row height and between-row gap | 32 and 2 |
 | Close and audio hit target | 24 × 24 each |
-| Pin tile height, icon and gap | 42, 22 and 4 |
+| Pin tile width, height and corner radius | 44, 36 and 10 |
+| Pin favicon and tile spacing | 20 and 6 |
+| Pin hover-close corner target | 20 × 18 |
 | Expanded footer button band and button size | 36 and 32 × 32 |
 | Rail footer button target | 42 × 36 |
 
@@ -177,15 +179,30 @@ clears search and returns focus. Arrows, Home, End, Page Up and Page Down
 highlight tabs. Return, Space or a click opens a tab. Down Arrow from the
 sidebar toggle enters the tab list.
 
+The expanded sidebar lays out four to six icon-only pinned tiles per row,
+starting at the same inset as tab rows. The last row keeps the same tile size
+and gap. Each tile uses the cached site favicon with a local monogram fallback.
+Private pins show purple glasses, including a corner badge when a favicon is
+available. Hover reveals a Close action in the trailing top corner and a
+full-title tooltip. VoiceOver reads the title, pinned state and position.
+Search results present pins as titled rows.
+
+Idle tiles show the sidebar backing. Hover and selection use the sidebar’s
+tonal hover and pin-selection fills. Reduce Transparency switches to the
+corresponding opaque fills, and Increase Contrast adds the stronger focus-width
+outline to selection and hover. The selected tab keeps the shared 3 pt leading
+marker. AppKit draws a focus ring around the highlighted tile during keyboard
+navigation. Tile order, the leading marker, insertion markers and the Close
+corner mirror in right-to-left layouts.
+
 Pin/unpin commands use the existing `TabRecord.isPinned` model and version-3
-session snapshot; no migration is needed. Dragging onto Pinned pins a regular
-tab, and dropping onto Tabs unpins it, appending to the destination group. Between-row and between-tile insertion markers show where a tab will land
-within its current pin and privacy section. Drags are scoped
-to the controller, so another window/profile cannot move its tabs. Move Up/Down
-provide keyboard alternatives. Private tabs reject pinning in both the UI and
-model. Bulk close preserves pins and the other privacy group. Pinned tabs keep
-the existing idle-discard exclusion alongside selected, private, edited, media,
-capture, download and request-safety rules.
+session snapshot. Mac private pins live in memory for the lifetime of their
+tabs. Dragging onto Pinned pins a tab, and dropping onto its Tabs or Private
+section unpins it. Insertion markers show the destination when reordering.
+Drags are scoped to the controller and privacy group. Move Up, Move Down,
+Unpin Tab and Close Tab are available from the context menu. Bulk close
+preserves pins and the other privacy group. Pins keep their existing
+idle-discard exclusion.
 
 Optional continuity already allows `TabRecord.isPinned` in regular-tab metadata,
 with profile/device ownership and pinned-first ordering. Pins therefore use that

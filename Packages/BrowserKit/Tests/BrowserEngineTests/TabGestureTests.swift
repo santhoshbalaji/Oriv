@@ -108,18 +108,33 @@ import AppKit
         XCTAssertFalse(restored.tabs.contains { $0.id == privateTab.id })
         XCTAssertTrue(restored.recentlyClosedTabs.isEmpty)
     }
-    func testPrivateTabsCannotBePinnedThroughAnyModelEntryPoint() throws {
+    func testPrivatePinStateFollowsPlatformPolicyAndNeverPersists() throws {
         let s = session(), external = session(external: true)
         defer { s.shutdown(); external.shutdown() }
         let tab = s.addTab(isPrivate: true, load: false)
-        s.togglePinned(tab.id); tab.setPinned(true); s.moveTab(tab.id, intoPinnedSection: true)
+        s.togglePinned(tab.id)
+        #if os(macOS)
+        XCTAssertTrue(tab.isPinned)
+        s.moveTab(tab.id, intoPinnedSection: false)
         XCTAssertFalse(tab.isPinned)
+        tab.setPinned(true)
+        XCTAssertTrue(tab.isPinned)
+        #else
+        tab.setPinned(true)
+        s.moveTab(tab.id, intoPinnedSection: true)
+        XCTAssertFalse(tab.isPinned)
+        #endif
+        XCTAssertFalse(s.snapshot().tabs.contains { $0.id == tab.id })
         let injected = BrowserTab(record: TabRecord(isPinned: true), isPrivate: true)
         defer { injected.close() }
         XCTAssertFalse(injected.isPinned)
         let externalTab = try XCTUnwrap(external.selectedTab)
-        external.togglePinned(externalTab.id); externalTab.setPinned(true)
+        external.togglePinned(externalTab.id)
+        #if os(macOS)
+        XCTAssertTrue(externalTab.isPinned)
+        #else
         XCTAssertFalse(externalTab.isPinned)
+        #endif
         XCTAssertTrue(external.snapshot().tabs.isEmpty)
     }
     func testExplicitSectionDropsPersistDestinationOrderAndKeepKeyboardOrder() throws {

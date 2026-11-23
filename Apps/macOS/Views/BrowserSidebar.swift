@@ -9,7 +9,7 @@ struct SidebarTabTransfer: Codable {
     let owner: UUID
 }
 
-enum SidebarDropTarget { case tab(UUID), between(UUID, after: Bool), pinned(Bool) }
+enum SidebarDropTarget: Equatable { case tab(UUID), between(UUID, after: Bool), pinned(Bool, isPrivate: Bool = false) }
 enum SidebarTabCommand { case pin, duplicate, moveUp, moveDown, reload, copyLink, mute, media, close, newPrivate }
 
 /// SwiftUI focus can use a window-sized AppKit responder. Publish ownership
@@ -54,24 +54,18 @@ struct SidebarSearchScope: View {
 /// Shared by the real drop targets and their tests. Cross-section drops are
 /// explicit on headings; a row drop never silently changes privacy or pin state.
 @MainActor enum SidebarTabs {
-    /// Up to two complete rows, with a full-width tile when there is one pin.
-    static func pinRows(count: Int, width: CGFloat) -> [Int] {
-        if width < OrivLayout.sidebarPinThreeColumnWidth {
-            switch count {
-            case ...0: return []
-            case 1: return [1]
-            case 2, 3: return [2]
-            default: return [2, 2]
-            }
-        }
-        return switch count {
-        case ...0: []
-        case 1...3: [count]
-        case 4: [2, 2]
-        case 5: [3, 2]
-        default: [3, 3]
+    struct PinGrid {
+        let columns: Int
+        let tileWidth: CGFloat
+
+        init(availableWidth: CGFloat) {
+            let gap = OrivLayout.sidebarPinGap
+            let width = OrivLayout.sidebarPinWidth
+            columns = min(6, max(4, Int((availableWidth + gap) / (width + gap))))
+            tileWidth = max(0, min(width, (availableWidth - CGFloat(columns - 1) * gap) / CGFloat(columns)))
         }
     }
+
     static func countLabel(_ count: Int) -> String { count == 1 ? "1 tab" : "\(count) tabs" }
     static func perform(_ command: SidebarTabCommand, tab: BrowserTab, controller: BrowserController) {
         guard controller.session.tabs.contains(where: { $0 === tab }) else { return }
@@ -110,7 +104,7 @@ struct SidebarSearchScope: View {
         guard item.owner == controller.sidebarDragID,
               let source = controller.session.tabs.first(where: { $0.id == item.id }) else { return false }
         switch target {
-        case .pinned: return !source.isPrivate
+        case .pinned(_, let isPrivate): return source.isPrivate == isPrivate
         case .tab(let id), .between(let id, _):
             guard let destination = controller.session.tabs.first(where: { $0.id == id }) else { return false }
             return source.id != id && source.isPrivate == destination.isPrivate && source.isPinned == destination.isPinned
@@ -120,7 +114,7 @@ struct SidebarSearchScope: View {
     static func drop(_ items: [SidebarTabTransfer], on target: SidebarDropTarget, controller: BrowserController) -> Bool {
         guard items.count == 1, let item = items.first, canDrop(item, on: target, controller: controller) else { return false }
         switch target {
-        case .pinned(let pinned): controller.session.moveTab(item.id, intoPinnedSection: pinned)
+        case .pinned(let pinned, _): controller.session.moveTab(item.id, intoPinnedSection: pinned)
         case .tab(let id): controller.session.moveTab(item.id, to: id)
         case .between(let id, let after):
             let ordered = controller.session.orderedTabs
@@ -619,13 +613,7 @@ struct SidebarTabArtwork: View {
                     }
                 if peek { Text(title).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
             } else if tile {
-                VStack(spacing: OrivSpacing.xxs) {
-                    favicon
-                    Text(title)
-                        .font(OrivType.caption)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+                favicon
             } else {
                 favicon
                 VStack(alignment: .leading, spacing: 0) {
@@ -653,29 +641,33 @@ struct SidebarTabArtwork: View {
         .padding(.horizontal, rail ? 0 : MacBrowserLayout.sidebarRowInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(theme.text)
-        .modifier(SidebarToneSurface(tone: tone, radius: radius, drawsRim: !tile))
+        .modifier(SidebarToneSurface(tone: tone, radius: radius, drawsRim: !tile || hovered || active))
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .leading) {
             if active {
                 SelectionMarker(height: OrivIcon.toolbar, background: theme.sidebar.selection)
                     .browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil)
-                    .padding(.leading, OrivSpacing.xs)
+                    .padding(.leading, tile ? OrivSpacing.xxs : OrivSpacing.xs)
             }
         }
         .overlay(alignment: .topTrailing) {
             if tile && hovered {
-                accessory("xmark", kind: .close)
+                Image(systemName: "xmark").font(OrivIcon.close)
+                    .foregroundStyle(theme.sidebarSecondaryText(contrast))
+                    .padding(.trailing, OrivSpacing.xxs)
+                    .frame(width: OrivLayout.sidebarPinCloseWidth, height: OrivLayout.sidebarPinCloseHeight, alignment: .trailing)
+                    .modifier(SidebarToneSurface(tone: hoveredAccessory == .close ? .hover : nil, drawsRim: false))
                     .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
             }
         }
         .overlay {
-            if (selected || (tile && active)) && contrast == .increased {
+            if (selected || (tile && (active || hovered))) && contrast == .increased {
                 RoundedRectangle(cornerRadius: radius).strokeBorder(theme.text, lineWidth: OrivOutline.focus)
             }
         }
     }
 
-    private var radius: CGFloat { rail || tile ? OrivRadius.tile : OrivRadius.control }
+    private var radius: CGFloat { tile ? OrivLayout.sidebarPinRadius : (rail ? OrivRadius.tile : OrivRadius.control) }
 
     private var tone: Theme.SidebarTone? {
         if tile && (active || selected) { return .pinSelection }
@@ -705,7 +697,7 @@ struct SidebarTabArtwork: View {
             : (tile ? OrivLayout.sidebarPinIconSize : OrivLayout.sidebarFaviconSize)
         return ZStack {
             SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true,
-                         showsSidebarPrivateBadge: rail, previewIcons: previewIcons)
+                         showsSidebarPrivateBadge: rail || tile, previewIcons: previewIcons)
                 .browserGeometryMarker("sidebarFavicon-\(id)", when: previewIcons == nil)
             if loading {
                 Circle().trim(from: 0, to: 0.75).stroke(theme.accent, lineWidth: 2)

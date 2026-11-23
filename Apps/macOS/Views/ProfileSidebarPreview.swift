@@ -98,25 +98,28 @@ struct ProfileSidebarPreviewArtwork: View {
     }
 
     private var list: some View {
-        let pins = preview.rows.filter { !$0.isPrivate && $0.record.isPinned }
+        let pins = preview.rows.filter { $0.record.isPinned }
         let regular = preview.rows.filter { !$0.isPrivate && !$0.record.isPinned }
-        let privateRows = preview.rows.filter(\.isPrivate)
+        let privateRows = preview.rows.filter { $0.isPrivate && !$0.record.isPinned }
         let duplicateTitles = Set(Dictionary(grouping: preview.rows, by: { $0.record.title }).filter { $0.value.count > 1 }.keys)
         let limit = max(1, Int(size.height / OrivLayout.tabRowHeight) + 1)
-        let pinRows = SidebarTabs.pinRows(count: pins.count, width: size.width + 2 * MacBrowserLayout.sidebarInset)
+        let grid = SidebarTabs.PinGrid(availableWidth: size.width)
+        let visiblePins = Array(pins.prefix(limit * grid.columns))
+        let rowStarts = Array(stride(from: 0, to: visiblePins.count, by: grid.columns))
         return VStack(spacing: OrivSpacing.xxs) {
             if !pins.isEmpty {
                 SidebarSectionHeading(title: "Pinned", count: pins.count, marksGeometry: false)
-                ForEach(pinRows.indices, id: \.self) { index in
-                    let offset = pinRows.prefix(index).reduce(0, +)
-                    HStack(spacing: OrivSpacing.xs) {
-                        ForEach(pins.dropFirst(offset).prefix(pinRows[index])) { row in
-                            artwork(row, tile: true, duplicateTitles: duplicateTitles).frame(height: OrivLayout.sidebarPinHeight)
+                VStack(alignment: .leading, spacing: OrivLayout.sidebarPinGap) {
+                    ForEach(rowStarts, id: \.self) { start in
+                        HStack(spacing: OrivLayout.sidebarPinGap) {
+                            ForEach(visiblePins.dropFirst(start).prefix(grid.columns)) { row in
+                                artwork(row, tile: true, duplicateTitles: duplicateTitles)
+                                    .frame(width: grid.tileWidth, height: OrivLayout.sidebarPinHeight)
+                            }
                         }
                     }
-                }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            rows(nil, Array(pins.dropFirst(pinRows.reduce(0, +))), limit: limit, duplicates: duplicateTitles)
             rows("Tabs", regular, limit: limit, duplicates: duplicateTitles)
             rows("Private", privateRows, limit: limit, duplicates: duplicateTitles)
             if preview.rows.isEmpty { SidebarSectionHeading(title: "No tabs", count: 0, marksGeometry: false) }

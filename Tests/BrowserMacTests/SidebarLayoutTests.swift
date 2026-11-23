@@ -134,13 +134,16 @@ import XCTest
         let tiles = try (0..<4).map { try XCTUnwrap(layout.layoutAttributesForItem(at: IndexPath(item: $0, section: 0))).frame }
         let row = try XCTUnwrap(layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 1))).frame
         XCTAssertEqual(tiles.first?.minX, row.minX)
-        XCTAssertEqual(tiles.last?.maxX, row.maxX)
-        for offset in [0, 2] {
-            XCTAssertEqual(tiles[offset].minX, row.minX)
-            XCTAssertEqual(tiles[offset + 1].maxX, row.maxX)
-            XCTAssertEqual(tiles[offset].minY, tiles[offset + 1].minY)
+        for (index, tile) in tiles.enumerated() {
+            XCTAssertEqual(tile.minY, tiles[0].minY)
+            XCTAssertEqual(tile.width, OrivLayout.sidebarPinWidth, accuracy: 1)
+            let step = OrivLayout.sidebarPinWidth + OrivLayout.sidebarPinGap
+            XCTAssertEqual(tile.minX - row.minX, CGFloat(index) * step, accuracy: 1)
         }
-        XCTAssertLessThan(tiles[0].maxY, tiles[2].minY)
+        let gap = NSPoint(x: (tiles[0].maxX + tiles[1].minX) / 2, y: tiles[0].midY)
+        let pins = session.orderedTabs.filter(\.isPinned)
+        let target = list.sidebar?.dropTarget(at: gap)
+        XCTAssertTrue(target == .between(pins[0].id, after: true) || target == .between(pins[1].id, after: false))
         let active = try XCTUnwrap(session.selectedTabID)
         let accent = try frame("sidebarAccent-\(active)", in: window)
         let favicon = try frame("sidebarFavicon-\(active)", in: window)
@@ -177,11 +180,16 @@ import XCTest
             let close = try frame(closeName, in: window)
             let accent = try frame(accentName, in: window)
             let icon = try frame("sidebarFavicon-\(tab.id)", in: window)
-            XCTAssertEqual(close.width, OrivLayout.sidebarAccessoryWidth, accuracy: 1)
-            XCTAssertEqual(close.height, OrivTarget.macMinimum.height, accuracy: 1)
-            XCTAssertFalse(close.intersects(icon))
-            XCTAssertLessThan(rtl ? close.maxX : accent.maxX, icon.minX)
-            XCTAssertGreaterThan(rtl ? accent.minX : close.minX, icon.maxX)
+            XCTAssertEqual(close.width, OrivLayout.sidebarPinCloseWidth, accuracy: 1)
+            XCTAssertEqual(close.height, OrivLayout.sidebarPinCloseHeight, accuracy: 1)
+            XCTAssertLessThan((rtl ? close : accent).midX, icon.midX)
+            XCTAssertGreaterThan((rtl ? accent : close).midX, icon.midX)
+            let path = try XCTUnwrap(data.path(for: tab.id))
+            let row = try XCTUnwrap(list.item(at: path)?.view)
+            XCTAssertEqual(row.toolTip, tab.displayTitle)
+            XCTAssertTrue(row.accessibilityLabel()?.contains(tab.displayTitle) == true)
+            XCTAssertEqual(row.accessibilityValue() as? String, "Pinned, 1 of 1")
+            XCTAssertFalse(list.interact(at: NSPoint(x: icon.midX, y: icon.midY)))
             XCTAssertTrue(list.interact(at: NSPoint(x: close.midX, y: close.midY)))
             XCTAssertFalse(controller.session.tabs.contains { $0.id == tab.id })
         }

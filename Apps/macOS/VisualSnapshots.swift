@@ -984,7 +984,7 @@ import WebKit
                 await scene("pins-\(mode)-rtl", controller, appearance, rtl: true, hovered: records[0].id)
             }
             controller.session.togglePinned(privateTab.id)
-            if privateTab.isPinned { manifest.failures.append("Private tabs must stay outside the pin grid") }
+            if !privateTab.isPinned { manifest.failures.append("Private pin fixture could not be pinned") }
             controller.session.selectTab(privateTab.id)
             await scene("pins-private", controller, .dark)
             return

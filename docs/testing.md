@@ -99,7 +99,7 @@ layout snapshots do not establish foreground Liquid Glass/compositor fidelity.
 
 ## Safari-like Mac sidebar
 
-`SidebarGlassTests` covers metadata filtering, private-pin rejection, explicit
+`SidebarGlassTests` covers metadata filtering, memory-only private pins on Mac, explicit
 section drops and scoped row reorder, context-menu command dispatch, spoken
 labels, rail geometry/toggle, search focus/Escape and arrow/Return navigation, including 60 lazy rows in
 expanded and rail modes after the real keyboard toggle.

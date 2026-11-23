@@ -605,7 +605,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func resetZoom() { setZoom(1) }
     private func setZoom(_ value: Double) { pageZoom = min(max((value * 100).rounded() / 100, 0.5), 3); backingWebView?.pageZoom = pageZoom }
     public func setPinned(_ value: Bool) {
+        #if !os(macOS)
         guard !isPrivate else { return }
+        #endif
         let previous = record
         isPinned = value
         if record != previous { onChange?() }

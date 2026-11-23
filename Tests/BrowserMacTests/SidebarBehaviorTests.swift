@@ -281,14 +281,15 @@ import XCTest
         }
         XCTAssertFalse(all.contains { $0.identifier?.rawValue.hasPrefix("sidebarClose-") == true })
     }
-    func testNarrowPinGridUsesTwoColumnsWithoutAnOrphanTile() {
-        XCTAssertEqual(SidebarTabs.pinRows(count: 3, width: 220), [2])
-        XCTAssertEqual(SidebarTabs.pinRows(count: 6, width: 220), [2, 2])
-        XCTAssertEqual(SidebarTabs.pinRows(count: 5, width: 256), [3, 2])
-        XCTAssertEqual(SidebarTabs.pinRows(count: 6, width: 360), [3, 3])
+    func testPinGridFitsFourToSixFixedWidthColumns() {
+        for (width, columns) in [(220.0, 4), (256.0, 4), (300.0, 5), (360.0, 6)] {
+            let grid = SidebarTabs.PinGrid(availableWidth: width - 2 * MacBrowserLayout.sidebarInset)
+            XCTAssertEqual(grid.columns, columns)
+            XCTAssertEqual(grid.tileWidth, OrivLayout.sidebarPinWidth)
+        }
     }
 
-    func testNinePinsUseSixTilesAndTitleBearingOverflow() async throws {
+    func testNinePinsStayTilesWithOverlayAndLegacyScrollbars() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         for _ in 0..<9 { let tab = c.session.addTab(select: false, load: false); c.session.togglePinned(tab.id) }
         let w = host(c); defer { w.close() }; try await pause(350)
@@ -310,20 +311,23 @@ import XCTest
             XCTAssertEqual(surface.bounds.width, 256, accuracy: 1)
             if style == .legacy { XCTAssertLessThan(scroll.contentView.bounds.width, scroll.bounds.width) }
             for (index, frame) in frames.enumerated() {
-                XCTAssertEqual(frame.height, index < 6 ? OrivLayout.sidebarPinHeight : OrivLayout.tabRowHeight, accuracy: 1)
-                if index < 6 { XCTAssertGreaterThanOrEqual(frame.width, OrivTarget.macRail.width) }
+                XCTAssertEqual(frame.height, OrivLayout.sidebarPinHeight, accuracy: 1)
+                XCTAssertEqual(frame.width, OrivLayout.sidebarPinWidth, accuracy: 1)
+                let rowStart = frames[index - index % 4]
+                XCTAssertEqual(frame.midY, rowStart.midY, accuracy: 1)
+                let step = OrivLayout.sidebarPinWidth + OrivLayout.sidebarPinGap
+                XCTAssertEqual(frame.minX - rowStart.minX, CGFloat(index % 4) * step, accuracy: 1)
             }
-            for offset in [0, 3] {
-                let row = frames[offset..<(offset + 3)]
-                XCTAssertEqual(frames[offset].minX, frames[8].minX, accuracy: 1)
-                XCTAssertEqual(frames[offset + 2].maxX, frames[8].maxX, accuracy: 1)
-                for (left, right) in zip(row, row.dropFirst()) {
-                    // Fractional tile widths snap to device pixels; 1x hosted runners land up to ~0.75 pt off.
-                    XCTAssertEqual(right.minX - left.maxX, OrivSpacing.xs, accuracy: 1)
-                    XCTAssertEqual(left.midY, right.midY, accuracy: 1)
-                }
-            }
+            XCTAssertEqual(frames[0].minX, frames[4].minX, accuracy: 1)
+            XCTAssertEqual(frames[0].minX, frames[8].minX, accuracy: 1)
         }
+        c.tabSearch = "New Tab"
+        try await pause(350)
+        let firstPinPath = try XCTUnwrap(collection.sidebar?.path(for: pins[0].id))
+        let firstPinRow = try XCTUnwrap(collection.item(at: firstPinPath)?.view)
+        XCTAssertEqual(firstPinRow.bounds.height, OrivLayout.tabRowHeight, accuracy: 1)
+        XCTAssertTrue(firstPinRow.accessibilityLabel()?.contains("New Tab") == true)
+        XCTAssertNil(firstPinRow.toolTip)
         XCTAssertFalse(pins.contains(where: \.isInstantiated))
     }
     func testTransientPeekTooltipAndResizeNeverPersistOrWakeTabs() async throws {
