@@ -79,6 +79,14 @@ struct Theme {
     #else
     let accent = Color.accentColor
     #endif
+    #if os(macOS)
+    // These roles stay legible across the brighter and darker glass inputs.
+    private static let glassSecondary = adaptive("GlassSecondary", light: 0x303037, dark: 0xEEEEF2)
+    private static let glassPrivate = adaptive("GlassPrivate", light: 0x4C2269, dark: 0xF8DEFF)
+    var sidebarSecondaryText: Color { Self.glassSecondary }
+    var sidebarPrivateAccent: Color { Self.glassPrivate }
+    #endif
+
     var fieldText: Color { secondaryText }
     var page: Color { canvas }
 

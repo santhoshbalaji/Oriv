@@ -113,7 +113,7 @@ struct BrowserSidebar: View {
                 searchField
                 if railLayout { newTab }
                 if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
-                    Text(notice).font(.caption).foregroundStyle(theme.secondaryText).padding(.horizontal, 14)
+                    Text(notice).font(.caption).foregroundStyle(theme.sidebarSecondaryText).padding(.horizontal, 14)
                 }
                 NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
                                   searching: !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { id, right in
@@ -145,7 +145,7 @@ struct BrowserSidebar: View {
             }
         }
         .font(OrivType.body)
-        .foregroundStyle(.primary)
+        .foregroundStyle(theme.text)
         .transformPreference(SidebarKeyboardFocusKey.self) { $0 = $0 || searchFocused || utilityFocus != nil || tabList.hasFocus }
         .task(id: controller.scoped(controller.tabSearch)) {
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
@@ -180,13 +180,13 @@ struct BrowserSidebar: View {
                     if !compact {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(privateWindow ? "Private" : controller.profile?.name ?? "Personal").font(OrivType.profile)
-                            if !session.tabs.isEmpty { Text(SidebarTabs.countLabel(session.tabs.count)).font(OrivType.caption).foregroundStyle(theme.secondaryText) }
+                            if !session.tabs.isEmpty { Text(SidebarTabs.countLabel(session.tabs.count)).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText) }
                         }
                         Spacer(minLength: 0)
                     }
                 }
                 .padding(.horizontal, MacBrowserLayout.sidebarRowInset)
-                .foregroundStyle(privateWindow ? theme.privateAccent : theme.text)
+                .foregroundStyle(privateWindow ? theme.sidebarPrivateAccent : theme.text)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(privateWindow ? "Private browsing, \(SidebarTabs.countLabel(session.tabs.count))" : "\(controller.profile?.name ?? "Personal"), \(SidebarTabs.countLabel(session.tabs.count))")
             }
@@ -214,7 +214,7 @@ struct BrowserSidebar: View {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").accessibilityHidden(true)
                 TextField("Search tabs", text: $controller.tabSearch,
-                          prompt: Text("Search tabs").foregroundStyle(theme.secondaryText)).textFieldStyle(.plain)
+                          prompt: Text("Search tabs").foregroundStyle(theme.sidebarSecondaryText)).textFieldStyle(.plain)
                     .focused($searchFocused).accessibilityLabel("Search tabs").accessibilityIdentifier("tabSearchField")
                     .onExitCommand { controller.tabSearch = ""; focusTabAfterSearch(session.selectedTabID) }
                     .onKeyPress(.downArrow) {
@@ -232,7 +232,7 @@ struct BrowserSidebar: View {
                     }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Clear tab search")
                 }
             }
-            .font(OrivType.detail).foregroundStyle(theme.secondaryText)
+            .font(OrivType.detail).foregroundStyle(theme.sidebarSecondaryText)
             .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 32)
             .background(theme.sidebar.field.opacity(searchFocused ? 1 : 0.7), in: .rect(cornerRadius: OrivRadius.small))
             .background {
@@ -256,7 +256,7 @@ struct BrowserSidebar: View {
             HStack(spacing: 8) {
                 Image(systemName: "plus").frame(width: railLayout ? 42 : 19)
                 if peeking { Text("New Tab").modifier(SidebarLabelFade()); Spacer() }
-                if !railLayout { Text("New Tab"); Spacer(); Text("⌘T").font(.system(size: 10)).foregroundStyle(theme.secondaryText) }
+                if !railLayout { Text("New Tab"); Spacer(); Text("⌘T").font(.system(size: 10)).foregroundStyle(theme.sidebarSecondaryText) }
             }.font(OrivType.body).padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarRowInset).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
         }.buttonStyle(ContentButtonStyle()).frame(width: compact ? 42 : nil)
             .padding(.horizontal, peeking ? MacBrowserLayout.railInset : 0)
@@ -277,7 +277,7 @@ struct BrowserSidebar: View {
                         profiles.switchFromSidebar(profile.id, source: controller)
                     } label: {
                         Circle()
-                            .fill(selected ? theme.accent : theme.secondaryText.opacity(contrast == .increased ? 1 : 0.60))
+                            .fill(selected ? theme.accent : theme.sidebarSecondaryText.opacity(contrast == .increased ? 1 : 0.60))
                             .overlay {
                                 if contrast == .increased { Circle().strokeBorder(theme.text, lineWidth: 1) }
                             }
@@ -300,7 +300,7 @@ struct BrowserSidebar: View {
     @ViewBuilder private var footer: some View {
         if railLayout {
             VStack(alignment: .leading, spacing: 6) { footerButtons }.frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, MacBrowserLayout.railInset).foregroundStyle(theme.secondaryText)
+                .padding(.horizontal, MacBrowserLayout.railInset).foregroundStyle(theme.sidebarSecondaryText)
                 .browserGeometryMarker("sidebarFooterGeometry")
         } else {
             HStack(spacing: 0) { footerButtons }.padding(.horizontal, 8).frame(height: 42)
@@ -321,7 +321,7 @@ struct BrowserSidebar: View {
                     }
                     if peeking { Text(section.rawValue).font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
                 }
-            }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText)
+            }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText)
                 .focused($utilityFocus, equals: section.rawValue)
                 .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.rawValue)
                 .help(section.rawValue).browserGeometryMarker("sidebarFooter-\(section.rawValue)")
@@ -333,7 +333,7 @@ struct BrowserSidebar: View {
                 if peeking { Text("Settings").font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
             }
         }
-            .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.secondaryText).accessibilityLabel("Settings").help("Settings (⌘,)")
+            .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText).accessibilityLabel("Settings").help("Settings (⌘,)")
             .focused($utilityFocus, equals: "settings")
             .browserGeometryMarker("sidebarFooter-Settings")
     }
@@ -410,12 +410,12 @@ struct SidebarSectionHeading: View {
     var marksGeometry = true
     var body: some View {
         HStack(spacing: 6) {
-            if title == "Private" { Image(systemName: "eyeglasses").foregroundStyle(theme.privateAccent) }
-            Text(title).foregroundStyle(title == "Private" ? theme.privateAccent : theme.secondaryText)
+            if title == "Private" { Image(systemName: "eyeglasses").foregroundStyle(theme.sidebarPrivateAccent) }
+            Text(title).foregroundStyle(title == "Private" ? theme.sidebarPrivateAccent : theme.sidebarSecondaryText)
             Spacer()
             if count > 0 { Text("\(count)").font(.system(size: 11)).monospacedDigit() }
         }
-        .font(OrivType.title).foregroundStyle(theme.secondaryText)
+        .font(OrivType.title).foregroundStyle(theme.sidebarSecondaryText)
         .browserGeometryMarker("sidebarSection-\(title)", when: marksGeometry)
         .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 27)
         .padding(.top, title == "Private" ? 8 : (title == "Tabs" || title == "More pinned tabs" ? 4 : 0))
@@ -498,19 +498,19 @@ struct SidebarTabArtwork: View {
                         if let subtitle {
                             Text(subtitle)
                                 .font(.system(size: textSize.isAccessibilitySize ? 17 : 11))
-                                .foregroundStyle(theme.secondaryText)
+                                .foregroundStyle(theme.sidebarSecondaryText)
                                 .lineLimit(1).truncationMode(.middle)
                                 .browserGeometryMarker("sidebarHost-\(id)", when: previewIcons == nil)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     if let mediaSymbol {
                         Image(systemName: mediaSymbol)
-                            .font(.system(size: 11)).foregroundStyle(theme.secondaryText)
+                            .font(.system(size: 11)).foregroundStyle(theme.sidebarSecondaryText)
                             .frame(width: 24, height: 24).padding(.leading, -8)
                             .browserGeometryMarker("sidebarMedia-\(id)")
                     }
                     Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.secondaryText).frame(width: 24, height: 24).padding(.leading, -8)
+                        .foregroundStyle(theme.sidebarSecondaryText).frame(width: 24, height: 24).padding(.leading, -8)
                         .opacity(hovered || selected || active ? 1 : 0)
                         .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
                 }
@@ -536,7 +536,7 @@ struct SidebarTabArtwork: View {
 
     private func badge(_ symbol: String) -> some View {
         Image(systemName: symbol).font(.system(size: 10, weight: .bold)).frame(width: 12, height: 12)
-            .foregroundStyle(symbol == "eyeglasses" ? theme.privateAccent : theme.text)
+            .foregroundStyle(symbol == "eyeglasses" ? theme.sidebarPrivateAccent : theme.text)
             .background(theme.surface, in: Circle())
     }
 
@@ -611,7 +611,7 @@ enum SidebarGlassOpacity: String, CaseIterable {
 
     var backingOpacity: Double {
         switch self {
-        case .balanced: 0.83
+        case .balanced: 0.70
         case .high: 0.92
         case .solid: 1.0
         }
@@ -659,10 +659,10 @@ struct MacSidebarGlass: ViewModifier {
         if let captureBackdrop {
             content.background(captureBackdrop)
         } else {
-            GlassEffectContainer { content.glassEffect(.regular, in: Rectangle()) }
+            GlassEffectContainer { content.glassEffect(.clear, in: Rectangle()) }
         }
         #else
-        GlassEffectContainer { content.glassEffect(.regular, in: Rectangle()) }
+        GlassEffectContainer { content.glassEffect(.clear, in: Rectangle()) }
         #endif
     }
 }

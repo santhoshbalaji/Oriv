@@ -83,11 +83,11 @@ struct ProfileHeaderArtwork: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(OrivType.profile).lineLimit(1)
                     .browserGeometryMarker("sidebarProfileNameGeometry", when: marksGeometry)
-                Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText)
                     .browserGeometryMarker("sidebarProfileCountGeometry", when: marksGeometry)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
-        }.foregroundStyle(.primary).padding(.horizontal, 8).frame(height: 44).contentShape(Rectangle())
+        }.foregroundStyle(theme.text).padding(.horizontal, 8).frame(height: 44).contentShape(Rectangle())
     }
 }
 

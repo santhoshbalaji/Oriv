@@ -53,7 +53,9 @@ import WebKit
         }
         BackgroundUIMode.installAtLaunch()
         if BackgroundUIMode.isEnabled {
-            if ["sidebar-contrast", "p2", "sidebar-opacity", "phase2-contrast"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
+            if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" {
+                manifest.limitations.append("The real sidebar and production backing render over a synthetic desktop pattern in off-screen windows. These images demonstrate the backing blend; the WindowServer Liquid Glass compositor is outside this capture.")
+            } else if ["sidebar-contrast", "p2", "phase2-contrast"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("All windows stay off every display. Contrast matrix uses the real sidebar with a known white/black/purple glass input and labelled page swatch; the header is a layout spacer. It renders the production contrast backing and controls; reduced/increased variants use the opaque accessibility path. These are synthetic compositing/layout images, not live Liquid Glass acceptance.")
             } else {
                 manifest.limitations.append("All windows stay off every display. Sidebar/glass fallback fixtures use the app's opaque Reduce Transparency variant; they cannot verify Liquid Glass.")
@@ -631,27 +633,46 @@ import WebKit
                       key: false, appearance: .light) {
             AppearanceSettings(appearance: .constant(.light), controller: controller, initialPane: .appearance)
         }
-        let backdrop = Color(.sRGB, red: 96.0 / 255, green: 0, blue: 217.0 / 255)
-        for appearance in [BrowserAppearance.light, .dark] {
-            for choice in SidebarGlassOpacity.allCases {
-                let name = "mac-glass-sidebar-contrast-opacity-\(appearance.rawValue.lowercased())-\(choice.rawValue.lowercased())"
-                await capture(name, directory, CGSize(width: 780, height: 560), key: false, appearance: appearance) {
-                    HStack(spacing: 0) {
-                        BrowserSidebar(controller: controller, profiles: profiles)
-                            .padding(.horizontal, 10)
-                            .frame(width: MacBrowserLayout.sidebarWidth)
-                            .background { Color.clear.modifier(MacSidebarGlass()) }
-                        backdrop.overlay(alignment: .topLeading) {
-                            Text("Synthetic glass input").font(.title).foregroundStyle(.white).padding(32)
+        if let first = controller.session.tabs.dropFirst().first { controller.session.togglePinned(first.id) }
+        _ = controller.session.addTab(isPrivate: true, select: false, load: false)
+        for appearance in [BrowserAppearance.light, .dark, .t3Code] {
+            let mode = appearance == .t3Code ? "t3-code" : appearance.rawValue.lowercased()
+            for (layout, rail) in [("expanded", false), ("rail", true)] {
+                controller.compactSidebar = rail
+                for choice in SidebarGlassOpacity.allCases {
+                    let name = "mac-glass-sidebar-contrast-opacity-\(mode)-\(layout)-\(choice.rawValue.lowercased())"
+                    await capture(name, directory, CGSize(width: 560, height: 560), key: false, settle: 300, appearance: appearance) {
+                        HStack(spacing: 0) {
+                            BrowserSidebar(controller: controller, profiles: profiles)
+                                .padding(.top, 32)
+                                .frame(width: rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
+                                .modifier(MacSidebarGlass())
+                            Color.clear
                         }
+                        .background { sidebarOpacityBackdrop }
+                        .environment(\.sidebarCaptureBackdrop, .clear)
+                        .environment(\.sidebarCaptureOpacity, choice)
+                        .environment(\.siteIcons, controller.session.siteIcons)
                     }
-                    .background(backdrop)
-                    .environment(\.sidebarCaptureBackdrop, backdrop)
-                    .environment(\.sidebarCaptureOpacity, choice)
-                    .environment(\.siteIcons, controller.session.siteIcons)
                 }
             }
         }
+    }
+
+    private static var sidebarOpacityBackdrop: some View {
+        Canvas { context, size in
+            let colors: [Color] = [.indigo, .cyan, .mint, .orange, .pink, .purple, .teal, .yellow]
+            let tileWidth = size.width / 9
+            let tileHeight = size.height / 11
+            for row in 0..<11 {
+                for column in 0..<10 {
+                    let rect = CGRect(x: CGFloat(column) * tileWidth - CGFloat(row % 2) * tileWidth / 2,
+                                      y: CGFloat(row) * tileHeight, width: tileWidth + 1, height: tileHeight + 1)
+                    context.fill(Path(rect), with: .color(colors[(row * 5 + column * 3) % colors.count]))
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 
     private static func renderSidebarContrastScenes(into directory: URL, activate: Bool) async {

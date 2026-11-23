@@ -77,8 +77,10 @@ The expanded panel is 256 pt wide with an 8 pt horizontal content inset. The ico
 rail is 72 pt wide. The existing toggle and
 ⌥⌘S animate between them, respecting Reduce Motion. The address editor and page host retain their identity.
 
-Use `GlassEffectContainer` and `.glassEffect(.regular)` for the panel on the
-macOS 26 deployment target. Rows and the footer use quiet fills, without extra
+The panel uses `GlassEffectContainer` and `.glassEffect(.clear)` with a
+semantic backing. Balanced blends 70% backing over the glass, High blends 92%,
+and Solid uses the opaque backing. Sidebar-specific secondary and private text
+colors maintain contrast across the lighter and darker glass inputs. Rows and the footer use quiet fills, without extra
 per-row glass effects. Reduce Transparency and Increase Contrast replace the
 panel material with the semantic light/dark surface; increased contrast adds a
 strong boundary and selected/focused row outlines. The observed page colour

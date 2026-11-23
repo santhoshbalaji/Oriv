@@ -51,7 +51,7 @@ palettes = [
 # Explicit text roles. Native controls inherit the OS accent, which can vary at runtime.
 text_tokens = {"text", "secondaryText", "fieldText", "warning", "privateAccent"}
 for source in (ROOT / "Apps").rglob("*.swift"):
-    text_tokens.update(re.findall(r"\bText\([^;{}]*?\.foregroundStyle\(theme\.(\w+)\)", source.read_text()))
+    text_tokens.update(token for token in re.findall(r"\bText\([^;{}]*?\.foregroundStyle\(theme\.(\w+)\)", source.read_text()) if not token.startswith("sidebar"))
 
 checks = []  # (theme, token, colour, surface, background, minimum)
 sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
@@ -61,7 +61,7 @@ assert "content.background(theme.sidebar.backing.opacity(effectiveOpacity.backin
 assert "selected ? theme.sidebar.selection" in sidebar_source
 sidebar_opacities = {name: float(value) for name, value in re.findall(
     r"case \.(\w+): ([0-9.]+)", sidebar_source.split("enum SidebarGlassOpacity:", 1)[1].split("struct MacSidebarGlass:", 1)[0])}
-assert sidebar_opacities == {"balanced": 0.83, "high": 0.92, "solid": 1.0}
+assert sidebar_opacities == {"balanced": 0.70, "high": 0.92, "solid": 1.0}
 focused_field, idle_field = map(float, re.search(
     r"background\(theme.sidebar.field.opacity\(searchFocused \? ([0-9.]+) : ([0-9.]+)\)", sidebar_source).groups())
 tile_opacity = float(re.search(r"tile && !rail \? theme.sidebar.field.opacity\(([0-9.]+)\)", sidebar_source).group(1))
@@ -71,6 +71,11 @@ sidebar_negative = "--negative-sidebar-test" in sys.argv
 sidebar_checks = []
 for appearance, mode, palette, sidebar in palettes:
     palette["privateAccent"] = adaptive_constant("privateAccent", mode)
+    sidebar_text = {
+        "text": palette["text"],
+        "secondaryText": adaptive_constant("glassSecondary", mode),
+        "privateAccent": adaptive_constant("glassPrivate", mode),
+    }
     if negative_test:
         palette["secondaryText"] = "888888"
     for accessibility in ("standard", "increase contrast"):
@@ -107,13 +112,18 @@ for appearance, mode, palette, sidebar in palettes:
                           "pressed": sidebar["selection"]}
                 label = f"{appearance} sidebar, page #{page}, {step}"
                 for state, background in states.items():
-                    for token in ("text", "secondaryText", "privateAccent"):
-                        sidebar_checks.append((label, token, colors[token], state, background, 4.5))
+                    for token, foreground in sidebar_text.items():
+                        sidebar_checks.append((label, token, foreground, state, background, 4.5))
                     if accessibility == "increase contrast":
                         sidebar_checks.append((label, "strong boundary", colors["text"], state, background, 3))
 
 checks.extend(sidebar_checks)
 worst = min((check for check in sidebar_checks if check[-1] == 4.5), key=lambda check: ratio(check[2], check[4]))
+for appearance, *_ in palettes:
+    for token in ("text", "secondaryText"):
+        minimum = min(ratio(check[2], check[4]) for check in sidebar_checks
+                      if check[0].startswith(appearance + " sidebar") and check[1] == token and check[0].endswith(", balanced"))
+        print(f"{appearance} Balanced {token}: {minimum:.2f}:1")
 print(f"Sidebar minimum text contrast: {ratio(worst[2], worst[4]):.2f}:1 ({worst[0]}, {worst[1]} on {worst[3]})")
 print("App-owned colors checked. Native system accent and compositor output depend on runtime settings.")
 

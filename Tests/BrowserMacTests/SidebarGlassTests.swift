@@ -13,6 +13,12 @@ import XCTest
         var scale: CGFloat?
         override var backingScaleFactor: CGFloat { scale ?? super.backingScaleFactor }
     }
+    func testStoredSidebarGlassLevelsKeepTheirLabelsAndBackingOrder() {
+        let levels = ["Balanced", "High", "Solid"].compactMap(SidebarGlassOpacity.init(rawValue:))
+        XCTAssertEqual(levels, [.balanced, .high, .solid])
+        XCTAssertEqual(levels.map(\.backingOpacity), [0.70, 0.92, 1.0])
+    }
+
     private func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
     private func nodes(_ element: Any, depth: Int = 0) -> [any NSAccessibilityProtocol] {
         guard depth < 24, let node = element as? any NSAccessibilityProtocol else { return [] }

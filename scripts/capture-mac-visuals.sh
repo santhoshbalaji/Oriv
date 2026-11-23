@@ -155,6 +155,15 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-b":
     expected |= {f"mac-glass-sidebar-b-12-{mode}-760-expanded-narrow" for mode in ("light", "dark")}
     expected |= {f"mac-glass-sidebar-b-100-{mode}-1280-{state}-scrolled" for mode in ("light", "dark") for state in ("expanded", "rail")}
     expected |= {"mac-glass-sidebar-b-private-" + state for state in ("expanded", "rail")}
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-opacity":
+    expected = {f"mac-glass-sidebar-contrast-opacity-{mode}-{layout}-{level}"
+                for mode in ("light", "dark", "t3-code") for layout in ("expanded", "rail")
+                for level in ("balanced", "high", "solid")}
+    expected.add("mac-glass-sidebar-contrast-opacity-settings")
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = {name + "-synthetic-composite" for name in expected} - evidence
+        if missing: problems.append(f"missing sidebar opacity composites: {sorted(missing)}")
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
     expected = {f"mac-glass-sidebar-contrast-{mode}-{page}-{state}-{variant}"
                 for mode in ("light", "dark") for page in ("white", "black", "purple")
