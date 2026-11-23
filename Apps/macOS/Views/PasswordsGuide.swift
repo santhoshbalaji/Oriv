@@ -34,12 +34,12 @@ struct PasswordsGuide: View {
             if !compact {
                 Text("Passwords stay with Apple Passwords. macOS fills the field. Oriv never sees, stores or sends your saved passwords.")
                     .font(.callout).foregroundStyle(theme.secondaryText)
-                Text("With public macOS APIs, Oriv cannot automatically suggest logins when a field gains focus, save or update passwords, or suggest strong passwords.")
+                Text("Open the AutoFill menu to choose a saved login. Use Apple Passwords to add or update a password.")
                     .font(.callout).foregroundStyle(theme.secondaryText)
                 Label("Set up on your Mac", systemImage: "gearshape").font(.headline)
                 Text("In System Settings → General → AutoFill & Passwords, enable AutoFill and select Passwords. Turn on iCloud Passwords & Keychain if you want credentials available on your other Apple devices.")
                     .font(.callout).foregroundStyle(theme.secondaryText)
-                Text("The picker may require Touch ID or your Mac login password. No Apple developer account is needed for this field-menu flow.")
+                Text("The picker may require Touch ID or your Mac login password.")
                     .font(.caption).foregroundStyle(theme.secondaryText)
             }
             if compact {

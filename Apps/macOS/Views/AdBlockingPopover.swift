@@ -10,7 +10,7 @@ struct AdBlockingPopover: View {
 
     var body: some View {
         ScrollView { VStack(alignment: .leading, spacing: 16) {
-            EditorHeading(title: "Site Privacy", subtitle: "Protection for this profile", symbol: "shield.lefthalf.filled")
+            EditorHeading(title: OrivStrings.sitePrivacy, subtitle: "Protection for this profile", symbol: "shield.lefthalf.filled")
             Picker("Blocking mode", selection: Binding(get: { blocker.mode }, set: { blocker.setMode($0) })) {
                 ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented)
@@ -22,11 +22,11 @@ struct AdBlockingPopover: View {
             }
             if blocker.isPreparing { ProgressView("Preparing protection…").controlSize(.small) }
             if let error = blocker.preparationError {
-                Text(error).font(.caption).foregroundStyle(.red)
+                Text(error).font(.caption).foregroundStyle(theme.danger)
             }
             if blocker.mode == .strict {
-                if blocker.isPreparingCNAME { ProgressView("Preparing CNAME tracker protection…").controlSize(.small) }
-                if let error = blocker.cnamePreparationError { Text(error).font(.caption).foregroundStyle(.red) }
+                if blocker.isPreparingCNAME { ProgressView(OrivStrings.preparingTrackerProtection).controlSize(.small) }
+                if let error = blocker.cnamePreparationError { Text(error).font(.caption).foregroundStyle(theme.danger) }
             }
             Text("Works in normal and private tabs. Reload to apply changes fully. Filters update with Oriv releases; some ads may remain.")
                 .font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)

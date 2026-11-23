@@ -13,7 +13,7 @@ public enum AdBlockingMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .off: "Allow ads and trackers."
         case .balanced: "Block known advertising networks and common trackers."
-        case .strict: "Also block analytics and disguised (CNAME-cloaked) trackers and hide common ad slots. Uses extra storage. Some sites may need an exception."
+        case .strict: "Also block analytics and disguised trackers and hide common ad slots. Uses extra storage. Some sites may need an exception."
         }
     }
 }
@@ -356,7 +356,7 @@ public final class AdBlocker {
                 self.preparingCNAME = false
             } catch {
                 Self.logger.error("CNAME tracker rules failed to prepare (code \((error as NSError).code, privacy: .public))")
-                self?.cnameError = "CNAME tracker protection is unavailable. Other privacy filters are still active."
+                self?.cnameError = "Additional tracker protection is unavailable. Other privacy filters are still active."
                 self?.preparingCNAME = false
             }
         }
@@ -539,7 +539,7 @@ public struct RuleCompilationMeasurement: Codable, Sendable {
 public enum BundledPrivacyRules {
     static let cnameComponent = "network-cname"
     public static var acknowledgements: String {
-        guard let root = Bundle.module.url(forResource: "Privacy", withExtension: nil) else { return "Privacy acknowledgements could not be read." }
+        guard let root = Bundle.module.url(forResource: "Privacy", withExtension: nil) else { return "Privacy acknowledgments could not be read." }
         let notice = (try? String(contentsOf: root.appendingPathComponent("NOTICE.txt"), encoding: .utf8)) ?? ""
         let license = (try? String(contentsOf: root.appendingPathComponent("CC-BY-SA-3.0.txt"), encoding: .utf8)) ?? ""
         let consent = ["NOTICE.txt", "MPL-2.0.txt"].compactMap {

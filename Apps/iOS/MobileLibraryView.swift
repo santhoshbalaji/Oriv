@@ -18,7 +18,7 @@ struct MobileLibraryView: View {
                         controller.sheet = nil
                         // Dismiss before replacing the sheet's profile owner.
                         Task { @MainActor in try? await Task.sleep(for: .milliseconds(350)); profiles.openContinuityPage(page) }
-                    } } label: { rowLabel("Other Devices", "laptopcomputer.and.iphone", theme) }
+                    } } label: { rowLabel(OrivStrings.otherDevices, "laptopcomputer.and.iphone", theme) }
                     NavigationLink { MobileDownloadsView(downloads: controller.downloads) } label: {
                         HStack { rowLabel("Downloads", "arrow.down.circle", theme); Spacer(); if controller.downloads.activeCount > 0 { Text("\(controller.downloads.activeCount) active").font(.footnote).foregroundStyle(theme.secondaryText) } }
                     }
@@ -60,6 +60,10 @@ struct MobileSavedPages: View {
                         Button("Next Page") { historyOffset += historyPageSize }.disabled(page.count <= historyPageSize)
                     }.buttonStyle(.borderless).listRowBackground(theme.row)
                 }
+                if controller.session.historyCount > 0 {
+                    Button(OrivStrings.clearHistoryPrompt, role: .destructive) { confirmClear = true }
+                        .orivDestructiveButton(theme).listRowBackground(theme.row)
+                }
             } else {
                 let entries = controller.session.bookmarks.filter { matches($0.title, $0.url) }
                 if controller.session.canUndoBookmarkRemoval {
@@ -77,13 +81,8 @@ struct MobileSavedPages: View {
             .onChange(of: controller.session.historyRevision) { _, _ in
                 if history && controller.session.historyPage(search: query, offset: historyOffset, limit: 1).isEmpty { historyOffset = 0 }
             }
-            .toolbar {
-                if history && controller.session.historyCount > 0 {
-                    Button("Clear History", role: .destructive) { confirmClear = true }
-                }
-            }
             .confirmationDialog("Clear browsing history?", isPresented: $confirmClear) {
-                Button("Clear History", role: .destructive) { controller.session.clearHistory() }
+                Button(OrivStrings.clearHistory, role: .destructive) { controller.session.clearHistory() }
             }
     }
     @ViewBuilder private func empty(isEmpty: Bool) -> some View {
@@ -124,9 +123,9 @@ struct MobileTabsView: View {
                     if searching {
                         HStack {
                             Image(systemName: "magnifyingglass")
-                            TextField("Search tabs", text: $query).accessibilityIdentifier("tabSearch")
+                            TextField(OrivStrings.searchTabs, text: $query).accessibilityIdentifier("tabSearch")
                             Button("Cancel") { query = ""; searching = false }
-                        }.padding(12).browserGlass().padding(.horizontal, 16).padding(.bottom, 8)
+                        }.padding(12).modifier(OrivMaterial.control()).padding(.horizontal, 16).padding(.bottom, 8)
                     }
                 }
                 .onAppear { privateMode = controller.session.selectedTab?.isPrivate == true }
@@ -218,7 +217,7 @@ struct MobileTabsView: View {
         }
         .accessibilityLabel("Browsing Mode and Profile")
         .accessibilityValue("\(mode), \(profileName)")
-        .menuOrder(.fixed).tint(.primary).browserGlass()
+        .menuOrder(.fixed).tint(.primary).modifier(OrivMaterial.control())
     }
 }
 

@@ -142,7 +142,7 @@ enum OrivMaterial: ViewModifier {
     #if os(macOS)
     case navigation(color: SidebarColor = .graphite, profileColor: ProfileColor? = nil)
     #endif
-    case control(radius: CGFloat = 24)
+    case control(radius: CGFloat? = nil)
     case overlay(radius: CGFloat = OrivRadius.panel)
     case sheet
 
@@ -180,6 +180,7 @@ enum OrivMaterial: ViewModifier {
 enum BrowserAppearance: String, CaseIterable, Identifiable {
     case system = "System", light = "Light", dark = "Dark", t3Code = "T3 Code"
     var id: String { rawValue }
+    var displayName: String { self == .t3Code ? OrivStrings.black : rawValue }
     var colorScheme: ColorScheme? {
         switch self { case .system: nil; case .light: .light; case .dark, .t3Code: .dark }
     }
@@ -234,6 +235,7 @@ struct Theme {
     var separatorStrong: Color { isT3Code ? Self.hex(0x818181) : Self.highContrastSeparator }
     let danger = adaptive("Danger", light: 0xB3261E, dark: 0xFF9A8F)
     let success = adaptive("Success", light: 0x1D6B3A, dark: 0x7FD99A)
+    let controlPrivate = adaptive("ControlPrivate", light: 0x4C2269, dark: 0xF8DEFF)
     let privateWash = adaptive("PrivateWash", light: 0xF3E9F9, dark: 0x33263D)
     let iconPlate = Color.white.opacity(0.88)
 
@@ -422,10 +424,10 @@ struct AppearancePreview: View {
 struct SwitchToTabBadge: View {
     @Environment(\.browserTheme) private var theme
     var body: some View {
-        Text("Already open").font(.caption2.weight(.medium)).foregroundStyle(theme.secondaryText).lineLimit(1).fixedSize()
+        Text(OrivStrings.alreadyOpen).font(.caption2.weight(.medium)).foregroundStyle(theme.secondaryText).lineLimit(1).fixedSize()
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(theme.field, in: Capsule())
-            .accessibilityLabel("Already open in a tab")
+            .accessibilityLabel(OrivStrings.alreadyOpen)
     }
 }
 
@@ -532,6 +534,11 @@ struct SiteIdentity: View {
 }
 
 extension View {
+    /// Use with a destructive role for app-owned buttons outside native alerts and menus.
+    func orivDestructiveButton(_ theme: Theme) -> some View {
+        buttonStyle(.bordered).tint(theme.danger).foregroundStyle(theme.danger)
+    }
+
     /// Shared list and form backdrop for app-owned rows.
     func orivListStyle(_ theme: Theme) -> some View {
         scrollContentBackground(.hidden).background(theme.surface)

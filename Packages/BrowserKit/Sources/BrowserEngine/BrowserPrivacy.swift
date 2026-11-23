@@ -8,11 +8,11 @@ public enum PrivacyLayer: String, CaseIterable, Identifiable, Codable, Sendable 
     public var id: String { rawValue }
     public var title: String {
         switch self {
-        case .linkCleaning: "Clean Tracking Links"
+        case .linkCleaning: "Clean tracking links"
         case .httpsUpgrade: "Upgrade to HTTPS"
-        case .cookieBanners: "Handle Cookie Banners"
+        case .cookieBanners: "Handle cookie banners"
         case .globalPrivacyControl: "Global Privacy Control"
-        case .youtubeAds: "Block YouTube Ads"
+        case .youtubeAds: "Block YouTube ads"
         }
     }
     public var defaultEnabled: Bool { true }

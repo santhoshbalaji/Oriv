@@ -106,7 +106,7 @@ struct BrowserCommands: Commands {
             Button("Bookmarks") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.library = .bookmarks }.keyboardShortcut("b", modifiers: [.command, .shift])
             Button("History") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.library = .history }.keyboardShortcut("y")
             Button("Downloads") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.library = .downloads }.keyboardShortcut("j", modifiers: [.command, .option])
-            Button("Other Devices") { controller.library = .devices }
+            Button(OrivStrings.otherDevices) { controller.library = .devices }
             Divider()
             Button("Import Bookmarks…") { controller.importBookmarks() }
             Button("Export Bookmarks…") { controller.exportBookmarks() }.disabled(controller.savedBookmarks.isEmpty)

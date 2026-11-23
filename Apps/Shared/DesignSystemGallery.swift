@@ -30,6 +30,7 @@ struct DesignSystemGallery: View {
                     HStack {
                         Button("Continue") {}.buttonStyle(.borderedProminent)
                         Button("Cancel") {}.buttonStyle(.bordered)
+                        Button(OrivStrings.deleteProfile, role: .destructive) {}.orivDestructiveButton(theme)
                         Button("Unavailable") {}.buttonStyle(.bordered).disabled(true)
                     }
                     Text("Control").padding(OrivSpacing.medium).modifier(OrivMaterial.control())

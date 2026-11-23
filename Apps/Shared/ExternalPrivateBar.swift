@@ -22,7 +22,7 @@ struct ExternalPrivateBar: View {
             #endif
             .font(OrivType.detail)
             .padding(OrivSpacing.medium)
-            .browserGlass(radius: 24)
+            .background(theme.privateWash, in: RoundedRectangle(cornerRadius: OrivRadius.card))
             .padding(.horizontal, OrivSpacing.large)
             .padding(.vertical, OrivSpacing.small)
     }
@@ -142,11 +142,11 @@ struct ExternalPrivateBar: View {
 
 #if os(iOS)
 private struct ExternalMoveButtonStyle: ButtonStyle {
+    @Environment(\.browserTheme) private var theme
     let fill: Color
     @Environment(\.self) private var environment
     func makeBody(configuration: Configuration) -> some View {
-        let luminance = Theme.luminance(fill.resolve(in: environment))
-        configuration.label.foregroundStyle(luminance > 0.179 ? Color.black : .white)
+        configuration.label.foregroundStyle(theme.onAccent(for: fill.resolve(in: environment)))
             .background(fill, in: .rect(cornerRadius: OrivRadius.small))
             .brightness(configuration.isPressed ? -0.08 : 0)
     }

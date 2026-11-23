@@ -40,7 +40,7 @@ struct MobileBrowserView: View {
     }
     private var solidChrome: Bool { reduceTransparency || contrast == .increased }
     private var extendsTopColor: Bool { solidChrome || !pageChrome.showsContentUnderChrome }
-    private var displayDomain: String { tab?.url.flatMap(URLDisplay.site) ?? (tab?.isPrivate == true ? "Private search" : "Search or address") }
+    private var displayDomain: String { tab?.url.flatMap(URLDisplay.site) ?? (tab?.isPrivate == true ? OrivStrings.privateSearch : OrivStrings.search) }
     private var bottomForeground: Color { .primary }
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     var reduceMotionOverride:Bool? = nil
@@ -64,7 +64,7 @@ struct MobileBrowserView: View {
         // Seed the first hosting pass from known paint, before the native fill
         // attaches. Avoid an artificial dark-to-light trait change at mounting.
         if !controller.topChrome.hasRendered {
-            return editingAddress ? controller.appearance.colorScheme : (pageChrome.isDark ? .dark : .light)
+            return editingAddress ? controller.appearance.colorScheme : (topColor(for: tab).whiteForeground ? .dark : .light)
         }
         return dark ? .dark : .light
     }
@@ -145,7 +145,7 @@ struct MobileBrowserView: View {
                     // The real page remains in its card until its one final
                     // thumbnail is ready. Keep the grid's close affordance visible.
                     Image(systemName:"xmark").font(.system(size:12,weight:.semibold)).foregroundStyle(.secondary)
-                        .frame(width:22,height:22).modifier(MobileBottomGlass())
+                        .frame(width:22,height:22).modifier(OrivMaterial.control())
                         .position(x:card.maxX-22,y:card.minY+22)
                         .allowsHitTesting(false).accessibilityHidden(true).zIndex(4)
                 }
@@ -324,11 +324,11 @@ struct MobileBrowserView: View {
             if minimized && !typeSize.isAccessibilitySize {
                 ZStack {
                     HStack(spacing: 5) {
-                        if tab?.isPrivate == true { Image(systemName: "eyeglasses").foregroundStyle(theme.privateAccent) }
+                        if tab?.isPrivate == true { Image(systemName: "eyeglasses").foregroundStyle(theme.controlPrivate) }
                         if let tab, ConnectionCue(tab) == .notSecure { Image(systemName: "exclamationmark.triangle") }
                         Text(displayDomain).lineLimit(1)
                     }.font(.caption.weight(.medium)).foregroundStyle(bottomForeground)
-                        .padding(.horizontal, 16).frame(minHeight: 32).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true))
+                        .padding(.horizontal, 16).frame(minHeight: 32).modifier(OrivMaterial.control())
                         .allowsHitTesting(false).accessibilityHidden(true)
                     MobileAddressMenuSource(controller: controller, profiles: profiles, tab: tab, compact: true) { setMinimized(false) }
                 }.frame(height: 44).fixedSize(horizontal: true, vertical: false)
@@ -361,7 +361,7 @@ struct MobileBrowserView: View {
                 .allowsHitTesting(false).accessibilityHidden(true)
             MobileHistoryMenuSource(tab:tab,forward:false)
         }.frame(width:48,height:48).tint(.primary)
-            .disabled(tab?.canGoBack != true).buttonStyle(.plain).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true)).accessibilityLabel("Back")
+            .disabled(tab?.canGoBack != true).buttonStyle(.plain).modifier(OrivMaterial.control()).accessibilityLabel("Back")
             .accessibilityAction(named: "Show History") { showHistory(forward: false) }
     }
 
@@ -371,7 +371,7 @@ struct MobileBrowserView: View {
                 .allowsHitTesting(false).accessibilityHidden(true)
             MobileHistoryMenuSource(tab:tab,forward:true)
         }.frame(width:44,height:48).tint(.primary)
-            .buttonStyle(.plain).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true)).accessibilityLabel("Forward")
+            .buttonStyle(.plain).modifier(OrivMaterial.control()).accessibilityLabel("Forward")
             .accessibilityAction(named: "Show History") { showHistory(forward: true) }
     }
     @ViewBuilder private var tabsMenu: some View {
@@ -393,7 +393,7 @@ struct MobileBrowserView: View {
             Image(systemName: "square.on.square").font(.system(size: 21, weight: .medium)).frame(width: 48, height: 48)
         } primaryAction: { controller.sheet = .tabs }
             .menuOrder(.fixed).tint(.primary)
-            .buttonStyle(.plain).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true))
+            .buttonStyle(.plain).modifier(OrivMaterial.control())
             .accessibilityLabel("Show All Tabs").accessibilityValue("\(controller.session.tabsInSelectedMode.count) tabs")
             .accessibilityIdentifier("browserTabs")
     }
@@ -660,6 +660,14 @@ struct MobileBrowserView: View {
         }
     }
 
+    private func topColor(for tab: BrowserTab?) -> ChromeColor {
+        let scheme = controller.appearance.colorScheme ?? pageSystemScheme
+        if tab?.isPrivate == true && scheme == .light {
+            return PageChrome.resolveCanvas(theme.privateWash, scheme: scheme)
+        }
+        return MobileTopChrome.rgb(UIColor(controller.chrome(for: tab).color))
+    }
+
     private func topBar(width:CGFloat) -> some View {
         let canvas = homeColor
         var destination = canvas, destinationOpacity:CGFloat = 1
@@ -667,10 +675,10 @@ struct MobileBrowserView: View {
            case .tab(let id) = controller.session.tabSwipeTarget(gestures.translation < 0 ? 1 : -1),
            let next = controller.session.tabs.first(where:{ $0.id == id }) {
             let chrome = controller.chrome(for:next)
-            destination = MobileTopChrome.rgb(UIColor(chrome.color))
+            destination = topColor(for: next)
             destinationOpacity = solidChrome || !chrome.showsContentUnderChrome ? 1 : 0
         }
-        return MobileTopBar(chrome:controller.topChrome,page:editingAddress || !hasLivePage ? canvas : MobileTopChrome.rgb(UIColor(pageChrome.color)),
+        return MobileTopBar(chrome:controller.topChrome,page:editingAddress || !hasLivePage ? canvas : topColor(for: tab),
             canvas:canvas,destination:destination,pageOpacity:editingAddress || extendsTopColor ? 1 : 0,destinationOpacity:destinationOpacity,
             pageID:tab?.id,gridProgress:gestures.gridProgress,swipeProgress:abs(gestures.translation)/max(1,width),
             interactive:gestures.source != nil || gestures.finishingSwipe || gestures.gridClosing || presentation.activeID != nil || editingAddress,
@@ -682,6 +690,9 @@ struct MobileBrowserView: View {
                 pageMenu.frame(width: 44, height: 48)
                 ZStack {
                     HStack(spacing: 4) {
+                        if tab?.isPrivate == true {
+                            Image(systemName: "eyeglasses").foregroundStyle(theme.controlPrivate)
+                        }
                         if let tab, ConnectionCue(tab) == .notSecure {
                             Image(systemName: "exclamationmark.triangle").font(.system(size: 12))
                         }
@@ -693,7 +704,7 @@ struct MobileBrowserView: View {
                     tab?.isLoading == true ? tab?.stop() : tab?.reload()
                 }.labelStyle(.iconOnly).font(.system(size: 20)).frame(width: 44, height: 48).disabled(tab?.url == nil)
             }
-            .padding(.vertical, typeSize.isAccessibilitySize ? 8 : 0).buttonStyle(.plain).modifier(MobileBottomGlass(isPrivate: tab?.isPrivate == true))
+            .padding(.vertical, typeSize.isAccessibilitySize ? 8 : 0).buttonStyle(.plain).modifier(OrivMaterial.control())
             .background(capsuleGesture)
             .modifier(MobileCapsuleAccessibility(controller: controller))
     }
@@ -705,11 +716,11 @@ struct MobileBrowserView: View {
                 CappedAddressEditor(text: $address, editing: $editingAddress, submit: submitAddress,
                     completion: addressMatches.completion, hasSelectedSuggestion: addressMatches.selected != nil && addressMatches.query == address, moveSelection: { addressMatches.move($0) },
                     cancel: { editingAddress = false })
-            }.padding(.horizontal, 14).padding(.vertical, 4).browserGlass()
+            }.padding(.horizontal, 14).padding(.vertical, 4).modifier(OrivMaterial.control())
             Button {
                 editingAddress = false; address = tab?.url?.absoluteString ?? ""
             } label: { Image(systemName: "xmark").font(.system(size: 20)).frame(width: 48, height: 48) }
-                .buttonStyle(.plain).browserGlass().accessibilityLabel("Cancel address editing")
+                .buttonStyle(.plain).modifier(OrivMaterial.control()).accessibilityLabel("Cancel address editing")
         }.foregroundStyle(theme.text).padding(12).background(theme.canvas)
             .environment(\.colorScheme, controller.appearance.colorScheme ?? pageSystemScheme)
     }
@@ -731,13 +742,17 @@ struct MobileBrowserView: View {
         }
     }
     @ViewBuilder private func page(top: CGFloat, bottom: CGFloat) -> some View {
-        if let tab, tab.url != nil {
-            if tab.httpWarningURL != nil { HTTPFallbackView(tab: tab).background(theme.canvas) }
-            else if let error = tab.errorMessage {
-                ContentUnavailableView { Label("Page could not load", systemImage: "network.slash") } description: { Text(error) } actions: { Button("Try Again") { tab.reload() } }
-                    .background(theme.canvas).environment(\.colorScheme, controller.appearance.colorScheme ?? pageSystemScheme)
-            } else { Color.clear.allowsHitTesting(false) }
-        } else { home.safeAreaPadding(.top, top).safeAreaPadding(.bottom, bottom).safeAreaPadding(.leading,windowInsets.left).safeAreaPadding(.trailing,windowInsets.right) }
+        if let tab, tab.httpWarningURL != nil {
+            HTTPFallbackView(tab: tab).background(theme.canvas)
+        } else if let tab, let error = tab.errorMessage {
+            PageErrorState(message: error, host: tab.url?.host, retry: tab.reload)
+                .safeAreaPadding(.top, top).safeAreaPadding(.bottom, bottom)
+        } else if tab?.url != nil {
+            Color.clear.allowsHitTesting(false)
+        } else {
+            home.safeAreaPadding(.top, top).safeAreaPadding(.bottom, bottom)
+                .safeAreaPadding(.leading, windowInsets.left).safeAreaPadding(.trailing, windowInsets.right)
+        }
     }
     @ViewBuilder private func livePage(_ tab:BrowserTab, top:CGFloat, bottom:CGFloat, card:CGRect, progress:CGFloat) -> some View {
         // A retained child graph may receive its last update after shutdown.
@@ -810,7 +825,7 @@ struct MobileBrowserView: View {
                             .background { if addressMatches.selected == index { SelectedRowBackground() } }
                     }.buttonStyle(.plain).accessibilityAddTraits(addressMatches.selected == index ? [.isSelected] : [])
                 }
-            }.padding(8).browserGlass().padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
+            }.padding(OrivSpacing.small).modifier(OrivMaterial.overlay()).padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).scrollDismissesKeyboard(.interactively)
     }
     private func chooseSuggestion(_ match: BrowserSuggestion) {
@@ -852,7 +867,7 @@ struct MobileBrowserView: View {
                         MobileSendTabMenu(controller: controller, profiles: profiles, tab: tab)
                         MobileMoveTabMenu(controller: controller, profiles: profiles, tab: tab)
                     }
-                    Button("Site Privacy & Settings", systemImage: "slider.horizontal.3") { controller.sheet = .site }.disabled(tab?.url == nil)
+                    Button(OrivStrings.sitePrivacy, systemImage: "shield.lefthalf.filled") { controller.sheet = .site }.disabled(tab?.url == nil)
                     if let site = controller.session.forgettableSite(for: tab) {
                         Button("Forget This Site…", systemImage: "trash", role: .destructive) { siteToForget = site }
                     }
@@ -871,9 +886,8 @@ struct MobileBrowserView: View {
                 }
                 Section { Button("Settings", systemImage: "gearshape") { controller.sheet = .settings } }
             } label: {
-                Label("Page Menu", systemImage: tab?.isPrivate == true ? "eyeglasses" : "slider.horizontal.3")
+                Label("Page Menu", systemImage: "ellipsis")
                     .labelStyle(.iconOnly).font(.system(size: 20))
-                    .foregroundStyle(tab?.isPrivate == true ? theme.privateAccent : .primary)
                     .frame(width: 44, height: 48).contentShape(Rectangle())
             }.accessibilityIdentifier("browserPageMenu").menuOrder(.fixed).tint(.primary)
     }
@@ -906,24 +920,6 @@ private struct CappedAddressEditor: View {
     var body: some View {
         MobileAddressField(text: $text, editing: $editing, submit: submit, completion: completion, hasSelectedSuggestion: hasSelectedSuggestion, moveSelection: moveSelection, cancel: cancel)
             .frame(height: height)
-    }
-}
-
-/// Untinted regular glass owns adaptation; never back it with the page's top colour.
-struct MobileBottomGlass: ViewModifier {
-    @Environment(\.browserTheme) private var theme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
-    var isPrivate = false
-    func body(content: Content) -> some View {
-        if reduceTransparency || contrast == .increased {
-            content.background(theme.field, in: Capsule())
-                .overlay { Capsule().strokeBorder(Color.primary.opacity(contrast == .increased ? 0.8 : 0.35), lineWidth: 1) }
-        } else if isPrivate {
-            content.browserGlass()
-        } else {
-            content.glassEffect(.regular.interactive(), in: Capsule())
-        }
     }
 }
 

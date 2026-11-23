@@ -15,13 +15,14 @@ extension View {
                 }
             }
         } message: { _ in
-            Text("Cookies, website data, and browsing history for this site will be removed from this profile. If you use Continuity, the history deletion will sync to your other devices.")
+            Text("Cookies, website data, and browsing history for this site will be removed from this profile. If Sync is on, the history deletion will reach your other devices.")
         }
     }
 }
 
 /// Shared policy controls; platform containers retain their native settings layout.
 struct PrivacySettingsControls: View {
+    @Environment(\.browserTheme) private var theme
     let session: BrowserSession
     @State private var acknowledgements = false
     var body: some View {
@@ -30,19 +31,19 @@ struct PrivacySettingsControls: View {
             set: { session.settings.privateTabIsolation.isEnabled = $0 }
         ))
         Text("Give new private tabs their own cookies and website data. Changes apply only to tabs you open next.")
-            .font(.caption).foregroundStyle(.secondary)
+            .font(.caption).foregroundStyle(theme.textSecondary)
         ForEach(PrivacyLayer.allCases.filter { $0 != .cookieBanners }) { layer in
             Toggle(layer.title, isOn: Binding(get: { session.settings.privacy.isEnabled(layer) }, set: { session.settings.privacy.setEnabled($0, layer) }))
                 .disabled(layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC)
             if layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC {
-                Text("Unavailable on this OS. Requires macOS 27 or iOS 27.").font(.caption).foregroundStyle(.secondary)
+                Text(OrivStrings.globalPrivacyControlUnavailable).font(.caption).foregroundStyle(theme.textSecondary)
             }
         }
         Toggle("Skip ads that still start", isOn: Binding(
             get: { session.settings.privacy.skipYouTubeAds },
             set: { session.settings.privacy.skipYouTubeAds = $0 }
         )).disabled(!session.settings.privacy.isEnabled(.youtubeAds) || session.adBlocker.mode == .off)
-        Text("Copy and Share clean links. Use Copy Original Link to keep every parameter. The link-cleaning switch controls navigation.").font(.caption).foregroundStyle(.secondary)
+        Text("Copy and Share clean links. Use Copy Original Link to keep every parameter. The link-cleaning switch controls navigation.").font(.caption).foregroundStyle(theme.textSecondary)
         Picker("Cookie banners", selection: Binding(
             get: { session.settings.privacy.cookieBannerMode },
             set: { session.settings.privacy.setCookieBannerMode($0) }
@@ -50,9 +51,8 @@ struct PrivacySettingsControls: View {
             ForEach(CookieBannerMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
         }
         Text("Reject uses known opt-out controls and hides banners when no supported opt-out succeeds.")
-            .font(.caption).foregroundStyle(.secondary)
-        Text("Lists: \(AdBlocker.rulesVersion)").font(.caption).textSelection(.enabled)
-        Button("Acknowledgements") { acknowledgements = true }
+            .font(.caption).foregroundStyle(theme.textSecondary)
+        Button("Acknowledgments") { acknowledgements = true }
             .sheet(isPresented: $acknowledgements) { PrivacyAcknowledgements() }
         if !session.settings.privacy.regularExceptions.isEmpty {
             DisclosureGroup("Privacy site exceptions (\(session.settings.privacy.regularExceptions.count))") {
@@ -72,6 +72,7 @@ struct PrivacySettingsControls: View {
 }
 
 struct PrivacyShieldControls: View {
+    @Environment(\.browserTheme) private var theme
     let session: BrowserSession
     let tab: BrowserTab
     @State private var reloadPrompt = false
@@ -91,12 +92,11 @@ struct PrivacyShieldControls: View {
                         || layer == .youtubeAds && !session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate))
                 .shieldKeyboardFocus()
         }
-        if !BrowserPrivacy.supportsGPC { Text("GPC unavailable on this OS (requires 27).").font(.caption).foregroundStyle(.secondary) }
-        if let url = tab.url, HTTPSUpgradePolicy.isExempt(url) { Text("HTTPS upgrade is exempt for this local or connectivity-check address.").font(.caption).foregroundStyle(.secondary) }
+        if !BrowserPrivacy.supportsGPC { Text(OrivStrings.globalPrivacyControlUnavailable).font(.caption).foregroundStyle(theme.textSecondary) }
+        if let url = tab.url, HTTPSUpgradePolicy.isExempt(url) { Text("Oriv allows HTTP for this local or network sign-in address.").font(.caption).foregroundStyle(theme.textSecondary) }
         if privacy.isEnabled(.cookieBanners, for: tab.url, isPrivate: tab.isPrivate) {
             LabeledContent("Cookie banners", value: tab.cookieBannerResult ?? privacy.cookieBannerMode.rawValue)
         }
-        selectableLabel("Lists: \(AdBlocker.rulesVersion)", font: .caption)
         if tab.isPrivate { Label("Exceptions last only for this private session.", systemImage: "eyeglasses").font(.caption) }
         Button("Site broken? Turn protections off for this site") {
             session.adBlocker.setException(true, for: tab.url, isPrivate: tab.isPrivate)
@@ -109,7 +109,7 @@ struct PrivacyShieldControls: View {
             reloadPrompt = true
         }.shieldKeyboardFocus()
         Button("Reload Page") { tab.reload() }.shieldKeyboardFocus()
-        Text("Reload to apply changes fully. Existing form contents stay in place until you choose to reload.").font(.caption).foregroundStyle(.secondary)
+        Text("Reload to apply changes fully. Existing form contents stay in place until you choose to reload.").font(.caption).foregroundStyle(theme.textSecondary)
         .alert("Reload this page?", isPresented: $reloadPrompt) {
             Button("Later", role: .cancel) {}
             Button("Reload") { tab.reload() }
@@ -140,7 +140,7 @@ struct PrivacyAcknowledgements: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Text("Privacy Acknowledgements").font(.headline); Spacer(); Button("Done") { dismiss() } }
+            HStack { Text("Privacy Acknowledgments").font(.headline); Spacer(); Button("Done") { dismiss() } }
             ScrollView { Text(BundledPrivacyRules.acknowledgements).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
         }.padding(20).frame(minWidth: 280, idealWidth: 600, minHeight: 350, idealHeight: 600)
     }

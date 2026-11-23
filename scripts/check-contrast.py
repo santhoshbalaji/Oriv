@@ -67,20 +67,26 @@ assert "content.background(backing.opacity(effectiveOpacity.backingOpacity)" in 
 assert "selected ? theme.sidebar.selection" in sidebar_source
 sidebar_opacities = {name: float(value) for name, value in re.findall(
     r"case \.(\w+): ([0-9.]+)", sidebar_source.split("enum SidebarGlassOpacity:", 1)[1].split("struct MacSidebarGlass:", 1)[0])}
-assert sidebar_opacities == {"balanced": 0.70, "high": 0.92, "solid": 1.0}
+assert sidebar_opacities == {"balanced": 0.55, "high": 0.80, "solid": 1.0}
 focused_field, idle_field = map(float, re.search(
     r"background\(theme.sidebar.field.opacity\(searchFocused \? ([0-9.]+) : ([0-9.]+)\)", sidebar_source).groups())
 tile_opacity = float(re.search(r"tile && !rail \? theme.sidebar.field.opacity\(([0-9.]+)\)", sidebar_source).group(1))
 chrome = (ROOT / "Apps/Shared/BrowserChrome.swift").read_text()
-opacity = float(re.search(r"theme.field.opacity\((0\.\d+)\)", chrome).group(1))
+control = block("struct BrowserGlass:", "private struct ChromeReduceTransparencyKey", chrome)
+assert "accessibilityReduceTransparency" in control and "contrast == .increased" in control
+assert "content.background(theme.fill, in: shape)" in control
+assert "content.glassEffect(.regular.interactive(), in: shape)" in control
+assert "theme.fill.opacity(" not in control
 sidebar_negative = "--negative-sidebar-test" in sys.argv
 tint_negative = "--negative-sidebar-tint-test" in sys.argv
 sidebar_checks = []
-sidebar_balanced = {}
+sidebar_levels = {}
 tints = {name.removesuffix("Backing"): (light.upper(), dark.upper())
          for name, light, dark in re.findall(
              r'(\w+Backing) = Theme.adaptive\("Sidebar\w+", light: 0x(\w{6}), dark: 0x(\w{6})\)', sidebar_source)}
-guard_opacity = float(re.search(r"balancedTintGuardOpacity = ([0-9.]+)", sidebar_source)[1])
+guards = {name: float(value) for name, value in re.findall(
+    r"private static let balanced(\w+)Guard = ([0-9.]+)", sidebar_source)}
+assert set(guards) == {"Light", "LightTint", "Dark", "DarkTint", "Black"}
 guard_colors = re.search(r'balancedTintGuard = Theme.adaptive\("SidebarTintGuard", light: 0x(\w{6}), dark: 0x(\w{6})\)', sidebar_source).groups()
 assert set(tints) == {"rose", "peach", "butter", "mint", "sage", "sky", "lavender",
                       "mulberry", "ocean", "fern", "amber", "slate"}
@@ -111,10 +117,12 @@ for appearance, mode, palette, sidebar in palettes:
         if accessibility == "increase contrast":
             for surface in role_surfaces["text"]:
                 checks.append((appearance, "strong separator", colors["separator"], surface, colors[surface], 3))
-        for page in ("FFFFFF", "000000"):
-            backing = composite(colors["fill"], page, opacity)
-            for token in text_tokens:
-                checks.append((appearance + " chrome glass", token, colors[token], "backing over #" + page, backing, 4.5))
+        # The accessible control uses opaque fill; live regular glass and
+        # system ink are evaluated by the compositor on a device.
+        for role in ("text", "textSecondary", "private"):
+            checks.append((appearance + " solid control", role, colors[role], "fill", colors["fill"], 4.5))
+        checks.append((appearance + " solid control", "controlPrivate",
+                       adaptive_constant("controlPrivate", mode), "fill", colors["fill"], 4.5))
 
         steps = {"increase contrast": 1.0} if accessibility == "increase contrast" else {
             **sidebar_opacities, "reduce transparency": 1.0}
@@ -132,7 +140,10 @@ for appearance, mode, palette, sidebar in palettes:
                 # Black and white bound the panel luminance. Also exercise saturated glass inputs.
                 for page in ("FFFFFF", "000000", "6000D9", "888888", "00D4C8", "FF8C24",
                              "1C3354", "33919C", "FCC775", "D15959", "404585", "F7E6CC", "1C1C1E"):
-                    glass = composite(guard_colors[mode], page, guard_opacity) if name != appearance and step == "balanced" else page
+                    guard_key = "Black" if appearance == "Black" else ("Dark" if mode else "Light")
+                    if name != appearance:
+                        guard_key += "Tint"
+                    glass = composite(guard_colors[mode], page, guards[guard_key]) if step == "balanced" else page
                     panel = composite(backing, glass, 0 if sidebar_negative else backing_opacity)
                     field = sidebar["field"]
                     states = {"panel / rail footer": panel, "selection / rail": sidebar["selection"],
@@ -145,9 +156,8 @@ for appearance, mode, palette, sidebar in palettes:
                     for state, background in states.items():
                         for token, foreground in inks.items():
                             sidebar_checks.append((label, token, foreground, state, background, 4.5))
-                            if step == "balanced":
-                                minima = sidebar_balanced.setdefault(name, {})
-                                minima[token] = min(minima.get(token, float("inf")), ratio(foreground, background))
+                            minima = sidebar_levels.setdefault(step, {})
+                            minima[token] = min(minima.get(token, float("inf")), ratio(foreground, background))
                         if accessibility == "increase contrast":
                             sidebar_checks.append((label, "strong boundary", colors["text"], state, background, 3))
             if appearance != "Black":
@@ -156,9 +166,9 @@ for appearance, mode, palette, sidebar in palettes:
 
 checks.extend(sidebar_checks)
 worst = min((check for check in sidebar_checks if check[-1] == 4.5), key=lambda check: ratio(check[2], check[4]))
-for name, minima in sorted(sidebar_balanced.items()):
+for name, minima in sidebar_levels.items():
     values = " / ".join(f"{minima[token]:.2f}" for token in ("text", "textSecondary", "private"))
-    print(f"{name} Balanced (primary / secondary / private): {values}")
+    print(f"{name.capitalize()} sidebar (primary / secondary / private): {values}")
 print(f"Sidebar minimum text contrast: {ratio(worst[2], worst[4]):.2f}:1 ({worst[0]}, {worst[1]} on {worst[3]})")
 print("App-owned colors checked. Native system accent and compositor output depend on runtime settings.")
 

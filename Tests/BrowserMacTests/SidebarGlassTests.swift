@@ -16,7 +16,7 @@ import XCTest
     func testStoredSidebarGlassLevelsKeepTheirLabelsAndBackingOrder() {
         let levels = ["Balanced", "High", "Solid"].compactMap(SidebarGlassOpacity.init(rawValue:))
         XCTAssertEqual(levels, [.balanced, .high, .solid])
-        XCTAssertEqual(levels.map(\.backingOpacity), [0.70, 0.92, 1.0])
+        XCTAssertEqual(levels.map(\.backingOpacity), [0.55, 0.80, 1.0])
     }
 
     func testSidebarColorReadsOnlyRecognizedPreferences() {

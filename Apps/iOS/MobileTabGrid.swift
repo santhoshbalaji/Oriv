@@ -315,7 +315,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             let destinations: [UIMenuElement] = profiles.continuity.otherDevices.map { device in
                 UIAction(title: device.name, attributes: page == nil || !profiles.continuity.canSendPage ? .disabled : []) { _ in if let page { profiles.continuity.sendPage(page, to: device.id) } }
             }
-            destinationsGroup.append(UIMenu(title: "Open on Mac", image: UIImage(systemName: "paperplane"), children: destinations.isEmpty ? [UIAction(title: "Set Up Mac & iPhone in Settings", attributes: .disabled) { _ in }] : destinations))
+            destinationsGroup.append(UIMenu(title: "Open on Mac", image: UIImage(systemName: "paperplane"), children: destinations.isEmpty ? [UIAction(title: OrivStrings.setupSyncInSettings, attributes: .disabled) { _ in }] : destinations))
             items.append(UIMenu(options: .displayInline, children: destinationsGroup))
             items.append(UIMenu(options: .displayInline, children: [
                 action("Close", "xmark", destructive: true) { controller.close([tab.id]) },
@@ -593,7 +593,7 @@ struct MobileGridCard: View {
                     Button(action: close) {
                         Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.secondary).frame(width: 22, height: 22)
-                            .modifier(MobileBottomGlass()).frame(width: 44, height: 44).contentShape(Rectangle())
+                            .modifier(OrivMaterial.control()).frame(width: 44, height: 44).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityLabel("Close \(tab.displayTitle)")
                 }
             Label {

@@ -29,7 +29,7 @@ import XCTest
                 return window.toolbar?.visibleItems?.count == 7 && marker(in: host.view) != nil
             }
             let toolbar = try XCTUnwrap(window.toolbar)
-            XCTAssertEqual(toolbar.items.map(\.label), ["General", "Profiles", "Continuity", "Appearance", "Privacy", "Passwords", "About"])
+            XCTAssertEqual(toolbar.items.map(\.label), ["General", "Profiles", "Sync", "Appearance", "Privacy", "Passwords", "About"])
             XCTAssertTrue(toolbar.items.allSatisfy { $0.image?.isTemplate == true && $0.view == nil })
             XCTAssertEqual(toolbar.displayMode, .iconAndLabel)
             XCTAssertEqual(toolbar.selectedItemIdentifier, SettingsPane.appearance.identifier)

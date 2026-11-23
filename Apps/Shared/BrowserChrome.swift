@@ -800,44 +800,25 @@ private typealias PlatformColor = UIColor
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) { owner?.receiveScroll(message) }
 }
 
-/// Chrome alone uses glass. The dark backing bounds text contrast even over white
-/// pages; increased contrast and Reduce Transparency use the existing solid tokens.
-struct ChromePageTint { let color: Color; let isDark: Bool }
-private struct ChromePageTintKey: EnvironmentKey { static let defaultValue: ChromePageTint? = nil }
-extension EnvironmentValues {
-    var chromePageTint: ChromePageTint? {
-        get { self[ChromePageTintKey.self] }
-        set { self[ChromePageTintKey.self] = newValue }
-    }
-}
-
+/// System material adapts to the page. App-owned ink and a solid field are
+/// used together when accessibility settings require an opaque control.
 struct BrowserGlass: ViewModifier {
     @Environment(\.browserTheme) private var theme
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var systemContrast
     @Environment(\.chromeContrastOverride) private var captureContrast
-    private var contrast: ColorSchemeContrast { captureContrast ?? systemContrast }
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
-    @Environment(\.chromePageTint) private var pageTint
-    var radius: CGFloat
+    var radius: CGFloat?
+
     func body(content: Content) -> some View {
-        Group {
-            if let pageTint {
-                if reduceTransparency || captureReduceTransparency || contrast == .increased {
-                    content.background(pageTint.color, in: .rect(cornerRadius: radius))
-                        .overlay { RoundedRectangle(cornerRadius: radius).strokeBorder((pageTint.isDark ? Color.white : .black).opacity(contrast == .increased ? 0.8 : 0.35), lineWidth: 1) }
-                } else {
-                    content.background(pageTint.color.opacity(0.72), in: .rect(cornerRadius: radius))
-                        .glassEffect(.clear.tint(pageTint.color.opacity(0.3)), in: .rect(cornerRadius: radius))
-                }
-            } else if reduceTransparency || captureReduceTransparency || contrast == .increased {
-                content.background(theme.field, in: .rect(cornerRadius: radius))
-            } else {
-                content.background(theme.field.opacity(0.96), in: .rect(cornerRadius: radius))
-                    .glassEffect(.regular, in: .rect(cornerRadius: radius))
-            }
-        }.environment(\.colorScheme, pageTint.map { $0.isDark ? .dark : .light } ?? colorScheme)
+        let contrast = captureContrast ?? systemContrast
+        let shape = radius.map { AnyShape(RoundedRectangle(cornerRadius: $0)) } ?? AnyShape(Capsule())
+        if reduceTransparency || captureReduceTransparency || contrast == .increased {
+            content.background(theme.fill, in: shape)
+                .overlay { shape.stroke(contrast == .increased ? theme.separatorStrong : theme.separator, lineWidth: 1) }
+        } else {
+            content.glassEffect(.regular.interactive(), in: shape)
+        }
     }
 }
 
@@ -853,5 +834,6 @@ extension EnvironmentValues {
 }
 
 extension View {
+    @available(*, deprecated, message: "Use OrivMaterial.control.")
     func browserGlass(radius: CGFloat = 24) -> some View { modifier(OrivMaterial.control(radius: radius)) }
 }

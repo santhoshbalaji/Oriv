@@ -161,12 +161,12 @@ public enum ContinuityError: LocalizedError {
     case invalidData, newerFormat, accountChanged, unavailable, noAccount, remoteReset, storageFull
     public var errorDescription: String? {
         switch self {
-        case .invalidData: "Continuity data could not be read safely. Sync is paused; your local browsing data is preserved."
-        case .newerFormat: "Continuity needs a newer Oriv version. Sync is paused to protect your data."
+        case .invalidData: "Oriv couldn’t read the synced data. Sync is paused and your local browsing data is safe."
+        case .newerFormat: "Sync needs a newer Oriv version. Sync is paused to protect your data."
         case .accountChanged: "The iCloud account changed. Sync is paused to prevent moving browsing data to a different account. Sign back in to the original account."
-        case .unavailable: "iCloud continuity needs the signed Continuity build. Local browsing remains available."
+        case .unavailable: "Sync is unavailable in this version of Oriv."
         case .noAccount: "Sign in to iCloud in system Settings to use continuity."
-        case .remoteReset: "The iCloud continuity store was removed or reset. Sync is paused; local data is preserved."
+        case .remoteReset: "Your synced browser data was removed or reset in iCloud. Sync is paused; local data is preserved."
         case .storageFull: "The continuity safety limit was reached. Sync is paused; local browsing remains available."
         }
     }

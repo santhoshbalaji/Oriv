@@ -40,7 +40,7 @@ struct LibraryView: View {
             Divider()
             VStack(spacing: 0) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(section.rawValue).font(OrivType.title).accessibilityAddTraits(.isHeader)
+                    Text(section.title).font(OrivType.title).accessibilityAddTraits(.isHeader)
                     Text(subtitle).font(OrivType.detail).foregroundStyle(theme.secondaryText)
                     Spacer()
                     Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -49,7 +49,7 @@ struct LibraryView: View {
                 if section != .downloads {
                     HStack(spacing: OrivSpacing.small) {
                         Image(systemName: "magnifyingglass").foregroundStyle(theme.secondaryText).accessibilityHidden(true)
-                        TextField("Search \(section.rawValue.lowercased())", text: $search).textFieldStyle(.plain)
+                        TextField("Search \(section.title.lowercased())", text: $search).textFieldStyle(.plain)
                             .accessibilityIdentifier("librarySearchField")
                         if !search.isEmpty {
                             Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -69,7 +69,7 @@ struct LibraryView: View {
                     if section == .history && count > 0 {
                         Text("Private tabs aren’t included").font(.caption).foregroundStyle(theme.secondaryText)
                         Spacer()
-                        Button("Clear History…", role: .destructive) { confirmClear = true }
+                        Button(OrivStrings.clearHistoryPrompt, role: .destructive) { confirmClear = true }.orivDestructiveButton(theme)
                     } else if section == .downloads {
                         Text("Downloads are kept for this session").font(.caption).foregroundStyle(theme.secondaryText)
                         Spacer()
@@ -89,7 +89,7 @@ struct LibraryView: View {
             if controller.session.historyPage(search: search, offset: historyOffset, limit: 1).isEmpty { historyOffset = 0 }
         }
         .confirmationDialog("Clear browsing history?", isPresented: $confirmClear) {
-            Button("Clear History", role: .destructive) { controller.session.clearHistory() }
+            Button(OrivStrings.clearHistory, role: .destructive) { controller.session.clearHistory() }
         } message: { Text("This removes your history list. Bookmarks and website login data will remain.") }
         .forgetSiteAlert($siteToForget, session: controller.session) { forgetError = $0 }
         .alert("Unable to forget site", isPresented: Binding(get: { forgetError != nil }, set: { if !$0 { forgetError = nil } })) {
@@ -101,7 +101,7 @@ struct LibraryView: View {
         VStack(spacing: 4) {
             ForEach(LibrarySection.allCases) { item in
                 Button { section = item } label: {
-                    Label(item.rawValue, systemImage: item.symbol)
+                    Label(item.title, systemImage: item.symbol)
                         .font(OrivType.body.weight(section == item ? .semibold : .regular))
                         .foregroundStyle(section == item ? theme.text : theme.secondaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)

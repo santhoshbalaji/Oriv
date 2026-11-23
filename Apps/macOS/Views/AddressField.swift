@@ -8,7 +8,7 @@ struct AddressField: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
     @Binding var text: String
     @Binding var isEditing: Bool
-    var placeholder = "Search or enter website"
+    var placeholder = OrivStrings.addressPlaceholder
     var displayText: String? = nil
     var foreground: Color? = nil
     let focusRequest: Int

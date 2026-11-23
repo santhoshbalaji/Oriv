@@ -6,7 +6,7 @@ import BrowserEngine
 enum SettingsPane: String, CaseIterable, Hashable {
     case general, profiles, continuity, appearance, privacy, passwords, about
 
-    var title: String { rawValue.capitalized }
+    var title: String { self == .continuity ? OrivStrings.sync : rawValue.capitalized }
     var identifier: NSToolbarItem.Identifier { .init(rawValue: rawValue) }
     var symbol: String {
         switch self {
@@ -76,7 +76,7 @@ struct AppearanceSettings: View {
         return Form {
             Section("Browsing") {
                 if let profiles {
-                    Toggle("Open Links from Other Apps Privately", isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
+                    Toggle(OrivStrings.openLinksPrivately, isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
                     Text("External links open signed out, separate from every profile. Move a page to a profile when you choose.").font(OrivType.caption).foregroundStyle(theme.secondaryText)
                 }
                 BrowsingPreferencePicker(title: "Search engine", selection: $settings.searchEngine,
@@ -118,11 +118,11 @@ struct AppearanceSettings: View {
                         Button { appearance = choice } label: {
                             VStack(spacing: OrivSpacing.small) {
                                 AppearancePreview(choice: choice)
-                                Text(choice.rawValue).font(OrivType.body.weight(appearance == choice ? .semibold : .regular))
+                                Text(choice.displayName).font(OrivType.body.weight(appearance == choice ? .semibold : .regular))
                                 Image(systemName: appearance == choice ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(appearance == choice ? theme.accent : theme.secondaryText)
                             }.padding(OrivSpacing.small).frame(maxWidth: .infinity)
-                        }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Use \(choice.rawValue) appearance")
+                        }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
@@ -221,8 +221,8 @@ struct AppearanceSettings: View {
                 }.pickerStyle(.segmented).tint(theme.accent)
                 Text(adBlocker.mode.detail).font(.callout).foregroundStyle(theme.secondaryText)
                 if adBlocker.mode == .strict {
-                    if adBlocker.isPreparingCNAME { ProgressView("Preparing CNAME tracker protection…") }
-                    if let error = adBlocker.cnamePreparationError { Text(error).foregroundStyle(.red) }
+                    if adBlocker.isPreparingCNAME { ProgressView(OrivStrings.preparingTrackerProtection) }
+                    if let error = adBlocker.cnamePreparationError { Text(error).foregroundStyle(theme.danger) }
                 }
                 if !adBlocker.regularExceptions.isEmpty {
                     DisclosureGroup("Allowed sites (\(adBlocker.regularExceptions.count))") {
@@ -248,6 +248,7 @@ struct AppearanceSettings: View {
                 GridRow { Text(AppIdentity.name).foregroundStyle(theme.secondaryText); Text("\(runtime.appVersion) (\(runtime.appBuild))") }
                 GridRow { Text("Build").foregroundStyle(theme.secondaryText); Text(AppIdentity.channel) }
                 GridRow { Text("macOS").foregroundStyle(theme.secondaryText); Text(runtime.operatingSystem) }
+                GridRow { Text("Protection list version").foregroundStyle(theme.textSecondary); Text(AdBlocker.rulesVersion) }
                 GridRow { Text("WebKit").foregroundStyle(theme.secondaryText); Text(runtime.webKitBuild) }
             }.font(.callout).textSelection(.enabled)
             if AppIdentity.isDevelopment {

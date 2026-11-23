@@ -47,7 +47,7 @@ struct MacPageActions: View {
             Section {
                 if let profiles { SendPageMenu(continuity: profiles.continuity, session: session, profile: controller.profile) }
                 Button("Read Page Text", systemImage: "doc.text") { controller.openReader() }.disabled(tab?.url == nil)
-                Button("Site Privacy", systemImage: "shield.lefthalf.filled") { showSitePrivacy() }
+                Button(OrivStrings.sitePrivacy, systemImage: "shield.lefthalf.filled") { showSitePrivacy() }
                 if let site = session.forgettableSite(for: tab) {
                     Button("Forget This Site…", systemImage: "trash", role: .destructive) { requestSiteForget(site) }
                 }

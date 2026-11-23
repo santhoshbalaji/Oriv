@@ -41,7 +41,7 @@ enum ConnectionCue: Equatable {
 
     func color(_ theme: Theme) -> Color {
         switch self {
-        case .recording: .red
+        case .recording: theme.danger
         case .notSecure: theme.warning
         case .encrypted, .mixedContent, .information: theme.secondaryText
         }

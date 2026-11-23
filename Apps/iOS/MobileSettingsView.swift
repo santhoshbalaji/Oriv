@@ -16,14 +16,14 @@ struct MobileSettingsView: View {
                 NavigationLink { MobileProfileChooser(controller: controller, profiles: profiles) } label: {
                     LabeledContent { Text(profileName).foregroundStyle(theme.secondaryText) } label: { rowLabel("Profile", "person.crop.circle", theme) }
                 }
-                NavigationLink { ContinuitySettingsView(continuity: profiles.continuity) } label: { rowLabel("Mac & iPhone", "laptopcomputer.and.iphone", theme) }
+                NavigationLink { ContinuitySettingsView(continuity: profiles.continuity) } label: { rowLabel(OrivStrings.sync, "laptopcomputer.and.iphone", theme) }
                 NavigationLink { MobileAppearanceSettings(appearance: $controller.appearance, profileName: controller.profileID == nil ? nil : profileName) } label: {
-                    LabeledContent { Text(controller.appearance.rawValue).foregroundStyle(theme.secondaryText) } label: { rowLabel("Appearance", "circle.lefthalf.filled", theme) }
+                    LabeledContent { Text(controller.appearance.displayName).foregroundStyle(theme.secondaryText) } label: { rowLabel("Appearance", "circle.lefthalf.filled", theme) }
                 }.accessibilityIdentifier("appearanceSettings")
             }.listRowBackground(theme.row)
             Section {
                 Picker("Search engine", selection: $settings.searchEngine) { ForEach(SearchEngine.allCases) { Text($0.rawValue).tag($0) } }.id(controller.appearance)
-                Toggle("Open Links from Other Apps Privately", isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
+                Toggle(OrivStrings.openLinksPrivately, isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
                 Toggle("Restore tabs", isOn: $settings.restoreTabs).tint(theme.accent)
             } header: { Text("Browsing") } footer: {
                 Text("Suggestions stay on this device; searches are sent only when you submit them. Private tabs are never restored.")
@@ -31,13 +31,13 @@ struct MobileSettingsView: View {
             Section {
                 PrivacySettingsControls(session: controller.session)
                 Picker("Ad blocking", selection: Binding(get: { controller.session.adBlocker.mode }, set: { controller.session.adBlocker.setMode($0) })) { ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) } }.id(controller.appearance)
-                if let error = controller.session.adBlocker.preparationError { Text(error).foregroundStyle(.red) }
+                if let error = controller.session.adBlocker.preparationError { Text(error).foregroundStyle(theme.danger) }
                 if controller.session.adBlocker.mode == .strict {
                     Text(AdBlockingMode.strict.detail).font(.footnote).foregroundStyle(theme.secondaryText)
-                    if controller.session.adBlocker.isPreparingCNAME { ProgressView("Preparing CNAME tracker protection…") }
-                    if let error = controller.session.adBlocker.cnamePreparationError { Text(error).foregroundStyle(.red) }
+                    if controller.session.adBlocker.isPreparingCNAME { ProgressView(OrivStrings.preparingTrackerProtection) }
+                    if let error = controller.session.adBlocker.cnamePreparationError { Text(error).foregroundStyle(theme.danger) }
                 }
-                NavigationLink("Website Data") { MobileWebsiteData(manager: controller.session.websiteData) }
+                NavigationLink(OrivStrings.websiteData) { MobileWebsiteData(manager: controller.session.websiteData) }
                 NavigationLink("Clear Browsing Data") { MobileClearBrowsingData(session: controller.session) }
                 if !controller.session.adBlocker.regularExceptions.isEmpty {
                     DisclosureGroup("Allowed sites (\(controller.session.adBlocker.regularExceptions.count))") {
@@ -63,7 +63,8 @@ struct MobileSettingsView: View {
             }.listRowBackground(theme.row)
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
-            } footer: { Text("WebKit is supplied by iOS. Install system updates for engine and media fixes.") }.listRowBackground(theme.row)
+                LabeledContent("Protection list version", value: AdBlocker.rulesVersion)
+            } header: { Text("About") } footer: { Text("WebKit is supplied by iOS. Install system updates for engine and media fixes.") }.listRowBackground(theme.row)
         }.orivListStyle(theme).navigationTitle("Settings")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
     }
@@ -83,13 +84,13 @@ struct MobileAppearanceSettings: View {
                         Button { appearance = choice } label: {
                             VStack(alignment: .leading, spacing: OrivSpacing.medium) {
                                 if !typeSize.isAccessibilitySize { AppearancePreview(choice: choice) }
-                                Text(choice.rawValue).font(.body).foregroundStyle(theme.text).fixedSize(horizontal: false, vertical: true)
+                                Text(choice.displayName).font(.body).foregroundStyle(theme.text).fixedSize(horizontal: false, vertical: true)
                                 Label(appearance == choice ? "Selected" : "Use theme", systemImage: appearance == choice ? "checkmark.circle.fill" : "circle")
                                     .font(.callout).foregroundStyle(theme.secondaryText)
                             }.padding(OrivSpacing.large).frame(maxWidth: .infinity, alignment: .leading)
                                 .background(theme.surface, in: .rect(cornerRadius: OrivRadius.large))
                                 .overlay { RoundedRectangle(cornerRadius: OrivRadius.large).strokeBorder(appearance == choice ? theme.accent : theme.separator, lineWidth: appearance == choice ? 2 : 1) }
-                        }.buttonStyle(.plain).accessibilityLabel("Use \(choice.rawValue) appearance")
+                        }.buttonStyle(.plain).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
@@ -123,7 +124,7 @@ struct MobileSiteSettings: View {
                     Toggle("Allow automatic pop-ups", isOn: Binding(get: { rule.allowsAutomaticPopups }, set: { var updated = rule; updated.allowsAutomaticPopups = $0; session.settings.setRule(updated, for: url, isPrivate: tab.isPrivate) })).tint(theme.accent)
                     Text("Ask uses WebKit and iOS permission prompts. Reload to apply changes to pop-ups and blocking.").font(.caption).foregroundStyle(theme.secondaryText)
                     if tab.isCapturingCamera || tab.isCapturingMicrophone {
-                        Label("Camera or microphone in use", systemImage: "record.circle.fill").foregroundStyle(.red)
+                        Label("Camera or microphone in use", systemImage: "record.circle.fill").foregroundStyle(theme.danger)
                         Button("Stop Camera and Microphone") { tab.stopCapture() }
                     }
                     Button("Reset Site Permissions") { session.settings.setRule(SiteRule(), for: url, isPrivate: tab.isPrivate); tab.stopCapture() }
@@ -165,9 +166,9 @@ struct MobileClearBrowsingData: View {
             }.listRowBackground(theme.row)
             Section {
                 Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Bookmarks, open tabs and files you saved are retained.").font(.callout).foregroundStyle(theme.secondaryText)
-                Button("Clear Selected Data…", role: .destructive) { confirm = true }.disabled(!history && !cache && !sites && !permissions)
+                Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivDestructiveButton(theme).disabled(!history && !cache && !sites && !permissions)
                 if working { ProgressView("Clearing data…") }
-                if completed { Label("Selected browsing data cleared", systemImage: "checkmark.circle").accessibilityAddTraits(.updatesFrequently) }
+                if completed { Label("Selected browsing data cleared", systemImage: "checkmark.circle").foregroundStyle(theme.success).accessibilityAddTraits(.updatesFrequently) }
             }.listRowBackground(theme.row)
         }.orivListStyle(theme).navigationTitle("Clear browsing data").disabled(working)
             .confirmationDialog("Clear selected browsing data?", isPresented: $confirm, titleVisibility: .visible) {
@@ -200,10 +201,10 @@ struct MobileWebsiteData: View {
             else if manager.records.isEmpty { BrowserEmptyState("No website data").listRowBackground(theme.row).listRowSeparator(.hidden) }
             else if records.isEmpty { BrowserEmptyState("No results for “\(query)”.").listRowBackground(theme.row).listRowSeparator(.hidden) }
             ForEach(records, id: \.displayName) { record in
-                VStack(alignment: .leading) { Text(record.displayName); Button("Remove…", role: .destructive) { pending = [record]; confirm = true } }
+                VStack(alignment: .leading) { Text(record.displayName); Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivDestructiveButton(theme) }
             }
-            if !manager.records.isEmpty { Button("Remove All…", role: .destructive) { pending = manager.records; confirm = true } }
-        }.orivListStyle(theme).navigationTitle("Website data").searchable(text: $query)
+            if !manager.records.isEmpty { Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivDestructiveButton(theme) }
+        }.orivListStyle(theme).navigationTitle(OrivStrings.websiteData).searchable(text: $query)
             .disabled(manager.isWorking).task { await manager.refresh() }
             .confirmationDialog("Remove website data?", isPresented: $confirm, titleVisibility: .visible) {
                 Button("Remove Data", role: .destructive) { let records = pending; pending = []; Task { await manager.remove(records) } }
@@ -233,7 +234,7 @@ private struct MobileProfileChooser: View {
                             if !profile.isPersonal { Button("Rename") { editingID = profile.id; name = profile.name; editing = true } }
                             if !profile.isPersonal && profile.id != profiles.lastRegularProfileID {
                                 Button("Archive…") { archiving = profile }
-                                Button("Delete Profile…", role: .destructive) { deleting = profile }
+                                Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = profile }.orivDestructiveButton(theme)
                             }
                         }
                 }
@@ -242,14 +243,14 @@ private struct MobileProfileChooser: View {
                 Section("Archived") {
                     ForEach(profiles.profiles.filter { $0.archivedAt != nil }) { profile in
                         Button("Restore \(profile.name)") { profiles.restore(profile.id) }
-                            .contextMenu { Button("Delete Profile…", role: .destructive) { deleting = profile } }
+                            .contextMenu { Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = profile } }
                     }
                 }
             }
             Section {
                 Text("Each profile keeps tabs, history, bookmarks, settings and website logins separate on this device. Profiles are not locked accounts. Touch and hold a profile to manage it.").font(.callout).foregroundStyle(theme.secondaryText)
             }
-            if let error { Text(error).foregroundStyle(.red) }
+            if let error { Text(error).foregroundStyle(theme.danger) }
         }.orivListStyle(theme).navigationTitle("Profiles")
             .alert(editingID == nil ? "New profile" : "Rename profile", isPresented: $editing) {
                 TextField("Name", text: $name)

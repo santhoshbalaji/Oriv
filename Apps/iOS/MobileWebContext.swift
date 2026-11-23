@@ -181,7 +181,7 @@ extension MobileWebDelegate: @preconcurrency UIEditMenuInteractionDelegate, UIGe
             action(device.name, "laptopcomputer") { if let page { profiles?.continuity.sendPage(page, to: device.id) } }
         }
         items.append(UIMenu(title: "Open on Mac", image: UIImage(systemName: "paperplane"), children:
-            page != nil && profiles?.continuity.canSendPage == true ? destinations : [UIAction(title: tab.isPrivate ? "Unavailable in Private Browsing" : "Set Up Mac & iPhone in Settings", attributes: .disabled) { _ in }]))
+            page != nil && profiles?.continuity.canSendPage == true ? destinations : [UIAction(title: tab.isPrivate ? "Unavailable in Private Browsing" : OrivStrings.setupSyncInSettings, attributes: .disabled) { _ in }]))
         return items
     }
     private func imageActions(_ url: URL, revision: Int) -> [UIMenuElement] {

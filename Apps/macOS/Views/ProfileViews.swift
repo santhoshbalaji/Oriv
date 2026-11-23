@@ -135,7 +135,7 @@ struct ProfilesView: View {
                     }
                     Picker("Color", selection: $color) { ForEach(ProfileColor.allCases, id: \.self) { Text($0.title).tag($0) } }
                     if let notice = profiles.notice { Text(notice).font(.caption).foregroundStyle(theme.secondaryText) }
-                    if let message { Text(message).font(.callout).foregroundStyle(.red).accessibilityIdentifier("profileEditorMessage") }
+                    if let message { Text(message).font(.callout).foregroundStyle(theme.danger).accessibilityIdentifier("profileEditorMessage") }
                     HStack {
                         Button(creating ? "Create Profile" : "Save Changes") {
                             do {
@@ -160,7 +160,7 @@ struct ProfilesView: View {
                         Button("Archive Profile…", role: .destructive) { archiveID = selected.id }.disabled(!profiles.canModify)
                     }
                     if let selected, !selected.isPersonal && selected.id != profiles.active.id {
-                        Button("Delete Profile…", role: .destructive) { deleting = selected }.disabled(!profiles.canModify)
+                        Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = selected }.orivDestructiveButton(theme).disabled(!profiles.canModify)
                     }
                     Divider()
                     Text("Profiles organize your browsing; they aren’t locked accounts. Anyone using this Mac account can switch profiles. Apple Passwords and files you explicitly save use the same macOS account.")

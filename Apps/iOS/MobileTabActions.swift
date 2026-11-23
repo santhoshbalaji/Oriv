@@ -101,7 +101,7 @@ struct MobileSendTabMenu: View {
                     Button(device.name) { profiles.continuity.sendPage(page, to: device.id) }
                 }
             } else {
-                Text(tab.isPrivate ? "Unavailable in Private Browsing" : "Set Up Mac & iPhone in Settings")
+                Text(tab.isPrivate ? "Unavailable in Private Browsing" : OrivStrings.setupSyncInSettings)
             }
         }.disabled(page == nil || !profiles.continuity.canSendPage)
     }
@@ -187,7 +187,7 @@ struct MobileAddressMenuSource: UIViewRepresentable {
             let destinations: [UIMenuElement] = profiles.continuity.otherDevices.map { device in
                 item(device.name, "desktopcomputer", disabled: page == nil || !profiles.continuity.canSendPage) { if let page { profiles.continuity.sendPage(page, to: device.id) } }
             }
-            sharing.append(UIMenu(title: "Open on Mac", image: UIImage(systemName: "paperplane"), children: destinations.isEmpty ? [item(tab.isPrivate ? "Unavailable in Private Browsing" : "Set Up Mac & iPhone in Settings", "desktopcomputer", disabled: true) {}] : destinations))
+            sharing.append(UIMenu(title: "Open on Mac", image: UIImage(systemName: "paperplane"), children: destinations.isEmpty ? [item(tab.isPrivate ? "Unavailable in Private Browsing" : OrivStrings.setupSyncInSettings, "desktopcomputer", disabled: true) {}] : destinations))
             groups.append(group(sharing))
             groups.append(group([
                 item("Close Tab", "xmark", destructive: true) { controller.close([tab.id]) },

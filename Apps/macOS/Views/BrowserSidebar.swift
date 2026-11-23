@@ -207,15 +207,15 @@ struct BrowserSidebar: View {
             }.frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
                 .buttonStyle(ContentButtonStyle()).focused($utilityFocus, equals: "search")
                 .browserGeometryMarker("sidebarSearchGeometry")
-                .accessibilityLabel("Search tabs").help("Search Tabs (⇧⌘A)")
+                .accessibilityLabel(OrivStrings.searchTabs).help("Search Tabs (⇧⌘A)")
                 .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
                 .padding(.horizontal, MacBrowserLayout.railInset)
         } else {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").accessibilityHidden(true)
-                TextField("Search tabs", text: $controller.tabSearch,
-                          prompt: Text("Search tabs").foregroundStyle(theme.sidebarSecondaryText(contrast))).textFieldStyle(.plain)
-                    .focused($searchFocused).accessibilityLabel("Search tabs").accessibilityIdentifier("tabSearchField")
+                TextField(OrivStrings.searchTabs, text: $controller.tabSearch,
+                          prompt: Text(OrivStrings.searchTabs).foregroundStyle(theme.sidebarSecondaryText(contrast))).textFieldStyle(.plain)
+                    .focused($searchFocused).accessibilityLabel(OrivStrings.searchTabs).accessibilityIdentifier("tabSearchField")
                     .accessibilityHint("Press Shift-Command-A to focus Search tabs.")
                     .onExitCommand { controller.tabSearch = ""; focusTabAfterSearch(session.selectedTabID) }
                     .onKeyPress(.downArrow) {
@@ -325,12 +325,12 @@ struct BrowserSidebar: View {
                             Circle().fill(theme.accent).frame(width: 6, height: 6).padding(3).accessibilityHidden(true)
                         }
                     }
-                    if peeking { Text(section.rawValue).font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
+                    if peeking { Text(section.title).font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
                 }
             }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText(contrast))
                 .focused($utilityFocus, equals: section.rawValue)
-                .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.rawValue)
-                .help(section.rawValue).browserGeometryMarker("sidebarFooter-\(section.rawValue)")
+                .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.title)
+                .help(section.title).browserGeometryMarker("sidebarFooter-\(section.rawValue)")
         }
         if !railLayout { Spacer(minLength: 0) }
         SettingsLink {
@@ -615,7 +615,7 @@ enum SidebarColor: String, CaseIterable {
 
     static let preferenceKey = "SidebarColor"
 
-    var title: String { self == .profile ? "Profile colour" : rawValue.capitalized }
+    var title: String { self == .profile ? OrivStrings.profileColor : rawValue.capitalized }
 
     static func saved(_ value: String?) -> Self {
         value.flatMap(Self.init(rawValue:)) ?? .graphite
@@ -675,8 +675,8 @@ enum SidebarGlassOpacity: String, CaseIterable {
 
     var backingOpacity: Double {
         switch self {
-        case .balanced: 0.70
-        case .high: 0.92
+        case .balanced: 0.55
+        case .high: 0.80
         case .solid: 1.0
         }
     }
@@ -690,10 +690,16 @@ struct MacSidebarGlass: ViewModifier {
     var color: SidebarColor = .graphite
     var profileColor: ProfileColor? = nil
 
-    // The tint sits above this neutral layer so saturated and very bright
-    // glass inputs stay within the readable range at Balanced.
+    // A neutral guard bounds the luma of the exposed glass. Dark profile
+    // colors need more protection against bright page input than Black.
     private static let balancedTintGuard = Theme.adaptive("SidebarTintGuard", light: 0xFFFFFF, dark: 0x000000)
-    private static let balancedTintGuardOpacity = 0.16
+    private static let balancedLightGuard = 0.26
+    private static let balancedLightTintGuard = 0.32
+    private static let balancedDarkGuard = 0.30
+    private static let balancedDarkTintGuard = 0.38
+    private static let balancedBlackGuard = 0.18
+
+    @Environment(\.colorScheme) private var colorScheme
 
     @AppStorage(SidebarGlassOpacity.preferenceKey) private var opacity: SidebarGlassOpacity = .balanced
     #if DEBUG
@@ -719,10 +725,15 @@ struct MacSidebarGlass: ViewModifier {
             edge(content.background(backing))
         } else {
             let tinted = color.effective(profileColor: profileColor, isT3Code: theme.isT3Code) != .graphite
-            let guardOpacity = tinted && effectiveOpacity == .balanced ? Self.balancedTintGuardOpacity : 0
+            let guardOpacity = effectiveOpacity == .balanced ? balancedGuard(tinted: tinted) : 0
             edge(glass(content.background(backing.opacity(effectiveOpacity.backingOpacity))
                 .background(Self.balancedTintGuard.opacity(guardOpacity))))
         }
+    }
+    private func balancedGuard(tinted: Bool) -> Double {
+        if theme.isT3Code { return Self.balancedBlackGuard }
+        if colorScheme == .dark { return tinted ? Self.balancedDarkTintGuard : Self.balancedDarkGuard }
+        return tinted ? Self.balancedLightTintGuard : Self.balancedLightGuard
     }
     private func edge<Surface: View>(_ content: Surface) -> some View {
         content.overlay(alignment: .trailing) {

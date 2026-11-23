@@ -67,7 +67,7 @@ struct AddressSuggestionRow: View {
                 }
             }
             Spacer(minLength: 4)
-            if suggestion.tabID != nil { Text("Switch to Tab").font(.caption).foregroundStyle(theme.secondaryText) }
+            if suggestion.tabID != nil { SwitchToTabBadge() }
         }.font(OrivType.body).contentShape(Rectangle())
             .accessibilityElement(children: .combine)
             .accessibilityCustomContent(Text("Address"), Text(verbatim: suggestion.url.absoluteString))

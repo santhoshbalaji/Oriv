@@ -10,19 +10,19 @@ struct ContinuitySettingsView: View {
         Form {
             Section {
                 // Wrap actor-isolated setters to avoid Xcode 26's method-reference reabstraction crash.
-                Toggle("Sync with iCloud", isOn: Binding(get: { continuity.state.enabled }, set: { continuity.setEnabled($0) })).tint(theme.accent)
+                Toggle(OrivStrings.sync, isOn: Binding(get: { continuity.state.enabled }, set: { continuity.setEnabled($0) })).tint(theme.accent)
                     .disabled(!continuity.isConfigured || !continuity.canSave)
                     .accessibilityIdentifier("continuityEnabled")
                 Text("Keep bookmarks, history, profiles, regular tabs and browser preferences available on your Mac and iPhone.")
                     .font(.callout).foregroundStyle(theme.secondaryText)
-            } header: { Text("Browser sync") } footer: {
+            } footer: {
                 Text("Uses your private iCloud database. Turning sync off pauses this device and retains existing copies. History deletions sync when your devices reconnect.")
             }.listRowBackground(theme.surface)
             Section("Status") {
                 Text(continuity.status).accessibilityIdentifier("continuityStatus")
                 if let date = continuity.state.lastSync { LabeledContent("Last successful sync", value: date.formatted(date: .abbreviated, time: .shortened)) }
                 Button { Task { await continuity.syncNow() } } label: {
-                    HStack { Text("Sync Now"); if continuity.isSyncing { ProgressView().controlSize(.small) } }
+                    HStack { Text(OrivStrings.syncNow); if continuity.isSyncing { ProgressView().controlSize(.small) } }
                 }.disabled(!continuity.state.enabled || continuity.isSyncing || !continuity.isConfigured)
                 Text("Sync runs while Oriv is active and resumes when you return. Tabs on other devices reflect their last sync.").font(.caption).foregroundStyle(theme.secondaryText)
             }.listRowBackground(theme.surface)
@@ -43,7 +43,7 @@ struct ContinuitySettingsView: View {
                 Text("Passwords and passkeys are managed by Apple Passwords and iCloud Keychain, separately from Oriv sync.").font(.caption).foregroundStyle(theme.secondaryText)
             }.listRowBackground(theme.surface)
         }.formStyle(.grouped).scrollContentBackground(.hidden).background(theme.canvas)
-            .navigationTitle("Mac & iPhone")
+            .navigationTitle(OrivStrings.sync)
             .onAppear { deviceName = continuity.state.deviceName }
     }
 }
@@ -62,7 +62,7 @@ struct OtherDeviceTabsView: View {
     var body: some View {
         Group {
             if !continuity.isConfigured {
-                BrowserEmptyState("Mac & iPhone sync needs a signed build of Oriv.")
+                BrowserEmptyState(ContinuityError.unavailable.localizedDescription)
             } else if !continuity.state.enabled {
                 BrowserEmptyState("Turn on sync to see tabs from your other devices.") { setupAction }
             } else if devices.isEmpty {
@@ -105,13 +105,13 @@ struct OtherDeviceTabsView: View {
                 }.orivListStyle(theme)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(theme.canvas).navigationTitle("Other devices")
+            .background(theme.canvas).navigationTitle(OrivStrings.otherDevices)
     }
     @ViewBuilder private var setupAction: some View {
         #if os(macOS)
-        SettingsLink { Text("Set Up in Settings") }
+        SettingsLink { Text(OrivStrings.setupSyncInSettings) }
         #else
-        NavigationLink("Set Up Mac & iPhone") { ContinuitySettingsView(continuity: continuity) }
+        NavigationLink(OrivStrings.setupSync) { ContinuitySettingsView(continuity: continuity) }
         #endif
     }
 }
@@ -185,13 +185,16 @@ struct ContinuityNotice: View {
     @Environment(\.browserTheme) private var theme
     let text: String
     var body: some View {
-        Label(text, systemImage: "checkmark.circle").font(OrivType.detail).foregroundStyle(theme.text)
+        Label { Text(text).foregroundStyle(theme.text) } icon: {
+            Image(systemName: "checkmark.circle").foregroundStyle(theme.success)
+        }.font(OrivType.detail)
             .frame(maxWidth: .infinity, alignment: .leading).padding(OrivSpacing.medium).background(theme.surface)
             .accessibilityElement(children: .combine).accessibilityAddTraits(.updatesFrequently)
     }
 }
 
 struct DeleteProfileConfirmation: View {
+    @Environment(\.browserTheme) private var theme
     @Environment(\.dismiss) private var dismiss
     let profile: BrowserProfile
     let confirm: () -> Void
@@ -199,15 +202,17 @@ struct DeleteProfileConfirmation: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Delete \(profile.name)?").font(.title2.bold())
-            Text("This permanently deletes this profile’s tabs, history, bookmarks, website data, and synced records. Deletion reaches other devices when they sync.")
+            Text("This permanently deletes this profile’s tabs, history, bookmarks, website data, and synced records. Deletion reaches other devices when they sync. This can’t be undone.")
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Delete Profile", role: .destructive) { dismiss(); confirm() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.bordered)
+                Button(OrivStrings.deleteProfile, role: .destructive) { dismiss(); confirm() }
+                    .orivDestructiveButton(theme)
             }
-            .buttonStyle(.bordered)
         }
         .padding(24)
         .frame(idealWidth: 380, maxWidth: 420)

@@ -60,6 +60,7 @@ import WebKit
     }
 
     func testCaptureInventory() async throws {
+        #if targetEnvironment(simulator)
         guard let path = ProcessInfo.processInfo.environment["ORIV_DESIGN_CAPTURE_DIR"] else {
             throw XCTSkip("Run with scripts/capture-iphone-design.sh to render the design inventory.")
         }
@@ -76,9 +77,6 @@ import WebKit
         }
         window.rootViewController = UIHostingController(rootView: DesignCaptureRoot(profiles: profiles))
         window.makeKeyAndVisible()
-        #if !targetEnvironment(simulator)
-        try XCTSkipIf(true, "Design inventory is a simulator fixture.")
-        #endif
         try await Task.sleep(for: .milliseconds(1200))
         let controller = profiles.current
         for (name, appearance) in [("light", BrowserAppearance.light), ("dark", .dark), ("black", .t3Code)] {
@@ -177,6 +175,8 @@ import WebKit
             session.closeTab(broken.id)
             let refused = session.addTab(url: URL(string: "http://127.0.0.1:9/unreachable"))
             for _ in 0..<80 { if refused.errorMessage != nil { break }; try await Task.sleep(for: .milliseconds(100)) }
+            XCTAssertNotNil(refused.errorMessage, "A refused address should display the shared error state")
+            XCTAssertEqual(refused.url, URL(string: "http://127.0.0.1:9/unreachable"))
             log.append("\(p)-21b state: error=\(refused.errorMessage ?? "nil") url=\(refused.url?.absoluteString ?? "nil") loading=\(refused.isLoading) httpWarning=\(refused.httpWarningURL?.absoluteString ?? "nil")")
             try await shot("\(p)-21b-refused", wait: 900)
             session.closeTab(refused.id)
@@ -216,6 +216,9 @@ import WebKit
         window.overrideUserInterfaceStyle = .dark
         try await shot("dark-40-external-private", wait: 1200)
         try (log.joined(separator: "\n") + "\n").write(to: directory.appendingPathComponent("captures.txt"), atomically: true, encoding: .utf8)
+        #else
+        throw XCTSkip("Design inventory is a simulator fixture.")
+        #endif
     }
 }
 

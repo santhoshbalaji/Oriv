@@ -313,7 +313,7 @@ struct BrowserWindow: View {
                 .opacity(windowActive ? 1 : 0.75)
         }
         .background {
-            Color.clear.modifier(MacSidebarGlass(color: controller.sidebarColor,
+            Color.clear.modifier(OrivMaterial.navigation(color: controller.sidebarColor,
                                                  profileColor: controller.sidebarProfileColor(in: profiles)))
                 .accessibilityHidden(true)
                 .browserGeometryMarker("sidebarSurfaceGeometry")
@@ -435,7 +435,7 @@ struct BrowserWindow: View {
                             .foregroundStyle(chromeForeground).accessibilityHidden(true)
                     }
                     AddressField(text: $ui.address, isEditing: $addressFocused,
-                                 placeholder: "Search or enter website",
+                                 placeholder: OrivStrings.addressPlaceholder,
                                  displayText: compactAddress,
                                  foreground: chromeForeground,
                                  focusRequest: controller.activeAddressFocusRequest,
@@ -495,7 +495,7 @@ struct BrowserWindow: View {
             Button { ui.showProtection.toggle() } label: {
                 Image(systemName: "shield.lefthalf.filled").frame(width: 28, height: 28).foregroundStyle(chromeForeground)
             }
-            .help("Site Privacy").accessibilityLabel("Site Privacy")
+            .help(OrivStrings.sitePrivacy).accessibilityLabel(OrivStrings.sitePrivacy)
             .accessibilityIdentifier("sitePrivacyButton")
             .browserGeometryMarker("browserPrivacyGeometry")
             .background {
@@ -633,16 +633,7 @@ struct BrowserWindow: View {
                         tabContent(tab)
                         if tab.httpWarningURL != nil { HTTPFallbackView(tab: tab).frame(maxWidth: .infinity, maxHeight: .infinity).background(theme.canvas) }
                         if let error = tab.errorMessage {
-                            ContentUnavailableView {
-                                Label("This page couldn’t load", systemImage: "network.slash")
-                            } description: {
-                                Text(error)
-                                Text(tab.url?.host ?? "").font(.caption)
-                            } actions: {
-                                Button("Reload Page") { tab.reload() }.buttonStyle(.borderedProminent).tint(theme.accent)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(theme.canvas)
+                            PageErrorState(message: error, host: tab.url?.host, retry: tab.reload)
                         }
                         if tab.isLoading {
                             GeometryReader { geometry in

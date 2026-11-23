@@ -33,7 +33,7 @@ struct MobileAddressField: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UITextField {
         let field = MobilePrivacyAddressField()
-        field.placeholder = "Search or enter address"
+        field.placeholder = OrivStrings.addressPlaceholder
         field.accessibilityLabel = "Address and search"
         field.accessibilityIdentifier = "browserAddress"
         field.keyboardType = .webSearch; field.returnKeyType = .go
@@ -60,7 +60,7 @@ struct MobileAddressField: UIViewRepresentable {
         }
         field.font = .preferredFont(forTextStyle: .body, compatibleWith: UITraitCollection(preferredContentSizeCategory: contentSize))
         field.textColor = UIColor(theme.text); field.tintColor = UIColor(theme.accent)
-        field.attributedPlaceholder = NSAttributedString(string: "Search or enter address", attributes: [.foregroundColor: UIColor(theme.fieldText)])
+        field.attributedPlaceholder = NSAttributedString(string: OrivStrings.addressPlaceholder, attributes: [.foregroundColor: UIColor(theme.fieldText)])
         if editing && !field.isFirstResponder {
             DispatchQueue.main.async { [weak field, weak coordinator = context.coordinator] in
                 guard coordinator?.parent.editing == true, let field else { return }

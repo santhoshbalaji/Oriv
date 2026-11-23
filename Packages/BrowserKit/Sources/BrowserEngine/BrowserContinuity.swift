@@ -13,7 +13,7 @@ import Observation
 
 @MainActor @Observable public final class BrowserContinuity {
     public private(set) var state: ContinuityReplica
-    public private(set) var status = "Continuity is off on this device."
+    public private(set) var status = "Sync is off on this device."
     public private(set) var isSyncing = false
     public private(set) var canSave = true
     public private(set) var accountVerified = false

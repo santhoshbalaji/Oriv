@@ -72,7 +72,7 @@ struct ProfileSidebarPreviewArtwork: View {
                 .padding(.trailing, profileTrailingInset).padding(.vertical, 8)
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass")
-                Text(query.isEmpty ? "Search tabs" : query).lineLimit(1)
+                Text(query.isEmpty ? OrivStrings.searchTabs : query).lineLimit(1)
                 Spacer(minLength: 0)
                 if query.isEmpty { Text("⇧⌘A").font(.system(size: 10)) }
                 else { Image(systemName: "xmark.circle.fill").frame(width: 24) }

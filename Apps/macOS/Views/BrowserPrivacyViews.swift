@@ -28,7 +28,7 @@ struct SiteInformationView: View {
                 Text("Ask uses WebKit and macOS permission prompts. Changes apply to this exact site and port. Reload for pop-up changes.")
                     .font(.caption).foregroundStyle(theme.secondaryText)
                 if tab.isCapturingCamera || tab.isCapturingMicrophone {
-                    Label("This tab is using camera or microphone", systemImage: "record.circle.fill").foregroundStyle(.red)
+                    Label("This tab is using camera or microphone", systemImage: "record.circle.fill").foregroundStyle(theme.danger)
                     Button("Stop Camera and Microphone") { tab.stopCapture() }.focusable()
                 }
                 Button("Reset Site Permissions") { session.settings.setRule(SiteRule(), for: url, isPrivate: tab.isPrivate); tab.stopCapture() }.focusable()
@@ -55,7 +55,7 @@ struct WebsiteDataView: View {
     private var records: [WKWebsiteDataRecord] { manager.records.filter { query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query) } }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { Text("Website data").font(OrivType.title); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
+            HStack { Text(OrivStrings.websiteData).font(OrivType.title); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
             Text("Cookies, caches and offline storage from regular browsing. Removing data may sign you out and delete a site's offline work. Bookmarks are kept separately.").font(.callout).foregroundStyle(theme.secondaryText)
             TextField("Search websites", text: $query).textFieldStyle(.roundedBorder)
             List(records, id: \.displayName) { record in
@@ -65,7 +65,7 @@ struct WebsiteDataView: View {
                         Text("\(record.dataTypes.count) storage types").font(.caption).foregroundStyle(theme.secondaryText)
                     }
                     Spacer()
-                    Button("Remove…", role: .destructive) { pending = [record]; confirm = true }
+                    Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivDestructiveButton(theme)
                         .accessibilityLabel("Remove data for \(record.displayName)")
                 }.padding(.vertical, 4)
             }.overlay { if manager.isWorking { ProgressView() } else if records.isEmpty { BrowserEmptyState(manager.records.isEmpty ? "No website data" : "No results for “\(query)”.") } }
@@ -73,7 +73,7 @@ struct WebsiteDataView: View {
                 Text("\(manager.records.count) websites").font(.caption).foregroundStyle(theme.secondaryText)
                 Spacer()
                 Button("Refresh") { Task { await manager.refresh() } }
-                Button("Remove All…", role: .destructive) { pending = manager.records; confirm = true }.disabled(manager.records.isEmpty)
+                Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivDestructiveButton(theme).disabled(manager.records.isEmpty)
             }
         }.padding(24).frame(width: 600, height: 520)
             .disabled(manager.isWorking)
@@ -107,7 +107,7 @@ struct ClearBrowsingDataView: View {
             Toggle("All saved site permissions", isOn: $clearPermissions).tint(theme.accent)
             Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Open tabs, bookmarks and downloaded files remain.")
                 .font(.callout).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
-            HStack { Spacer(); if working { ProgressView().controlSize(.small) }; Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction); Button("Clear Selected Data…", role: .destructive) { confirm = true }.disabled(!clearHistory && !clearCache && !clearSites && !clearPermissions) }
+            HStack { Spacer(); if working { ProgressView().controlSize(.small) }; Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).keyboardShortcut(.defaultAction); Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivDestructiveButton(theme).disabled(!clearHistory && !clearCache && !clearSites && !clearPermissions) }
         }.padding(28).frame(width: 520).disabled(working)
             .confirmationDialog("Clear selected browsing data?", isPresented: $confirm) {
                 Button("Clear Data", role: .destructive) {

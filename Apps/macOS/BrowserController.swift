@@ -285,8 +285,9 @@ final class BrowserController {
 }
 
 enum LibrarySection: String, Identifiable, CaseIterable {
-    case bookmarks = "Bookmarks", history = "History", downloads = "Downloads", devices = "Other Devices"
+    case bookmarks = "Bookmarks", history = "History", downloads = "Downloads", devices = "devices"
     var id: String { rawValue }
+    var title: String { self == .devices ? OrivStrings.otherDevices : rawValue }
     var symbol: String {
         switch self {
         case .bookmarks: "bookmark"
