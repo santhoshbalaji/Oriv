@@ -27,28 +27,20 @@ struct PasswordsGuide: View {
             .defaultFocus($managePasswordsFocused, !showsFillHint)
             .browserGeometryMarker("passwordsGuidePanelGeometry")
         } else {
-            Form {
-                Section {
+            SettingsForm {
+                SettingsGroup("Apple Passwords",
+                              detail: "macOS fills the field. Oriv never sees, stores or sends your saved passwords.") {
+                    LabeledContent("Manage your vault") { managePasswords }
+                }
+                SettingsGroup("Fill a saved password", detail: privateTabNote) {
                     steps
-                } header: {
-                    Text("Fill a saved password")
-                } footer: {
-                    Text(privateTabNote)
                 }
-                Section("Apple Passwords") {
-                    SettingRow(detail: "Passwords stay with Apple Passwords. macOS fills the field. Oriv never sees, stores or sends your saved passwords.") {
-                        managePasswords
-                    }
-                }
-                Section {
+                SettingsGroup("Set up on your Mac",
+                              detail: "The picker may require Touch ID or your Mac login password.") {
                     Text("In System Settings → General → AutoFill & Passwords, enable AutoFill and select Passwords. Turn on iCloud Passwords & Keychain to use your credentials on your other Apple devices.")
-                        .font(OrivType.body).foregroundStyle(theme.textSecondary)
-                } header: {
-                    Text("Set up on your Mac")
-                } footer: {
-                    Text("The picker may require Touch ID or your Mac login password.")
+                        .foregroundStyle(theme.textSecondary)
                 }
-            }.formStyle(.grouped)
+            }
         }
     }
 

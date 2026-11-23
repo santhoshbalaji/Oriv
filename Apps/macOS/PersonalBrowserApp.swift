@@ -75,8 +75,7 @@ struct PersonalBrowserApp: App {
         .restorationBehavior(.disabled)
 
         Settings {
-            AppearanceSettings(appearance: Binding(get: { controller.appearance }, set: { controller.appearance = $0 }), controller: controller, profiles: profiles)
-                .id(profiles.active.id)
+            ProfileSettings(profiles: profiles)
         }
     }
 
