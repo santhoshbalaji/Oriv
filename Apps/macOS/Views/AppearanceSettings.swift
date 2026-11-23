@@ -4,7 +4,6 @@ import BrowserCore
 import BrowserEngine
 
 enum MacSettingsLayout {
-    static let windowMaterialOpacity: CGFloat = 0.88
     static let formHorizontalInset = OrivSpacing.xl
     static let formVerticalInset = OrivSpacing.large
     static let groupGap = OrivSpacing.larger
@@ -79,9 +78,6 @@ struct AppearanceSettings: View {
     @State private var dataSheet: DataSheet?
     @State private var acknowledgments = false
     var initialPane: SettingsPane = .general
-    #if DEBUG
-    var captureMaterial = false
-    #endif
     @State private var pane: SettingsPane?
     private let runtime = BrowserRuntime.current
     private var panes: [SettingsPane] {
@@ -124,21 +120,9 @@ struct AppearanceSettings: View {
         if solidBackdrop {
             theme.canvas.ignoresSafeArea()
         } else if BackgroundUIMode.isEnabled {
-            #if DEBUG
-            if captureMaterial {
-                // Fixed app-owned colours make the gutter blend observable off-screen.
-                theme.chrome.opacity(MacSettingsLayout.windowMaterialOpacity)
-                    .background {
-                        LinearGradient(colors: [.blue, .orange], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    }
-            } else {
-                theme.chrome
-            }
-            #else
             theme.chrome
-            #endif
         } else {
-            WindowBackdropMaterial(material: .underWindowBackground, opacity: MacSettingsLayout.windowMaterialOpacity)
+            WindowBackdropMaterial(material: .underWindowBackground)
         }
     }
 

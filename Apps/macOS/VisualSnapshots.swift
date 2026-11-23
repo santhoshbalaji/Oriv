@@ -247,7 +247,7 @@ import WebKit
     }
 
     private static func renderSettingsV3(into directory: URL) async {
-        manifest.limitations.append("Standard Light and Dark Settings use a fixed synthetic desktop and material colour in background mode. These captures do not measure AppKit blur or live translucency.")
+        manifest.limitations.append("Background Settings captures use the opaque fallback. AppKit blur and translucency require a live window.")
         let profiles = BrowserProfiles(testing: true)
         defer { profiles.shutdown() }
         guard (try? profiles.create(name: "Work", color: .ocean, symbol: .work)) != nil else {
@@ -262,7 +262,7 @@ import WebKit
                                   CGSize(width: 660, height: pane.windowHeight), key: false, settle: 200,
                                   toolbarStyle: .preference, appearance: appearance, applyBrowserAppearance: false) {
                         AppearanceSettings(appearance: .constant(appearance), controller: profiles.controller,
-                                           profiles: profiles, initialPane: pane, captureMaterial: true)
+                                           profiles: profiles, initialPane: pane)
                             .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
                             .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
                     }
@@ -2010,10 +2010,8 @@ import WebKit
                     save(data, suffix: "synthetic-composite",
                          note: "Actual browser-window content with a synthetic sidebar glass input. WindowServer effects and native titlebar pixels are outside this capture.")
                 } else if name.hasPrefix("mac-glass-settings-v3-") {
-                    let synthetic = name.contains("-standard-") && !name.contains("-black-")
-                    save(data, suffix: "opaque-fallback", note: synthetic
-                         ? "Off-screen Settings with a fixed synthetic material and desktop. No live compositor pixels."
-                         : "Off-screen Settings with the production opaque backdrop.")
+                    save(data, suffix: "opaque-fallback",
+                         note: "Off-screen Settings with its opaque background or accessibility fallback.")
                 } else {
                     save(data, suffix: contrastFixture ? "synthetic-composite" : "opaque-fallback", note: contrastFixture
                      ? "Real sidebar over synthetic sampled glass input and labelled page swatch, with production contrast backing/controls. Header is a layout spacer. Reduced/increased scenes use opaque accessibility material. No live Liquid Glass acceptance."

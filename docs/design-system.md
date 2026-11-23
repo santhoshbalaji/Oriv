@@ -225,7 +225,7 @@ profiles.
 ## Mac Settings
 
 Settings keeps the native seven-item preference toolbar. In System, Light and
-Dark, AppKit supplies behind-window material at 88% opacity in the gutters.
+Dark, AppKit renders its full-opacity under-window material in the gutters.
 Each scrolling pane uses a soft scroll edge under the toolbar. Each group contains its heading, controls, scope and
 supporting text on opaque `surfaceRaised`, with a half-point inset hairline.
 The backdrop follows window activity and is independent of website colors
