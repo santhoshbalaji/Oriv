@@ -216,6 +216,7 @@ struct BrowserSidebar: View {
                 TextField("Search tabs", text: $controller.tabSearch,
                           prompt: Text("Search tabs").foregroundStyle(theme.sidebarSecondaryText)).textFieldStyle(.plain)
                     .focused($searchFocused).accessibilityLabel("Search tabs").accessibilityIdentifier("tabSearchField")
+                    .accessibilityHint("Press Shift-Command-A to focus Search tabs.")
                     .onExitCommand { controller.tabSearch = ""; focusTabAfterSearch(session.selectedTabID) }
                     .onKeyPress(.downArrow) {
                         guard let first = filteredTabs.first else { return .ignored }
@@ -225,7 +226,12 @@ struct BrowserSidebar: View {
                         if let first = filteredTabs.first { focusTabAfterSearch(first.id); session.selectTab(first.id) }
                     }
                 if controller.tabSearch.isEmpty {
-                    Text("⇧⌘A").font(.system(size: 10)).accessibilityHidden(true)
+                    Canvas { context, size in
+                        context.draw(Text("⇧⌘A").font(.system(size: 10)).foregroundStyle(theme.text),
+                                     at: CGPoint(x: size.width, y: size.height / 2), anchor: .trailing)
+                    }
+                    .frame(width: 30, height: 14)
+                    .accessibilityHidden(true)
                 } else {
                     Button { controller.tabSearch = ""; searchFocused = true } label: {
                         Image(systemName: "xmark.circle.fill").frame(width: 24, height: 24)
@@ -354,6 +360,7 @@ private struct ProfileDotsScroll<Content: View>: NSViewRepresentable {
     func makeNSView(context: Context) -> DotScrollView {
         let scroll = DotScrollView()
         scroll.drawsBackground = false
+        scroll.setAccessibilityLabel("Profiles")
         scroll.automaticallyAdjustsContentInsets = false
         scroll.verticalScrollElasticity = .none
         let hosted = NSHostingView(rootView: AnyView(content.environment(\.self, context.environment)))
@@ -650,8 +657,13 @@ struct MacSidebarGlass: ViewModifier {
     }
     private func edge<Surface: View>(_ content: Surface) -> some View {
         content.overlay(alignment: .trailing) {
-            Rectangle().fill(contrast == .increased ? theme.text : theme.separator.opacity(0.5))
-                .frame(width: contrast == .increased ? 1.5 : 0.5).allowsHitTesting(false).accessibilityHidden(true)
+            Canvas { context, size in
+                let color = contrast == .increased ? theme.text : theme.separator.opacity(0.5)
+                context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(color))
+            }
+            .frame(width: contrast == .increased ? 1.5 : 0.5)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
     @ViewBuilder private func glass<Surface: View>(_ content: Surface) -> some View {

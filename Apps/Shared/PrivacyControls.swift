@@ -77,7 +77,7 @@ struct PrivacyShieldControls: View {
     @State private var reloadPrompt = false
     private var privacy: BrowserPrivacy { session.settings.privacy }
     var body: some View {
-        Text(tab.hostname).font(.headline).textSelection(.enabled)
+        selectableLabel(tab.hostname, font: .headline)
         LabeledContent("Ad & tracker blocking", value: session.adBlocker.mode.rawValue)
         Toggle("Block ads and trackers on this site", isOn: Binding(
             get: { session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate) },
@@ -95,7 +95,7 @@ struct PrivacyShieldControls: View {
         if privacy.isEnabled(.cookieBanners, for: tab.url, isPrivate: tab.isPrivate) {
             LabeledContent("Cookie banners", value: tab.cookieBannerResult ?? privacy.cookieBannerMode.rawValue)
         }
-        Text("Lists: \(AdBlocker.rulesVersion)").font(.caption).textSelection(.enabled)
+        selectableLabel("Lists: \(AdBlocker.rulesVersion)", font: .caption)
         if tab.isPrivate { Label("Exceptions last only for this private session.", systemImage: "eyeglasses").font(.caption) }
         Button("Site broken? Turn protections off for this site") {
             session.adBlocker.setException(true, for: tab.url, isPrivate: tab.isPrivate)
@@ -114,6 +114,15 @@ struct PrivacyShieldControls: View {
             Button("Reload") { tab.reload() }
         } message: { Text("Reload applies the changed protections and may discard unsaved form contents.") }
     }
+    private func selectableLabel(_ label: String, font: Font) -> some View {
+        Text(label).font(font).textSelection(.enabled)
+            #if os(macOS)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isStaticText)
+            #endif
+    }
+
 }
 
 struct PrivacyAcknowledgements: View {

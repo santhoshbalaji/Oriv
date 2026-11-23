@@ -79,15 +79,13 @@ struct AppearanceSettings: View {
                     Toggle("Open Links from Other Apps Privately", isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
                     Text("External links open signed out, separate from every profile. Move a page to a profile when you choose.").font(OrivType.caption).foregroundStyle(theme.secondaryText)
                 }
-                Picker("Search engine", selection: $settings.searchEngine) {
-                    ForEach(SearchEngine.allCases) { Text($0.rawValue).tag($0) }
-                }
+                BrowsingPreferencePicker(title: "Search engine", selection: $settings.searchEngine,
+                                         options: SearchEngine.allCases, label: \.rawValue)
                 Text("Searches are sent only when you submit them. Address suggestions use local tabs, saved pages and history.").font(.caption).foregroundStyle(theme.secondaryText)
                 Toggle("Restore tabs when Oriv starts", isOn: $settings.restoreTabs).tint(theme.accent)
                 Text("Pinned tabs always return. Private tabs are never restored. This takes effect on the next launch.").font(.caption).foregroundStyle(theme.secondaryText)
-                Picker("Default page zoom", selection: $settings.defaultZoom) {
-                    ForEach([0.75, 0.9, 1, 1.1, 1.25, 1.5, 2], id: \.self) { value in Text("\(Int(value * 100))%").tag(value) }
-                }
+                BrowsingPreferencePicker(title: "Default page zoom", selection: $settings.defaultZoom,
+                                         options: [0.75, 0.9, 1, 1.1, 1.25, 1.5, 2], label: { "\(Int($0 * 100))%" })
                 Text("Applies to newly opened tabs.").font(.caption).foregroundStyle(theme.secondaryText)
             }
             Section("Default browser") {
@@ -218,6 +216,55 @@ struct AppearanceSettings: View {
     }
 }
 
+/// A native pop-up exposes both its label and AppKit's standard AX press action.
+private struct BrowsingPreferencePicker<Value: Equatable>: View {
+    let title: String
+    @Binding var selection: Value
+    let options: [Value]
+    let label: (Value) -> String
+
+    var body: some View {
+        LabeledContent {
+            Popup(title: title, selection: $selection, options: options, label: label)
+                .fixedSize()
+        } label: {
+            Text(title).accessibilityHidden(true)
+        }
+    }
+
+    private struct Popup: NSViewRepresentable {
+        let title: String
+        @Binding var selection: Value
+        let options: [Value]
+        let label: (Value) -> String
+
+        func makeNSView(context: Context) -> Control {
+            let button = Control(frame: .zero, pullsDown: false)
+            button.setAccessibilityLabel(title)
+            button.target = button
+            button.action = #selector(Control.choose)
+            return button
+        }
+
+        func updateNSView(_ button: Control, context: Context) {
+            let titles = options.map(label)
+            if button.itemTitles != titles {
+                button.removeAllItems()
+                button.addItems(withTitles: titles)
+            }
+            button.selectItem(at: options.firstIndex(of: selection) ?? -1)
+            button.onSelect = { index in
+                if options.indices.contains(index) { selection = options[index] }
+            }
+        }
+
+        final class Control: NSPopUpButton {
+            var onSelect: ((Int) -> Void)?
+            @objc func choose() { onSelect?(indexOfSelectedItem) }
+        }
+    }
+}
+
 /// AppKit owns the icon, label and accent rendering for each selection item.
 private struct SettingsToolbar: NSViewRepresentable {
     let panes: [SettingsPane]
@@ -258,6 +305,7 @@ private struct SettingsToolbar: NSViewRepresentable {
                 window.toolbarStyle = .preference
                 window.styleMask.remove(.fullSizeContentView)
                 window.title = "\(AppIdentity.name) Settings"
+                window.setAccessibilityIdentifier("orivSettingsWindow")
                 window.toolbar = settingsToolbar
             }
             if settingsToolbar.itemIdentifiers != identifiers { settingsToolbar.itemIdentifiers = identifiers }

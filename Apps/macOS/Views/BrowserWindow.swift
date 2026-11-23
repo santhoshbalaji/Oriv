@@ -167,6 +167,8 @@ struct BrowserWindow: View {
                 .allowsHitTesting(!controller.sidebar.webpageFullscreen)
                 .accessibilityHidden(controller.sidebar.webpageFullscreen)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Browser")
         .ignoresSafeArea(.container, edges: .top)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
             windowWidth = $0
@@ -268,6 +270,7 @@ struct BrowserWindow: View {
         }
         .background {
             Color.clear.modifier(MacSidebarGlass())
+                .accessibilityHidden(true)
                 .browserGeometryMarker("sidebarSurfaceGeometry")
         }
         .onHover { inside in controller.sidebar.panelInside = inside }

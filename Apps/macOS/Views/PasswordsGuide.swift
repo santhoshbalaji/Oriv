@@ -34,5 +34,8 @@ struct PasswordsGuide: View {
                 Text(detail).font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(number). \(title). \(detail)")
+        .accessibilityAddTraits(.isStaticText)
     }
 }

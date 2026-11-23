@@ -21,7 +21,10 @@ import XCTest
         XCTAssertTrue(window.descendants(matching: .any)["railNewTabButton"].waitForExistence(timeout: 5))
         try audit(app, screen: "Sidebar rail")
         app.typeKey(",", modifierFlags: .command)
-        XCTAssertTrue(app.windows.matching(NSPredicate(format: "label ENDSWITH %@", " Settings")).firstMatch.waitForExistence(timeout: 5))
+        let settingsWindow = app.windows["orivSettingsWindow"]
+        XCTAssertTrue(settingsWindow.waitForExistence(timeout: 5))
+        XCTAssertTrue(settingsWindow.popUpButtons["Search engine"].exists)
+        XCTAssertTrue(settingsWindow.popUpButtons["Default page zoom"].exists)
         try audit(app, screen: "Settings")
         #else
         let tabs = app.buttons["browserTabs"]
