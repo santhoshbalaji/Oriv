@@ -88,6 +88,10 @@ import UIKit
     private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: @MainActor () -> Bool) async throws {
         try await waitForFixtureCondition("the privacy fixture", timeout: 40, file: file, line: line, condition)
     }
+    /// The ~332k-rule CNAME list compiles in minutes on hosted iPhone simulators.
+    private func waitForCNAME(file: StaticString = #filePath, line: UInt = #line, _ condition: @MainActor () -> Bool) async throws {
+        try await waitForFixtureCondition("the CNAME rule list", timeout: 120, file: file, line: line, condition)
+    }
     private func load(_ tab: BrowserTab, _ path: String = "/privacy") async throws {
         try hostFixture(tab)
         tab.navigate(to: URL(string: path, relativeTo: base)!.absoluteURL)
@@ -429,12 +433,12 @@ import UIKit
         let cold = AdBlocker(cacheNamespace: namespace)
         cold.setMode(.strict)
         try await cold.prepare()
-        try await wait { !cold.isPreparingCNAME }
+        try await waitForCNAME { !cold.isPreparingCNAME }
         XCTAssertNil(cold.cnamePreparationError)
         let warm = AdBlocker(cacheNamespace: namespace)
         warm.setMode(.strict)
         try await warm.prepare()
-        try await wait { !warm.isPreparingCNAME }
+        try await waitForCNAME { !warm.isPreparingCNAME }
         XCTAssertNil(warm.cnamePreparationError)
         for (name, blocker) in [("first", cold), ("warm", warm)] {
             let data = try JSONEncoder().encode(blocker.compilationMeasurements)
@@ -544,7 +548,7 @@ import UIKit
         XCTAssertFalse(coreIdentifiers.isEmpty)
 
         blocker.setMode(.strict)
-        try await wait { !blocker.isPreparingCNAME }
+        try await waitForCNAME { !blocker.isPreparingCNAME }
         XCTAssertNil(blocker.cnamePreparationError)
         let strictIdentifiers = try await cnameIdentifiers()
         XCTAssertEqual(strictIdentifiers.count, 4)
@@ -618,7 +622,7 @@ import UIKit
         [{"trigger":{"url-filter":"^http://analytics","resource-type":["script"]},"action":{"type":"block"}}]
         """)
         release.finish()
-        try await wait { !blocker.isPreparingCNAME }
+        try await waitForCNAME { !blocker.isPreparingCNAME }
         XCTAssertNil(blocker.cnamePreparationError)
         for (tab, expected) in [(first, "loaded"), (second, "blocked")] {
             let result = try await loadCNAMEProbe(in: tab)
@@ -680,7 +684,7 @@ import UIKit
         let reopened = AdBlocker(rules: [.strict: core], cacheNamespace: namespace, cnameFixture: { cname })
         reopened.setMode(.strict)
         try await reopened.prepare()
-        try await wait { !reopened.isPreparingCNAME }
+        try await waitForCNAME { !reopened.isPreparingCNAME }
         await cleanup.value
         let compiled = try XCTUnwrap(reopened.compilationMeasurements.first { $0.component == "network-cname" })
         XCTAssertFalse(compiled.cached)
@@ -698,7 +702,7 @@ import UIKit
         let controller = PrivacyCountingContentController()
         blocker.setMode(.strict)
         try await blocker.apply(to: controller, url: base, isPrivate: false)
-        try await wait { !blocker.isPreparingCNAME }
+        try await waitForCNAME { !blocker.isPreparingCNAME }
         XCTAssertNotNil(blocker.cnamePreparationError)
         XCTAssertNil(blocker.preparationError)
         XCTAssertTrue(blocker.applyIfPrepared(to: controller, url: base, isPrivate: false))
