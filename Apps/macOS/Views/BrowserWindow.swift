@@ -378,10 +378,12 @@ struct BrowserWindow: View {
                                 if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
                             }.font(OrivType.detail).foregroundStyle(chromeForeground).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
                         }.buttonStyle(MacChromeButtonStyle()).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
-                            .popover(isPresented: $ui.showSiteInfo) {
-                                SiteInformationView(session: session, tab: tab)
-                                    .preferredColorScheme(colorScheme)
-                                    .environment(\.colorScheme, colorScheme)
+                            .browserGeometryMarker("browserSiteInformationGeometry")
+                            .background {
+                                BrowserPopover(isPresented: $ui.showSiteInfo) {
+                                    SiteInformationView(session: session, tab: tab)
+                                        .environment(\.colorScheme, colorScheme)
+                                }
                             }
                     } else {
                         Image(systemName: "magnifyingglass").font(OrivType.detail)
@@ -441,10 +443,11 @@ struct BrowserWindow: View {
             .help("Site Privacy").accessibilityLabel("Site Privacy")
             .accessibilityIdentifier("sitePrivacyButton")
             .browserGeometryMarker("browserPrivacyGeometry")
-            .popover(isPresented: $ui.showProtection) {
-                AdBlockingPopover(session: session)
-                    .preferredColorScheme(colorScheme)
-                    .environment(\.colorScheme, colorScheme)
+            .background {
+                BrowserPopover(isPresented: $ui.showProtection) {
+                    AdBlockingPopover(session: session)
+                        .environment(\.colorScheme, colorScheme)
+                }
             }
             if showsExpandedToolbarActions {
                 if let url = tab?.url {
@@ -476,7 +479,11 @@ struct BrowserWindow: View {
         .foregroundStyle(chromeForeground)
         .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
         .browserGeometryMarker("browserPageMenuGeometry")
-        .popover(isPresented: $ui.showPasswords) { PasswordsGuide(compact: true) }
+        .background {
+            BrowserPopover(isPresented: $ui.showPasswords) {
+                PasswordsGuide(compact: true).environment(\.colorScheme, colorScheme)
+            }
+        }
     }
 
     private var panels: some View {
@@ -760,5 +767,147 @@ struct AddressSuggestionList: View {
         }.font(OrivType.body).padding(6).background(theme.surface, in: .rect(cornerRadius: OrivRadius.popover))
             .overlay { RoundedRectangle(cornerRadius: OrivRadius.popover).strokeBorder(theme.separator) }
             .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+    }
+}
+
+/// Hosts an anchored popover in its own key window, preserving the browser's
+/// first responder across both mouse and accessibility activation.
+private struct BrowserPopover<Content: View>: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    @ViewBuilder let content: () -> Content
+
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+
+    func updateNSView(_ anchor: Anchor, context: Context) {
+        anchor.isPresented = $isPresented
+        let root = AnyView(content().environment(\.self, context.environment))
+        anchor.update(root)
+    }
+
+    static func dismantleNSView(_ anchor: Anchor, coordinator: ()) { anchor.close() }
+
+    final class Anchor: NSView, NSPopoverDelegate {
+        var isPresented: Binding<Bool> = .constant(false)
+        private var root: AnyView?
+        private var host: NSHostingController<AnyView>?
+        private var popover: NSPopover?
+        private weak var returnWindow: NSWindow?
+        private weak var returnResponder: NSResponder?
+        private var keyMonitor: Any?
+        private var pendingPresentation = false
+        private var finishingDismissal = false
+        private var restoreResponderOnClose = false
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        func update(_ content: AnyView) {
+            guard !finishingDismissal else { return }
+            guard isPresented.wrappedValue else { close(restoreResponder: true); return }
+            if let host {
+                host.rootView = content
+            } else {
+                root = content
+                presentWhenReady()
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { close() }
+            else { presentWhenReady() }
+        }
+
+        override func layout() {
+            super.layout()
+            presentWhenReady()
+        }
+
+        private func presentWhenReady() {
+            guard root != nil, window != nil, !bounds.isEmpty, !pendingPresentation else { return }
+            pendingPresentation = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                pendingPresentation = false
+                guard isPresented.wrappedValue, popover == nil, let window,
+                      let root, !bounds.isEmpty else { return }
+                self.root = nil
+                let responder = window.firstResponder
+                let editor = responder as? NSTextView
+                returnWindow = window
+                // The shared field editor can end editing when its window
+                // resigns key. The field can start editing again on return.
+                returnResponder = editor?.isFieldEditor == true ? (editor?.delegate as? NSResponder ?? responder) : responder
+                let host = NSHostingController(rootView: root)
+                let popover = NSPopover()
+                popover.behavior = .transient
+                popover.appearance = window.effectiveAppearance
+                popover.animates = !BackgroundUIMode.isEnabled
+                popover.contentViewController = host
+                popover.delegate = self
+                self.host = host
+                self.popover = popover
+                popover.show(relativeTo: bounds, of: self, preferredEdge: .minY)
+                focusPopover()
+            }
+        }
+
+        func popoverDidShow(_ notification: Notification) { focusPopover() }
+
+        private func focusPopover() {
+            guard let view = host?.view, let window = view.window else { return }
+            if !window.isKeyWindow { window.makeKey() }
+            if window.firstResponder == nil || window.firstResponder === window {
+                window.makeFirstResponder(view)
+            }
+            guard keyMonitor == nil else { return }
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in
+                let handled = MainActor.assumeIsolated {
+                    guard let self, let window, event.window === window, window.attachedSheet == nil else { return false }
+                    if event.keyCode == 53 {
+                        self.close(restoreResponder: true)
+                        return true
+                    }
+                    let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+                    guard event.keyCode == 48, modifiers.isSubset(of: .shift) else { return false }
+                    if modifiers.contains(.shift) { window.selectPreviousKeyView(nil) }
+                    else { window.selectNextKeyView(nil) }
+                    return true
+                }
+                return handled ? nil : event
+            }
+            BackgroundUIMode.checkFrontmost()
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            finishingDismissal = true
+            let closedWindow = host?.view.window
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            keyMonitor = nil
+            popover = nil
+            host = nil
+            let window = returnWindow
+            let responder = restoreResponderOnClose ? returnResponder : nil
+            restoreResponderOnClose = false
+            returnWindow = nil
+            returnResponder = nil
+            let presentation = isPresented
+            // Let AppKit finish its own window and field-editor handoff before
+            // restoring the invoking responder or updating SwiftUI's binding.
+            DispatchQueue.main.async { [weak self, weak window, weak responder, weak closedWindow] in
+                if presentation.wrappedValue { presentation.wrappedValue = false }
+                self?.finishingDismissal = false
+                guard let window, window.isVisible,
+                      NSApp.keyWindow == nil || NSApp.keyWindow === window || NSApp.keyWindow === closedWindow else { return }
+                if !window.isKeyWindow { window.makeKey() }
+                if let responder { window.makeFirstResponder(responder) }
+            }
+        }
+
+        func close(restoreResponder: Bool = false) {
+            root = nil
+            guard let popover else { return }
+            restoreResponderOnClose = restoreResponder
+            popover.close()
+        }
     }
 }

@@ -38,7 +38,7 @@ System full screen, menu reveal and rendered video playback are foreground-only 
 
 The shared privacy compatibility fixtures use the same off-screen `BackgroundUIMode.Window` policy. A per-case observer checks the cumulative audit across native and shared cases; `BACKGROUND_UI_FINAL` records the final totals.
 
-Shield geometry and real-popover presentation have separate native tests. Address/shield fit at default, minimum and intermediate widths, sidebar states, link cleaning, tracker blocking and cookie hiding continue to run on macOS 26 in background mode. Only `testPrivacyShieldOpensRealPopover` skips when all three conditions hold: macOS is below 27, background mode is enabled, and AppKit refuses the key window. Its skip message identifies the foreground-dependent routing restriction. The real-popover assertions run on macOS 27 and later, including background runs. Record this platform-specific skip separately; it does not certify foreground popover presentation on macOS 26.
+Shield geometry and real-popover presentation have separate native tests. The real-popover test opens Site Privacy, Site Information and Password AutoFill Help in off-screen windows. It checks the focus loop, Escape dismissal and address focus restoration using window-targeted events. It also checks actual key-window handoff when AppKit allows the inactive accessory app's browser window to be key.
 
 Run `python3 scripts/check-background-ui.py` to catch direct Mac activation/raising calls and window construction outside the shared policy, including shared compatibility tests. Normal app usage without either UI-mode environment variable keeps its usual activation behaviour.
 

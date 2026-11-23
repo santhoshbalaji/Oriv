@@ -4,6 +4,7 @@ import SwiftUI
 /// never requests, reads, copies or injects a password into the DOM.
 struct PasswordsGuide: View {
     @Environment(\.browserTheme) private var theme
+    @FocusState private var managePasswordsFocused: Bool
     var compact = false
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -21,10 +22,21 @@ struct PasswordsGuide: View {
                 Text("The picker may require Touch ID or your Mac login password. No Apple developer account is needed for this field-menu flow.")
                     .font(.caption).foregroundStyle(theme.secondaryText)
             }
-            Button("Manage Passwords…", systemImage: "arrow.up.forward.app") { ApplePasswords.open() }
-                .buttonStyle(.bordered).help("Open Apple Passwords to manage your vault")
+            if compact {
+                managePasswords.focusable().focused($managePasswordsFocused)
+            } else {
+                managePasswords
+            }
         }.padding(compact ? 22 : 28).frame(width: compact ? 340 : nil, alignment: .leading)
+            .defaultFocus($managePasswordsFocused, compact)
+            .browserGeometryMarker("passwordsGuidePanelGeometry", when: compact)
     }
+
+    private var managePasswords: some View {
+        Button("Manage Passwords…", systemImage: "arrow.up.forward.app") { ApplePasswords.open() }
+            .buttonStyle(.bordered).help("Open Apple Passwords to manage your vault")
+    }
+
     private func instruction(_ number: String, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Text(number).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)

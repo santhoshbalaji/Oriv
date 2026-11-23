@@ -381,29 +381,73 @@ import XCTest
 
     func testPrivacyShieldOpensRealPopover() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
-        let window = makeWindow(profiles.controller, profiles: profiles, width: 1250); defer { window.close() }
-        try await eventually("sidebar fixture state") { self.marker("browserPrivacyGeometry", in: window) != nil }
-        if #unavailable(macOS 27) {
-            try XCTSkipIf(BackgroundUIMode.isEnabled && !window.isKeyWindow,
-                "Foreground-dependent popover check on macOS < 27: background/accessory mode is enabled and AppKit refused the key window.")
+        let controller = profiles.controller
+        let tab = try XCTUnwrap(controller.session.selectedTab)
+        tab.webView.loadHTMLString("<body>Popover focus fixture</body>", baseURL: URL(string: "https://fixture.example"))
+        try await eventually("Local page loaded") { tab.url != nil && !tab.webView.isLoading }
+        let window = makeWindow(controller, profiles: profiles, width: 1250, largestText: false)
+        defer { window.close() }
+        try await eventually("Browser controls mounted") { self.marker("browserSiteInformationGeometry", in: window) != nil }
+        func click(_ identifier: String) throws {
+            let anchor = try XCTUnwrap(marker(identifier, in: window))
+            let point = anchor.convert(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+                window.sendEvent(event)
+            }
         }
-        let shield = try XCTUnwrap(marker("browserPrivacyGeometry", in: window))
-        let point = shield.convert(NSPoint(x: shield.bounds.midX, y: shield.bounds.midY), to: nil)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-            window.sendEvent(event)
+
+        func sendKey(_ code: UInt16, _ characters: String, to window: NSWindow, flags: NSEvent.ModifierFlags = []) throws {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+            NSApp.sendEvent(event)
         }
-        try await eventually("sidebar fixture state") {
-            NSApp.windows.contains { self.marker("sitePrivacyPanelGeometry", in: $0) != nil }
+
+        let field = try XCTUnwrap(address(in: window))
+        print("POPOVER_FOCUS fullKeyboardAccess=\(NSApp.isFullKeyboardAccessEnabled) parentKey=\(window.isKeyWindow)")
+        for (panel, isPresented, show) in [
+            ("sitePrivacyPanelGeometry", { controller.profileUI.showProtection }, { try click("browserPrivacyGeometry") }),
+            ("siteInformationPanelGeometry", { controller.profileUI.showSiteInfo }, { controller.profileUI.showSiteInfo = true }),
+            ("passwordsGuidePanelGeometry", { controller.profileUI.showPasswords }, { controller.passwordsGuideRequest += 1 }),
+        ] {
+            controller.focusAddress()
+            try await eventually("Address editor focused before opening \(panel)") { field.currentEditor() != nil }
+            let parentWasKey = window.isKeyWindow
+            try show()
+            try await eventually("\(panel) was presented") {
+                NSApp.windows.contains { $0.isVisible && self.marker(panel, in: $0) != nil }
+            }
+            let popover = try XCTUnwrap(NSApp.windows.first { $0.isVisible && marker(panel, in: $0) != nil })
+            XCTAssertFalse(popover === window)
+            XCTAssertTrue(popover.canBecomeKey)
+            // An inactive accessory process can be denied key-window status.
+            // Send window-numbered events to the real popover either way.
+            if parentWasKey { XCTAssertTrue(popover.isKeyWindow) }
+            let first = try XCTUnwrap(popover.firstResponder as? NSView)
+            try sendKey(48, "\t", to: popover)
+            let next = try XCTUnwrap(popover.firstResponder as? NSView)
+            if panel != "passwordsGuidePanelGeometry" { XCTAssertFalse(next === first) }
+            try sendKey(48, "\u{19}", to: popover, flags: .shift)
+            XCTAssertTrue(popover.firstResponder === first)
+            try sendKey(48, "\u{19}", to: popover, flags: .shift)
+            try sendKey(48, "\t", to: popover)
+            XCTAssertTrue(popover.firstResponder === first, "The key-view loop must wrap within \(panel)")
+            if parentWasKey { XCTAssertTrue(NSApp.keyWindow === popover) }
+
+            try sendKey(53, "\u{1b}", to: popover)
+            try await eventually("Escape dismissed \(panel)") { !popover.isVisible && !isPresented() }
+            try await eventually("Closing \(panel) restored the address editor") {
+                field.currentEditor() != nil && (!parentWasKey || window.isKeyWindow)
+            }
         }
-        XCTAssertTrue(NSApp.windows.contains { window in
-            marker("sitePrivacyPanelGeometry", in: window) != nil
-        }, "Shield must open the privacy controls in the integrated shell")
         let audit = BackgroundUIMode.audit()
         XCTAssertEqual(audit.onscreenWindowViolations, 0)
+        XCTAssertEqual(audit.activationViolations, 0)
     }
+
     func testRealWindowButtonsStayInTheirParentsAndAlignInBothStates() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let window = makeWindow(profiles.controller, profiles: profiles); defer { window.close() }

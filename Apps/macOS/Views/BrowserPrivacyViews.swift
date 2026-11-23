@@ -5,6 +5,7 @@ import WebKit
 
 struct SiteInformationView: View {
     @Environment(\.browserTheme) private var theme
+    @FocusState private var cameraFocused: Bool
     let session: BrowserSession
     let tab: BrowserTab
     private var rule: SiteRule { session.settings.rule(for: tab.url, isPrivate: tab.isPrivate) }
@@ -19,25 +20,28 @@ struct SiteInformationView: View {
             if let url = tab.url, SiteOrigin(url) != nil {
                 Divider()
                 permission("Camera", path: \.camera, url: url)
+                    .focused($cameraFocused)
                 permission("Microphone", path: \.microphone, url: url)
                 Toggle("Allow automatic pop-ups", isOn: Binding(get: { rule.allowsAutomaticPopups }, set: {
                     var updated = rule; updated.allowsAutomaticPopups = $0; session.settings.setRule(updated, for: url, isPrivate: tab.isPrivate)
-                })).tint(theme.accent)
+                })).tint(theme.accent).focusable()
                 Text("Ask uses WebKit and macOS permission prompts. Changes apply to this exact site and port. Reload for pop-up changes.")
                     .font(.caption).foregroundStyle(theme.secondaryText)
                 if tab.isCapturingCamera || tab.isCapturingMicrophone {
                     Label("This tab is using camera or microphone", systemImage: "record.circle.fill").foregroundStyle(.red)
-                    Button("Stop Camera and Microphone") { tab.stopCapture() }
+                    Button("Stop Camera and Microphone") { tab.stopCapture() }.focusable()
                 }
-                Button("Reset Site Permissions") { session.settings.setRule(SiteRule(), for: url, isPrivate: tab.isPrivate); tab.stopCapture() }
+                Button("Reset Site Permissions") { session.settings.setRule(SiteRule(), for: url, isPrivate: tab.isPrivate); tab.stopCapture() }.focusable()
                 if tab.isPrivate { Text("Private site settings are forgotten when the last private tab closes.").font(.caption).foregroundStyle(theme.secondaryText) }
             }
         }.padding(20).frame(width: 330)
+            .defaultFocus($cameraFocused, true)
+            .browserGeometryMarker("siteInformationPanelGeometry")
     }
     private func permission(_ title: String, path: WritableKeyPath<SiteRule, SitePermission>, url: URL) -> some View {
         Picker(title, selection: Binding(get: { rule[keyPath: path] }, set: {
             var updated = rule; updated[keyPath: path] = $0; session.settings.setRule(updated, for: url, isPrivate: tab.isPrivate)
-        })) { ForEach(SitePermission.allCases) { Text($0.rawValue).tag($0) } }
+        })) { ForEach(SitePermission.allCases) { Text($0.rawValue).tag($0) } }.focusable()
     }
 }
 

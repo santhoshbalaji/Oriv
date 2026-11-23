@@ -82,13 +82,14 @@ struct PrivacyShieldControls: View {
         Toggle("Block ads and trackers on this site", isOn: Binding(
             get: { session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate) },
             set: { session.adBlocker.setException(!$0, for: tab.url, isPrivate: tab.isPrivate); reloadPrompt = true }
-        )).disabled(session.adBlocker.mode == .off)
+        )).disabled(session.adBlocker.mode == .off).shieldKeyboardFocus()
         ForEach(PrivacyLayer.allCases.filter { $0 != .youtubeAds || YouTubeProtection.supports(tab.url) }) { layer in
             Toggle(layer.title, isOn: Binding(
                 get: { privacy.isEnabled(layer, for: tab.url, isPrivate: tab.isPrivate) && (layer != .globalPrivacyControl || BrowserPrivacy.supportsGPC) && (layer != .youtubeAds || session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate)) },
                 set: { privacy.setException(!$0, layer, for: tab.url, isPrivate: tab.isPrivate); reloadPrompt = true }
             )).disabled(!privacy.isEnabled(layer) || layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC
                         || layer == .youtubeAds && !session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate))
+                .shieldKeyboardFocus()
         }
         if !BrowserPrivacy.supportsGPC { Text("GPC unavailable on this OS (requires 27).").font(.caption).foregroundStyle(.secondary) }
         if let url = tab.url, HTTPSUpgradePolicy.isExempt(url) { Text("HTTPS upgrade is exempt for this local or connectivity-check address.").font(.caption).foregroundStyle(.secondary) }
@@ -101,19 +102,20 @@ struct PrivacyShieldControls: View {
             session.adBlocker.setException(true, for: tab.url, isPrivate: tab.isPrivate)
             for layer in PrivacyLayer.allCases { privacy.setException(true, layer, for: tab.url, isPrivate: tab.isPrivate) }
             reloadPrompt = true
-        }
+        }.shieldKeyboardFocus()
         Button("Reset Site Protections") {
             session.adBlocker.setException(false, for: tab.url, isPrivate: tab.isPrivate)
             for layer in PrivacyLayer.allCases { privacy.setException(false, layer, for: tab.url, isPrivate: tab.isPrivate) }
             reloadPrompt = true
-        }
-        Button("Reload Page") { tab.reload() }
+        }.shieldKeyboardFocus()
+        Button("Reload Page") { tab.reload() }.shieldKeyboardFocus()
         Text("Reload to apply changes fully. Existing form contents stay in place until you choose to reload.").font(.caption).foregroundStyle(.secondary)
         .alert("Reload this page?", isPresented: $reloadPrompt) {
             Button("Later", role: .cancel) {}
             Button("Reload") { tab.reload() }
         } message: { Text("Reload applies the changed protections and may discard unsaved form contents.") }
     }
+
     private func selectableLabel(_ label: String, font: Font) -> some View {
         Text(label).font(font).textSelection(.enabled)
             #if os(macOS)
@@ -122,7 +124,16 @@ struct PrivacyShieldControls: View {
             .accessibilityAddTraits(.isStaticText)
             #endif
     }
+}
 
+private extension View {
+    @ViewBuilder func shieldKeyboardFocus() -> some View {
+        #if os(macOS)
+        focusable()
+        #else
+        self
+        #endif
+    }
 }
 
 struct PrivacyAcknowledgements: View {

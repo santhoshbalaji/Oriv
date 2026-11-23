@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AdBlockingPopover: View {
     @Environment(\.browserTheme) private var theme
+    @FocusState private var blockingModeFocused: Bool
     let session: BrowserSession
     private var blocker: AdBlocker { session.adBlocker }
     private var tab: BrowserTab? { session.selectedTab }
@@ -13,6 +14,7 @@ struct AdBlockingPopover: View {
             Picker("Blocking mode", selection: Binding(get: { blocker.mode }, set: { blocker.setMode($0) })) {
                 ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented)
+                .focusable().focused($blockingModeFocused)
             Text(blocker.mode.detail).font(.callout).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
             if let tab, AdBlocker.host(for: tab.url) != nil {
                 Divider()
@@ -30,6 +32,7 @@ struct AdBlockingPopover: View {
                 .font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
         .padding(20) }.frame(width: 360, height: 620)
+            .defaultFocus($blockingModeFocused, true)
             .browserGeometryMarker("sitePrivacyPanelGeometry")
     }
 }
