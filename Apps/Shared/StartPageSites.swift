@@ -69,16 +69,16 @@ struct StartPageSites: View {
                             Text(name).font(OrivType.detail).lineLimit(2, reservesSpace: true).multilineTextAlignment(.center)
                         }
                         .padding(OrivSpacing.small)
-                        .frame(maxWidth: .infinity, minHeight: 84)
+                        .frame(maxWidth: .infinity, minHeight: OrivLayout.tileMinimumHeight)
                         .foregroundStyle(theme.text)
-                        .contentShape(.rect(cornerRadius: OrivRadius.medium))
+                        .contentShape(.rect(cornerRadius: OrivRadius.tile))
                     }
                     #if os(macOS)
                     .orivButton(.quiet)
                     #else
                     .buttonStyle(.plain)
                     #endif
-                    .background(theme.surface, in: .rect(cornerRadius: OrivRadius.medium))
+                    .modifier(Tile(kind: .site))
                     .accessibilityLabel(name)
                     .accessibilityHint(url.host ?? "")
                     .accessibilityIdentifier("\(id)-tile")

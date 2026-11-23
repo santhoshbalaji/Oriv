@@ -87,12 +87,11 @@ struct MobileAppearanceSettings: View {
                         Button { appearance = choice } label: {
                             VStack(alignment: .leading, spacing: OrivSpacing.medium) {
                                 if !typeSize.isAccessibilitySize { AppearancePreview(choice: choice) }
-                                Text(choice.displayName).font(.body).foregroundStyle(theme.text).fixedSize(horizontal: false, vertical: true)
+                                Text(choice.displayName).font(OrivType.body).foregroundStyle(theme.text).fixedSize(horizontal: false, vertical: true)
                                 Label(appearance == choice ? "Selected" : "Use theme", systemImage: appearance == choice ? "checkmark.circle.fill" : "circle")
-                                    .font(.callout).foregroundStyle(theme.secondaryText)
+                                    .font(OrivType.detail).foregroundStyle(theme.secondaryText)
                             }.padding(OrivSpacing.large).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(theme.surface, in: .rect(cornerRadius: OrivRadius.large))
-                                .modifier(ListSelection(kind: .card, selected: appearance == choice, radius: OrivRadius.card))
+                                .modifier(Tile(kind: .appearance(theme.surface), selected: appearance == choice))
                         }.buttonStyle(.plain).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }

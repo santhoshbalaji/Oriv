@@ -511,8 +511,14 @@ struct SidebarTabArtwork: View {
         .padding(.horizontal, rail || tile ? 0 : MacBrowserLayout.sidebarRowInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(theme.text)
-        .background(selected ? theme.sidebar.selection : (hovered ? theme.sidebar.hover : (tile && !rail ? theme.sidebar.field.opacity(0.6) : .clear)),
-                    in: .rect(cornerRadius: radius))
+        .background {
+            let fill = selected ? theme.sidebar.selection : hovered ? theme.sidebar.hover : .clear
+            if rail || tile {
+                Rectangle().fill(.clear).modifier(Tile(kind: .pinned(tile && !rail && !selected && !hovered ? theme.sidebar.field.opacity(0.6) : fill)))
+            } else {
+                RoundedRectangle(cornerRadius: OrivRadius.control).fill(fill)
+            }
+        }
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .leading) {
             if active { SelectionMarker(height: 16, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil).padding(.leading, 1) }
@@ -524,7 +530,7 @@ struct SidebarTabArtwork: View {
         }
     }
 
-    private var radius: CGFloat { rail || tile ? OrivRadius.medium : OrivRadius.small }
+    private var radius: CGFloat { rail || tile ? OrivRadius.tile : OrivRadius.control }
 
     private func badge(_ symbol: String) -> some View {
         Image(systemName: symbol).font(.system(size: 10, weight: .bold)).frame(width: 12, height: 12)

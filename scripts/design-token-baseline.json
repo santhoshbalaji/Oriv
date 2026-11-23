@@ -32,7 +32,7 @@
     "spacing": 3
   },
   "Apps/iOS/MobileSettingsView.swift": {
-    "font style": 10,
+    "font style": 8,
     "padding": 1,
     "spacing": 1
   },
@@ -49,7 +49,7 @@
     "raw color": 3
   },
   "Apps/macOS/Views/AppearanceSettings.swift": {
-    "font style": 7,
+    "font style": 6,
     "padding": 2,
     "spacing": 1
   },

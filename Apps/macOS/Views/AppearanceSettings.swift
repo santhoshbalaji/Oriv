@@ -125,6 +125,7 @@ struct AppearanceSettings: View {
                                 Image(systemName: appearance == choice ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(appearance == choice ? theme.accent : theme.secondaryText)
                             }.padding(OrivSpacing.small).frame(maxWidth: .infinity)
+                                .modifier(Tile(kind: .appearance(.clear), selected: appearance == choice))
                         }.orivButton(.quiet).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
@@ -179,17 +180,15 @@ struct AppearanceSettings: View {
 
     private func sidebarSwatch(_ choice: SidebarColor, profileColor: ProfileColor) -> some View {
         let selected = controller.sidebarColor == choice
-        let shape = RoundedRectangle(cornerRadius: OrivRadius.small)
         return Button {
             controller.sidebarColor = choice
         } label: {
             VStack(spacing: OrivSpacing.xs) {
-                shape.fill(choice.backing(in: .graphite, profileColor: profileColor))
-                    .frame(height: 24)
-                    .modifier(ListSelection(kind: .card, selected: selected))
+                Rectangle().fill(.clear).frame(height: OrivTarget.macMinimum.height)
+                    .modifier(Tile(kind: .swatch(choice.backing(in: .graphite, profileColor: profileColor)), selected: selected))
                     .overlay {
                         if selected {
-                            Image(systemName: "checkmark").font(.caption.weight(.semibold))
+                            Image(systemName: "checkmark").font(OrivType.caption.weight(.semibold))
                                 .foregroundStyle(Theme.graphite.text)
                         }
                     }
