@@ -160,7 +160,7 @@ a download is active.
 | Search height and horizontal padding | 28 and 8 |
 | Section height and extra spacing before Tabs and Private | 24 and 4 |
 | Standard row height and between-row gap | 32 and 2 |
-| Close and audio slot width | 22 each |
+| Close and audio hit target | 24 × 24 each |
 | Pin tile height, icon and gap | 46, 17 and 4 |
 | Expanded footer button band and button size | 36 and 32 × 32 |
 | Rail footer button target | 42 × 36 |

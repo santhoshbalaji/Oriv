@@ -958,6 +958,15 @@ import WebKit
             let name = "mac-glass-sidebar-v3-\(label)"
             await capture(name, directory, CGSize(width: 1120, height: 650), key: false, settle: 280,
                           appearance: appearance, prepare: { window in
+                if label.hasPrefix("dark-white-"), let web = active.session.selectedTab?.webView {
+                    window.makeFirstResponder(web)
+                    // Off-screen WebKit paint sampling can retain the dark theme canvas.
+                    // Set a known light toolbar input while keeping the loaded page visible.
+                    let pageChrome = active.profileUI.pageChrome
+                    pageChrome.observe(nil)
+                    pageChrome.setEmptyPageColor(ChromeColor(1, 1, 1))
+                    try? await Task.sleep(for: .milliseconds(150))
+                }
                 writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
             }) {
                 BrowserWindow(controller: active, profiles: active === controller ? profiles : nil)

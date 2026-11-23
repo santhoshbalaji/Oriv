@@ -81,7 +81,7 @@ enum OrivLayout {
     static let sidebarPinIconSize: CGFloat = 17
     static let sidebarFooterHeight: CGFloat = 36
     static let sidebarDownloadBadgeSize: CGFloat = 6
-    static let sidebarAccessoryWidth: CGFloat = 22
+    static let sidebarAccessoryWidth = OrivTarget.macMinimum.width
     static let sidebarBadgeSize: CGFloat = 12
     static let sidebarFaviconSize: CGFloat = 19
     static let sidebarRailFaviconSize: CGFloat = 22
