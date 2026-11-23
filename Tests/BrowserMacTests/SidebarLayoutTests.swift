@@ -41,9 +41,7 @@ import XCTest
         let controller = profiles.controller
         let window = makeWindow(controller, profiles: profiles, largestText: false, key: false)
         defer { window.close() }
-        let footer = ["sidebarFooterGeometry", "sidebarFooter-Settings"] + LibrarySection.allCases.map {
-            "sidebarFooter-\($0.rawValue)"
-        }
+        let footer = ["sidebarFooterGeometry", "sidebarFooter-Library", "sidebarFooter-Settings"]
         try await eventually("one-profile footer") { footer.allSatisfy { self.geometry($0, in: window) != nil } }
         let baseline = try footer.map { try frame($0, in: window) }
         XCTAssertNil(marker("sidebarProfileDotsGeometry", in: window))
@@ -92,7 +90,7 @@ import XCTest
             guard let surface = self.geometry("sidebarSurfaceGeometry", in: window),
                   let toolbar = self.geometry("browserTopBarGeometry", in: window) else { return false }
             return abs(surface.width - (overlay ? MacBrowserLayout.sidebarWidth : reserved)) <= 1
-                && abs(toolbar.minX - reserved) <= 1
+                && abs(toolbar.minX - reserved - 2 * MacBrowserLayout.panelInset) <= 1
         }
     }
     private func waitForTitlebar(_ window: NSWindow, height: CGFloat) async throws {
@@ -106,7 +104,7 @@ import XCTest
         let content = try XCTUnwrap(window.contentView, file: file, line: line)
         let top = try XCTUnwrap(marker("browserTopBarGeometry", in: window), file: file, line: line)
         let topFrame = top.convert(top.bounds, to: nil)
-        XCTAssertEqual(topFrame.minX, collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(topFrame.minX, (collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) + 2 * MacBrowserLayout.panelInset, accuracy: 1, file: file, line: line)
         XCTAssertEqual(topFrame.maxX, content.convert(content.bounds, to: nil).maxX, accuracy: 1, file: file, line: line)
         XCTAssertEqual(topFrame.maxY, content.convert(content.bounds, to: nil).maxY, accuracy: 1, file: file, line: line)
         XCTAssertEqual(topFrame.height, MacBrowserLayout.headerHeight, accuracy: 1, file: file, line: line)
@@ -114,10 +112,10 @@ import XCTest
             // Measure the actual material, not its formerly padded wrapper.
             let sidebar = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: window), file: file, line: line)
             let rect = sidebar.convert(sidebar.bounds, to: nil)
-            XCTAssertEqual(rect.minX, 0, accuracy: 1, file: file, line: line)
-            XCTAssertEqual(rect.minY, 0, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(rect.minX, MacBrowserLayout.panelInset, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(rect.minY, MacBrowserLayout.panelInset, accuracy: 1, file: file, line: line)
             XCTAssertEqual(rect.width, overlay ? MacBrowserLayout.sidebarWidth : (collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth), accuracy: 1, file: file, line: line)
-            XCTAssertEqual(rect.height, content.bounds.height, accuracy: 1, file: file, line: line)
+            XCTAssertEqual(rect.height, content.bounds.height - 2 * MacBrowserLayout.panelInset, accuracy: 1, file: file, line: line)
         }
     }
     func testFourPinnedTilesAlignWithRegularRowAt256Points() async throws {
@@ -137,7 +135,12 @@ import XCTest
         let row = try XCTUnwrap(layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 1))).frame
         XCTAssertEqual(tiles.first?.minX, row.minX)
         XCTAssertEqual(tiles.last?.maxX, row.maxX)
-        XCTAssertTrue(tiles.allSatisfy { $0.minY == tiles[0].minY && $0.width == 54 })
+        for offset in [0, 2] {
+            XCTAssertEqual(tiles[offset].minX, row.minX)
+            XCTAssertEqual(tiles[offset + 1].maxX, row.maxX)
+            XCTAssertEqual(tiles[offset].minY, tiles[offset + 1].minY)
+        }
+        XCTAssertLessThan(tiles[0].maxY, tiles[2].minY)
         let surface = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: window))
         let rect = surface.convert(surface.bounds, to: content)
         let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: rect))
@@ -158,7 +161,7 @@ import XCTest
         try await waitForSidebar(window, rail: false)
         try checkGeometry(window, collapsed: false)
     }
-    func testExpandedAndNarrowOverlayUseEightPointGuttersAndFivePointFooterGap() async throws {
+    func testExpandedAndNarrowOverlayUseEightPointGutters() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let controller = profiles.controller
         let window = makeWindow(controller, profiles: profiles, largestText: false); defer { window.close() }
@@ -185,29 +188,29 @@ import XCTest
             }
             let row = try frame("sidebarItem-\(tab)", in: window)
             let icon = try frame("sidebarFavicon-\(tab)", in: window)
-            XCTAssertEqual(row.height, 36, accuracy: 1)
+            XCTAssertEqual(row.height, OrivLayout.tabRowHeight, accuracy: 1)
             XCTAssertEqual(icon.minX - row.minX, 8, accuracy: 1)
             XCTAssertEqual(try frame("sidebarSection-Tabs", in: window).minX, icon.minX, accuracy: 1)
             let footer = try frame("sidebarFooterGeometry", in: window)
-            let footerTitles = LibrarySection.allCases.map(\.rawValue) + ["Settings"]
+            let footerTitles = ["Library", "Settings"]
             let footerButtons = try footerTitles.map { try frame("sidebarFooter-\($0)", in: window) }
             for (title, button) in zip(footerTitles, footerButtons) {
                 XCTAssertTrue(footer.contains(button), title)
-                XCTAssertEqual(button.width, 32, accuracy: 1, title)
+                XCTAssertGreaterThanOrEqual(button.width, OrivLayout.controlHeight, title)
                 XCTAssertEqual(button.height, 32, accuracy: 1, title)
             }
             for (left, right) in zip(footerButtons, footerButtons.dropFirst()) {
                 XCTAssertLessThanOrEqual(left.maxX, right.minX)
             }
             XCTAssertEqual(footer.minY - surface.minY, 8, accuracy: 1)
-            XCTAssertEqual(try frame("sidebarNewTabGeometry", in: window).minY - footer.maxY, 5, accuracy: 1)
-            XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 1)
-            XCTAssertEqual(surface.maxY - (try frame("sidebarProfileGeometry", in: window)).maxY, 40, accuracy: 1)
-            XCTAssertEqual(surface.maxY - (try frame("sidebarToggleGeometry", in: window)).midY, 16, accuracy: 1)
+            XCTAssertEqual(try frame("sidebarNewTabGeometry", in: window).minY - footer.maxY, MacBrowserLayout.sidebarFooterGap, accuracy: 1)
+            XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, MacBrowserLayout.sidebarTitlebarHeight, accuracy: 1)
+            XCTAssertEqual(surface.maxY - (try frame("sidebarProfileGeometry", in: window)).maxY, MacBrowserLayout.sidebarTitlebarHeight + OrivSpacing.xs, accuracy: 1)
+            XCTAssertEqual(surface.maxY - (try frame("sidebarToggleGeometry", in: window)).midY, MacBrowserLayout.headerHeight / 2 - MacBrowserLayout.panelInset, accuracy: 1)
         }
     }
 
-    func testRailUsesMinimumWidthAndNoOuterTopOrBottomInsets() async throws {
+    func testRailUsesMinimumWidthAndInsetGlass() async throws {
         let controller = BrowserController(testing: true); defer { controller.shutdown() }
         controller.compactSidebar = true
         let window = makeWindow(controller, largestText: false); defer { window.close() }
@@ -220,7 +223,7 @@ import XCTest
             try await eventually("rail toggle position") {
                 guard let surface = self.geometry("sidebarSurfaceGeometry", in: window),
                       let toggle = self.geometry("sidebarToggleGeometry", in: window) else { return false }
-                return abs(surface.maxY - toggle.maxY - (fullscreen ? 0 : 32)) <= 1
+                return abs(surface.maxY - toggle.maxY - (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight)) <= 1
             }
             let surface = try frame("sidebarSurfaceGeometry", in: window)
             let tab = try XCTUnwrap(controller.session.selectedTabID)
@@ -231,8 +234,8 @@ import XCTest
                 XCTAssertEqual(rect.height, 36, accuracy: 1, name)
             }
             let toggle = try frame("sidebarToggleGeometry", in: window)
-            XCTAssertEqual(surface.maxY - toggle.maxY, fullscreen ? 0 : 32, accuracy: 1)
-            XCTAssertEqual(try frame("sidebarFooter-Settings", in: window).minY - surface.minY, 0, accuracy: 1)
+            XCTAssertEqual(surface.maxY - toggle.maxY, fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight, accuracy: 1)
+            XCTAssertEqual(try frame("sidebarFooter-Settings", in: window).minY - surface.minY, OrivSpacing.small, accuracy: 1)
         }
     }
 
@@ -249,8 +252,8 @@ import XCTest
         let profile = try frame("sidebarProfileGeometry", in: window)
         let toggle = try frame("sidebarToggleGeometry", in: window)
         XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 0, accuracy: 1)
-        XCTAssertEqual(surface.maxY - profile.maxY, 8, accuracy: 1)
-        XCTAssertEqual(surface.maxY - toggle.maxY, 8, accuracy: 1)
+        XCTAssertEqual(surface.maxY - profile.maxY, OrivSpacing.xs, accuracy: 1)
+        XCTAssertEqual(surface.maxY - toggle.maxY, OrivSpacing.xs, accuracy: 1)
         XCTAssertGreaterThanOrEqual(toggle.minX - profile.maxX, 8 - 1)
         // Visibility represents the two reveal states without a system Space
         // transition. Native host painting still needs foreground acceptance.
@@ -264,9 +267,9 @@ import XCTest
             XCTAssertTrue(window.titlebarAccessoryViewControllers.isEmpty, "No extra reveal height is reserved")
         }
         chrome.simulatesFullscreenLayout = false; chrome.configure()
-        try await waitForTitlebar(window, height: 32)
+        try await waitForTitlebar(window, height: MacBrowserLayout.sidebarTitlebarHeight)
         XCTAssertTrue(window.titlebarAppearsTransparent)
-        XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, 32, accuracy: 1)
+        XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, MacBrowserLayout.sidebarTitlebarHeight, accuracy: 1)
     }
 
     func testProfileNameAndCountAlignAndStayClearOfSearchAndToggle() async throws {
@@ -275,21 +278,22 @@ import XCTest
             for _ in 0..<2 { _ = profiles.controller.session.addTab(select: false, load: false) }
             let window = makeWindow(profiles.controller, profiles: profiles, largestText: false, appearance: appearance)
             defer { window.close() }
-            try await waitForTitlebar(window, height: 32)
+            try await waitForTitlebar(window, height: MacBrowserLayout.sidebarTitlebarHeight)
             let chrome = try XCTUnwrap(window.contentView.flatMap { descendants($0).compactMap { $0 as? BrowserWindowChrome.WindowChromeView }.first })
             for fullscreen in [false, true] {
                 chrome.simulatesFullscreenLayout = fullscreen; chrome.configure()
-                try await waitForTitlebar(window, height: fullscreen ? 0 : 32)
+                try await waitForTitlebar(window, height: fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight)
                 let profile = try frame("sidebarProfileGeometry", in: window)
                 let name = try frame("sidebarProfileNameGeometry", in: window)
                 let count = try frame("sidebarProfileCountGeometry", in: window)
                 let search = try frame("sidebarSearchGeometry", in: window)
                 let toggle = try frame("sidebarToggleGeometry", in: window)
-                XCTAssertEqual(profile.minX, 8, accuracy: 1)
-                XCTAssertEqual(profile.height, 44, accuracy: 1)
-                XCTAssertEqual(name.minX, count.minX, accuracy: 1)
+                XCTAssertEqual(profile.minX, MacBrowserLayout.panelInset + MacBrowserLayout.sidebarInset, accuracy: 1)
+                XCTAssertEqual(profile.height, OrivLayout.sidebarProfileHeight, accuracy: 1)
+                XCTAssertLessThanOrEqual(name.maxX, count.minX)
+                XCTAssertEqual(name.midY, count.midY, accuracy: 1)
                 XCTAssertTrue(profile.contains(name)); XCTAssertTrue(profile.contains(count))
-                XCTAssertGreaterThanOrEqual(profile.minY - search.maxY, 8 - 1)
+                XCTAssertGreaterThanOrEqual(profile.minY - search.maxY, OrivSpacing.xs - 1)
                 XCTAssertFalse(profile.intersects(toggle)); XCTAssertFalse(search.intersects(toggle))
             }
         }
@@ -493,8 +497,8 @@ import XCTest
                 XCTAssertFalse(button.isHiddenOrHasHiddenAncestor)
                 XCTAssertTrue(button.window === window && window.isVisible)
                 XCTAssertEqual(frame.minX, (collapsed ? MacBrowserLayout.railLightsInset : MacBrowserLayout.lightsInset) + CGFloat(i) * MacBrowserLayout.lightsSpacing, accuracy: 1)
-                XCTAssertEqual(window.contentView!.bounds.maxY - frame.midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)
-                XCTAssertLessThanOrEqual(frame.maxX, collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
+                XCTAssertEqual(window.contentView!.bounds.maxY - frame.midY, MacBrowserLayout.headerHeight / 2, accuracy: 1)
+                XCTAssertLessThanOrEqual(frame.maxX, (collapsed ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) + MacBrowserLayout.panelInset)
                 XCTAssertTrue(button.superview!.bounds.contains(button.frame), "Native hit testing must include the entire button")
             }
         }
@@ -557,8 +561,8 @@ import XCTest
             let width = rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth
             try await eventually("RTL sidebar and toolbar positions") {
                 window.contentView?.layoutSubtreeIfNeeded()
-                return abs((self.geometry("sidebarSurfaceGeometry", in: window)?.minX ?? 0) - (1040 - width)) < 1
-                    && abs((self.geometry("browserTopBarGeometry", in: window)?.maxX ?? 0) - (1040 - width)) < 1
+                return abs((self.geometry("sidebarSurfaceGeometry", in: window)?.minX ?? 0) - (1040 - width - MacBrowserLayout.panelInset)) < 1
+                    && abs((self.geometry("browserTopBarGeometry", in: window)?.maxX ?? 0) - (1040 - width - 2 * MacBrowserLayout.panelInset)) < 1
                     && self.marker("sidebarFavicon-\(tab.id)", in: window) != nil
             }
             let sidebar = try frame("sidebarSurfaceGeometry", in: window)
@@ -576,7 +580,7 @@ import XCTest
             for (index, button) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                 let view = try XCTUnwrap(window.standardWindowButton(button))
                 let rect = view.convert(view.bounds, to: nil)
-                XCTAssertEqual(sidebar.maxX - rect.maxX,
+                XCTAssertEqual(sidebar.maxX + MacBrowserLayout.panelInset - rect.maxX,
                     (rail ? MacBrowserLayout.railLightsInset : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing,
                     accuracy: 1)
             }
@@ -612,7 +616,7 @@ import XCTest
         try await Task.sleep(for: .milliseconds(800))
         try checkGeometry(window, collapsed: true)
         let button = try XCTUnwrap(window.standardWindowButton(.closeButton))
-        XCTAssertEqual(window.contentView!.bounds.maxY - button.convert(button.bounds, to: nil).midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)
+        XCTAssertEqual(window.contentView!.bounds.maxY - button.convert(button.bounds, to: nil).midY, MacBrowserLayout.headerHeight / 2, accuracy: 1)
     }
     func testExternalPrivateWindowUsesSameLayout() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }

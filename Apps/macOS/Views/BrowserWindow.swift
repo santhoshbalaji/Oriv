@@ -17,6 +17,7 @@ struct BrowserWindow: View {
     @State private var windowWidth: CGFloat = 1250
     @State private var sidebarClipWidth: CGFloat = MacBrowserLayout.sidebarWidth
     @State private var peekReturnFocus: NSResponder?
+    @State private var windowSidebarWidth: CGFloat?
     @State private var fullscreen = false
     @State private var windowActive = true
     @State private var windowContext = MacBrowserWindowContext()
@@ -38,8 +39,8 @@ struct BrowserWindow: View {
     private var showsExternalPrivateBar: Bool { session.isExternalPrivate && profiles?.externalBannerVisible == true }
     private var compact: Bool { controller.sidebar.rail }
     private var pageRail: Bool { controller.sidebar.reservesRail }
-    private var showsToolbarDownloads: Bool { controller.downloads.hasActiveDownloads && (pageRail || windowWidth >= 800) }
-    private var showsExpandedToolbarActions: Bool { pageRail || windowWidth >= 1000 }
+    private var showsToolbarDownloads: Bool { controller.downloads.hasActiveDownloads }
+    private var showsExpandedToolbarActions: Bool { pageRail || windowWidth - controller.sidebar.reservation >= 728 }
     private var canFillPassword: Bool {
         controller.canAutoFillPassword && !addressFocused && !findFocused && !sidebarContainsKeyboardFocus
     }
@@ -67,7 +68,6 @@ struct BrowserWindow: View {
     private var contentUnderChrome: Bool { pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
     private var chromeForeground: Color { pageChrome.foreground }
     private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark) }
-    private var privateCue: Color { pageChrome.contrasting(pageChrome.isDark ? Theme.privateDark : Theme.privateLight) }
 
     private var sceneContent: some View {
         routedContent
@@ -201,6 +201,12 @@ struct BrowserWindow: View {
 
     private var shell: some View {
         ZStack(alignment: .topLeading) {
+            theme.canvas.overlay(alignment: .top) {
+                pageChrome.color.frame(height: MacBrowserLayout.headerHeight)
+                    .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
+            }
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
             VStack(spacing: 0) {
                 mainTopBar.zIndex(1)
                     .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
@@ -213,8 +219,9 @@ struct BrowserWindow: View {
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             sidebarPanel
-                .frame(width: sidebarClipWidth, alignment: .leading).contentShape(Rectangle()).clipped()
-                .modifier(controller.sidebar.overlay ? OrivElevation.drawer : .flat)
+                .frame(width: controller.sidebar.isResizing ? controller.sidebar.width : sidebarClipWidth, alignment: .leading)
+                .clipped()
+                .padding([.top, .bottom, .leading], MacBrowserLayout.panelInset)
                 .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
                 .allowsHitTesting(!controller.sidebar.webpageFullscreen)
                 .accessibilityHidden(controller.sidebar.webpageFullscreen)
@@ -225,9 +232,16 @@ struct BrowserWindow: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
             windowWidth = $0
         }
-        .onAppear { sidebarClipWidth = controller.sidebar.width }
+        .onAppear {
+            windowSidebarWidth = controller.sidebar.expandedWidth
+            sidebarClipWidth = controller.sidebar.width
+        }
+        .onChange(of: controller.sidebarDragID) { _, _ in
+            if let windowSidebarWidth { controller.sidebar.setExpandedWidth(windowSidebarWidth) }
+        }
         .onChange(of: controller.scoped(controller.sidebar.transition)) { previous, next in
-            withAnimation(reduceMotion || previous.owner != next.owner ? nil : .easeOut(duration: previous.value.peeking || next.value.peeking ? 0.18 : 0.2)) {
+            withAnimation(reduceMotion || controller.sidebar.isResizing || previous.owner != next.owner
+                          ? nil : (previous.value.peeking || next.value.peeking ? OrivMotion.quick : OrivMotion.standard)) {
                 sidebarClipWidth = next.value.width
             }
         }
@@ -254,7 +268,7 @@ struct BrowserWindow: View {
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(pageChrome.color, ignoresSafeAreaEdges: [])
         .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor, profileEpoch: controller.sidebarDragID))
-        .background(BrowserWindowChrome(windowContext: windowContext, compact: controller.sidebar.reservesRail,
+        .background(BrowserWindowChrome(windowContext: windowContext, compact: controller.sidebar.reservesRail, sidebarWidth: controller.sidebar.width,
             initialContentFocus: tab?.url != nil || tab?.hasLoaded == true ? tab?.webView : nil,
             shouldApplyProfileSwitchFocus: profileSwitchFocus, profileEpoch: controller.sidebarDragID,
             externalPresentationRequest: session.isExternalPrivate ? profiles?.externalPresentationRequest : nil,
@@ -317,7 +331,9 @@ struct BrowserWindow: View {
                     }
                 }
                 .padding(.leading, railHeader ? MacBrowserLayout.railInset : controller.sidebar.width - MacBrowserLayout.sidebarInset - 30)
-                .padding(.top, railHeader ? (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight) : (fullscreen ? 8 : 1))
+                .padding(.top, railHeader ? (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight)
+                                          : (fullscreen ? OrivSpacing.xs : (MacBrowserLayout.sidebarTitlebarHeight - OrivTarget.macToolbar.height) / 2))
+                .offset(y: !fullscreen && !railHeader ? -MacBrowserLayout.panelInset / 2 : 0)
                 .opacity(windowActive ? 1 : 0.75)
         }
         .background {
@@ -326,9 +342,26 @@ struct BrowserWindow: View {
                 .accessibilityHidden(true)
                 .browserGeometryMarker("sidebarSurfaceGeometry")
         }
+        .overlay(alignment: .trailing) {
+            if !railHeader {
+                SidebarResizeGrip(width: controller.sidebar.expandedWidth, direction: layoutDirection,
+                                  resize: resizeSidebar)
+                    .frame(width: MacBrowserLayout.panelInset)
+                    .padding(.vertical, OrivSpacing.xl)
+            }
+        }
         .onHover { inside in controller.sidebar.panelInside = inside }
         .onChange(of: sidebarHeaderToggleFocused) { _, focused in controller.sidebar.focusInside = focused || sidebarContainsKeyboardFocus }
         .browserGeometryMarker("browserSidebarGeometry")
+    }
+
+    private func resizeSidebar(to width: CGFloat, dragging: Bool) {
+        controller.sidebar.setExpandedWidth(width, resizing: dragging)
+        sidebarClipWidth = controller.sidebar.width
+        windowSidebarWidth = controller.sidebar.expandedWidth
+        if !dragging, !controller.testing {
+            UserDefaults.standard.set(Double(controller.sidebar.expandedWidth), forKey: SidebarPresentation.widthPreferenceKey)
+        }
     }
 
     private func restoreSearchFocus() {
@@ -361,7 +394,7 @@ struct BrowserWindow: View {
         Button(action: toggleSidebar) {
             Image(systemName: layoutDirection == .rightToLeft ? "sidebar.right" : "sidebar.left").font(OrivIcon.toolbarFont).frame(width: railHeader ? 42 : 30, height: railHeader ? 36 : 30).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).focusable().focused($sidebarHeaderToggleFocused)
+        .buttonStyle(SidebarToneButtonStyle()).focusable().focused($sidebarHeaderToggleFocused)
         .keyboardShortcut("s", modifiers: [.command, .option])
         .help(controller.sidebar.peeking ? "Keep Sidebar Expanded (⌥⌘S)" : railHeader ? "Expand Sidebar (⌥⌘S)" : "Collapse to Icon Rail (⌥⌘S)")
         .accessibilityLabel(controller.sidebar.peeking ? "Keep Sidebar Expanded" : railHeader ? "Expand Sidebar" : "Collapse Sidebar")
@@ -372,7 +405,7 @@ struct BrowserWindow: View {
         .browserGeometryMarker("sidebarToggleKeyboardFocus", when: sidebarHeaderToggleFocused)
         .onKeyPress(.downArrow) { sidebarTabs.focus(); return .handled }
         .accessibilitySortPriority(2)
-        .foregroundStyle(.primary)
+        .foregroundStyle(theme.text)
     }
 
     private func toggleSidebar() {
@@ -419,12 +452,24 @@ struct BrowserWindow: View {
         .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
     }
 
+    private var addressEndInset: CGFloat {
+        tab?.pageZoom != 1 && tab?.url != nil ? 2 * OrivTarget.macRail.height : OrivTarget.macRail.height
+    }
+
     private var addressCapsule: some View {
         @Bindable var ui = self.ui
         return HStack(spacing: OrivSpacing.small) {
                     if tab?.isPrivate == true {
-                        Image(systemName: "eyeglasses").font(OrivType.detail)
-                            .foregroundStyle(privateCue).accessibilityLabel("Private browsing")
+                        Label("Private", systemImage: "eyeglasses")
+                            .font(OrivType.badge)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .foregroundStyle(theme.private)
+                            .padding(.horizontal, OrivSpacing.xs)
+                            .padding(.vertical, OrivSpacing.xxs)
+                            .background(theme.privateWash, in: Capsule())
+                            .accessibilityLabel("Private browsing")
+                            .browserGeometryMarker("privateAddressPillGeometry")
                     }
                     if let tab, tab.url != nil {
                         let cue = ConnectionCue(tab)
@@ -458,7 +503,8 @@ struct BrowserWindow: View {
                         .frame(width: compactAddressWidth, height: 20)
                         .frame(maxWidth: compactAddressWidth == nil ? .infinity : nil)
                 }
-                .padding(.horizontal, tab?.pageZoom != 1 && tab?.url != nil ? 72 : 36)
+                .padding(.leading, tab?.isPrivate == true ? OrivSpacing.small : addressEndInset)
+                .padding(.trailing, addressEndInset)
                 .frame(height: OrivLayout.controlHeight).frame(minWidth: 230, idealWidth: addressWidth, maxWidth: addressWidth)
                 .overlay(alignment: .trailing) {
                     HStack(spacing: OrivSpacing.xs) {
@@ -600,10 +646,6 @@ struct BrowserWindow: View {
                 if let notice = session.persistenceNotice {
                     OrivBanner(notice, tone: .warning, symbol: "externaldrive.badge.exclamationmark",
                                dismiss: session.canPersist ? { session.dismissNotice() } : nil)
-                }
-                // The private start page explains itself; loaded private pages keep this persistent cue.
-                if tab?.isPrivate == true && !showsExternalPrivateBar && tab?.url != nil {
-                    OrivBanner("Private browsing", tone: .privateBrowsing)
                 }
                 if ui.showFind {
                     findBar

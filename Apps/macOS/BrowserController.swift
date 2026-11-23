@@ -57,6 +57,7 @@ final class BrowserController {
     let session: BrowserSession
     let downloads = DownloadManager()
     let sidebar = SidebarPresentation()
+    let testing: Bool
     let sidebarTooltip = SidebarTooltip()
     let profileUI = BrowserProfileUI()
 
@@ -178,8 +179,13 @@ final class BrowserController {
     init(profile: BrowserProfile? = .personal, rootDirectory: URL? = nil, testing: Bool? = nil, websiteStore: WKWebsiteDataStore? = nil,
          privateTabIsolation: PrivateTabIsolation? = nil) {
         self.profile = profile
+        let isTesting = testing ?? SessionFactory.isTesting
+        self.testing = isTesting
+        if !isTesting, let width = UserDefaults.standard.object(forKey: SidebarPresentation.widthPreferenceKey) as? Double {
+            sidebar.setExpandedWidth(CGFloat(width))
+        }
         let factory = SessionFactory(profile: profile, rootOverride: rootDirectory,
-            testing: testing ?? SessionFactory.isTesting,
+            testing: isTesting,
             bundleID: Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac", websiteStore: websiteStore,
             privateTabIsolation: privateTabIsolation)
         let defaults = factory.defaults

@@ -36,18 +36,22 @@ hardware keyboard; this change adds no general iOS tab-switch commands.
 | Search tabs (title-bearing panel from the rail) | ⇧⌘A |
 | Expand sidebar / collapse to favicon rail | ⌥⌘S |
 | Dismiss rail search and restore prior focus; clear expanded search | Escape |
-| Move between pinned tiles / tab rows | Arrow keys |
+| Highlight pinned tiles and tab rows | Arrows, Home, End, Page Up, Page Down |
 | Activate a focused tab | Return or Space |
 | Enter the selected tab from the sidebar toggle | Down Arrow |
 | Close the selected tab, including a pin | ⌘W |
+| Mute or unmute the selected tab | ⌃⌘M |
 | Select tabs in pinned-first visual order | ⌘1…8; ⌘9 selects the last tab |
 
-Tab search matches title or hostname locally. The rail panel has explicit Regular
-and Private scopes; queries and results stay in memory. Hover reveal is off by
-default in Settings → Appearance → Sidebar. Narrow windows retain the saved
-sidebar preference and use the rail; explicit expansion overlays the page. It does not use ⌘F, which continues to find text in the page.
-The context menu provides Pin/Unpin and Move Up/Down as alternatives to dragging.
-Tab/Shift-Tab reach the profile picker, search, tab controls, New Tab and footer.
+Tab search matches titles and hosts in the active profile. It begins in the
+selected tab’s privacy scope. Choose **Tabs** or **Private** in a mixed session
+to change scope. Escape clears the expanded search or closes the rail panel
+and restores prior focus. ⌘F finds text on the page.
+Hover reveal is off by default in Settings → Appearance → Sidebar. Narrow
+windows use the rail and can explicitly expand it over the page. Use the tab
+context menu for Pin, Unpin, Move Up and Move Down. Tab and Shift-Tab reach
+the profile picker, search, tab list, New Tab and footer. VoiceOver offers
+row actions for close and mute.
 
 Profile shortcuts apply in the regular browser window. macOS Mission Control
 shortcuts assigned to Control plus a digit take precedence.

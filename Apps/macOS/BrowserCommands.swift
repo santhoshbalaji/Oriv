@@ -53,6 +53,11 @@ struct BrowserCommands: Commands {
             Button("Reload Page From Origin") { controller.session.selectedTab?.reloadFromOrigin() }.keyboardShortcut("r", modifiers: [.command, .shift])
                 .disabled(controller.session.selectedTab?.url == nil)
             Button("Stop Loading") { controller.session.selectedTab?.stop() }.keyboardShortcut(".")
+            Button(controller.session.selectedTab?.isAudioMuted == true ? "Unmute Tab" : "Mute Tab") {
+                controller.session.selectedTab?.toggleAudioMute()
+            }
+            .keyboardShortcut("m", modifiers: [.command, .control])
+            .disabled(controller.session.selectedTab?.url == nil)
             Button("Reload Without Cache") { controller.session.selectedTab?.reloadFromOrigin() }.keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(controller.session.selectedTab?.url == nil)
             Divider()

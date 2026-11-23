@@ -69,9 +69,16 @@ enum OrivLayout {
     static let macAddressFontSize: CGFloat = 13
     static let sidebarWidth: CGFloat = 256
     static let railWidth: CGFloat = 72
-    static let toolbarHeight: CGFloat = 60
+    static let toolbarHeight: CGFloat = 50
     static let controlHeight: CGFloat = 32
-    static let tabRowHeight: CGFloat = 36
+    static let tabRowHeight: CGFloat = 33
+    static let sidebarProfileHeight: CGFloat = 34
+    static let sidebarPinHeight: CGFloat = 42
+    static let sidebarFooterHeight: CGFloat = 40
+    static let sidebarBadgeSize: CGFloat = 12
+    static let sidebarFaviconSize: CGFloat = 19
+    static let sidebarRailFaviconSize: CGFloat = 22
+    static let sidebarAccessibilityRowHeight: CGFloat = 60
     static let listRowHeight: CGFloat = 28
     static let suggestionRowHeight: CGFloat = 38
     static let rowInset = OrivSpacing.small
@@ -200,6 +207,20 @@ enum BrowserAppearance: String, CaseIterable, Identifiable {
         value.flatMap(Self.init(rawValue:)) ?? .system
     }
 }
+
+#if os(macOS)
+extension ProfileColor {
+    func sidebarInk(dark: Bool) -> Color {
+        switch self {
+        case .mulberry: Theme.hex(dark ? 0xE9B7EF : 0x692978)
+        case .ocean: Theme.hex(dark ? 0x95C8FF : 0x215B9A)
+        case .fern: Theme.hex(dark ? 0xA3D79A : 0x346738)
+        case .amber: Theme.hex(dark ? 0xF4C17E : 0x845214)
+        case .slate: Theme.hex(dark ? 0xB5C7D9 : 0x4B5D70)
+        }
+    }
+}
+#endif
 
 /// Color roles are scoped to the owning window, sheet or preview.
 struct Theme {
@@ -358,7 +379,7 @@ struct Theme {
     private static let highContrastSeparator = adaptive("StrongSeparator", light: 0x646469, dark: 0xA3A3A9)
     private static let highContrastSecondary = adaptive("StrongSecondary", light: 0x36363B, dark: 0xD9D9DD)
 
-    private static func hex(_ value: UInt32) -> Color {
+    fileprivate static func hex(_ value: UInt32) -> Color {
         Color(.sRGB, red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255,
               blue: Double(value & 255) / 255, opacity: 1)
     }
@@ -467,6 +488,7 @@ struct SiteIdentity: View {
     var isPrivate = false
     var isSelected = false
     var sidebarIcon = false
+    var showsSidebarPrivateBadge = false
     var cachedOnly = false
     var previewIcons: [String: SiteIcon]? = nil
     @Environment(\.colorScheme) private var colorScheme
@@ -491,8 +513,9 @@ struct SiteIdentity: View {
     }
 
     var body: some View {
-        ZStack {
-            if let icon, sidebarIcon, !isPrivate {
+        let artwork = icon
+        return ZStack {
+            if let icon = artwork, sidebarIcon {
                 // Opaque artwork is full bleed. Transparent glyphs get a plate
                 // only when their dominant luminance would disappear on the panel.
                 if let lightPlate = icon.lightPlate(onDark: colorScheme == .dark, selected: isSelected) {
@@ -500,7 +523,7 @@ struct SiteIdentity: View {
                 }
                 Image(decorative: icon.image, scale: 2).resizable().scaledToFit()
                     .clipShape(.rect(cornerRadius: size * 0.2))
-            } else if let image = icon?.image, !(sidebarIcon && isPrivate) {
+            } else if let image = artwork?.image {
                 RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
                 // A pale plate keeps black/transparent monochrome marks readable
                 // on dark sidebar material as well as light surfaces.
@@ -523,6 +546,18 @@ struct SiteIdentity: View {
         }
         .foregroundStyle(isPrivate ? theme.privateAccent : (isSelected ? theme.text : theme.secondaryText))
         .frame(width: size, height: size)
+        #if os(macOS)
+        .overlay(alignment: .topTrailing) {
+            if sidebarIcon && showsSidebarPrivateBadge && isPrivate && artwork != nil {
+                Image(systemName: "eyeglasses").resizable().scaledToFit()
+                    .padding(OrivSpacing.xxs)
+                    .frame(width: OrivLayout.sidebarBadgeSize, height: OrivLayout.sidebarBadgeSize)
+                    .foregroundStyle(theme.sidebarPrivateAccent)
+                    .background(theme.surface, in: Circle())
+                    .accessibilityHidden(true)
+            }
+        }
+        #endif
         .task(id: "\(url?.absoluteString ?? "")-\(isPrivate)-\((!sidebarIcon && !cachedOnly && url.flatMap { icons?.document?($0, isPrivate) } != nil))") {
             // Sidebar and start-page tiles are cache-only. The
             // session's completed-document path discovers icons. Sleeping

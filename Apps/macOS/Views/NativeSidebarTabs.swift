@@ -70,13 +70,14 @@ struct NativeSidebarTabs: NSViewRepresentable {
         scroll.userInterfaceLayoutDirection = direction
         list.userInterfaceLayoutDirection = direction
         let iconLayout = rail || peek
+        scroll.usesIconLayout = iconLayout
         scroll.scrollerStyle = iconLayout ? .overlay : NSScroller.preferredScrollerStyle
         scroll.hasVerticalScroller = !iconLayout
         handle.collection = list
         let profileChanged = context.coordinator.controller.map { $0 !== controller } ?? false
         if profileChanged { list.resetKeyboardNavigation() }
         context.coordinator.update(self, environment: context.environment)
-        if iconLayout, profileChanged {
+        if iconLayout, profileChanged, !context.environment.browserReduceMotion {
             scroll.wantsLayer = true
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
@@ -93,7 +94,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
     }
 }
 
-/// Style B has fixed geometry with two widths and a four-column pinned grid.
+/// Virtualized rows and a small group of full-width pin rows.
 private final class SidebarTabLayout: NSCollectionViewLayout {
     private var items: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var headers: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
@@ -109,10 +110,8 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
         let edge = icons ? MacBrowserLayout.railInset : 0
         let rowWidth = data.isRail ? MacBrowserLayout.railItemWidth : max(0, width - 2 * edge)
         let rowHeight = data.rowHeight
-        let spacing: CGFloat = icons ? 6 : 1
-        let gridColumns = 4
-        let gridGap: CGFloat = 8
-        let tileWidth = max(0, (rowWidth - CGFloat(gridColumns - 1) * gridGap) / CGFloat(gridColumns))
+        let spacing = icons ? OrivSpacing.small : OrivSpacing.xxs
+        let gridGap = OrivSpacing.xs
         var y: CGFloat = 0
         for (section, group) in data.sections.enumerated() {
             if group.headerHeight > 0 {
@@ -123,21 +122,31 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
                 headers[path] = header
                 y += group.headerHeight
             }
-            if group.grid { y += 4 }
-            for index in group.tabs.indices {
-                let path = IndexPath(item: index, section: section)
-                let item = NSCollectionViewLayoutAttributes(forItemWith: path)
-                if group.grid {
-                    let x = edge + CGFloat(index % gridColumns) * (tileWidth + gridGap)
-                    let origin = list.userInterfaceLayoutDirection == .rightToLeft ? width - x - tileWidth : x
-                    item.frame = NSRect(x: origin, y: y + CGFloat(index / gridColumns) * 57, width: tileWidth, height: 48)
-                } else {
-                    item.frame = NSRect(x: edge, y: y + CGFloat(index) * (rowHeight + spacing), width: rowWidth, height: rowHeight)
+            if group.grid {
+                var index = 0
+                for columns in SidebarTabs.pinRows(count: group.tabs.count) {
+                    let tileWidth = max(0, (rowWidth - CGFloat(columns - 1) * gridGap) / CGFloat(columns))
+                    for column in 0..<columns {
+                        let path = IndexPath(item: index, section: section)
+                        let item = NSCollectionViewLayoutAttributes(forItemWith: path)
+                        let x = edge + CGFloat(column) * (tileWidth + gridGap)
+                        let origin = list.userInterfaceLayoutDirection == .rightToLeft ? width - x - tileWidth : x
+                        item.frame = NSRect(x: origin, y: y, width: tileWidth, height: OrivLayout.sidebarPinHeight)
+                        items[path] = item
+                        index += 1
+                    }
+                    y += OrivLayout.sidebarPinHeight + gridGap
                 }
-                items[path] = item
+            } else {
+                for index in group.tabs.indices {
+                    let path = IndexPath(item: index, section: section)
+                    let item = NSCollectionViewLayoutAttributes(forItemWith: path)
+                    item.frame = NSRect(x: edge, y: y, width: rowWidth, height: rowHeight)
+                    items[path] = item
+                    y += rowHeight + spacing
+                }
+                if icons && !group.tabs.isEmpty { y -= spacing }
             }
-            if group.grid { y += CGFloat((group.tabs.count + gridColumns - 1) / gridColumns) * 57 - 4 }
-            else if !group.tabs.isEmpty { y += CGFloat(group.tabs.count) * (rowHeight + spacing) - (icons ? spacing : 0) }
         }
         contentSize = NSSize(width: width, height: y + (icons ? 0 : 9))
     }
@@ -174,7 +183,14 @@ private final class SidebarTabClipView: NSClipView {
 }
 
 final class SidebarTabScrollView: ProfileSidebarScrollView {
+    var usesIconLayout = false
     private var viewportWidth: CGFloat = 0
+    // AppKit can request a scroller again after laying out its document view.
+    override var hasVerticalScroller: Bool {
+        get { super.hasVerticalScroller }
+        set { super.hasVerticalScroller = newValue && !usesIconLayout }
+    }
+
     override func tile() {
         super.tile()
         guard let list = documentView as? SidebarTabCollection else { return }
@@ -200,9 +216,9 @@ private struct SidebarSection {
     var headerHeight: CGFloat {
         if separator { return 25 }
         switch heading {
-        case "Pinned", "Pin tab", "Unpin tab": return 28
+        case "Pinned", "Pin tab": return 28
         case "Private": return 36
-        case "Tabs", "More pinned tabs": return 32
+        case "Tabs", "Unpin tab": return 32
         case .some: return 40
         case nil: return 0
         }
@@ -217,13 +233,16 @@ private struct SidebarSection {
     fileprivate private(set) var sections: [SidebarSection] = []
     private var environment = EnvironmentValues()
     private var activeID: UUID?
-    private var preview: Task<Void, Never>?
     private(set) var hovered: IndexPath?
+    private var hoveredAccessory: SidebarRowAccessory?
     private var drag: SidebarTabTransfer?
     var controller: BrowserController? { configuration?.controller }
     var isRail: Bool { configuration?.rail == true }
     var isIconLayout: Bool { isRail || configuration?.peek == true }
-    var rowHeight: CGFloat { isIconLayout || !environment.dynamicTypeSize.isAccessibilitySize ? 36 : 60 }
+    var rowHeight: CGFloat {
+        if isIconLayout { return OrivTarget.macRail.height }
+        return environment.dynamicTypeSize.isAccessibilitySize ? OrivLayout.sidebarAccessibilityRowHeight : OrivLayout.tabRowHeight
+    }
 
     private func makeSections(_ configuration: NativeSidebarTabs) -> [SidebarSection] {
         let pinned = configuration.tabs.filter(\.isPinned)
@@ -235,24 +254,34 @@ private struct SidebarSection {
                 result.append(SidebarSection(kind: kind, tabs: tabs, separator: !result.isEmpty))
             }
         } else {
-            let pins = configuration.searching ? pinned : Array(pinned.prefix(SidebarTabs.gridLimit))
+            let gridCount = SidebarTabs.pinRows(count: pinned.count).reduce(0, +)
+            let pins = configuration.searching ? pinned : Array(pinned.prefix(gridCount))
+            let pinDrag = drag.flatMap { item in
+                configuration.tabs.first(where: { $0.id == item.id && !$0.isPrivate })
+            }
             if !pins.isEmpty {
-                result.append(SidebarSection(kind: .pinned, tabs: pins, heading: "Pinned", count: pinned.count,
+                result.append(SidebarSection(kind: .pinned, tabs: pins, heading: pinDrag?.isPinned == false ? "Pin tab" : "Pinned", count: pinned.count,
                                              grid: !configuration.searching, pinTarget: true))
                 if pins.count < pinned.count {
                     let overflow = Array(pinned.dropFirst(pins.count))
-                    result.append(SidebarSection(kind: .overflow, tabs: overflow, heading: "More pinned tabs", count: overflow.count))
+                    result.append(SidebarSection(kind: .overflow, tabs: overflow))
                 }
-            } else if drag != nil && !configuration.searching && !configuration.controller.session.isExternalPrivate {
-                result.append(SidebarSection(kind: .pinned, tabs: [], heading: "Pin tab", pinTarget: true))
             }
             if !regular.isEmpty {
-                result.append(SidebarSection(kind: .regular, tabs: regular, heading: "Tabs", count: regular.count, pinTarget: false))
-            } else if drag != nil && !configuration.searching && !configuration.controller.session.isExternalPrivate {
-                result.append(SidebarSection(kind: .regular, tabs: [], heading: "Unpin tab", pinTarget: false))
+                result.append(SidebarSection(kind: .regular, tabs: regular,
+                                             heading: pinDrag?.isPinned == true ? "Unpin tab" : "Tabs",
+                                             count: regular.count, pinTarget: false))
             }
             if !privateTabs.isEmpty {
-                result.append(SidebarSection(kind: .privateTabs, tabs: privateTabs, heading: "Private", count: privateTabs.count))
+                result.append(SidebarSection(kind: .privateTabs, tabs: privateTabs,
+                                             heading: configuration.controller.profile == nil ? nil : "Private",
+                                             count: privateTabs.count))
+            }
+            if pinDrag?.isPinned == false && pins.isEmpty {
+                result.append(SidebarSection(kind: .pinned, tabs: [], heading: "Pin tab", pinTarget: true))
+            }
+            if pinDrag?.isPinned == true && regular.isEmpty {
+                result.append(SidebarSection(kind: .regular, tabs: [], heading: "Unpin tab", pinTarget: false))
             }
         }
         if result.isEmpty {
@@ -287,11 +316,9 @@ private struct SidebarSection {
             list.collectionViewLayout?.invalidateLayout()
         }
         if changesLayout || changesActive || profileChanged {
-            cancelPreview()
             select(newActive, reveal: true)
         } else if changesContent {
             select(oldShown.flatMap { path(for: $0) != nil ? $0 : nil } ?? newActive, reveal: false)
-            if selectedID != oldShown { cancelPreview() }
         }
         for item in list.visibleItems() {
             if let item = item as? SidebarCollectionItem, let path = list.indexPath(for: item) { configure(item, at: path) }
@@ -304,7 +331,6 @@ private struct SidebarSection {
     }
 
     func detach() {
-        cancelPreview()
         if drag != nil {
             drag = nil
             configuration?.controller.sidebar.dragging = false
@@ -346,7 +372,7 @@ private struct SidebarSection {
         list.layoutSubtreeIfNeeded()
         guard let frame = list.layoutAttributesForItem(at: path)?.frame else { return }
         let section = sections[path.section]
-        if section.heading != nil, path.item < (section.grid ? 4 : 1),
+        if section.heading != nil, path.item < (section.grid ? SidebarTabs.pinRows(count: section.tabs.count).first ?? 1 : 1),
            let header = list.layoutAttributesForSupplementaryElement(ofKind: NSCollectionView.elementKindSectionHeader,
                                                                     at: IndexPath(item: 0, section: path.section)) {
             list.scrollToVisible(frame.union(header.frame))
@@ -360,47 +386,63 @@ private struct SidebarSection {
         if selectedID == nil { select(firstID, reveal: true) }
     }
 
-    func cancelPreview() {
-        preview?.cancel()
-        preview = nil
+    func activateSelection() {
+        guard let id = selectedID, let configuration else { return }
+        if !activate(id, using: configuration) { select(activeID, reveal: false) }
     }
 
-    func activateSelection() {
-        cancelPreview()
-        guard let id = selectedID, let configuration else { return }
-        if !configuration.controller.activateSidebarTab(id, request: configuration.searchRequest) {
-            select(activeID, reveal: false)
-        }
+    private func activate(_ id: UUID, using configuration: NativeSidebarTabs) -> Bool {
+        guard configuration.controller.activateSidebarTab(id, request: configuration.searchRequest) else { return false }
+        // Record explicit commits before the next key event. The SwiftUI
+        // update must preserve a highlight moved after this activation.
+        activeID = id
+        return true
     }
 
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
-        guard let list else { return }
-        if list.navigatingWithKeys { settlePreview() }
-        else { activateSelection() }
+        if !((collectionView as? SidebarTabCollection)?.navigatingWithKeys ?? false) {
+            activateSelection()
+        }
     }
 
-    func settlePreview() {
-        cancelPreview()
-        guard let id = selectedID, id != activeID else { return }
-        preview = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
-            guard let self, self.selectedID == id, let list = self.list, list.window?.firstResponder === list else { return }
-            self.activateSelection()
+    func moveHighlight(toBoundary forward: Bool, byPage: Bool) {
+        guard let list else { return }
+        let paths = sections.enumerated().flatMap { section, group in
+            group.tabs.indices.map { IndexPath(item: $0, section: section) }
         }
+        guard let boundary = forward ? paths.last : paths.first else { return }
+        if !byPage {
+            select(tab(at: boundary)?.id, reveal: true)
+            return
+        }
+        guard let current = list.selectionIndexPaths.first,
+              let frame = list.layoutAttributesForItem(at: current)?.frame else {
+            select(firstID, reveal: true)
+            return
+        }
+        let targetY = frame.midY + (forward ? 1 : -1) * list.visibleRect.height
+        let next = paths.min {
+            let a = list.layoutAttributesForItem(at: $0)?.frame.midY ?? 0
+            let b = list.layoutAttributesForItem(at: $1)?.frame.midY ?? 0
+            return abs(a - targetY) < abs(b - targetY)
+        } ?? boundary
+        select(tab(at: next)?.id, reveal: true)
     }
 
     func resign() {
-        cancelPreview()
         select(activeID, reveal: false)
     }
 
-    func setHovered(_ path: IndexPath?) {
-        guard hovered != path else { return }
+    func setHovered(_ path: IndexPath?, accessory: SidebarRowAccessory? = nil) {
+        guard hovered != path || hoveredAccessory != accessory else { return }
+        let movedRows = hovered != path
+        hoveredAccessory = accessory
         let previous = hovered
         hovered = path
-        for index in [previous, path].compactMap({ $0 }) {
+        for index in Set([previous, path].compactMap({ $0 })) {
             if let item = list?.item(at: index) as? SidebarCollectionItem { configure(item, at: index) }
         }
+        guard movedRows else { return }
         if let path, let tab = tab(at: path), drag == nil {
             controller?.sidebarTooltip.hover(id: tab.id, text: SidebarTabs.label(tab, selected: tab.id == activeID))
         } else { controller?.sidebarTooltip.exit() }
@@ -426,9 +468,7 @@ private struct SidebarSection {
         }
         item.open = { [weak self, weak tab] in
             guard let self, let tab else { return }
-            if configuration.controller.activateSidebarTab(tab.id, request: configuration.searchRequest) {
-                self.select(tab.id, reveal: false)
-            }
+            if self.activate(tab.id, using: configuration) { self.select(tab.id, reveal: false) }
         }
         let environment = self.environment
         var hovered = hovered == path
@@ -440,10 +480,11 @@ private struct SidebarSection {
         // A host subtitle only helps when it says something the title doesn't.
         let subtitle = configuration.duplicateTitles.contains(tab.displayTitle)
             ? tab.url?.host.flatMap { $0.caseInsensitiveCompare(tab.displayTitle) == .orderedSame ? nil : $0 } : nil
+        let accessory = self.hovered == path ? hoveredAccessory : nil
         item.artwork = { selected in
             let content = SidebarTabArtwork(tab: tab, selected: selected, active: active,
                                             tile: grid, rail: configuration.rail || configuration.peek, peek: configuration.peek,
-                                            hovered: hovered, subtitle: subtitle)
+                                            hovered: hovered, hoveredAccessory: accessory, subtitle: subtitle)
             return AnyView(content.environment(\.self, environment))
         }
         item.refresh()
@@ -472,7 +513,10 @@ private struct SidebarSection {
         if section.separator {
             Rectangle().fill(environment.browserTheme.separator.opacity(0.7)).frame(width: 24, height: 1)
         } else if let heading = section.heading {
-            if section.count > 0 { SidebarSectionHeading(title: heading, count: section.count) }
+            if heading == "Pin tab" || heading == "Unpin tab" {
+                SidebarSectionHeading(title: heading, count: 0)
+                    .modifier(SidebarToneSurface(tone: .selection))
+            } else if section.count > 0 { SidebarSectionHeading(title: heading, count: section.count) }
             else { Text(heading).font(OrivType.detail).foregroundStyle(environment.browserTheme.sidebarSecondaryText(environment.sidebarContrast)) }
         }
     }
@@ -516,7 +560,6 @@ private struct SidebarSection {
     func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession,
                         willBeginAt screenPoint: NSPoint, forItemsAt paths: Set<IndexPath>) {
         guard let tab = paths.first.flatMap(tab(at:)), let controller else { return }
-        cancelPreview()
         controller.sidebarTooltip.dismiss()
         drag = SidebarTabTransfer(id: tab.id, owner: controller.sidebarDragID)
         // Start after AppKit has taken its drag image from the originating cell.
@@ -525,13 +568,20 @@ private struct SidebarSection {
 
     func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession,
                         endedAt screenPoint: NSPoint, dragOperation operation: NSDragOperation) {
+        list?.showInsertionMarker(nil)
         drag = nil
         applyDragState(false)
     }
 
     func dropTarget(at point: NSPoint) -> SidebarDropTarget? {
         guard let list else { return nil }
-        if let path = list.indexPathForItem(at: point), let tab = tab(at: path) { return .tab(tab.id) }
+        let path = list.indexPathForItem(at: point)
+            ?? list.indexPathForItem(at: NSPoint(x: point.x, y: point.y - OrivSpacing.xxs))
+        if let path, let tab = tab(at: path), let frame = list.layoutAttributesForItem(at: path)?.frame {
+            let rtl = list.userInterfaceLayoutDirection == .rightToLeft
+            let after = sections[path.section].grid ? (point.x >= frame.midX) != rtl : point.y >= frame.midY
+            return .between(tab.id, after: after)
+        }
         for (index, section) in sections.enumerated() {
             if let pinned = section.pinTarget,
                let header = list.layoutAttributesForSupplementaryElement(ofKind: NSCollectionView.elementKindSectionHeader,
@@ -553,10 +603,22 @@ private struct SidebarSection {
     func collectionView(_ collectionView: NSCollectionView, validateDrop info: NSDraggingInfo,
                         proposedIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
                         dropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
+        list?.showInsertionMarker(nil)
         guard let (_, target) = validatedDrop(info) else { return [] }
         switch target {
-        case .tab(let id):
-            guard let path = path(for: id) else { return [] }
+        case .tab: return []
+        case .between(let id, let after):
+            guard let path = path(for: id), let list,
+                  let frame = list.layoutAttributesForItem(at: path)?.frame else { return [] }
+            let grid = sections[path.section].grid
+            let rtl = list.userInterfaceLayoutDirection == .rightToLeft
+            let thickness = OrivOutline.focus
+            let marker = grid
+                ? NSRect(x: (after != rtl ? frame.maxX : frame.minX) - thickness / 2,
+                         y: frame.minY, width: thickness, height: frame.height)
+                : NSRect(x: frame.minX, y: (after ? frame.maxY : frame.minY) - thickness / 2,
+                         width: frame.width, height: thickness)
+            list.showInsertionMarker(marker)
             proposedIndexPath.pointee = path as NSIndexPath
             dropOperation.pointee = .on
         case .pinned(let pinned):
@@ -569,6 +631,7 @@ private struct SidebarSection {
 
     func collectionView(_ collectionView: NSCollectionView, acceptDrop info: NSDraggingInfo,
                         indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
+        list?.showInsertionMarker(nil)
         guard let (item, target) = validatedDrop(info), let controller else { return false }
         return SidebarTabs.drop([item], on: target, controller: controller)
     }
@@ -581,6 +644,18 @@ final class SidebarTabCollection: NSCollectionView {
     private var ownsFocus = false
     var showsKeyboardFocus: Bool { ownsFocus && keyboardNavigation }
     private var pointerTracking: NSTrackingArea?
+    private let insertionMarker = SidebarInsertionMarker()
+
+    func showInsertionMarker(_ frame: NSRect?) {
+        guard let frame else { insertionMarker.removeFromSuperview(); return }
+        insertionMarker.frame = frame
+        if insertionMarker.superview == nil { addSubview(insertionMarker, positioned: .above, relativeTo: nil) }
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        showInsertionMarker(nil)
+        super.draggingExited(sender)
+    }
 
     override func becomeFirstResponder() -> Bool {
         guard super.becomeFirstResponder() else { return false }
@@ -639,20 +714,23 @@ final class SidebarTabCollection: NSCollectionView {
         let modified = !event.modifierFlags.intersection([.command, .control, .option]).isEmpty
         if !modified {
             switch event.keyCode {
-            case 36, 76: sidebar?.activateSelection(); return
+            case 36, 49, 76: sidebar?.activateSelection(); return
             case 53:
                 if let controller = sidebar?.controller, controller.tabSearchIsFiltering {
                     controller.dismissTabSearch()
                     sidebar?.resign()
                     return
                 }
-            case 115, 116, 119, 121, 123...126:
+            case 115, 116, 119, 121:
+                sidebar?.moveHighlight(toBoundary: event.keyCode == 119 || event.keyCode == 121,
+                                       byPage: event.keyCode == 116 || event.keyCode == 121)
+                return
+            case 123...126:
                 let previous = selectionIndexPaths
                 navigatingWithKeys = true
                 defer { navigatingWithKeys = false }
                 super.keyDown(with: event)
                 if previous != selectionIndexPaths, let path = selectionIndexPaths.first { sidebar?.revealItem(at: path) }
-                sidebar?.settlePreview()
                 return
             default: break
             }
@@ -666,7 +744,6 @@ final class SidebarTabCollection: NSCollectionView {
         if let item = item(at: path) as? SidebarCollectionItem,
            item.performClick(at: item.view.convert(point, from: self)) { return true }
         if selectionIndexPaths.contains(path) { sidebar?.activateSelection() }
-        else { sidebar?.cancelPreview() }
         return false
     }
 
@@ -701,7 +778,11 @@ final class SidebarTabCollection: NSCollectionView {
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseMoved(with event: NSEvent) {
         if let presentation = sidebar?.controller?.sidebar, !presentation.pointerInside { presentation.pointer(true, moved: true) }
-        sidebar?.setHovered(indexPathForItem(at: convert(event.locationInWindow, from: nil)))
+        let point = convert(event.locationInWindow, from: nil)
+        let path = indexPathForItem(at: point)
+        let item = path.flatMap { self.item(at: $0) as? SidebarCollectionItem }
+        sidebar?.setHovered(path, accessory: item.flatMap { $0.accessory(at: $0.view.convert(point, from: self), includesClose: true) })
+
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -726,6 +807,15 @@ private final class SidebarMenuItem: NSMenuItem {
     }
     required init(coder: NSCoder) { fatalError("Sidebar menus are created in code") }
     @objc private func performItem() { invoke() }
+}
+
+private final class SidebarInsertionMarker: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func accessibilityIsIgnored() -> Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(Theme.graphite.accent).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: OrivOutline.hairline, yRadius: OrivOutline.hairline).fill()
+    }
 }
 
 private final class SidebarArtworkHost: NSHostingView<AnyView> {
@@ -783,18 +873,24 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
         (view as? SidebarAccessibleRow)?.showsFocusRing = isSelected && list?.showsKeyboardFocus == true
     }
 
-    func performClick(at point: NSPoint) -> Bool {
-        guard !iconOnly, let tab else { return false }
+    func accessory(at point: NSPoint, includesClose: Bool) -> SidebarRowAccessory? {
+        guard !iconOnly, let tab else { return nil }
         let rtl = collectionView?.userInterfaceLayoutDirection == .rightToLeft
         let trailing = (rtl ? point.x - view.bounds.minX : view.bounds.maxX - point.x) - MacBrowserLayout.sidebarRowInset
-        guard trailing >= 0, abs(point.y - view.bounds.midY) <= 12 else { return false }
-        if trailing < 24, hovered || active || isSelected { command?(.close); return true }
-        if trailing < 48 {
-            if tab.mediaSuspended { command?(.media); return true }
-            if tab.isAudioMuted { command?(.mute); return true }
-            if tab.isPlayingAudio { command?(.media); return true }
+        let slot = OrivTarget.macMinimum.width
+        guard trailing >= 0, abs(point.y - view.bounds.midY) <= OrivTarget.macMinimum.height / 2 else { return nil }
+        if trailing < slot { return includesClose ? .close : nil }
+        if trailing < 2 * slot, tab.mediaSuspended || tab.isAudioMuted || tab.isPlayingAudio { return .audio }
+        return nil
+    }
+
+    func performClick(at point: NSPoint) -> Bool {
+        switch accessory(at: point, includesClose: hovered || active || isSelected) {
+        case .close: command?(.close)
+        case .audio: command?(tab?.mediaSuspended == true ? .media : .mute)
+        case nil: return false
         }
-        return false
+        return true
     }
 }
 

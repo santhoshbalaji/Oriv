@@ -353,7 +353,7 @@ import XCTest
         XCTAssertNil(marker("sidebarHost", unique.id))
         for record in [first, second, unique] {
             let row = try XCTUnwrap(marker("sidebarItem", record.id))
-            XCTAssertEqual(row.bounds.height, 36, accuracy: 1)
+            XCTAssertEqual(row.bounds.height, OrivLayout.tabRowHeight, accuracy: 1)
             XCTAssertEqual(row.accessibilityLabel()?.contains(record.url!.host!), true)
             if record.id != unique.id {
                 let host = try XCTUnwrap(marker("sidebarHost", record.id))
@@ -484,8 +484,14 @@ import XCTest
         }
         try key(125, "\u{f701}"); try await settle() // Search -> first pin focus.
         try key(36, "\r"); try await settle(); XCTAssertEqual(c.session.selectedTabID, first.id)
-        try key(124, "\u{f703}"); try await settle(); XCTAssertEqual(c.session.selectedTabID, second.id)
-        try key(125, "\u{f701}"); try await settle(); XCTAssertEqual(c.session.selectedTabID, regular.id)
+        try key(124, "\u{f703}"); try await settle()
+        XCTAssertEqual(c.session.selectedTabID, first.id)
+        XCTAssertTrue(hasVisibleKeyboardFocus(second.id, in: w))
+        try key(49, " "); XCTAssertEqual(c.session.selectedTabID, second.id)
+        try key(119, "\u{f72b}"); try await settle()
+        XCTAssertEqual(c.session.selectedTabID, second.id)
+        XCTAssertTrue(hasVisibleKeyboardFocus(regular.id, in: w))
+        try key(36, "\r"); XCTAssertEqual(c.session.selectedTabID, regular.id)
     }
     func testNativeArrowNavigationScrollsThroughSixtyRowsAndRail() async throws {
         try await checkNativeArrowNavigation(size: NSSize(width: 1000, height: 760))
@@ -527,6 +533,8 @@ import XCTest
                 self.hasVisibleKeyboardFocus(tabs[index].id, in: w)
             }
         }
+        try await settle()
+        XCTAssertEqual(c.session.selectedTabID, tabs.first?.id)
         try key(36, "\r")
         XCTAssertEqual(c.session.selectedTabID, tabs.last?.id)
         let toggle = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
