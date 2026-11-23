@@ -184,6 +184,37 @@ titles, native traffic-light geometry and a tab menu command inventory. The colo
 cases use a synthetic glass input and the two opaque accessibility fallbacks in
 both appearances. Native menu tracking and live glass require foreground acceptance.
 
+## Mac Settings materials
+
+Run the Settings capture matrix using a fresh output directory.
+
+```sh
+ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=settings-v3 \
+  ./scripts/capture-mac-visuals.sh --glass build/design-v3-settings/after
+```
+
+The 63 PNGs cover seven toolbar panes in Light, Dark and Black with standard,
+Reduce Transparency and Increase Contrast settings. The two accessibility modes
+use local environment overrides. The native toolbar and views render in owned,
+off-screen windows. Standard Light and Dark use the opaque chrome token in
+off-screen snapshots because AppKit's behind-window compositor is unavailable.
+The manifest records the foreground-only skips and activation and display audit.
+
+`SettingsToolbarTests` uses the native toolbar actions to check selection,
+content geometry, pane sizing and profile switches. The Settings contrast model
+checks opaque cards over extreme material outputs, opaque canvas variants and
+stronger Increase Contrast boundaries. Run
+`python3 scripts/check-contrast.py --negative-settings-test` to verify that a
+translucent group fails the model.
+
+In an owner-approved foreground pass, open Settings with and without a browser
+window, move it over white, dark and saturated wallpapers and a busy window,
+and switch between active and inactive states. Check native toolbar selection
+and scrolling beneath it, fully opaque accessibility and Black variants,
+VoiceOver, Full Keyboard Access, and resizing on the smallest supported display.
+Switch profiles with Settings open and verify the selected pane, any draft
+profile edits and the scope of a pending data sheet.
+
 ## Opt-in pre-release accessibility audit
 
 Get the owner's approval before running the foreground XCUITest audit. Run

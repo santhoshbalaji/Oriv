@@ -35,10 +35,10 @@ for an app-owned accent fill. Existing renamed roles forward to the v2 tokens.
 
 The four `OrivMaterial` roles are `navigation` for the Mac sidebar, `control` for
 interactive system glass, `overlay` for a solid floating surface with a border and
-shadow, and `sheet` for native presentation. Page content, settings, and libraries
-use solid or native grouped surfaces.
+shadow, and `sheet` for native presentation. Page content and libraries use solid
+or native grouped surfaces.
 
-Liquid Glass belongs to the navigation layer, the Mac sidebar, iPhone bars and floating controls. Use system foreground styles where controls sit on glass. Keep start pages, settings and libraries on solid or native grouped surfaces. The appearance modifier disables SwiftUI transaction animations under Reduce Motion. Glass controls use solid accessibility backings under Reduce Transparency or Increase Contrast. Native sheets and menus inherit the system material preferences. Site monograms use BrowserCore’s small `SiteMonogram` suffix hint, never for security, storage or sync decisions.
+Liquid Glass belongs to the navigation layer, the Mac sidebar, iPhone bars and floating controls. Use system foreground styles where controls sit on glass. Keep start pages and libraries on solid or native grouped surfaces. The appearance modifier disables SwiftUI transaction animations under Reduce Motion. Glass controls use solid accessibility backings under Reduce Transparency or Increase Contrast. Native sheets and menus inherit the system material preferences. Site monograms use BrowserCore’s small `SiteMonogram` suffix hint, never for security, storage or sync decisions.
 
 ## Navigation
 
@@ -197,12 +197,34 @@ and uses a four-column tile grid at standard text sizes. The private start page
 uses the shared private banner and a short explanation on the private surface.
 iPhone uses three flexible columns at standard text sizes and one column at
 accessibility text sizes. Both use
-solid tiles and secondary section labels. Mac settings use native grouped
-forms and the system window background. Library counts appear beside their
+solid tiles and secondary section labels. Library counts appear beside their
 section names on the surface, with list content on the canvas. Find in Page
 uses the shared search field and toolbar controls. Glass opacity applies to all
 profiles.
 
+
+## Mac Settings
+
+Settings keeps the native seven-item preference toolbar. In System, Light and
+Dark, AppKit supplies the behind-window material and the top of each scrolling
+pane uses a soft scroll edge under the toolbar. Standard material is visible
+only in the gutters. Each group contains its heading, controls, scope and
+supporting text on opaque `surfaceRaised`, with a half-point inset hairline.
+The backdrop follows window activity and is independent of website colors
+and sidebar tints. System follows the Mac appearance, while explicit appearance
+comes from the active profile.
+
+Reduce Transparency, Increase Contrast and Black use the opaque canvas.
+Increase Contrast also strengthens secondary ink, group boundaries and the
+titlebar separator. Preferred window heights follow the selected pane and
+fit the available display. Scroll views keep all controls reachable as content
+grows. The Settings scene keeps its selected pane when the active profile
+changes. An open browsing-data sheet retains the session it was opened for.
+
+Use **This profile** with the profile name for profile-scoped controls and
+**All profiles on this Mac** for Mac-wide browser defaults. Show **Synced**
+on profile preference groups in the continuity allowlist while sync is enabled.
+Copy for local data and for deletion explains their scope separately.
 
 ## Copy and verification
 
@@ -213,8 +235,9 @@ Protection list versions appear in About.
 
 `scripts/check-browser.sh` checks the per-file raw-token baseline and contrast.
 Lower the baseline when a migration removes literals. The contrast gate includes
-status and private roles, solid controls, and every sidebar tint and glass level
-over synthetic extreme inputs.
+status and private roles, solid controls, every sidebar tint and glass level,
+and the Settings card composite over synthetic extreme inputs. Settings requires
+7:1 primary ink, 4.5:1 secondary ink, and 3:1 Increase Contrast boundaries.
 
 For Mac gallery snapshots, set `ORIV_BACKGROUND_UI=1` and
 `ORIV_GLASS_SCENE=design-system` and run `scripts/capture-mac-visuals.sh --glass`.

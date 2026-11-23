@@ -209,6 +209,15 @@ if os.environ.get("ORIV_GLASS_SCENE") == "phase2":
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-opaque-fallback" for name in expected} - evidence
         if missing: problems.append(f"missing theme evidence: {sorted(missing)}")
+if os.environ.get("ORIV_GLASS_SCENE") == "settings-v3":
+    expected = {f"mac-glass-settings-v3-{appearance}-{variant}-{pane}"
+                for appearance in ("light", "dark", "black")
+                for variant in ("standard", "reduced", "increased")
+                for pane in ("general", "profiles", "continuity", "appearance", "privacy", "passwords", "about")}
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = {name + "-opaque-fallback" for name in expected} - evidence
+        if missing: problems.append(f"missing Settings evidence: {sorted(missing)}")
 if os.environ.get("ORIV_GLASS_SCENE") == "settings-audit":
     surfaces = (
         "general", "profiles", "continuity", "appearance", "privacy", "passwords", "about",
