@@ -7,6 +7,7 @@ export TEST_RUNNER_CI="${CI:-false}"
 export TEST_RUNNER_GITHUB_ACTIONS="${GITHUB_ACTIONS:-false}"
 python3 scripts/check-public-safety.py
 python3 scripts/check-browser-scope.py
+python3 scripts/check-password-fields.py
 python3 scripts/check-background-ui.py
 python3 scripts/check-contrast.py
 mkdir -p build

@@ -9,6 +9,7 @@ struct MacPageActions: View {
     var profiles: BrowserProfiles? = nil
     var findOnPage: () -> Void
     var showSitePrivacy: () -> Void
+    var fillPassword: (() -> Void)?
     var showPasswordsGuide: () -> Void
     var requestSiteForget: (BrowserSite) -> Void
     private var session: BrowserSession { controller.session }
@@ -50,7 +51,11 @@ struct MacPageActions: View {
                 if let site = session.forgettableSite(for: tab) {
                     Button("Forget This Site…", systemImage: "trash", role: .destructive) { requestSiteForget(site) }
                 }
-                Button("Password AutoFill Help", systemImage: "key") { showPasswordsGuide() }
+                if let fillPassword {
+                    Button("AutoFill from Passwords", systemImage: "key.fill", action: fillPassword)
+                } else {
+                    Button("Password AutoFill Help", systemImage: "key", action: showPasswordsGuide)
+                }
             }
         }
     }

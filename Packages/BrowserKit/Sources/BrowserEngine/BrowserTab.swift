@@ -92,6 +92,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored private var savedScrollOffset: CGPoint?
     @ObservationIgnored private var applyingRestoration = false
     @ObservationIgnored private var backingWebView: WKWebView?
+    #if os(macOS)
+    @ObservationIgnored public private(set) lazy var passwordFields = PasswordFieldFocus { [weak self] in
+        self?.backingWebView === $0
+    }
+    #endif
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var configuration: WKWebViewConfiguration?
     var websiteDataStore: WKWebsiteDataStore? { configuration?.websiteDataStore }
@@ -157,6 +162,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         configuration.userContentController = contentController
         BrowserWebConfiguration.apply(to: configuration)
         super.init()
+        #if os(macOS)
+        passwordFields.install(in: contentController)
+        #endif
         contentController.addScriptMessageHandler(CookieConsent(tab: self), contentWorld: CookieConsent.world, name: CookieConsent.handler)
         let world = WKContentWorld.world(name: "OrivTabState")
         #if os(macOS) && ORIV_BENCH
@@ -281,6 +289,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #endif
         #if DEBUG
         view.isInspectable = true
+        #endif
+        #if os(macOS)
+        passwordFields.reset()
         #endif
         backingWebView = view
         installObservations(on: view)
@@ -1056,6 +1067,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard !isClosed, backingWebView === webView else { return }
+        #if os(macOS)
+        passwordFields.reset()
+        #endif
         cancelPendingHistory()
         historyDocumentURL = nil
         historyNavigation = nil

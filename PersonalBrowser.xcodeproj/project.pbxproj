@@ -90,6 +90,7 @@
 		87AC1D88FED6F264F6717960 /* Theme+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6088E7F0604E72B069D029 /* Theme+macOS.swift */; };
 		883A32727BE3AA309D860C76 /* BrowserEngineeringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11518C9B56976D35E872267C /* BrowserEngineeringTests.swift */; };
 		8B17AAB4B375BEEB08E7BA92 /* MobileGestureIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8663F5C5D65B7617EA913F /* MobileGestureIntegrationTests.swift */; };
+		8C0E85DD1753E9E36060A3C0 /* ApplePasswordsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61D4D19FF13F770CB8786B9 /* ApplePasswordsTests.swift */; };
 		8E64517E9011D47708DE5982 /* VisualSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF7ED141C3ADBFB83171F90D /* VisualSnapshots.swift */; };
 		933C8F5EE56AC9596AAF8656 /* ExternalPrivateWindowPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777D4BB6CBECB08BDF2A0B40 /* ExternalPrivateWindowPresentationTests.swift */; };
 		93400DAF7E8757E7847996A2 /* ChromeVisualFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DF54583C3541540EA2CB50 /* ChromeVisualFixture.swift */; };
@@ -264,6 +265,7 @@
 		9D6088E7F0604E72B069D029 /* Theme+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme+macOS.swift"; sourceTree = "<group>"; };
 		9E11DD6CE1B842D99BAD0FDE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A56D7991B2A01DBD63E34369 /* SidebarBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarBehaviorTests.swift; sourceTree = "<group>"; };
+		A61D4D19FF13F770CB8786B9 /* ApplePasswordsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplePasswordsTests.swift; sourceTree = "<group>"; };
 		A691C28F096E86E1877CEFBE /* BrowserIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserIntegrationTests.swift; sourceTree = "<group>"; };
 		AC772707C4EA905455485D42 /* BrowserKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BrowserKit; path = Packages/BrowserKit; sourceTree = SOURCE_ROOT; };
 		AF6714B4E0BC28FF13BF491C /* Mobile.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Mobile.entitlements; sourceTree = "<group>"; };
@@ -422,6 +424,7 @@
 			children = (
 				DC2F6AD096CF2CFE90715D25 /* AdBlockingTests.swift */,
 				F23399B326AF6FF974F7EC1D /* AddressCompletionTests.swift */,
+				A61D4D19FF13F770CB8786B9 /* ApplePasswordsTests.swift */,
 				E2461D0FB9AC46A341C1F946 /* BackgroundUIModeTests.swift */,
 				324BE85EA541CBE4D23483CA /* BrowserChromeTests.swift */,
 				A691C28F096E86E1877CEFBE /* BrowserIntegrationTests.swift */,
@@ -994,6 +997,7 @@
 			files = (
 				D8BC7652E2AAA6C2D4A35693 /* AdBlockingTests.swift in Sources */,
 				1592E95BA5E55C042A62A18D /* AddressCompletionTests.swift in Sources */,
+				8C0E85DD1753E9E36060A3C0 /* ApplePasswordsTests.swift in Sources */,
 				4FBD0C3A65FD133B715AD1C4 /* BackgroundUIModeTests.swift in Sources */,
 				236D70B0AAF3A48DE9B686D2 /* BrowserChromeTests.swift in Sources */,
 				883A32727BE3AA309D860C76 /* BrowserEngineeringTests.swift in Sources */,

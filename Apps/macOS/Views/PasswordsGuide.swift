@@ -6,16 +6,31 @@ struct PasswordsGuide: View {
     @Environment(\.browserTheme) private var theme
     @FocusState private var managePasswordsFocused: Bool
     var compact = false
+    var showsFillHint = false
+
     var body: some View {
+        if showsFillHint {
+            Text("Use the key or ⌥⇧⌘P to choose an account from Apple Passwords.")
+                .font(.callout).foregroundStyle(theme.text).padding(16)
+        } else {
+            guide
+        }
+    }
+
+    private var guide: some View {
         VStack(alignment: .leading, spacing: 18) {
             EditorHeading(title: "Passwords, in the page", subtitle: "Use Apple’s secure AutoFill picker.", symbol: "key")
             instruction("1", title: "Choose a login field", detail: "Control-click or right-click the username or password field on the website.")
             instruction("2", title: "AutoFill → Passwords…", detail: "Choose Passwords from the field’s native AutoFill menu.")
             instruction("3", title: "Unlock and choose", detail: "Authenticate with macOS, then choose the matching website and account.")
             Divider()
-            Text("Works through the native field menu in normal and private tabs. Oriv doesn’t provide Safari-style automatic suggestions or import your password vault.")
+            Text("Private tabs can fill from Passwords. The website receives the credential you choose.")
                 .font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
             if !compact {
+                Text("Passwords stay with Apple Passwords. macOS fills the field. Oriv never sees, stores or sends your saved passwords.")
+                    .font(.callout).foregroundStyle(theme.secondaryText)
+                Text("With public macOS APIs, Oriv cannot automatically suggest logins when a field gains focus, save or update passwords, or suggest strong passwords.")
+                    .font(.callout).foregroundStyle(theme.secondaryText)
                 Label("Set up on your Mac", systemImage: "gearshape").font(.headline)
                 Text("In System Settings → General → AutoFill & Passwords, enable AutoFill and select Passwords. Turn on iCloud Passwords & Keychain if you want credentials available on your other Apple devices.")
                     .font(.callout).foregroundStyle(theme.secondaryText)
