@@ -403,16 +403,14 @@ struct SidebarSectionHeading: View {
     let count: Int
     var marksGeometry = true
     var body: some View {
-        HStack(spacing: 6) {
-            if title == "Private" { Image(systemName: "eyeglasses").foregroundStyle(theme.sidebarPrivateAccent) }
-            Text(title).foregroundStyle(title == "Private" ? theme.sidebarPrivateAccent : theme.sidebarSecondaryText(contrast))
-            Spacer()
-            if count > 0 { Text("\(count)").font(.system(size: 11)).monospacedDigit() }
-        }
-        .font(OrivType.title).foregroundStyle(theme.sidebarSecondaryText(contrast))
+        let secondary = theme.sidebarSecondaryText(contrast)
+        SectionHeader(title: title, kind: .sidebar, count: count,
+                      symbol: title == "Private" ? "eyeglasses" : nil,
+                      ink: title == "Private" ? theme.sidebarPrivateAccent : secondary,
+                      countInk: secondary)
         .browserGeometryMarker("sidebarSection-\(title)", when: marksGeometry)
         .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 27)
-        .padding(.top, title == "Private" ? 8 : (title == "Tabs" || title == "More pinned tabs" ? 4 : 0))
+        .padding(.top, title == "Private" ? OrivSpacing.small : (title == "Tabs" || title == "More pinned tabs" ? OrivSpacing.xs : 0))
     }
 }
 

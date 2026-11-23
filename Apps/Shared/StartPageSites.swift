@@ -59,18 +59,7 @@ struct StartPageSites: View {
 
     private func section(_ title: String, id: String, items: [(String, URL)], showAll: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: OrivSpacing.small) {
-            HStack {
-                Text(title).font(OrivType.body.weight(.semibold)).foregroundStyle(theme.secondaryText)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                Button("Show All", action: showAll).font(OrivType.detail)
-                    .accessibilityLabel("Show All \(title)")
-                    #if os(macOS)
-                    .buttonStyle(.borderless)
-                    #else
-                    .frame(minHeight: 44)
-                    #endif
-            }
+            SectionHeader(title: title, kind: .content, showAll: showAll)
             LazyVGrid(columns: columns, alignment: .leading, spacing: OrivSpacing.small) {
                 ForEach(items, id: \.1) { title, url in
                     let name = title.isEmpty ? (url.host ?? "Saved page") : title

@@ -822,8 +822,8 @@ struct MobileBrowserView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(addressMatches.rows.enumerated()), id: \.element.id) { index, match in
                     if index == 0 || addressMatches.rows[index - 1].source != match.source {
-                        Text(match.source.rawValue).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
-                            .padding(.horizontal, 12).padding(.top, 8)
+                        SectionHeader(title: match.source.rawValue)
+                            .padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.small)
                     }
                     Button { chooseSuggestion(match) } label: {
                         AddressSuggestionRow(suggestion: match, query: address, isPrivate: tab?.isPrivate == true)

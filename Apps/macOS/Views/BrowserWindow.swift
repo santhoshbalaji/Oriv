@@ -754,8 +754,8 @@ struct AddressSuggestionList: View {
         VStack(alignment: .leading, spacing: OrivSpacing.xs) {
             ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, match in
                 if index == 0 || suggestions[index - 1].source != match.source {
-                    Text(match.source.rawValue).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
-                        .padding(.horizontal, 10).padding(.top, 4)
+                    SectionHeader(title: match.source.rawValue)
+                        .padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
                 }
                 Button { choose(match) } label: {
                     AddressSuggestionRow(suggestion: match, query: address, isPrivate: isPrivate)
