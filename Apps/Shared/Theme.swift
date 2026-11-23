@@ -97,6 +97,7 @@ enum OrivMotion {
 
 enum OrivIcon {
     static let toolbar: CGFloat = 14
+    static let toolbarFont = Font.system(size: toolbar)
     static let rail: CGFloat = 16
     static let footer = rail
     static let inline: CGFloat = 12

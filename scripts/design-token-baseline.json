@@ -73,13 +73,13 @@
   },
   "Apps/macOS/Views/BrowserWindow.swift": {
     "font size": 1,
-    "font style": 3,
+    "font style": 2,
     "motion": 2,
     "padding": 9,
     "radius": 1,
     "raw color": 6,
     "shadow": 1,
-    "spacing": 8
+    "spacing": 6
   },
   "Apps/macOS/Views/LibraryView.swift": {
     "font size": 1,

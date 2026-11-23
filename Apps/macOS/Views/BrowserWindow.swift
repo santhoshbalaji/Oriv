@@ -397,15 +397,15 @@ struct BrowserWindow: View {
     }
 
     private var navigationControls: some View {
-                HStack(spacing: 2) {
-                Button { tab?.goBack() } label: { Image(systemName: "chevron.backward").frame(width: 28, height: 28) }
-                    .disabled(tab?.canGoBack != true).help("Back (⌘[)").accessibilityLabel("Back")
-                    .foregroundStyle(chromeForeground)
-                Button { tab?.goForward() } label: { Image(systemName: "chevron.forward").frame(width: 28, height: 28) }
-                    .disabled(tab?.canGoForward != true).help("Forward (⌘])").accessibilityLabel("Forward")
-                    .foregroundStyle(chromeForeground)
-                }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
-                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+        HStack(spacing: OrivSpacing.xxs) {
+            ToolbarButton(label: "Back", symbol: "chevron.backward", help: "Back (⌘[)") { tab?.goBack() }
+                .disabled(tab?.canGoBack != true)
+            ToolbarButton(label: "Forward", symbol: "chevron.forward", help: "Forward (⌘])") { tab?.goForward() }
+                .disabled(tab?.canGoForward != true)
+        }
+        .foregroundStyle(chromeForeground)
+        .frame(height: OrivLayout.controlHeight)
+        .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
     }
 
     private var addressCapsule: some View {
@@ -422,7 +422,7 @@ struct BrowserWindow: View {
                                 Image(systemName: cue.symbol)
                                 if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
                             }.font(OrivType.detail).foregroundStyle(chromeForeground).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
-                        }.buttonStyle(MacChromeButtonStyle()).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
+                        }.buttonStyle(ToolbarButtonStyle(active: ui.showSiteInfo)).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
                             .browserGeometryMarker("browserSiteInformationGeometry")
                             .background {
                                 BrowserPopover(isPresented: $ui.showSiteInfo) {
@@ -454,14 +454,14 @@ struct BrowserWindow: View {
                         if tab?.url != nil {
                             if let tab, tab.pageZoom != 1 {
                                 Button { tab.resetZoom() } label: {
-                                    Text("\(Int(tab.pageZoom * 100))%").font(.caption2).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
-                                }.buttonStyle(MacChromeButtonStyle()).accessibilityLabel("Reset Page Zoom").accessibilityValue("\(Int(tab.pageZoom * 100)) percent").help("Reset Page Zoom")
+                                    Text("\(Int(tab.pageZoom * 100))%").font(OrivType.caption).frame(minWidth: OrivTarget.macMinimum.width, minHeight: OrivTarget.macMinimum.height).contentShape(Rectangle())
+                                }.buttonStyle(ToolbarButtonStyle()).accessibilityLabel("Reset Page Zoom").accessibilityValue("\(Int(tab.pageZoom * 100)) percent").help("Reset Page Zoom")
                             }
                             Button { tab?.isLoading == true ? tab?.stop() : tab?.reload() } label: {
                                 Image(systemName: tab?.isLoading == true ? "xmark" : "arrow.clockwise")
                                     .font(OrivType.detail).frame(width: 24, height: 24)
                             }
-                            .buttonStyle(MacChromeButtonStyle())
+                            .buttonStyle(ToolbarButtonStyle())
                             .accessibilityLabel(tab?.isLoading == true ? "Stop loading" : "Reload page")
                             .help(tab?.isLoading == true ? "Stop loading" : "Reload (⌘R)")
                         }
@@ -477,25 +477,17 @@ struct BrowserWindow: View {
     // Site privacy shares the content header's glass and adaptive foreground.
     private var toolbarActions: some View {
         @Bindable var ui = self.ui
-        return HStack(spacing: 2) {
+        return HStack(spacing: OrivSpacing.xxs) {
             if showsToolbarPasswordKey {
-                Button(action: fillPassword) {
-                    Image(systemName: "key.fill")
-                        .frame(width: 28, height: 28)
-                        .foregroundStyle(chromeForeground)
-                        .background(chromeForeground.opacity(0.16), in: Circle())
-                }
-                .help("AutoFill from Passwords")
-                .accessibilityLabel("AutoFill from Passwords")
+                ToolbarButton(label: "AutoFill from Passwords", symbol: "key.fill", action: fillPassword)
             }
             if showsToolbarDownloads && showsExpandedToolbarActions {
-                Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
-                    .labelStyle(.iconOnly).help("View downloads in progress")
+                ToolbarButton(label: "Downloads in progress", symbol: "arrow.down.circle.fill",
+                              help: "View downloads in progress", active: true) { controller.library = .downloads }
             }
-            Button { ui.showProtection.toggle() } label: {
-                Image(systemName: "shield.lefthalf.filled").frame(width: 28, height: 28).foregroundStyle(chromeForeground)
+            ToolbarButton(label: OrivStrings.sitePrivacy, symbol: "shield.lefthalf.filled", active: ui.showProtection) {
+                ui.showProtection.toggle()
             }
-            .help(OrivStrings.sitePrivacy).accessibilityLabel(OrivStrings.sitePrivacy)
             .accessibilityIdentifier("sitePrivacyButton")
             .browserGeometryMarker("browserPrivacyGeometry")
             .background {
@@ -506,30 +498,31 @@ struct BrowserWindow: View {
             }
             if showsExpandedToolbarActions {
                 if let url = tab?.url {
-                    ShareLink(item: URLCleaner.clean(url)) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
-                        .help("Share Page").accessibilityLabel("Share Page")
+                    ShareLink(item: URLCleaner.clean(url)) {
+                        Image(systemName: "square.and.arrow.up").font(OrivIcon.toolbarFont)
+                            .frame(width: OrivTarget.macToolbar.width, height: OrivTarget.macToolbar.height)
+                    }
+                    .buttonStyle(ToolbarButtonStyle()).help("Share Page").accessibilityLabel("Share Page")
                 }
-                Button { ui.showTabs = true } label: { Image(systemName: "square.on.square").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
-                    .help("Tab Overview").accessibilityLabel("Tab Overview")
+                ToolbarButton(label: "Tab Overview", symbol: "square.on.square", active: ui.showTabs) { ui.showTabs = true }
                     .browserGeometryMarker("browserOverviewGeometry")
             }
-        }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
+        }.foregroundStyle(chromeForeground).frame(height: OrivLayout.controlHeight)
             .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
     }
 
     private var toolbarMenu: some View {
         @Bindable var ui = self.ui
         let fillAction: (() -> Void)? = canFillPassword ? { fillPassword() } : nil
-        let menu = MacPageMenu {
+        let menu = MacPageMenu(active: ui.showPasswords) {
             MacPageActions(controller: controller, profiles: profiles,
                 findOnPage: { ui.showFind = true; findFocused = true },
                 showSitePrivacy: { ui.showProtection = true },
                 fillPassword: fillAction, showPasswordsGuide: { showPasswordHelp() },
                 requestSiteForget: { ui.siteToForget = $0 })
         } label: {
-            Image(systemName: "ellipsis")
-                .frame(width: 36, height: 32)
-                .modifier(chromeGlass).contentShape(Rectangle())
+            Image(systemName: "ellipsis").font(OrivIcon.toolbarFont)
+                .frame(width: OrivTarget.macRail.height, height: OrivLayout.controlHeight)
         }
         return menu
         .help("Browser Actions").accessibilityLabel("Browser Actions")
@@ -743,24 +736,6 @@ struct MacTabOverview: View {
         } actions: {
             Button("Done", action: dismiss).keyboardShortcut(.cancelAction)
         }
-    }
-}
-
-struct MacChromeButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        MacChromeButtonFace(label: configuration.label, pressed: configuration.isPressed)
-    }
-}
-
-private struct MacChromeButtonFace<Label: View>: View {
-    let label: Label
-    let pressed: Bool
-    @Environment(\.isEnabled) private var enabled
-    @State private var hovered = false
-    var body: some View {
-        label.contentShape(Rectangle())
-            .background(.primary.opacity(enabled ? (pressed ? 0.12 : hovered ? 0.07 : 0) : 0), in: Capsule())
-            .onHover { hovered = $0 }
     }
 }
 

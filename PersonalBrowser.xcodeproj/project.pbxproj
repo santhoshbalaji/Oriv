@@ -146,6 +146,7 @@
 		D3B2FC2A4CC349CA60CEA729 /* BrowserCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7461202644629BDE4F81AB96 /* BrowserCommands.swift */; };
 		D3F8FD8F11F278F0CE7B252B /* BrowserEngineeringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11518C9B56976D35E872267C /* BrowserEngineeringTests.swift */; };
 		D48EBFE0C3B5EA6C9D42C6EE /* SidebarPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAFA8D2D76B5827E97C95E69 /* SidebarPresentation.swift */; };
+		D65F271BB7765222453667AD /* ToolbarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0936AE44C7CC73129D40196 /* ToolbarButton.swift */; };
 		D76CA968B185EA1A6093CE1D /* MacPageActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C1057E5FBE7D99E6998E48 /* MacPageActions.swift */; };
 		D7EA72FD3A9D318E1AFC0139 /* ExternalPrivateBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B520968FAF229010D4EDB89E /* ExternalPrivateBar.swift */; };
 		D8B4D71C85CB067597514035 /* MobileLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72A2C451E364D87CAA2586F /* MobileLibraryView.swift */; };
@@ -328,6 +329,7 @@
 		EF7ED141C3ADBFB83171F90D /* VisualSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualSnapshots.swift; sourceTree = "<group>"; };
 		F008A13B3EE4CBDD05D43B88 /* OrivMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrivMobileApp.swift; sourceTree = "<group>"; };
 		F04E01CD03158BE65CFA6836 /* BrowserMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrowserMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F0936AE44C7CC73129D40196 /* ToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolbarButton.swift; sourceTree = "<group>"; };
 		F1E6C074563F501BA5AF99E0 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		F23399B326AF6FF974F7EC1D /* AddressCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressCompletionTests.swift; sourceTree = "<group>"; };
 		F7386740AFC4831A24704F36 /* PersonalBrowserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalBrowserApp.swift; sourceTree = "<group>"; };
@@ -684,6 +686,7 @@
 			children = (
 				786D833A52C3AF2B341CB7BA /* OrivPopover.swift */,
 				0E5C40BD9106DE18F0D31B15 /* OrivSearchField.swift */,
+				F0936AE44C7CC73129D40196 /* ToolbarButton.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -985,6 +988,7 @@
 				1A2937BE93A886FAA4343F72 /* TabSwitchCover.swift in Sources */,
 				87AC1D88FED6F264F6717960 /* Theme+macOS.swift in Sources */,
 				4EB191F92276364B53913D00 /* Theme.swift in Sources */,
+				D65F271BB7765222453667AD /* ToolbarButton.swift in Sources */,
 				8E64517E9011D47708DE5982 /* VisualSnapshots.swift in Sources */,
 				8701DFFD06629E8A4530C1A1 /* WebPageView.swift in Sources */,
 			);
