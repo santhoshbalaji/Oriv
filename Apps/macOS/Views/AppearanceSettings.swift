@@ -79,6 +79,9 @@ struct AppearanceSettings: View {
     @State private var dataSheet: DataSheet?
     @State private var acknowledgments = false
     var initialPane: SettingsPane = .general
+    #if DEBUG
+    var captureMaterial = false
+    #endif
     @State private var pane: SettingsPane?
     private let runtime = BrowserRuntime.current
     private var panes: [SettingsPane] {
@@ -99,16 +102,7 @@ struct AppearanceSettings: View {
             // oriv:raw-metric Fixed width for seven native toolbar items; the height follows the pane.
             .frame(width: 660)
             .frame(minHeight: 300, idealHeight: selectedPane.windowHeight, maxHeight: .infinity)
-            .background {
-                if solidBackdrop {
-                    theme.canvas.ignoresSafeArea()
-                } else if BackgroundUIMode.isEnabled {
-                    theme.chrome.ignoresSafeArea()
-                } else {
-                    WindowBackdropMaterial(material: .underWindowBackground, opacity: MacSettingsLayout.windowMaterialOpacity)
-                        .ignoresSafeArea()
-                }
-            }
+            .background { windowBackdrop.ignoresSafeArea() }
             .background {
                 SettingsToolbar(panes: panes, selection: selectedPane,
                                 opaqueBackground: solidBackdrop || BackgroundUIMode.isEnabled,
@@ -124,6 +118,28 @@ struct AppearanceSettings: View {
             }
             .sheet(isPresented: $acknowledgments) { PrivacyAcknowledgements() }
             .environment(\.browserTheme, theme)
+    }
+
+    @ViewBuilder private var windowBackdrop: some View {
+        if solidBackdrop {
+            theme.canvas.ignoresSafeArea()
+        } else if BackgroundUIMode.isEnabled {
+            #if DEBUG
+            if captureMaterial {
+                // Fixed app-owned colours make the gutter blend observable off-screen.
+                theme.chrome.opacity(MacSettingsLayout.windowMaterialOpacity)
+                    .background {
+                        LinearGradient(colors: [.blue, .orange], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    }
+            } else {
+                theme.chrome
+            }
+            #else
+            theme.chrome
+            #endif
+        } else {
+            WindowBackdropMaterial(material: .underWindowBackground, opacity: MacSettingsLayout.windowMaterialOpacity)
+        }
     }
 
     @ViewBuilder private var panel: some View {

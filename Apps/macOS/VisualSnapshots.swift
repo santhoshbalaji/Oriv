@@ -80,6 +80,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "design-system" { await renderDesignSystem(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-v3" { await renderSidebarV3(into: directory) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-pins" { await renderSidebarV3(into: directory, pinsOnly: true) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-width" { await renderSidebarWidthScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-attached" { await renderAttachedSidebarScenes(into: directory, activate: activate) }
@@ -246,6 +247,7 @@ import WebKit
     }
 
     private static func renderSettingsV3(into directory: URL) async {
+        manifest.limitations.append("Standard Light and Dark Settings use a fixed synthetic desktop and material colour in background mode. These captures do not measure AppKit blur or live translucency.")
         let profiles = BrowserProfiles(testing: true)
         defer { profiles.shutdown() }
         guard (try? profiles.create(name: "Work", color: .ocean, symbol: .work)) != nil else {
@@ -260,7 +262,7 @@ import WebKit
                                   CGSize(width: 660, height: pane.windowHeight), key: false, settle: 200,
                                   toolbarStyle: .preference, appearance: appearance, applyBrowserAppearance: false) {
                         AppearanceSettings(appearance: .constant(appearance), controller: profiles.controller,
-                                           profiles: profiles, initialPane: pane)
+                                           profiles: profiles, initialPane: pane, captureMaterial: true)
                             .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
                             .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
                     }
@@ -873,7 +875,7 @@ import WebKit
 
     /// Same real-window fixture before and after the sidebar change. Sleeping tabs
     /// are metadata only; generated local icons go through the production cache.
-    private static func renderSidebarV3(into directory: URL) async {
+    private static func renderSidebarV3(into directory: URL, pinsOnly: Bool = false) async {
         manifest.limitations.append("The sidebar and toolbar are rendered from the actual browser window off-screen. Standard scenes use a synthetic flat glass input. No native compositor, pointer ergonomics or animation evidence.")
         let root = directory.appendingPathComponent("sidebar-v3-fixture")
         let sites = ["WebKit", "Swift", "Wikipedia", "GitHub", "Apple", "OpenStreetMap", "MDN", "Hacker News"]
@@ -902,44 +904,90 @@ import WebKit
             manifest.failures.append("Sidebar v3 private window missing"); return
         }
 
-        for (appearance, mode) in [(BrowserAppearance.light, "light"), (.dark, "dark"), (.t3Code, "black")] {
-            for color in [SidebarColor.graphite, .sky, .rose] {
-                controller.sidebarColor = color
-                for (layout, rail, width) in [("expanded", false, 256), ("rail", true, 256), ("220", false, 220), ("360", false, 360)] {
-                    guard layout == "expanded" || layout == "rail" || (mode == "light" && color == .graphite) else { continue }
-                    controller.sidebar.setExpandedWidth(CGFloat(width))
-                    controller.compactSidebar = rail
-                    await scene("\(mode)-\(color.rawValue)-\(layout)", controller, appearance)
+        if !pinsOnly {
+            for (appearance, mode) in [(BrowserAppearance.light, "light"), (.dark, "dark"), (.t3Code, "black")] {
+                for color in [SidebarColor.graphite, .sky, .rose] {
+                    controller.sidebarColor = color
+                    for (layout, rail, width) in [("expanded", false, 256), ("rail", true, 256), ("220", false, 220), ("360", false, 360)] {
+                        guard layout == "expanded" || layout == "rail" || (mode == "light" && color == .graphite) else { continue }
+                        controller.sidebar.setExpandedWidth(CGFloat(width))
+                        controller.compactSidebar = rail
+                        await scene("\(mode)-\(color.rawValue)-\(layout)", controller, appearance)
+                    }
                 }
             }
+            controller.sidebar.setExpandedWidth(MacBrowserLayout.sidebarWidth)
+            controller.compactSidebar = false
+            controller.sidebarColor = .rose
+            controller.session.selectTab(privateTab.id)
+            await scene("mixed-private", controller, .dark)
+            privateController.compactSidebar = true
+            await scene("private-rail", privateController, .light)
+            controller.session.selectTab(home.id)
+            await scene("increased-contrast", controller, .dark, increased: true)
+            controller.sidebar.setExpandedWidth(MacBrowserLayout.sidebarWidthRange.upperBound)
+            await scene("rtl-360", controller, .light, rtl: true)
         }
-        controller.sidebar.setExpandedWidth(MacBrowserLayout.sidebarWidth)
-        controller.compactSidebar = false
-        controller.sidebarColor = .rose
-        controller.session.selectTab(privateTab.id)
-        await scene("mixed-private", controller, .dark)
-        privateController.compactSidebar = true
-        await scene("private-rail", privateController, .light)
-        controller.session.selectTab(home.id)
-        await scene("increased-contrast", controller, .dark, increased: true)
-        controller.sidebar.setExpandedWidth(MacBrowserLayout.sidebarWidthRange.upperBound)
-        await scene("rtl-360", controller, .light, rtl: true)
 
         let lightPage = controller.session.addTab(select: true, load: false)
         controller.session.togglePinned(lightPage.id)
         controller.session.togglePinned(records[4].id)
         let lightPageTitle = "Research and development reference"
+        let lightPageURL = URL(string: "https://research-and-development-reference.example")!
         lightPage.webView.loadHTMLString("""
             <title>\(lightPageTitle)</title><meta name="theme-color" content="#ffffff">
             <body style="background:#fff;color:#222;font:20px system-ui;padding:48px">
             <h1>Light page fixture</h1><p>Local page for the sidebar backdrop check.</p></body>
-            """, baseURL: URL(string: "https://research-and-development-reference.example"))
+            """, baseURL: lightPageURL)
         for _ in 0..<200 {
             if lightPage.webView.title == lightPageTitle && !lightPage.webView.isLoading { break }
             try? await Task.sleep(for: .milliseconds(25))
         }
         guard lightPage.webView.title == lightPageTitle else {
             manifest.failures.append("Sidebar v3 light page fixture failed to load"); return
+        }
+        if pinsOnly {
+            controller.compactSidebar = false
+            controller.session.moveTab(lightPage.id, to: records[1].id)
+            let icons = SiteIconDiskCache(directory: BrowserProfile.personal.directory(in: root).appendingPathComponent("Favicons"))
+            let artwork: [(Color, String)] = [
+                (.blue, "safari"), (.orange, "swift"), (.gray, "book.fill"),
+                (.purple, "curlybraces"), (.teal, "doc.text")
+            ]
+            for (url, (color, symbol)) in zip(Array(urls.prefix(4)) + [lightPageURL], artwork) {
+                let renderer = ImageRenderer(content: ZStack {
+                    RoundedRectangle(cornerRadius: 6).fill(color)
+                    Image(systemName: symbol).font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                }.frame(width: 32, height: 32))
+                renderer.scale = 2
+                guard let cg = renderer.cgImage,
+                      let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]),
+                      let icon = await icons.decode(png),
+                      let key = SiteIconStore.key(url, isPrivate: false) else {
+                    manifest.failures.append("Pin fixture favicon missing: \(url.host() ?? "")")
+                    continue
+                }
+                await icons.write(icon, key: key)
+                await controller.session.siteIcons.loadCached(url)
+            }
+            for (appearance, mode) in [(BrowserAppearance.light, "light"), (.dark, "dark"), (.t3Code, "black")] {
+                for color in [SidebarColor.graphite, .sky, .rose] {
+                    controller.sidebarColor = color
+                    for width in [220, 256, 360] {
+                        controller.sidebar.setExpandedWidth(CGFloat(width))
+                        await scene("pins-\(mode)-\(color.rawValue)-\(width)", controller, appearance, hovered: records[0].id)
+                    }
+                }
+                controller.sidebar.setExpandedWidth(256)
+                await scene("pins-\(mode)-increased", controller, appearance, increased: true, hovered: records[0].id)
+                await scene("pins-\(mode)-reduced", controller, appearance, reduced: true, hovered: records[0].id)
+                await scene("pins-\(mode)-rtl", controller, appearance, rtl: true, hovered: records[0].id)
+            }
+            controller.session.togglePinned(privateTab.id)
+            if privateTab.isPinned { manifest.failures.append("Private tabs must stay outside the pin grid") }
+            controller.session.selectTab(privateTab.id)
+            await scene("pins-private", controller, .dark)
+            return
         }
         controller.sidebarColor = .graphite
         for width in [220, 256, 360] {
@@ -953,7 +1001,7 @@ import WebKit
         }
 
         func scene(_ label: String, _ active: BrowserController, _ appearance: BrowserAppearance,
-                   increased: Bool = false, rtl: Bool = false,
+                   increased: Bool = false, reduced: Bool = false, rtl: Bool = false,
                    opacity: SidebarGlassOpacity = .balanced, hovered: UUID? = nil) async {
             let name = "mac-glass-sidebar-v3-\(label)"
             await capture(name, directory, CGSize(width: 1120, height: 650), key: false, settle: 280,
@@ -974,6 +1022,7 @@ import WebKit
                     .environment(\.sidebarCaptureOpacity, opacity)
                     .environment(\.sidebarCaptureBackdrop, appearance == .light ? Color(white: 0.88) : Color(white: 0.18))
                     .environment(\.sidebarCaptureContrast, increased ? .increased : .standard)
+                    .environment(\.chromeReduceTransparencyOverride, reduced)
                     .environment(\.sidebarCaptureState, SidebarCaptureState(hover: hovered ?? records.last?.id, audio: records.dropLast().last?.id))
             }
         }

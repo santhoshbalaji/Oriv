@@ -151,6 +151,17 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-v3":
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-synthetic-composite" for name in expected} - evidence
         if missing: problems.append(f"missing sidebar v3 evidence: {sorted(missing)}")
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-pins":
+    expected = {f"mac-glass-sidebar-v3-pins-{mode}-{tint}-{width}"
+                for mode in ("light", "dark", "black") for tint in ("graphite", "sky", "rose")
+                for width in (220, 256, 360)}
+    expected |= {f"mac-glass-sidebar-v3-pins-{mode}-{variant}"
+                 for mode in ("light", "dark", "black") for variant in ("increased", "reduced", "rtl")}
+    expected.add("mac-glass-sidebar-v3-pins-private")
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = {name + "-synthetic-composite" for name in expected} - evidence
+        if missing: problems.append(f"missing pinned tab evidence: {sorted(missing)}")
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-width":
     expected = {"mac-glass-sidebar-width-" + mode for mode in ("light", "dark", "rtl", "private")}
     if m.get("backgroundUI", {}).get("enabled", False):
