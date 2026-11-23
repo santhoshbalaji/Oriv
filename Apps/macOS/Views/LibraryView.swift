@@ -107,7 +107,7 @@ struct LibraryView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
-                        .background(section == item ? theme.selection : .clear, in: .rect(cornerRadius: OrivRadius.small))
+                        .modifier(ListSelection(selected: section == item))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

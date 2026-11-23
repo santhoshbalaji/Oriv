@@ -822,7 +822,7 @@ struct MobileBrowserView: View {
                     Button { chooseSuggestion(match) } label: {
                         AddressSuggestionRow(suggestion: match, query: address, isPrivate: tab?.isPrivate == true)
                             .padding(.horizontal, 12).frame(minHeight: 52).contentShape(Rectangle())
-                            .background { if addressMatches.selected == index { SelectedRowBackground() } }
+                            .modifier(ListSelection(selected: addressMatches.selected == index))
                     }.buttonStyle(.plain).accessibilityAddTraits(addressMatches.selected == index ? [.isSelected] : [])
                 }
             }.padding(OrivSpacing.small).modifier(OrivMaterial.overlay()).padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)

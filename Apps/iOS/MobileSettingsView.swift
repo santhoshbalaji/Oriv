@@ -89,7 +89,7 @@ struct MobileAppearanceSettings: View {
                                     .font(.callout).foregroundStyle(theme.secondaryText)
                             }.padding(OrivSpacing.large).frame(maxWidth: .infinity, alignment: .leading)
                                 .background(theme.surface, in: .rect(cornerRadius: OrivRadius.large))
-                                .overlay { RoundedRectangle(cornerRadius: OrivRadius.large).strokeBorder(appearance == choice ? theme.accent : theme.separator, lineWidth: appearance == choice ? 2 : 1) }
+                                .modifier(ListSelection(kind: .card, selected: appearance == choice, radius: OrivRadius.card))
                         }.buttonStyle(.plain).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }

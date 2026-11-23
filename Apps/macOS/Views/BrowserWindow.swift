@@ -804,7 +804,7 @@ struct AddressSuggestionList: View {
                 Button { choose(match) } label: {
                     AddressSuggestionRow(suggestion: match, query: address, isPrivate: isPrivate)
                         .padding(.horizontal, 10).frame(height: 38).contentShape(Rectangle())
-                        .background { if selectedIndex == index { SelectedRowBackground() } }
+                        .modifier(ListSelection(selected: selectedIndex == index))
                 }.buttonStyle(.plain).accessibilityAddTraits(selectedIndex == index ? [.isSelected] : [])
             }
             // Snapshot/noninteractive callers can still supply local matches.

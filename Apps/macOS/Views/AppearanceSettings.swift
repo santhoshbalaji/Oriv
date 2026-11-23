@@ -183,7 +183,7 @@ struct AppearanceSettings: View {
             VStack(spacing: OrivSpacing.xs) {
                 shape.fill(choice.backing(in: .graphite, profileColor: profileColor))
                     .frame(height: 24)
-                    .overlay { shape.strokeBorder(selected ? theme.accent : theme.separator, lineWidth: selected ? 2 : 1) }
+                    .modifier(ListSelection(kind: .card, selected: selected))
                     .overlay {
                         if selected {
                             Image(systemName: "checkmark").font(.caption.weight(.semibold))

@@ -587,8 +587,8 @@ struct MobileGridCard: View {
                 // The live surface is above this card. Keep its thumbnail as
                 // backing while a newly selected/restored host mounts; activeID
                 // alone does not mean WebKit has a composited layer yet.
-                .clipShape(.rect(cornerRadius: 18))
-                .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(selected ? theme.accent : theme.separator, lineWidth: selected ? 2 : 1) }
+                .clipShape(.rect(cornerRadius: OrivRadius.thumbnail))
+                .modifier(ListSelection(kind: .card, selected: selected, radius: OrivRadius.thumbnail))
                 .overlay(alignment: .topTrailing) {
                     Button(action: close) {
                         Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))

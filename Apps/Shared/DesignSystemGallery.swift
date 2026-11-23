@@ -26,7 +26,7 @@ struct DesignSystemGallery: View {
                         Text("Atlas").font(OrivType.bodyEmphasized)
                         Spacer()
                         SwitchToTabBadge()
-                    }.padding(OrivSpacing.small).background { SelectedRowBackground() }
+                    }.padding(OrivSpacing.small).modifier(ListSelection(selected: true))
                     HStack {
                         Button("Continue") {}.orivButton(.primary)
                         Button("Cancel") {}.orivButton(.secondary)

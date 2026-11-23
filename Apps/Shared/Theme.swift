@@ -431,30 +431,6 @@ struct SwitchToTabBadge: View {
     }
 }
 
-/// The system-accent marker identifies the active row at its leading edge.
-struct SelectionMarker: View {
-    @Environment(\.browserTheme) private var theme
-    @Environment(\.self) private var environment
-    var height: CGFloat = 16
-    var background: Color? = nil
-
-    var body: some View {
-        let surface = (background ?? theme.selection).resolve(in: environment)
-        Capsule().fill(theme.markerAccent(on: surface, in: environment))
-            .frame(width: 3, height: height).accessibilityHidden(true)
-    }
-}
-
-/// Selected-row background with the leading marker, for lists that draw their own selection.
-struct SelectedRowBackground: View {
-    @Environment(\.browserTheme) private var theme
-    var cornerRadius: CGFloat = OrivRadius.small
-    var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius).fill(theme.selection)
-            .overlay(alignment: .leading) { SelectionMarker().padding(.leading, 2) }
-    }
-}
-
 /// Site-owned favicons, with a local monogram while unavailable.
 struct SiteIdentity: View {
     @Environment(\.siteIcons) private var icons
