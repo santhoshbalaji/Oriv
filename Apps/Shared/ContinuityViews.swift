@@ -7,46 +7,82 @@ struct ContinuitySettingsView: View {
     let continuity: BrowserContinuity
     @State private var deviceName = ""
     var body: some View {
+        Group {
+            pane
+        }.onAppear { deviceName = continuity.state.deviceName }
+    }
+
+    @ViewBuilder private var pane: some View {
+        #if os(macOS)
+        SettingsForm {
+            SettingsGroup("Status") { status }
+            SettingsGroup("Sync", scope: "All profiles on this Mac", detail: syncDetail) { syncSwitch }
+            SettingsGroup("This device", scope: continuity.state.enabled ? "Synced" : nil) { deviceNameControls }
+            SettingsGroup("Handoff", scope: "This Mac") { handoffSwitch }
+            SettingsGroup("Stays on this device") { localData }
+        }
+        #else
         Form {
             Section {
-                // Wrap actor-isolated setters to avoid Xcode 26's method-reference reabstraction crash.
-                SettingRow(detail: "Keep bookmarks, history, profiles, regular tabs and browser preferences available on your Mac and iPhone.") {
-                    Toggle(OrivStrings.sync, isOn: Binding(get: { continuity.state.enabled }, set: { continuity.setEnabled($0) })).tint(theme.accent)
-                        .disabled(!continuity.isConfigured || !continuity.canSave)
-                        .accessibilityIdentifier("continuityEnabled")
-                }
+                syncSwitch
             } footer: {
-                Text("Uses your private iCloud database. Turning sync off pauses this device and retains existing copies. History deletions sync when your devices reconnect.")
+                Text(syncDetail)
             }.listRowBackground(theme.surface)
-            Section("Status") {
-                Text(continuity.status).accessibilityIdentifier("continuityStatus")
-                if let date = continuity.state.lastSync { LabeledContent("Last successful sync", value: date.formatted(date: .abbreviated, time: .shortened)) }
-                SettingRow(detail: "Sync runs while Oriv is active and resumes when you return. Tabs on other devices reflect their last sync.") {
-                    Button { Task { await continuity.syncNow() } } label: {
-                        HStack { Text(OrivStrings.syncNow); if continuity.isSyncing { ProgressView().controlSize(.small) } }
-                    }.disabled(!continuity.state.enabled || continuity.isSyncing || !continuity.isConfigured)
-                }
-            }.listRowBackground(theme.surface)
+            Section("Status") { status }.listRowBackground(theme.surface)
             Section("This device") {
-                LabeledContent("Device name") {
-                    // One visible label: the field's own title is hidden (macOS forms would repeat it).
-                    TextField("Device name", text: $deviceName, prompt: Text("Name")).labelsHidden().multilineTextAlignment(.trailing)
-                        .accessibilityIdentifier("continuityDeviceName")
-                        .accessibilityLabel("Device name").onSubmit { continuity.setDeviceName(deviceName) }
-                }
-                Button("Save Device Name") { continuity.setDeviceName(deviceName) }.disabled(deviceName == continuity.state.deviceName || deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || deviceName.count > 80)
-                SettingRow(detail: "Continue your current regular page on a nearby device signed in to the same Apple Account. Opens a new tab in the matching profile.") {
-                    Toggle("Handoff", isOn: Binding(get: { continuity.isConfigured && continuity.state.handoffEnabled }, set: { continuity.setHandoff($0) })).tint(theme.accent)
-                        .disabled(!continuity.isConfigured || !continuity.canSave)
-                }
+                deviceNameControls
+                handoffSwitch
             }.listRowBackground(theme.surface)
-            Section("Stays on this device") {
-                Text("Website logins and cookies, private tabs, form drafts, downloads, device permissions and profile selection. Archiving a profile is local to this device.")
-                Text("Passwords and passkeys are managed by Apple Passwords and iCloud Keychain, separately from Oriv sync.").font(.caption).foregroundStyle(theme.secondaryText)
-            }.listRowBackground(theme.surface)
+            Section("Stays on this device") { localData }.listRowBackground(theme.surface)
         }.formStyle(.grouped).scrollContentBackground(.hidden).background(theme.canvas)
             .navigationTitle(OrivStrings.sync)
-            .onAppear { deviceName = continuity.state.deviceName }
+        #endif
+    }
+
+    private let syncDetail = "Uses your private iCloud database. Turning sync off pauses this device and retains existing copies. History deletions sync when your devices reconnect."
+
+    private var syncSwitch: some View {
+        SettingRow(detail: "Keep bookmarks, history, profiles, regular tabs and browser preferences available on your Mac and iPhone.") {
+            // Wrap actor-isolated setters to avoid Xcode 26's method-reference reabstraction crash.
+            Toggle(OrivStrings.sync, isOn: Binding(get: { continuity.state.enabled }, set: { continuity.setEnabled($0) })).tint(theme.accent)
+                .disabled(!continuity.isConfigured || !continuity.canSave)
+                .accessibilityIdentifier("continuityEnabled")
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        Text(continuity.status).accessibilityIdentifier("continuityStatus")
+        if let date = continuity.state.lastSync {
+            LabeledContent("Last successful sync", value: date.formatted(date: .abbreviated, time: .shortened))
+        }
+        SettingRow(detail: "Sync runs while Oriv is active and resumes when you return. Tabs on other devices reflect their last sync.") {
+            Button { Task { await continuity.syncNow() } } label: {
+                HStack { Text(OrivStrings.syncNow); if continuity.isSyncing { ProgressView().controlSize(.small) } }
+            }.disabled(!continuity.state.enabled || continuity.isSyncing || !continuity.isConfigured)
+        }
+    }
+
+    @ViewBuilder private var deviceNameControls: some View {
+        LabeledContent("Device name") {
+            TextField("Device name", text: $deviceName, prompt: Text("Name")).labelsHidden().multilineTextAlignment(.trailing)
+                .accessibilityIdentifier("continuityDeviceName")
+                .accessibilityLabel("Device name").onSubmit { continuity.setDeviceName(deviceName) }
+        }
+        Button("Save Device Name") { continuity.setDeviceName(deviceName) }
+            .disabled(deviceName == continuity.state.deviceName || deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || deviceName.count > 80)
+    }
+
+    private var handoffSwitch: some View {
+        SettingRow(detail: "Continue your current regular page on a nearby device signed in to the same Apple Account. Opens a new tab in the matching profile.") {
+            Toggle("Handoff", isOn: Binding(get: { continuity.isConfigured && continuity.state.handoffEnabled }, set: { continuity.setHandoff($0) })).tint(theme.accent)
+                .disabled(!continuity.isConfigured || !continuity.canSave)
+        }
+    }
+
+    @ViewBuilder private var localData: some View {
+        Text("Website logins and cookies, private tabs, form drafts, downloads, device permissions and profile selection. Archiving a profile is local to this device.")
+        Text("Passwords and passkeys are managed by Apple Passwords and iCloud Keychain, separately from Oriv sync.")
+            .font(OrivType.caption).foregroundStyle(theme.textSecondary)
     }
 }
 

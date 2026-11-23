@@ -177,6 +177,42 @@ for name, minima in sidebar_levels.items():
     values = " / ".join(f"{minima[token]:.2f}" for token in ("text", "textSecondary", "private"))
     print(f"{name.capitalize()} sidebar (primary / secondary / private): {values}")
 print(f"Sidebar minimum text contrast: {ratio(worst[2], worst[4]):.2f}:1 ({worst[0]}, {worst[1]} on {worst[3]})")
+# Settings owns the foreground and the complete card. AppKit owns the material
+# and toolbar in the empty gutters. Model wallpaper as an arbitrary material
+# output, including the RGB endpoints that bound luminance for alpha blends.
+settings = (ROOT / "Apps/macOS/Views/AppearanceSettings.swift").read_text()
+settings_group = block("private struct SettingsGroupSurface:", "private struct SettingsWindowMaterial:", settings)
+assert ".background(theme.surfaceRaised, in: shape)" in settings_group
+assert ".strokeBorder(theme.separator, lineWidth: increased ? 1.5 : 0.5)" in settings_group
+assert "appearance == .t3Code || reduceTransparency || contrast == .increased" in settings
+assert "theme.canvas.ignoresSafeArea()" in settings
+settings_negative = "--negative-settings-test" in sys.argv
+settings_checks = []
+for appearance, mode, palette, _ in palettes:
+    for variant in ("standard", "reduce transparency", "increase contrast"):
+        solid = appearance == "Black" or variant != "standard"
+        secondary = palette["textSecondary"]
+        if variant == "increase contrast":
+            secondary = (re.search(r"palette.textSecondary = isT3Code \? Self.hex\(0x(\w+)\)", text)[1]
+                         if appearance == "Black" else adaptive_constant("highContrastSecondary", mode))
+        inputs = (palette["canvas"],) if solid else ("FFFFFF", "000000", "6000D9", "00D4C8", "FF8C24")
+        minima = [float("inf"), float("inf")]
+        for backdrop in inputs:
+            card = composite(palette["surfaceRaised"], backdrop, 0.5 if settings_negative else 1.0)
+            label = f"{appearance} Settings / {variant} / material #{backdrop}"
+            for index, (role, ink, minimum) in enumerate((
+                ("primary", palette["text"], 7.0),
+                ("secondary", secondary, 4.5),
+            )):
+                settings_checks.append((label, role, ink, "card", card, minimum))
+                minima[index] = min(minima[index], ratio(ink, card))
+            if variant == "increase contrast":
+                strong = (re.search(r"separatorStrong: Color \{ isT3Code \? Self.hex\(0x(\w+)\)", text)[1]
+                          if appearance == "Black" else adaptive_constant("highContrastSeparator", mode))
+                settings_checks.append((label, "strong boundary", strong, "card", card, 3.0))
+                settings_checks.append((label, "strong boundary", strong, "canvas", backdrop, 3.0))
+        print(f"{appearance} Settings / {variant} (primary / secondary): {minima[0]:.2f} / {minima[1]:.2f}")
+checks.extend(settings_checks)
 print("App-owned colors checked. Native system accent and compositor output depend on runtime settings.")
 
 # Mac page chrome chooses black/white from the band's WCAG luminance. Read the
@@ -216,7 +252,11 @@ for theme, token, colour, surface, background, minimum in checks:
     if value < minimum:
         failures += 1
         print(f"FAIL {theme}: {token} #{colour} on {surface} #{background} = {value:.2f}:1 (needs {minimum}:1)")
-if tint_negative:
+if settings_negative:
+    if not any(ratio(ink, card) < minimum for _, _, ink, _, card, minimum in settings_checks):
+        sys.exit("FAIL negative Settings test: translucent Settings card was not caught")
+    print("Negative Settings test passed")
+elif tint_negative:
     caught = any(label.startswith("Rose Light sidebar,") and ratio(foreground, background) < minimum
                  for label, _, foreground, _, background, minimum in sidebar_checks)
     if not caught:

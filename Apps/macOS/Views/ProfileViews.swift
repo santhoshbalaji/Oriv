@@ -100,6 +100,7 @@ struct ProfilesView: View {
     @Environment(\.browserTheme) private var theme
     let profiles: BrowserProfiles
     var canSwitch = true
+    var inSettings = false
     @State private var selectedID: UUID?
     @State private var creating = false
     @State private var name = ""
@@ -111,26 +112,19 @@ struct ProfilesView: View {
     private var selected: BrowserProfile? { (profiles.available + profiles.archived).first { $0.id == selectedID } }
     var body: some View {
         HStack(spacing: OrivSpacing.medium) {
-            VStack(alignment: .leading, spacing: OrivSpacing.medium) {
-                SectionHeader(title: "Profiles", kind: .content, ink: theme.text)
-                ScrollView {
-                    VStack(spacing: OrivSpacing.xs) {
-                        ForEach(profiles.available) { profile in profileRow(profile) }
-                        if !profiles.archived.isEmpty {
-                            SectionHeader(title: "Archived", kind: .sidebar)
-                                .padding(.top, OrivSpacing.large)
-                            ForEach(profiles.archived) { profile in profileRow(profile) }
-                        }
-                    }
-                }
-                Button("Add Profile", systemImage: "plus") {
-                    selectedID = nil; creating = true; name = ""; color = .ocean; symbol = .work; message = nil
-                }.orivButton(.secondary).disabled(!profiles.canModify)
+            if inSettings {
+                profileList.settingsGroupSurface()
+                    .padding(.leading, OrivSpacing.xl)
+                    .padding(.vertical, OrivSpacing.medium)
+            } else {
+                profileList.padding(.vertical, OrivSpacing.medium)
+                Divider()
             }
-            .padding(.vertical, OrivSpacing.medium)
-            .frame(width: 175)
-            Divider()
-            editor
+            if inSettings {
+                SettingsForm { editorSections }
+            } else {
+                Form { editorSections }.formStyle(.grouped)
+            }
         }
         .onAppear { if selectedID == nil && !creating { choose(profiles.active) } }
         .sheet(item: $deleting) { profile in
@@ -145,59 +139,83 @@ struct ProfilesView: View {
             Button("Archive Profile", role: .destructive) { if let archiveID { perform { try profiles.archive(archiveID) } }; archiveID = nil }
         } message: { Text("Regular tabs and data are saved. Private tabs close. Restore the profile from this screen to find its files.") }
     }
-    private var editor: some View {
-        Form {
-            Section {
-                TextField("Profile name", text: $name).accessibilityIdentifier("profileNameField")
-                Picker("Symbol", selection: $symbol) {
-                    ForEach(ProfileSymbol.allCases, id: \.self) { Label($0.title, systemImage: $0.rawValue).tag($0) }
+    private var profileList: some View {
+        VStack(alignment: .leading, spacing: OrivSpacing.medium) {
+            SectionHeader(title: "Profiles", kind: .content, ink: theme.text)
+            ScrollView {
+                VStack(spacing: OrivSpacing.xs) {
+                    ForEach(profiles.available) { profile in profileRow(profile) }
+                    if !profiles.archived.isEmpty {
+                        SectionHeader(title: "Archived", kind: .sidebar)
+                            .padding(.top, OrivSpacing.large)
+                        ForEach(profiles.archived) { profile in profileRow(profile) }
+                    }
                 }
-                Picker("Color", selection: $color) {
-                    ForEach(ProfileColor.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                SettingRow(detail: profiles.notice) {
-                    Button(creating ? "Create Profile" : "Save Changes", action: saveProfile)
-                        .orivButton(.primary)
-                        .disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                if let message {
-                    Text(message).font(OrivType.caption).foregroundStyle(theme.danger)
-                        .accessibilityIdentifier("profileEditorMessage")
-                }
-            } header: {
-                Text(creating ? "New profile" : selected?.name ?? "Choose a profile")
-            } footer: {
-                Text("Profiles keep website logins, tabs, history, settings, and bookmarks separate. Anyone using this Mac account can switch profiles. Apple Passwords and saved files use the same macOS account.")
             }
-            if let selected, selected.id != profiles.active.id, canSwitch || !selected.isPersonal {
-                Section {
-                    if selected.archivedAt != nil {
-                        Button("Restore Profile") { perform { try profiles.restore(selected.id) } }
-                            .orivButton(.secondary).disabled(!profiles.canModify)
-                    } else {
-                        if canSwitch {
-                            Button("Switch to Profile") {
-                                // Close the manager before checking for other open editors.
-                                profiles.pendingSelection = selected.id
-                                profiles.showManager = false
-                            }.orivButton(.secondary)
-                        }
-                        if !selected.isPersonal {
-                            Button("Archive Profile…", role: .destructive) { archiveID = selected.id }
-                                .orivButton(.destructive).disabled(!profiles.canModify)
-                        }
+            Button("Add Profile", systemImage: "plus") {
+                selectedID = nil; creating = true; name = ""; color = .ocean; symbol = .work; message = nil
+            }.orivButton(.secondary).disabled(!profiles.canModify)
+        }
+        .frame(width: 175)
+    }
+
+    @ViewBuilder private var editorSections: some View {
+        editorGroup(creating ? "New profile" : selected?.name ?? "Choose a profile",
+                    detail: "Profiles keep website logins, tabs, history, settings, and bookmarks separate. Anyone using this Mac account can switch profiles. Apple Passwords and saved files use the same macOS account.") {
+            TextField("Profile name", text: $name).accessibilityIdentifier("profileNameField")
+            Picker("Symbol", selection: $symbol) {
+                ForEach(ProfileSymbol.allCases, id: \.self) { Label($0.title, systemImage: $0.rawValue).tag($0) }
+            }
+            Picker("Color", selection: $color) {
+                ForEach(ProfileColor.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            SettingRow(detail: profiles.notice) {
+                Button(creating ? "Create Profile" : "Save Changes", action: saveProfile)
+                    .orivButton(.primary)
+                    .disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if let message {
+                Text(message).font(OrivType.caption).foregroundStyle(theme.danger)
+                    .accessibilityIdentifier("profileEditorMessage")
+            }
+        }
+        if let selected, selected.id != profiles.active.id, canSwitch || !selected.isPersonal {
+            editorGroup("Profile actions", detail: "Archiving hides a profile. Its tabs, bookmarks, history and website data return when you restore it.") {
+                if selected.archivedAt != nil {
+                    Button("Restore Profile") { perform { try profiles.restore(selected.id) } }
+                        .orivButton(.secondary).disabled(!profiles.canModify)
+                } else {
+                    if canSwitch {
+                        Button("Switch to Profile") {
+                            // Close the manager before checking for other open editors.
+                            profiles.pendingSelection = selected.id
+                            profiles.showManager = false
+                        }.orivButton(.secondary)
                     }
                     if !selected.isPersonal {
-                        Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = selected }
+                        Button("Archive Profile…", role: .destructive) { archiveID = selected.id }
                             .orivButton(.destructive).disabled(!profiles.canModify)
                     }
-                } header: {
-                    Text("Profile actions")
-                } footer: {
-                    Text("Archiving hides a profile. Its tabs, bookmarks, history and website data return when you restore it.")
+                }
+                if !selected.isPersonal {
+                    Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = selected }
+                        .orivButton(.destructive).disabled(!profiles.canModify)
+                    if inSettings, profiles.continuity.state.enabled {
+                        Text("Deletion reaches other devices when they sync.")
+                            .font(OrivType.caption).foregroundStyle(theme.textSecondary)
+                    }
                 }
             }
-        }.formStyle(.grouped)
+        }
+    }
+
+    @ViewBuilder private func editorGroup<Content: View>(_ title: String, detail: String,
+                                                         @ViewBuilder content: @escaping () -> Content) -> some View {
+        if inSettings {
+            SettingsGroup(title, detail: detail, content: content)
+        } else {
+            Section(content: content, header: { Text(title) }, footer: { Text(detail) })
+        }
     }
 
     private func saveProfile() {
@@ -213,7 +231,10 @@ struct ProfilesView: View {
     private func profileRow(_ profile: BrowserProfile) -> some View {
         Button { choose(profile) } label: {
             HStack(spacing: OrivSpacing.small) {
-                Image(systemName: profile.symbol.rawValue).foregroundStyle(profile.color.tint(in: theme)).frame(width: OrivSpacing.larger)
+                Image(systemName: profile.symbol.rawValue)
+                    .foregroundStyle(inSettings && profile.color == .mulberry
+                                     ? theme.private : profile.color.tint(in: theme))
+                    .frame(width: OrivSpacing.larger)
                 VStack(alignment: .leading, spacing: OrivSpacing.xs) {
                     Text(profile.name).font(OrivType.body).lineLimit(1)
                     if profile.id == profiles.active.id { Badge(text: "Current profile", padsLabel: false) }

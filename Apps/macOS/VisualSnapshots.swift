@@ -68,6 +68,7 @@ import WebKit
         else if let sites = environment["ORIV_LIVE_SITES"], !sites.isEmpty { await renderLiveSites(sites, into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-github" { await renderGitHubFavicon(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "phase5" { await renderProfileSwipeScenes(into: directory) }
+        else if environment["ORIV_GLASS_SCENE"] == "settings-v3" { await renderSettingsV3(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "settings-audit" { await renderSettingsAudit(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "phase2" { await renderThemeScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "phase2-contrast" { await renderThemeContrast(into: directory) }
@@ -241,6 +242,30 @@ import WebKit
                 }
             }
             profiles.shutdown()
+        }
+    }
+
+    private static func renderSettingsV3(into directory: URL) async {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        guard (try? profiles.create(name: "Work", color: .ocean, symbol: .work)) != nil else {
+            manifest.failures.append("Settings could not create the fixture profile")
+            return
+        }
+        for (name, appearance) in [("light", BrowserAppearance.light), ("dark", .dark), ("black", .t3Code)] {
+            profiles.controller.appearance = appearance
+            for variant in ["standard", "reduced", "increased"] {
+                for pane in SettingsPane.allCases {
+                    await capture("mac-glass-settings-v3-\(name)-\(variant)-\(pane.rawValue)", directory,
+                                  CGSize(width: 660, height: pane.windowHeight), key: false, settle: 200,
+                                  toolbarStyle: .preference, appearance: appearance, applyBrowserAppearance: false) {
+                        AppearanceSettings(appearance: .constant(appearance), controller: profiles.controller,
+                                           profiles: profiles, initialPane: pane)
+                            .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
+                            .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
+                    }
+                }
+            }
         }
     }
 

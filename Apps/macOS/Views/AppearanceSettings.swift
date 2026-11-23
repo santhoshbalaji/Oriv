@@ -7,6 +7,19 @@ enum SettingsPane: String, CaseIterable, Hashable {
     case general, profiles, continuity, appearance, privacy, passwords, about
 
     var title: String { self == .continuity ? OrivStrings.sync : rawValue.capitalized }
+    // oriv:raw-metric Preferred Settings viewport heights, including the native toolbar.
+    var windowHeight: CGFloat {
+        switch self {
+        case .general: 520
+        case .profiles: 500
+        case .continuity: 720
+        case .appearance: 745
+        case .privacy: 830
+        case .passwords: 540
+        case .about: AppIdentity.isDevelopment ? 500 : 430
+        }
+    }
+
     var identifier: NSToolbarItem.Identifier { .init(rawValue: rawValue) }
     var symbol: String {
         switch self {
@@ -21,8 +34,24 @@ enum SettingsPane: String, CaseIterable, Hashable {
     }
 }
 
+struct ProfileSettings: View {
+    let profiles: BrowserProfiles
+
+    var body: some View {
+        let controller = profiles.controller
+        AppearanceSettings(appearance: Binding(get: { controller.appearance }, set: { controller.appearance = $0 }),
+                           controller: controller, profiles: profiles)
+    }
+}
+
 struct AppearanceSettings: View {
-    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.colorSchemeContrast) private var systemContrast
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    @Environment(\.chromeContrastOverride) private var captureContrast
+    @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
+    private var contrast: ColorSchemeContrast { captureContrast ?? systemContrast }
+    private var reduceTransparency: Bool { systemReduceTransparency || captureReduceTransparency }
+    private var solidBackdrop: Bool { appearance == .t3Code || reduceTransparency || contrast == .increased }
     private var theme: Theme { appearance.theme.respecting(contrast) }
     @Binding var appearance: BrowserAppearance
     @AppStorage(SidebarGlassOpacity.preferenceKey) private var sidebarGlassOpacity: SidebarGlassOpacity = .balanced
@@ -31,8 +60,13 @@ struct AppearanceSettings: View {
     private var adBlocker: AdBlocker { controller.session.adBlocker }
     @State private var defaultBrowserStatus = ""
     @State private var changingDefault = false
-    @State private var websiteData = false
-    @State private var clearBrowsingData = false
+    private struct DataSheet: Identifiable {
+        enum Kind { case websiteData, clearBrowsingData }
+        let id: Kind
+        let session: BrowserSession
+    }
+    @State private var dataSheet: DataSheet?
+    @State private var acknowledgments = false
     var initialPane: SettingsPane = .general
     @State private var pane: SettingsPane?
     private let runtime = BrowserRuntime.current
@@ -44,25 +78,46 @@ struct AppearanceSettings: View {
         return panes.contains(selection) ? selection : .general
     }
 
+    private var profileScope: String { "This profile · \(controller.profile?.name ?? "Private")" }
+    private var syncedScope: String {
+        profiles?.continuity.state.enabled == true ? "\(profileScope) · Synced" : profileScope
+    }
+
     var body: some View {
         panel
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(OrivSpacing.large)
-            .frame(width: 640, height: 580)
-            .background(theme.canvas)
+            // oriv:raw-metric Fixed width for seven native toolbar items; the height follows the pane.
+            .frame(width: 660)
+            .frame(minHeight: 300, idealHeight: selectedPane.windowHeight, maxHeight: .infinity)
             .background {
-                SettingsToolbar(panes: panes, selection: selectedPane) { pane = $0 }
+                if solidBackdrop {
+                    theme.canvas.ignoresSafeArea()
+                } else if BackgroundUIMode.isEnabled {
+                    theme.chrome.ignoresSafeArea()
+                } else {
+                    SettingsWindowMaterial().ignoresSafeArea()
+                }
+            }
+            .background {
+                SettingsToolbar(panes: panes, selection: selectedPane,
+                                opaqueBackground: solidBackdrop || BackgroundUIMode.isEnabled,
+                                increasedContrast: contrast == .increased,
+                                opaqueColor: solidBackdrop ? theme.canvas : theme.chrome) { pane = $0 }
             }
             .preferredColorScheme(appearance.colorScheme)
-            .sheet(isPresented: $websiteData) { WebsiteDataView(manager: controller.session.websiteData) }
-            .sheet(isPresented: $clearBrowsingData) { ClearBrowsingDataView(session: controller.session) }
+            .sheet(item: $dataSheet) { sheet in
+                switch sheet.id {
+                case .websiteData: WebsiteDataView(manager: sheet.session.websiteData)
+                case .clearBrowsingData: ClearBrowsingDataView(session: sheet.session)
+                }
+            }
+            .sheet(isPresented: $acknowledgments) { PrivacyAcknowledgements() }
             .environment(\.browserTheme, theme)
     }
 
     @ViewBuilder private var panel: some View {
         switch selectedPane {
         case .general: generalPanel
-        case .profiles: if let profiles { ProfilesView(profiles: profiles, canSwitch: false).padding(OrivSpacing.small) }
+        case .profiles: if let profiles { ProfilesView(profiles: profiles, canSwitch: false, inSettings: true) }
         case .continuity: if let profiles { ContinuitySettingsView(continuity: profiles.continuity) }
         case .appearance: appearancePanel
         case .privacy: privacyPanel
@@ -73,40 +128,51 @@ struct AppearanceSettings: View {
 
     private var generalPanel: some View {
         @Bindable var settings = controller.session.settings
-        return Form {
-            Section("Browsing") {
-                if let profiles {
+        return SettingsForm {
+            if let profiles {
+                SettingsGroup("External links", scope: "All profiles on this Mac") {
                     SettingRow(detail: "External links open signed out, separate from every profile. Move a page to a profile when you choose.") {
-                        Toggle(OrivStrings.openLinksPrivately, isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
+                        Toggle(OrivStrings.openLinksPrivately, isOn: Binding(
+                            get: { profiles.openExternalLinksPrivately },
+                            set: { profiles.openExternalLinksPrivately = $0 }
+                        ))
                     }
                 }
+            }
+            SettingsGroup("Browsing", scope: syncedScope) {
                 SettingRow(detail: "Searches are sent only when you submit them. Address suggestions use local tabs, saved pages and history.") {
                     BrowsingPreferencePicker(title: "Search engine", selection: $settings.searchEngine,
                                              options: SearchEngine.allCases, label: \.rawValue)
                 }
                 SettingRow(detail: "Pinned tabs always return. Private tabs are never restored. This takes effect on the next launch.") {
-                    Toggle("Restore tabs when Oriv starts", isOn: $settings.restoreTabs).tint(theme.accent)
+                    Toggle("Restore tabs when Oriv starts", isOn: $settings.restoreTabs)
                 }
                 SettingRow(detail: "Applies to newly opened tabs.") {
                     BrowsingPreferencePicker(title: "Default page zoom", selection: $settings.defaultZoom,
                                              options: [0.75, 0.9, 1, 1.1, 1.25, 1.5, 2], label: { "\(Int($0 * 100))%" })
                 }
             }
-            Section("Default browser") {
+            SettingsGroup("Default browser", scope: "This Mac") {
                 SettingRow(detail: defaultBrowserStatus.isEmpty ? (isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "macOS will ask you to confirm this change.") : defaultBrowserStatus) {
-                    Button("Make \(AppIdentity.name) the Default Browser…") {
-                        changingDefault = true
-                        Task {
-                            defer { changingDefault = false }
-                            do {
-                                for scheme in ["https", "http"] { try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpenURLsWithScheme: scheme) }
-                                defaultBrowserStatus = isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "The change wasn’t confirmed for both HTTP and HTTPS. Check macOS Settings."
-                            } catch { defaultBrowserStatus = "The default browser wasn’t changed for every scheme. \(error.localizedDescription)" }
+                    LabeledContent("Open web links with Oriv") {
+                        Button("Make Default…") {
+                            changingDefault = true
+                            Task {
+                                defer { changingDefault = false }
+                                do {
+                                    for scheme in ["https", "http"] {
+                                        try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpenURLsWithScheme: scheme)
+                                    }
+                                    defaultBrowserStatus = isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "The change wasn’t confirmed for both HTTP and HTTPS. Check macOS Settings."
+                                } catch { defaultBrowserStatus = "The default browser wasn’t changed for every scheme. \(error.localizedDescription)" }
+                            }
                         }
-                    }.disabled(changingDefault || isDefaultBrowser)
+                        .accessibilityLabel("Make \(AppIdentity.name) the default browser")
+                        .disabled(changingDefault || isDefaultBrowser)
+                    }
                 }
             }
-        }.formStyle(.grouped)
+        }
     }
     private var isDefaultBrowser: Bool {
         ["http", "https"].allSatisfy { scheme in
@@ -115,81 +181,84 @@ struct AppearanceSettings: View {
     }
 
     private var appearancePanel: some View {
-        Form {
-            Section {
+        SettingsForm {
+            SettingsGroup("Appearance", scope: syncedScope, detail: OrivStrings.appearanceSummary,
+                          marker: "settingsAppearanceHeader") {
                 HStack(spacing: OrivSpacing.medium) {
                     ForEach(BrowserAppearance.allCases) { choice in
                         Button { appearance = choice } label: {
                             VStack(spacing: OrivSpacing.small) {
                                 AppearancePreview(choice: choice)
+                                    .overlay(alignment: .bottomTrailing) {
+                                        if appearance == choice {
+                                            Image(systemName: "checkmark")
+                                                .font(OrivType.caption.weight(.semibold))
+                                                .padding(OrivSpacing.xs)
+                                                .foregroundStyle(theme.text)
+                                                .background(theme.surfaceRaised, in: .circle)
+                                                .accessibilityHidden(true)
+                                        }
+                                    }
                                 Text(choice.displayName).font(OrivType.body.weight(appearance == choice ? .semibold : .regular))
-                                Image(systemName: "checkmark")
-                                    .font(OrivType.caption.weight(.semibold))
-                                    .foregroundStyle(theme.accent)
-                                    .opacity(appearance == choice ? 1 : 0)
-                                    .accessibilityHidden(true)
                             }.padding(OrivSpacing.small).frame(maxWidth: .infinity)
                                 .modifier(Tile(kind: .appearance(.clear), selected: appearance == choice))
                         }.orivButton(.quiet).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
-            } header: {
-                Text("Appearance for the \(controller.profile?.name ?? "Private") profile")
-                    .browserGeometryMarker("settingsAppearanceHeader")
-            } footer: {
-                Text(OrivStrings.appearanceSummary)
             }
             if let profileColor = controller.sidebarProfileColor(in: profiles) {
-                Section("Sidebar color") {
-                    VStack(alignment: .leading, spacing: OrivSpacing.medium) {
-                        HStack(spacing: OrivSpacing.small) {
-                            sidebarSwatch(.graphite, profileColor: profileColor).frame(width: 108)
-                            sidebarSwatch(.profile, profileColor: profileColor).frame(width: 108)
-                        }
-                        HStack(spacing: OrivSpacing.small) {
-                            ForEach(SidebarColor.allCases.dropFirst(2), id: \.self) { choice in
-                                sidebarSwatch(choice, profileColor: profileColor)
-                            }
+                SettingsGroup("Sidebar color", scope: profileScope,
+                              detail: appearance == .t3Code ? "Sidebar color is available in System, Light and Dark." : nil) {
+                    // oriv:raw-metric Five equal columns balance the nine swatches across two rows.
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: OrivSpacing.small), count: 5),
+                              spacing: OrivSpacing.small) {
+                        ForEach(SidebarColor.allCases, id: \.self) { choice in
+                            sidebarSwatch(choice, profileColor: profileColor)
                         }
                     }
                     .disabled(appearance == .t3Code)
-                    if appearance == .t3Code {
-                        Text("Sidebar color is available in System, Light and Dark.")
-                            .font(OrivType.caption).foregroundStyle(theme.secondaryText)
-                    }
                 }
             }
-            Section("All profiles") {
+            SettingsGroup("Sidebar and gestures", scope: "All profiles on this Mac") {
                 if let profiles {
-                    Picker("Swipe between profiles", selection: Binding(
-                        get: { profiles.profileSwipePreference }, set: { profiles.profileSwipePreference = $0 }
-                    )) {
-                        ForEach(ProfileSwipePreference.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    LabeledContent("Swipe between profiles") {
+                        Picker("Swipe between profiles", selection: Binding(
+                            get: { profiles.profileSwipePreference }, set: { profiles.profileSwipePreference = $0 }
+                        )) {
+                            ForEach(ProfileSwipePreference.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }.labelsHidden()
                     }
                 }
-                Picker("Glass opacity", selection: $sidebarGlassOpacity) {
-                    ForEach(SidebarGlassOpacity.allCases, id: \.self) { choice in
-                        Text(choice.rawValue).tag(choice)
+                SettingRow(detail: reduceTransparency || contrast == .increased
+                           ? "macOS uses a solid sidebar with your accessibility settings."
+                           : "Controls the sidebar in browser windows.") {
+                    LabeledContent("Glass opacity") {
+                        Picker("Glass opacity", selection: $sidebarGlassOpacity) {
+                            ForEach(SidebarGlassOpacity.allCases, id: \.self) { choice in
+                                Text(choice.rawValue).tag(choice)
+                            }
+                        }.labelsHidden().pickerStyle(.segmented)
                     }
-                }.pickerStyle(.segmented)
+                }
             }
-            Section("Sidebar for this profile") {
+            SettingsGroup("Collapsed sidebar", scope: profileScope) {
                 SettingRow(detail: "Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.") {
                     Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
                 }
             }
-        }.formStyle(.grouped)
+        }
     }
 
     private func sidebarSwatch(_ choice: SidebarColor, profileColor: ProfileColor) -> some View {
-        let selected = controller.sidebarColor == choice
+        let selected = appearance != .t3Code && controller.sidebarColor == choice
         return Button {
             controller.sidebarColor = choice
         } label: {
             VStack(spacing: OrivSpacing.xs) {
                 Rectangle().fill(.clear).frame(height: OrivTarget.macMinimum.height)
                     .modifier(Tile(kind: .swatch(choice.backing(in: .graphite, profileColor: profileColor)), selected: selected))
+                    .opacity(appearance == .t3Code ? 0.45 : 1)
                     .overlay {
                         if selected {
                             Image(systemName: "checkmark").font(OrivType.caption.weight(.semibold))
@@ -207,28 +276,18 @@ struct AppearanceSettings: View {
     }
 
     private var privacyPanel: some View {
-        Form {
-            Section {
-                Button("Manage Website Data…") { websiteData = true }.orivButton(.secondary)
-                Button("Clear Browsing Data…") { clearBrowsingData = true }.orivButton(.destructive)
-                if !controller.session.settings.rules.isEmpty {
-                    DisclosureGroup("Site permissions (\(controller.session.settings.rules.count))") {
-                        ForEach(controller.session.settings.rules.keys.sorted(), id: \.self) { origin in
-                            HStack { Text(origin).lineLimit(1); Spacer(); Button("Reset") { controller.session.settings.removeRule(origin) } }
-                        }
-                    }
-                }
-            } header: {
-                Text("Browsing data")
-            } footer: {
-                Text("Review cookies and offline storage, or clear history and caches by time range.")
-            }
-            Section {
+        SettingsForm {
+            SettingsGroup("Privacy controls", scope: profileScope) {
                 PrivacySettingsControls(session: controller.session)
+            }
+            SettingsGroup("Ad and tracker blocking", scope: syncedScope,
+                          detail: "Applies to normal and private tabs. Reload open pages to apply changes fully. Private site exceptions are forgotten when the last private tab closes.") {
                 SettingRow(detail: adBlocker.mode.detail) {
-                    Picker("Ad blocking", selection: Binding(get: { adBlocker.mode }, set: { adBlocker.setMode($0) })) {
-                        ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented).tint(theme.accent)
+                    LabeledContent("Ad blocking") {
+                        Picker("Ad blocking", selection: Binding(get: { adBlocker.mode }, set: { adBlocker.setMode($0) })) {
+                            ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
+                        }.labelsHidden().pickerStyle(.segmented)
+                    }
                 }
                 if adBlocker.mode == .strict {
                     if adBlocker.isPreparingCNAME { ProgressView(OrivStrings.preparingTrackerProtection) }
@@ -246,32 +305,171 @@ struct AppearanceSettings: View {
                         }
                     }
                 }
-            } header: { Text("Protection while you browse") } footer: {
-                Text("Applies to normal and private tabs. Reload open pages to apply changes fully. Private site exceptions are forgotten when the last private tab closes.")
             }
-        }.formStyle(.grouped)
+            SettingsGroup("Browsing data", scope: profileScope,
+                          detail: "History deletions reach other devices when Sync is on.") {
+                LabeledContent("Cookies and offline storage") {
+                    Button("Manage Website Data…") {
+                        dataSheet = DataSheet(id: .websiteData, session: controller.session)
+                    }.orivButton(.secondary)
+                }
+                LabeledContent("History and caches") {
+                    Button("Clear Browsing Data…") {
+                        dataSheet = DataSheet(id: .clearBrowsingData, session: controller.session)
+                    }.orivButton(.destructive)
+                }
+            }
+            SettingsGroup("Site permissions", scope: syncedScope) {
+                if controller.session.settings.rules.isEmpty {
+                    Text("No site permissions saved.").foregroundStyle(theme.textSecondary)
+                } else {
+                    DisclosureGroup("Saved permissions (\(controller.session.settings.rules.count))") {
+                        ForEach(controller.session.settings.rules.keys.sorted(), id: \.self) { origin in
+                            LabeledContent {
+                                Button("Reset") { controller.session.settings.removeRule(origin) }
+                                    .accessibilityLabel("Reset site permissions for \(origin)")
+                            } label: {
+                                Text(origin).lineLimit(1).truncationMode(.middle)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
+
     private var aboutPanel: some View {
-        Form {
-            Section {
+        SettingsForm {
+            SettingsGroup(AppIdentity.name, detail: "Oriv uses the web engine supplied by macOS. Install macOS and Safari updates for WebKit fixes and media support.") {
                 LabeledContent("Version", value: "\(runtime.appVersion) (\(runtime.appBuild))")
                 LabeledContent("Build", value: AppIdentity.channel)
                 LabeledContent("macOS", value: runtime.operatingSystem)
                 LabeledContent("WebKit", value: runtime.webKitBuild)
                 LabeledContent("Protection list version", value: AdBlocker.rulesVersion)
-            } header: {
-                Text(AppIdentity.name)
-            } footer: {
-                Text("Oriv uses the web engine supplied by macOS. Install macOS and Safari updates for WebKit fixes and media support.")
+            }.textSelection(.enabled)
+            SettingsGroup("Open source") {
+                Button("Acknowledgments…") { acknowledgments = true }
             }
             if AppIdentity.isDevelopment {
-                Section("Development build") {
+                SettingsGroup("Development build") {
                     Text("This build keeps its browsing profiles and website data separate from the installed Oriv release.")
-                        .font(OrivType.body).foregroundStyle(theme.textSecondary)
+                        .foregroundStyle(theme.textSecondary)
                 }
             }
-        }.formStyle(.grouped).textSelection(.enabled)
+        }
     }
+}
+
+struct SettingsForm<Content: View>: View {
+    @Environment(\.browserTheme) private var theme
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: OrivSpacing.medium, content: content)
+                .padding(.horizontal, OrivSpacing.xl)
+                .padding(.vertical, OrivSpacing.medium)
+        }
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .font(OrivType.body)
+        .foregroundStyle(theme.text)
+        .tint(theme.accent)
+        .labeledContentStyle(SettingsLabelStyle())
+        .toggleStyle(SettingsToggleStyle())
+        .pickerStyle(.menu)
+    }
+}
+
+private struct SettingsLabelStyle: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: OrivSpacing.medium) {
+            configuration.label
+            Spacer(minLength: 0)
+            configuration.content
+        }
+    }
+}
+
+private struct SettingsToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Toggle(isOn: configuration.$isOn) {
+            configuration.label.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .toggleStyle(.switch)
+    }
+}
+
+struct SettingsGroup<Content: View>: View {
+    @Environment(\.browserTheme) private var theme
+    let title: String
+    var scope: String?
+    var detail: String?
+    var marker: String?
+    @ViewBuilder let content: () -> Content
+
+    init(_ title: String, scope: String? = nil, detail: String? = nil, marker: String? = nil,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.scope = scope
+        self.detail = detail
+        self.marker = marker
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: OrivSpacing.small) {
+            HStack(alignment: .firstTextBaseline) {
+                if let marker { heading.browserGeometryMarker(marker) }
+                else { heading }
+                Spacer(minLength: OrivSpacing.small)
+                if let scope {
+                    Text(scope).font(OrivType.caption).foregroundStyle(theme.textSecondary)
+                }
+            }
+            content()
+            if let detail {
+                Text(detail).font(OrivType.caption).foregroundStyle(theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsGroupSurface()
+        .accessibilityElement(children: .contain)
+    }
+
+    private var heading: some View {
+        Text(title).font(OrivType.headline).accessibilityAddTraits(.isHeader)
+    }
+}
+
+extension View {
+    func settingsGroupSurface() -> some View { modifier(SettingsGroupSurface()) }
+}
+
+private struct SettingsGroupSurface: ViewModifier {
+    @Environment(\.browserTheme) private var theme
+    @Environment(\.colorSchemeContrast) private var systemContrast
+    @Environment(\.chromeContrastOverride) private var captureContrast
+
+    func body(content: Content) -> some View {
+        let increased = (captureContrast ?? systemContrast) == .increased
+        let shape = RoundedRectangle(cornerRadius: OrivRadius.panel)
+        content.padding(OrivSpacing.medium)
+            .background(theme.surfaceRaised, in: shape)
+            .overlay { shape.strokeBorder(theme.separator, lineWidth: increased ? 1.5 : 0.5) }
+    }
+}
+
+private struct SettingsWindowMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 /// A native pop-up exposes both its label and AppKit's standard AX press action.
@@ -327,6 +525,9 @@ private struct BrowsingPreferencePicker<Value: Equatable>: View {
 private struct SettingsToolbar: NSViewRepresentable {
     let panes: [SettingsPane]
     let selection: SettingsPane
+    let opaqueBackground: Bool
+    let increasedContrast: Bool
+    let opaqueColor: Color
     let select: (SettingsPane) -> Void
 
     func makeNSView(context: Context) -> ToolbarHost { ToolbarHost() }
@@ -334,6 +535,9 @@ private struct SettingsToolbar: NSViewRepresentable {
         view.panes = panes
         view.selection = selection
         view.select = select
+        view.opaqueBackground = opaqueBackground
+        view.increasedContrast = increasedContrast
+        view.opaqueColor = opaqueColor
         view.installToolbar()
     }
 
@@ -341,6 +545,10 @@ private struct SettingsToolbar: NSViewRepresentable {
         var panes: [SettingsPane] = []
         var selection = SettingsPane.general
         var select: ((SettingsPane) -> Void)?
+        var opaqueBackground = true
+        var increasedContrast = false
+        var opaqueColor = Color(nsColor: .windowBackgroundColor)
+        private var sizedPane: SettingsPane?
         private lazy var settingsToolbar: NSToolbar = {
             let toolbar = NSToolbar(identifier: "OrivSettings")
             toolbar.delegate = self
@@ -361,14 +569,37 @@ private struct SettingsToolbar: NSViewRepresentable {
             let identifiers = panes.map(\.identifier)
             if window.toolbar !== settingsToolbar {
                 window.toolbarStyle = .preference
-                window.styleMask.remove(.fullSizeContentView)
+                window.styleMask.insert(.fullSizeContentView)
+                window.titlebarAppearsTransparent = true
                 window.title = "\(AppIdentity.name) Settings"
                 window.setAccessibilityIdentifier("orivSettingsWindow")
                 window.toolbar = settingsToolbar
             }
+            window.isOpaque = opaqueBackground
+            window.backgroundColor = opaqueBackground ? NSColor(opaqueColor) : .clear
+            window.titlebarSeparatorStyle = increasedContrast ? .line : .none
+            resizeWindow(for: selection, in: window)
             if settingsToolbar.itemIdentifiers != identifiers { settingsToolbar.itemIdentifiers = identifiers }
             if settingsToolbar.selectedItemIdentifier != selection.identifier {
                 settingsToolbar.selectedItemIdentifier = selection.identifier
+            }
+        }
+
+        private func resizeWindow(for pane: SettingsPane, in window: NSWindow) {
+            guard sizedPane != pane else { return }
+            sizedPane = pane
+            // Wait for the new pane's layout and preserve the native toolbar's position.
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window, self.sizedPane == pane else { return }
+                let available = (window.screen ?? NSScreen.main)?.visibleFrame
+                let height = min(pane.windowHeight, available?.height ?? pane.windowHeight)
+                var frame = window.frame
+                frame.origin.y = frame.maxY - height
+                frame.size.height = height
+                if let available, !BackgroundUIMode.isEnabled {
+                    frame.origin.y = max(available.minY, min(frame.minY, available.maxY - height))
+                }
+                window.setFrame(frame, display: true)
             }
         }
 
