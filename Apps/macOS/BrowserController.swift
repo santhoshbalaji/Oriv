@@ -129,6 +129,11 @@ final class BrowserController {
     var findNextRequest = 0
     var findBackwards = false
     var passwordsGuideRequest = 0
+    var passwordFillRequest = 0
+    var canAutoFillPassword: Bool {
+        guard let tab = session.selectedTab, tab.isInstantiated else { return false }
+        return tab.passwordFields.kind?.supportsPasswordFill == true
+    }
     var library: LibrarySection?
     var addressError: String?
     var browserError: String?

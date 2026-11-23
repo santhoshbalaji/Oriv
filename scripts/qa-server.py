@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import argparse
 import html
+import ipaddress
 import json
 import time
 
@@ -16,6 +17,66 @@ MEDIA = ROOT / 'build' / 'media-fixtures'
 PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>{title}</title>
 <style>body{{font:18px -apple-system,sans-serif;max-width:800px;margin:70px auto;padding:24px;color:#172536;background:#f7f9fc}}h1{{font-size:44px}}a{{color:#246bce}}input,button{{font:inherit;padding:10px}}section{{margin:28px 0;padding:24px;background:white;border-radius:12px}}nav{{display:flex;gap:24px}}</style></head>
 <body><p>Personal Browser · Local test page</p><h1>{title}</h1>{body}</body></html>"""
+
+PASSKEY_FORM = """<p>Use localhost and a disposable test passkey.</p>
+<button id="register">Create test passkey</button>
+<button id="authenticate" disabled>Sign in with test passkey</button>
+<p id="status" role="status"></p>
+<script>
+const register = document.querySelector('#register');
+const authenticate = document.querySelector('#authenticate');
+const status = document.querySelector('#status');
+const randomBytes = () => crypto.getRandomValues(new Uint8Array(32));
+let credentialID;
+register.onclick = async () => {
+    try {
+        const credential = await navigator.credentials.create({publicKey: {
+            challenge: randomBytes(),
+            rp: {name: 'Oriv loopback fixture'},
+            user: {id: randomBytes(), name: 'oriv-test', displayName: 'Oriv test'},
+            pubKeyCredParams: [{type: 'public-key', alg: -7}],
+            authenticatorSelection: {residentKey: 'required', userVerification: 'required'},
+            timeout: 60000
+        }});
+        credentialID = credential.rawId;
+        authenticate.disabled = false;
+        status.textContent = 'Test passkey created.';
+    } catch (error) {
+        status.textContent = 'Create: ' + error.name;
+    }
+};
+authenticate.onclick = async () => {
+    try {
+        await navigator.credentials.get({publicKey: {
+            challenge: randomBytes(),
+            allowCredentials: [{type: 'public-key', id: credentialID}],
+            userVerification: 'required',
+            timeout: 60000
+        }});
+        status.textContent = 'Test assertion received.';
+    } catch (error) {
+        status.textContent = 'Sign in: ' + error.name;
+    }
+};
+</script>"""
+
+NEW_PASSWORD = """
+<p><label>New password <input type="password" name="new-password" autocomplete="new-password"
+    passwordrules="minlength: 12; required: lower; required: upper; required: digit;"></label></p>
+"""
+PASSWORD_FORMS = {
+    '/signup': ('Sign up', """
+        <p><label>Username <input name="username" autocomplete="username"></label></p>
+    """ + NEW_PASSWORD),
+    '/change-password': ('Change password', """
+        <p><label>Current password <input type="password" name="current-password"
+            autocomplete="current-password"></label></p>
+    """ + NEW_PASSWORD),
+    '/otp': ('Verification code', """
+        <p><label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code"></label></p>
+    """),
+}
+
 
 class Handler(BaseHTTPRequestHandler):
     privacy_destination_requests = 0
@@ -283,6 +344,9 @@ class Handler(BaseHTTPRequestHandler):
             <p><label>Password <input type="password" name="password" autocomplete="current-password"></label></p>
             </section></form>''')
             return
+        if path in PASSWORD_FORMS or path in {'/login-2step', '/passkey'}:
+            self.password_fixture(path)
+            return
         if path == '/context':
             self.send_bytes((FIXTURES / 'context.html').read_bytes(), 'text/html; charset=utf-8')
             return
@@ -336,6 +400,34 @@ class Handler(BaseHTTPRequestHandler):
         <section><h2>Website dialogs</h2><button onclick="alert('A message from the test website')">Alert</button> <button onclick="document.getElementById('answer').textContent=confirm('Continue with the test?')">Confirm</button> <span id="answer"></span></section>
         <section><h2>File upload</h2><input id="upload" type="file" onchange="document.getElementById('file-name').textContent=this.files[0]?.name"><p id="file-name"></p></section>
         <section><form method="post" action="/submitted"><label>Note <input name="note" value="A test note"></label> <button type="submit">Submit test form</button></form></section>''')
+
+    def password_fixture(self, path):
+        if not all(ipaddress.ip_address(address).is_loopback
+                   for address in (self.client_address[0], self.connection.getsockname()[0])):
+            self.send_error(404)
+            return
+        if path == '/passkey':
+            title, body = 'Passkey check', PASSKEY_FORM
+        elif path == '/login-2step':
+            password_step = parse_qs(urlsplit(self.path).query).get('step') == ['password']
+            if password_step:
+                title, body = 'Sign in · password', """
+                    <form onsubmit="return false">
+                    <p><label>Password <input type="password" name="password" autocomplete="current-password"></label></p>
+                    <button>Sign in</button></form>"""
+            else:
+                title, body = 'Sign in · username', """
+                    <form onsubmit="location.href='/login-2step?step=password'; return false">
+                    <p><label>Username <input name="username" autocomplete="username"></label></p>
+                    <button>Continue</button></form>"""
+        else:
+            title, fields = PASSWORD_FORMS[path]
+            body = f'<form onsubmit="return false">{fields}<button>Continue</button></form>'
+        policy = """<meta http-equiv="Content-Security-Policy" content="default-src 'none';
+            script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'none'">"""
+        content = PAGE.format(title=title, body='<p>Local fixture. Form entries stay in this page.</p>' + body)
+        self.send_bytes(content.replace('</head>', policy + '</head>', 1).encode(),
+                        'text/html; charset=utf-8', no_store=True)
 
     def do_POST(self):
         length = min(int(self.headers.get("Content-Length", "0")), 10000)

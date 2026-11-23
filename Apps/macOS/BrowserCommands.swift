@@ -23,6 +23,10 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("t", modifiers: [.command, .shift]).disabled(!controller.session.canReopenTab)
         }
         CommandGroup(after: .textEditing) {
+            Button("AutoFill Password…") { controller.passwordFillRequest += 1 }
+                .keyboardShortcut("p", modifiers: [.command, .option, .shift])
+                .disabled(!controller.canAutoFillPassword)
+            Divider()
             Button("Find in Page…") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.findRequest += 1 }.keyboardShortcut("f")
                 .disabled(controller.session.selectedTab?.url == nil)
             Button("Find Next") { controller.findBackwards = false; controller.findNextRequest += 1 }.keyboardShortcut("g")

@@ -24,6 +24,8 @@ struct BrowserWindow: View {
     @FocusState private var sidebarHeaderToggleFocused: Bool
     @State private var sidebarContainsKeyboardFocus = false
     @State private var addressFocused = false
+    @State private var passwordGuideFallback = false
+    @State private var requestingPassword = false
     @FocusState private var findFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
@@ -38,10 +40,14 @@ struct BrowserWindow: View {
     private var pageRail: Bool { controller.sidebar.reservesRail }
     private var showsToolbarDownloads: Bool { controller.downloads.hasActiveDownloads && (pageRail || windowWidth >= 800) }
     private var showsExpandedToolbarActions: Bool { pageRail || windowWidth >= 1000 }
+    private var canFillPassword: Bool {
+        controller.canAutoFillPassword && !addressFocused && !findFocused && !sidebarContainsKeyboardFocus
+    }
+    private var showsToolbarPasswordKey: Bool { canFillPassword && tab?.passwordFields.showsGlyph == false }
     private var addressWidth: CGFloat {
         let actions = showsExpandedToolbarActions ? 30 * CGFloat(2 + (tab?.url == nil ? 0 : 1) + (showsToolbarDownloads ? 1 : 0)) : 28
         let reserved = (pageRail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth) + 24 + 58 + 36 + 20 + actions
-        return min(640, max(230, windowWidth - reserved))
+        return min(640, max(230, windowWidth - reserved - (showsToolbarPasswordKey ? 30 : 0)))
     }
     private var compactAddress: String? { tab?.url.flatMap(URLDisplay.site) }
     private var compactAddressWidth: CGFloat? {
@@ -103,13 +109,51 @@ struct BrowserWindow: View {
             }
             .onChange(of: controller.scoped(controller.passwordsGuideRequest)) { old, new in
                 guard old.owner == new.owner else { return }
-                ui.showPasswords = true
+                showPasswordHelp()
+            }
+            .onChange(of: controller.scoped(controller.passwordFillRequest)) { old, new in
+                guard old.owner == new.owner else { return }
+                fillPassword()
+            }
+            .onChange(of: glyphRequest) { old, new in
+                guard old?.tabID == new?.tabID, old?.count != new?.count else { return }
+                fillPassword()
             }
             .onChange(of: scenePhase) { _, phase in if phase != .active { session.saveNow() } }
             .task(id: controller.scoped(selectedPage)) { observeSelectedPage() }
             .onChange(of: controller.scoped(emptyPageColor), initial: true) { _, color in pageChrome.setEmptyPageColor(color.value) }
             .onChange(of: colorScheme) { _, _ in pageChrome.requestSample() }
             .onDisappear { pageChrome.observe(nil) }
+    }
+
+    private struct GlyphRequest: Equatable {
+        let tabID: UUID
+        let count: Int
+    }
+
+    private var glyphRequest: GlyphRequest? {
+        tab.map { GlyphRequest(tabID: $0.id, count: $0.passwordFields.glyphRequest) }
+    }
+
+    private func showPasswordHelp(fallback: Bool = false) {
+        passwordGuideFallback = fallback
+        ui.showPasswords = true
+    }
+
+    private func fillPassword() {
+        guard !requestingPassword else { return }
+        guard canFillPassword, let tab, let window = windowContext.window else {
+            showPasswordHelp(fallback: true)
+            return
+        }
+        requestingPassword = true
+        Task { @MainActor in
+            defer { requestingPassword = false }
+            let requested = await ApplePasswords.requestFill(in: tab, window: window, picker: AppKitPasswordPicker()) {
+                session.selectedTab === tab
+            }
+            if !requested, session.selectedTab === tab { showPasswordHelp(fallback: true) }
+        }
     }
 
     private func prepareWindow() {
@@ -434,6 +478,16 @@ struct BrowserWindow: View {
     private var toolbarActions: some View {
         @Bindable var ui = self.ui
         return HStack(spacing: 2) {
+            if showsToolbarPasswordKey {
+                Button(action: fillPassword) {
+                    Image(systemName: "key.fill")
+                        .frame(width: 28, height: 28)
+                        .foregroundStyle(chromeForeground)
+                        .background(chromeForeground.opacity(0.16), in: Circle())
+                }
+                .help("AutoFill from Passwords")
+                .accessibilityLabel("AutoFill from Passwords")
+            }
             if showsToolbarDownloads && showsExpandedToolbarActions {
                 Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
                     .labelStyle(.iconOnly).help("View downloads in progress")
@@ -465,16 +519,19 @@ struct BrowserWindow: View {
 
     private var toolbarMenu: some View {
         @Bindable var ui = self.ui
-        return MacPageMenu {
+        let fillAction: (() -> Void)? = canFillPassword ? { fillPassword() } : nil
+        let menu = MacPageMenu {
             MacPageActions(controller: controller, profiles: profiles,
                 findOnPage: { ui.showFind = true; findFocused = true },
-                showSitePrivacy: { ui.showProtection = true }, showPasswordsGuide: { ui.showPasswords = true },
+                showSitePrivacy: { ui.showProtection = true },
+                fillPassword: fillAction, showPasswordsGuide: { showPasswordHelp() },
                 requestSiteForget: { ui.siteToForget = $0 })
         } label: {
             Image(systemName: "ellipsis")
                 .frame(width: 36, height: 32)
                 .modifier(chromeGlass).contentShape(Rectangle())
         }
+        return menu
         .help("Browser Actions").accessibilityLabel("Browser Actions")
         .accessibilityIdentifier("browserPageMenu")
         .foregroundStyle(chromeForeground)
@@ -482,7 +539,8 @@ struct BrowserWindow: View {
         .browserGeometryMarker("browserPageMenuGeometry")
         .background {
             BrowserPopover(isPresented: $ui.showPasswords) {
-                PasswordsGuide(compact: true).environment(\.colorScheme, colorScheme)
+                PasswordsGuide(compact: true, showsFillHint: canFillPassword && !passwordGuideFallback)
+                    .environment(\.colorScheme, colorScheme)
             }
         }
     }

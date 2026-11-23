@@ -11,6 +11,7 @@
 | Reload | ⌘R |
 | Reload from origin, bypassing cache | ⌘⇧R or ⌥⌘R |
 | Open Location | ⌘L |
+| AutoFill Password… (focused login field) | ⌥⇧⌘P |
 | Select profile 1–9 in Profiles menu order | ⌃1…9 |
 | Previous / next profile, wrapping | ⌥⌘← / ⌥⌘→ |
 
