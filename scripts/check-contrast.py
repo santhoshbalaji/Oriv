@@ -64,16 +64,16 @@ sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
 assert "content.background(backing)" in sidebar_source
 assert "reduceTransparency || captureReduceTransparency || contrast == .increased" in sidebar_source
 assert "content.background(backing.opacity(effectiveOpacity.backingOpacity)" in sidebar_source
-assert "selected ? theme.sidebar.selection" in sidebar_source
+assert "selected ? .selection : hovered ? .hover : tile ? .pin" in sidebar_source
+assert "tone.fill(in: theme, dark: dark, opaque: opaque)" in sidebar_source
+tonal_opacities = {name: (float(light), float(dark)) for name, light, dark in re.findall(
+    r"private static let (\w+)Tone = \(light: ([0-9.]+), dark: ([0-9.]+)\)", text)}
+assert set(tonal_opacities) == {"selection", "hover", "search", "pin"}
 sidebar_opacities = {name: float(value) for name, value in re.findall(
     r"case \.(\w+): ([0-9.]+)", sidebar_source.split("enum SidebarGlassOpacity:", 1)[1].split("struct MacSidebarGlass:", 1)[0])}
 assert sidebar_opacities == {"balanced": 0.55, "high": 0.80, "solid": 1.0}
 search_field = (ROOT / "Apps/macOS/Views/Components/OrivSearchField.swift").read_text()
-assert "sidebar && !focused && !opaque && !increased ? idleSidebarOpacity : 1" in search_field
-assert "(sidebar ? theme.sidebar.field : theme.fill).opacity(opacity)" in search_field
-focused_field = 1.0
-idle_field = float(re.search(r"idleSidebarOpacity = ([0-9.]+)", search_field).group(1))
-tile_opacity = float(re.search(r"!hovered \? theme.sidebar.field.opacity\(([0-9.]+)\)", sidebar_source).group(1))
+assert "SidebarToneSurface(tone: sidebar ? .search : nil)" in search_field
 chrome = (ROOT / "Apps/Shared/BrowserChrome.swift").read_text()
 control = block("struct BrowserGlass:", "private struct ChromeReduceTransparencyKey", chrome)
 assert "accessibilityReduceTransparency" in control and "contrast == .increased" in control
@@ -89,6 +89,7 @@ tints = {name.removesuffix("Backing"): (light.upper(), dark.upper())
              r'(\w+Backing) = Theme.adaptive\("Sidebar\w+", light: 0x(\w{6}), dark: 0x(\w{6})\)', sidebar_source)}
 guards = {name: float(value) for name, value in re.findall(
     r"private static let balanced(\w+)Guard = ([0-9.]+)", sidebar_source)}
+high_dark_guard = float(re.search(r"highDarkGuard = ([0-9.]+)", sidebar_source)[1])
 assert set(guards) == {"Light", "LightTint", "Dark", "DarkTint", "Black"}
 guard_colors = re.search(r'balancedTintGuard = Theme.adaptive\("SidebarTintGuard", light: 0x(\w{6}), dark: 0x(\w{6})\)', sidebar_source).groups()
 assert set(tints) == {"rose", "peach", "butter", "mint", "sage", "sky", "lavender",
@@ -146,15 +147,18 @@ for appearance, mode, palette, sidebar in palettes:
                     guard_key = "Black" if appearance == "Black" else ("Dark" if mode else "Light")
                     if name != appearance:
                         guard_key += "Tint"
-                    glass = composite(guard_colors[mode], page, guards[guard_key]) if step == "balanced" else page
+                    guard_opacity = guards[guard_key] if step == "balanced" else 0
+                    if step == "high" and mode and appearance != "Black":
+                        guard_opacity = high_dark_guard
+                    glass = composite(guard_colors[mode], page, guard_opacity)
                     panel = composite(backing, glass, 0 if sidebar_negative else backing_opacity)
-                    field = sidebar["field"]
-                    states = {"panel / rail footer": panel, "selection / rail": sidebar["selection"],
-                              "hover": sidebar["hover"], "pressed": sidebar["selection"],
-                              "pin": composite(field, panel, tile_opacity),
-                              "search": composite(field, panel, focused_field if step in ("increase contrast", "reduce transparency") else idle_field),
-                              "focused search": composite(field, panel, focused_field),
-                              "expanded footer / private badge": colors["surface"]}
+                    opaque = appearance == "Black" or step in ("increase contrast", "reduce transparency")
+                    solids = {"selection": sidebar["selection"], "hover": sidebar["hover"],
+                              "search": sidebar["field"], "pin": sidebar["field"]}
+                    states = {"panel / rail footer": panel, "private badge": colors["surface"]}
+                    for state, solid in solids.items():
+                        tonal_ink = "FFFFFF" if mode or state in ("selection", "pin") else "000000"
+                        states[state] = solid if opaque else composite(tonal_ink, panel, tonal_opacities[state][mode])
                     label = f"{name} sidebar, page #{page}, {step}"
                     for state, background in states.items():
                         for token, foreground in inks.items():

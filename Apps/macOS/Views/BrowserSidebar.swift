@@ -19,6 +19,38 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
+struct SidebarTabQuery: Equatable {
+    let text: String
+    let isPrivate: Bool
+
+    init(text: String, isPrivate: Bool) {
+        self.text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        self.isPrivate = isPrivate
+    }
+
+    @MainActor func matches(_ tab: BrowserTab) -> Bool {
+        isPrivate == tab.isPrivate && (text.isEmpty || [tab.displayTitle, tab.hostname].contains {
+            $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).contains(text)
+        })
+    }
+}
+
+struct SidebarSearchScope: View {
+    @Bindable var controller: BrowserController
+    var body: some View {
+        if controller.tabSearchHasBothScopes {
+            Picker("Search scope", selection: Binding(
+                get: { controller.tabSearchIsPrivate },
+                set: { controller.tabSearchPrivacyOverride = $0 }
+            )) {
+                Text("Tabs").tag(false)
+                Text("Private").tag(true)
+            }.pickerStyle(.segmented).labelsHidden()
+        }
+    }
+}
+
 /// Shared by the real drop targets and their tests. Cross-section drops are
 /// explicit on headings; a row drop never silently changes privacy or pin state.
 @MainActor enum SidebarTabs {
@@ -38,10 +70,6 @@ struct SidebarKeyboardFocusKey: PreferenceKey {
         case .close: controller.requestCloseTab(tab.id)
         case .newPrivate: controller.newTab(isPrivate: true)
         }
-    }
-    static func filtered(_ tabs: [BrowserTab], query: String) -> [BrowserTab] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return tabs.filter { query.isEmpty || $0.displayTitle.localizedCaseInsensitiveContains(query) || $0.hostname.localizedCaseInsensitiveContains(query) }
     }
     static func duplicateTitles(in tabs: [BrowserTab]) -> Set<String> {
         var seen = Set<String>()
@@ -103,20 +131,24 @@ struct BrowserSidebar: View {
     private var compact: Bool { controller.sidebar.rail }
     private var peeking: Bool { controller.sidebar.peeking }
     private var railLayout: Bool { compact || peeking }
-    private var filteredTabs: [BrowserTab] { SidebarTabs.filtered(session.orderedTabs, query: controller.profileUI.settledQuery) }
+
 
     var body: some View {
-        let tabs = filteredTabs
+        let request = !compact && (searchFocused || controller.tabSearchIsFiltering) ? controller.tabSearchRequest : nil
+        let tabs = request.map(controller.tabSearchResults) ?? session.orderedTabs
         return VStack(spacing: railLayout ? 6 : 0) {
             VStack(spacing: railLayout ? 6 : 0) {
                 if !railLayout { profileHeader.focused($utilityFocus, equals: "profile") }
                 searchField
+                if !railLayout && (searchFocused || request != nil) {
+                    SidebarSearchScope(controller: controller).padding(.bottom, OrivSpacing.xs)
+                }
                 if railLayout { newTab }
                 if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
                     Text(notice).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)).padding(.horizontal, OrivSpacing.large)
                 }
                 NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
-                                  searching: !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { id, right in
+                                  searchRequest: request) { id, right in
                     controller.profileUI.closeToRight = right
                     controller.profileUI.closeOthers = id
                 }
@@ -147,11 +179,6 @@ struct BrowserSidebar: View {
         .font(OrivType.body)
         .foregroundStyle(theme.text)
         .transformPreference(SidebarKeyboardFocusKey.self) { $0 = $0 || searchFocused || utilityFocus != nil || tabList.hasFocus }
-        .task(id: controller.scoped(controller.tabSearch)) {
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            guard !Task.isCancelled else { return }
-            controller.profileUI.settledQuery = controller.tabSearch
-        }
         .onChange(of: controller.scoped(controller.tabSearchFocusRequest)) { old, new in
             if old.owner == new.owner, !controller.tabSearchPanel { searchFocused = true }
         }
@@ -163,7 +190,10 @@ struct BrowserSidebar: View {
             guard old.owner == new.owner else { return }
             let id = new.value
             controller.sidebarTooltip.dismiss()
-            if let id, !SidebarTabs.filtered(session.orderedTabs, query: controller.tabSearch).contains(where: { $0.id == id }) { controller.tabSearch = "" }
+            if let id, controller.tabSearchIsFiltering,
+               !controller.tabSearchResults(controller.tabSearchRequest).contains(where: { $0.id == id }) {
+                controller.dismissTabSearch()
+            }
         }
         .confirmationDialog(controller.profileUI.closeToRight ? "Close tabs to the right?" : "Close other tabs?", isPresented: Binding(get: { controller.profileUI.closeOthers != nil }, set: { if !$0 { controller.profileUI.closeOthers = nil } })) {
             Button("Close Tabs", role: .destructive) { if let id = controller.profileUI.closeOthers { session.closeOtherTabs(id, toRight: controller.profileUI.closeToRight) }; controller.profileUI.closeOthers = nil }
@@ -198,6 +228,7 @@ struct BrowserSidebar: View {
     }
 
     @ViewBuilder private var searchField: some View {
+        let request = controller.tabSearchRequest
         if railLayout {
             Button { controller.searchTabs() } label: {
                 HStack(spacing: OrivSpacing.small) {
@@ -218,13 +249,18 @@ struct BrowserSidebar: View {
                           prompt: Text(OrivStrings.searchTabs).foregroundStyle(theme.sidebarSecondaryText(contrast)))
                     .focused($searchFocused).accessibilityLabel(OrivStrings.searchTabs).accessibilityIdentifier("tabSearchField")
                     .accessibilityHint("Press Shift-Command-A to focus Search tabs.")
-                    .onExitCommand { controller.tabSearch = ""; focusTabAfterSearch(session.selectedTabID) }
+                    .onExitCommand { controller.dismissTabSearch(); focusTabAfterSearch(session.selectedTabID) }
                     .onKeyPress(.downArrow) {
-                        guard let first = filteredTabs.first else { return .ignored }
-                        focusTabAfterSearch(first.id); return .handled
+                        guard request == controller.tabSearchRequest,
+                              let first = controller.tabSearchResults(request).first else { return .ignored }
+                        controller.tabSearchPrivacyOverride = request.value.isPrivate
+                        focusTabAfterSearch(first.id)
+                        return .handled
                     }
                     .onSubmit {
-                        if let first = filteredTabs.first { focusTabAfterSearch(first.id); session.selectTab(first.id) }
+                        guard let first = controller.tabSearchResults(request).first,
+                              controller.activateSidebarTab(first.id, request: request) else { return }
+                        focusTabAfterSearch(first.id)
                     }
             }
             .background {
@@ -430,6 +466,47 @@ struct SidebarSectionHeading: View {
     }
 }
 
+struct SidebarToneSurface: ViewModifier {
+    @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.chromeReduceTransparencyOverride) private var captureTransparency
+    @Environment(\.sidebarContrast) private var contrast
+    let tone: Theme.SidebarTone?
+    var radius = OrivRadius.control
+
+    func body(content: Content) -> some View {
+        let opaque = reduceTransparency || captureTransparency || contrast == .increased || theme.isT3Code
+        let dark = scheme == .dark
+        let shape = RoundedRectangle(cornerRadius: radius)
+        content.background {
+            if let tone {
+                shape.fill(tone.fill(in: theme, dark: dark, opaque: opaque))
+                    .overlay {
+                        shape.strokeBorder(theme.sidebarRim(dark: dark, opaque: opaque),
+                                           lineWidth: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                    }
+            }
+        }
+    }
+}
+
+struct SidebarFocusRing: ViewModifier {
+    @Environment(\.browserTheme) private var theme
+    var visible: Bool
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if visible {
+                RoundedRectangle(cornerRadius: OrivRadius.control)
+                    .strokeBorder(theme.accent, lineWidth: OrivOutline.focus)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
 struct SidebarTabArtwork: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.sidebarContrast) private var contrast
@@ -494,7 +571,6 @@ struct SidebarTabArtwork: View {
                     .overlay(alignment: .bottomTrailing) {
                         if let mediaSymbol { badge(mediaSymbol) }
                     }
-                    .overlay(alignment: .topTrailing) { if isPrivate { badge("eyeglasses") } }
                 if peek { Text(title).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
             } else {
                 favicon
@@ -528,21 +604,14 @@ struct SidebarTabArtwork: View {
         .padding(.horizontal, rail || tile ? 0 : MacBrowserLayout.sidebarRowInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(theme.text)
-        .background {
-            let fill = selected ? theme.sidebar.selection : hovered ? theme.sidebar.hover : .clear
-            if rail || tile {
-                Rectangle().fill(.clear).modifier(Tile(kind: .pinned(tile && !rail && !selected && !hovered ? theme.sidebar.field.opacity(0.6) : fill)))
-            } else {
-                RoundedRectangle(cornerRadius: OrivRadius.control).fill(fill)
-            }
-        }
+        .modifier(SidebarToneSurface(tone: selected ? .selection : hovered ? .hover : tile ? .pin : nil, radius: radius))
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .leading) {
             if active { SelectionMarker(height: 16, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil).padding(.leading, 1) }
         }
         .overlay {
             if selected && contrast == .increased {
-                RoundedRectangle(cornerRadius: radius).strokeBorder(theme.text, lineWidth: 2)
+                RoundedRectangle(cornerRadius: radius).strokeBorder(theme.text, lineWidth: OrivOutline.focus)
             }
         }
     }
@@ -551,7 +620,7 @@ struct SidebarTabArtwork: View {
 
     private func badge(_ symbol: String) -> some View {
         Image(systemName: symbol).font(.system(size: 10, weight: .bold)).frame(width: 12, height: 12)
-            .foregroundStyle(symbol == "eyeglasses" ? theme.sidebarPrivateAccent : theme.text)
+            .foregroundStyle(theme.text)
             .background(theme.surface, in: Circle())
     }
 
@@ -700,11 +769,12 @@ struct MacSidebarGlass: ViewModifier {
     // A neutral guard bounds the luma of the exposed glass. Dark profile
     // colors need more protection against bright page input than Black.
     private static let balancedTintGuard = Theme.adaptive("SidebarTintGuard", light: 0xFFFFFF, dark: 0x000000)
-    private static let balancedLightGuard = 0.26
-    private static let balancedLightTintGuard = 0.32
-    private static let balancedDarkGuard = 0.30
-    private static let balancedDarkTintGuard = 0.38
+    private static let balancedLightGuard = 0.42
+    private static let balancedLightTintGuard = 0.47
+    private static let balancedDarkGuard = 0.52
+    private static let balancedDarkTintGuard = 0.60
     private static let balancedBlackGuard = 0.18
+    private static let highDarkGuard = 0.38
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -732,7 +802,9 @@ struct MacSidebarGlass: ViewModifier {
             edge(content.background(backing))
         } else {
             let tinted = color.effective(profileColor: profileColor, isT3Code: theme.isT3Code) != .graphite
-            let guardOpacity = effectiveOpacity == .balanced ? balancedGuard(tinted: tinted) : 0
+            let guardOpacity = effectiveOpacity == .balanced
+                ? balancedGuard(tinted: tinted)
+                : (colorScheme == .dark && !theme.isT3Code ? Self.highDarkGuard : 0)
             edge(glass(content.background(backing.opacity(effectiveOpacity.backingOpacity))
                 .background(Self.balancedTintGuard.opacity(guardOpacity))))
         }

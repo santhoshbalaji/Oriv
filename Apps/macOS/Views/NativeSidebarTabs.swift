@@ -23,7 +23,8 @@ struct NativeSidebarTabs: NSViewRepresentable {
     let duplicateTitles: Set<String>
     let rail: Bool
     let peek: Bool
-    let searching: Bool
+    let searchRequest: ProfileScoped<SidebarTabQuery>?
+    var searching: Bool { searchRequest != nil }
     let confirmClose: (UUID, Bool) -> Void
 
     func makeCoordinator() -> SidebarCollectionData { SidebarCollectionData() }
@@ -366,10 +367,10 @@ private struct SidebarSection {
 
     func activateSelection() {
         cancelPreview()
-        guard let id = selectedID, controller?.session.selectedTabID != id else { return }
-        controller?.session.selectTab(id)
-        // Session policy can decline a switch, for example while a prompt is open.
-        if controller?.session.selectedTabID != id { select(activeID, reveal: false) }
+        guard let id = selectedID, let configuration else { return }
+        if !configuration.controller.activateSidebarTab(id, request: configuration.searchRequest) {
+            select(activeID, reveal: false)
+        }
     }
 
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
@@ -425,8 +426,9 @@ private struct SidebarSection {
         }
         item.open = { [weak self, weak tab] in
             guard let self, let tab else { return }
-            self.select(tab.id, reveal: false)
-            self.activateSelection()
+            if configuration.controller.activateSidebarTab(tab.id, request: configuration.searchRequest) {
+                self.select(tab.id, reveal: false)
+            }
         }
         let environment = self.environment
         var hovered = hovered == path
@@ -639,8 +641,8 @@ final class SidebarTabCollection: NSCollectionView {
             switch event.keyCode {
             case 36, 76: sidebar?.activateSelection(); return
             case 53:
-                if let controller = sidebar?.controller, !controller.tabSearch.isEmpty {
-                    controller.tabSearch = ""
+                if let controller = sidebar?.controller, controller.tabSearchIsFiltering {
+                    controller.dismissTabSearch()
                     sidebar?.resign()
                     return
                 }
@@ -811,9 +813,9 @@ private final class SidebarAccessibleRow: NSView {
         }
     }
 
-    override var focusRingMaskBounds: NSRect { showsFocusRing ? bounds.insetBy(dx: 4, dy: 4) : .zero }
+    override var focusRingMaskBounds: NSRect { showsFocusRing ? bounds.insetBy(dx: OrivOutline.focusInset, dy: OrivOutline.focusInset) : .zero }
     override func drawFocusRingMask() {
-        NSBezierPath(roundedRect: focusRingMaskBounds, xRadius: 8, yRadius: 8).fill()
+        NSBezierPath(roundedRect: focusRingMaskBounds, xRadius: OrivRadius.control, yRadius: OrivRadius.control).fill()
     }
 
     override func accessibilityChildren() -> [Any]? { [] }

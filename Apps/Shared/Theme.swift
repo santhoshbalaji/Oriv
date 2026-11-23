@@ -66,6 +66,7 @@ enum OrivLayout {
     #if os(macOS)
     static let sheetPadding = OrivSpacing.xl
     static let popoverPadding = OrivSpacing.large
+    static let macAddressFontSize: CGFloat = 13
     static let sidebarWidth: CGFloat = 256
     static let railWidth: CGFloat = 72
     static let toolbarHeight: CGFloat = 60
@@ -93,6 +94,13 @@ enum OrivMotion {
     static let reduced = Animation.easeInOut(duration: 0.18)
 
     static func navigation(reduceMotion: Bool) -> Animation { reduceMotion ? reduced : navigate }
+}
+
+enum OrivOutline {
+    static let hairline: CGFloat = 0.5
+    static let enhanced: CGFloat = 1.5
+    static let focus: CGFloat = 2
+    static let focusInset: CGFloat = 4
 }
 
 enum OrivIcon {
@@ -230,6 +238,35 @@ struct Theme {
         return isT3Code ? Self.hex(0xB8B8B8) : Self.highContrastSecondary
     }
     var sidebarPrivateAccent: Color { Self.glassPrivate }
+
+    enum SidebarTone {
+        case selection, hover, search, pin
+
+        // The contrast gate reads these values and composites them over all tint backings.
+        private static let selectionTone = (light: 0.68, dark: 0.12)
+        private static let hoverTone = (light: 0.05, dark: 0.07)
+        private static let searchTone = (light: 0.055, dark: 0.07)
+        private static let pinTone = (light: 0.46, dark: 0.08)
+
+        func fill(in theme: Theme, dark: Bool, opaque: Bool) -> Color {
+            let opacity: (light: Double, dark: Double)
+            let solid: Color
+            switch self {
+            case .selection: (opacity, solid) = (Self.selectionTone, theme.sidebar.selection)
+            case .hover: (opacity, solid) = (Self.hoverTone, theme.sidebar.hover)
+            case .search: (opacity, solid) = (Self.searchTone, theme.sidebar.field)
+            case .pin: (opacity, solid) = (Self.pinTone, theme.sidebar.field)
+            }
+            if opaque || theme.isT3Code { return solid }
+            let white = dark || self == .selection || self == .pin
+            return (white ? Color.white : Color.black).opacity(dark ? opacity.dark : opacity.light)
+        }
+    }
+
+    func sidebarRim(dark: Bool, opaque: Bool) -> Color {
+        opaque ? separatorStrong : Color.white.opacity(dark ? 0.16 : 0.55)
+    }
+
     #endif
 
     var fillHover: Color { sidebar.hover }
@@ -440,7 +477,8 @@ struct SiteIdentity: View {
     }
     private var symbol: String? {
         if isPrivate { return "eyeglasses" }
-        if url == nil || host.isEmpty || sidebarIcon { return "globe" }
+        if url == nil && sidebarIcon { return "magnifyingglass" }
+        if url == nil || host.isEmpty { return "globe" }
         if host.first?.isLetter != true { return "globe" }
         return nil
     }
@@ -454,7 +492,7 @@ struct SiteIdentity: View {
 
     var body: some View {
         ZStack {
-            if let icon, sidebarIcon {
+            if let icon, sidebarIcon, !isPrivate {
                 // Opaque artwork is full bleed. Transparent glyphs get a plate
                 // only when their dominant luminance would disappear on the panel.
                 if let lightPlate = icon.lightPlate(onDark: colorScheme == .dark, selected: isSelected) {
@@ -462,7 +500,7 @@ struct SiteIdentity: View {
                 }
                 Image(decorative: icon.image, scale: 2).resizable().scaledToFit()
                     .clipShape(.rect(cornerRadius: size * 0.2))
-            } else if let image = icon?.image {
+            } else if let image = icon?.image, !(sidebarIcon && isPrivate) {
                 RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
                 // A pale plate keeps black/transparent monochrome marks readable
                 // on dark sidebar material as well as light surfaces.

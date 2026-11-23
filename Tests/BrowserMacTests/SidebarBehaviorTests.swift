@@ -67,6 +67,32 @@ import XCTest
         XCTAssertTrue(c.sidebar.rail)
         try await eventually("fetched icon painted in the rail", timeout: 10) { try self.renderedFixtureIcon(tab, in: w) }
     }
+    func testSidebarFinderRevalidatesProfileScopeQueryAndTabIdentity() {
+        let controller = BrowserController(testing: true)
+        let other = BrowserController(testing: true)
+        defer { controller.shutdown(); other.shutdown() }
+        let regular = controller.session.addTab(url: URL(string: "https://match.example/regular"), select: true, load: false)
+        let hidden = controller.session.addTab(url: URL(string: "https://match.example/private"), isPrivate: true, select: false, load: false)
+        controller.tabSearch = "  MATCH.example "
+        let regularRequest = controller.tabSearchRequest
+        XCTAssertEqual(controller.tabSearchResults(regularRequest).map(\.id), [regular.id])
+        XCTAssertFalse(controller.activateSidebarTab(hidden.id, request: regularRequest))
+        XCTAssertFalse(controller.activateSidebarTab(regular.id, request: other.tabSearchRequest))
+
+        controller.tabSearchPrivacyOverride = true
+        let privateRequest = controller.tabSearchRequest
+        XCTAssertEqual(controller.tabSearchResults(privateRequest).map(\.id), [hidden.id])
+        XCTAssertFalse(controller.activateSidebarTab(regular.id, request: regularRequest))
+        controller.tabSearch = "different.example"
+        XCTAssertFalse(controller.activateSidebarTab(hidden.id, request: privateRequest))
+        XCTAssertEqual(controller.session.selectedTabID, regular.id)
+
+        controller.tabSearch = "match.example"
+        XCTAssertTrue(controller.activateSidebarTab(hidden.id, request: privateRequest))
+        controller.session.closeTab(hidden.id)
+        XCTAssertFalse(controller.activateSidebarTab(hidden.id, request: privateRequest))
+    }
+
     func testNarrowKeyEquivalentKeepsExplicitOverlayOpenWithoutPageReflow() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let w = host(c, width: 780); defer { w.close() }

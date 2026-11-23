@@ -60,7 +60,7 @@ struct BrowserWindow: View {
     private var compactAddress: String? { tab?.url.flatMap(URLDisplay.site) }
     private var compactAddressWidth: CGFloat? {
         guard !addressFocused, let compactAddress else { return nil }
-        let width = (compactAddress as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
+        let width = (compactAddress as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: OrivLayout.macAddressFontSize)]).width
         return min(ceil(width) + 4, max(60, addressWidth - 180))
     }
     private var emptyPageColor: ChromeColor { PageChrome.resolveCanvas(theme.page, scheme: colorScheme) }

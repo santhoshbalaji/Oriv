@@ -36,7 +36,7 @@ struct ProfileMenu: View {
     var body: some View {
         Group {
             if tabCount != nil {
-                picker.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).focusEffectDisabled()
+                picker.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
                     .background(headerHovered ? theme.sidebar.hover : .clear, in: .rect(cornerRadius: OrivRadius.control))
                     .onHover { headerHovered = $0 }
             }

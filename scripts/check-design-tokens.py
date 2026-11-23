@@ -12,14 +12,17 @@ BASELINE = ROOT / "scripts/design-token-baseline.json"
 DEFINITIONS = {"Theme.swift", "VisualSnapshots.swift", "ChromeVisualFixture.swift",
                "SpeedometerBenchmark.swift", "SyncTimingProbe.swift", "BackgroundUIMode.swift"}
 RULES = {
-    "font size": r"\.system\(size:\s*\d",
+    "font size": r"\.system\(size:\s*\d"
+                 r"|\bNSFont\.\w+\(ofSize:\s*\d",
     "font style": r"\.font\(\.(?:largeTitle|title[23]?|headline|subheadline|body|callout|footnote|caption2?)\b",
-    "radius": r"cornerRadius:\s*\d",
+    "radius": r"(?:cornerRadius|[xy]Radius):\s*\d",
     "padding": r"\.padding\((?:\.[a-zA-Z]+,\s*|\[[^\]]*\],\s*)?\d[\d.]*\)",
     "spacing": r"spacing:\s*\d",
     "raw color": r"(?<![\w.])(?:Color|NSColor|UIColor)\.(?!self\b)\w+"
                  r"|\bColor\((?:\.sRGB(?:Linear)?,\s*)?(?:red|white|hue):"
                  r"|\.foregroundStyle\(\.(?:secondary|tertiary|primary|quaternary|red|green|orange|yellow|blue|purple|white|black|tint)\b",
+    "focus state": r"\.focusEffectDisabled\(\)|\.focusRingType\s*=\s*\.none"
+                   r"|\bNSFocusRingPlacement\b|\.setFocusRingStyle\(",
     "shadow": r"\.shadow\(",
     "motion": r"\.(?:easeInOut|easeOut|easeIn|linear|spring|snappy|smooth|bouncy|interactiveSpring)\(",
     "retired copy": r'"(?:[^"\\]*\b(?:colour|colours|acknowledgements|Mac & iPhone|Other Devices|T3 Code|Browser sync|Sync with iCloud|iCloud continuity|'

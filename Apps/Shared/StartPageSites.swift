@@ -34,7 +34,12 @@ struct StartPageSites: View {
     }
 
     var body: some View {
-        let bookmarks = Array(session.bookmarks.prefix(6))
+        #if os(macOS)
+        let bookmarkLimit = 8
+        #else
+        let bookmarkLimit = 6
+        #endif
+        let bookmarks = Array(session.bookmarks.prefix(bookmarkLimit))
         let query = Query(session: ObjectIdentifier(session), revision: session.historyRevision,
                           bookmarkURLs: Set(bookmarks.map(\.url)))
         let suggestions = loadedQuery == query ? frequent : []
