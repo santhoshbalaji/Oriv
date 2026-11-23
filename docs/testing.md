@@ -14,6 +14,19 @@ The Mac history/scroll regression first establishes a rendered source at 1200 po
 
 Build iPhone with the `OrivMobile` scheme and an iOS Simulator destination. Its native WebKit tests use the same server on port 8768. The service-worker check explicitly skips when the platform capability is unavailable. Use `OrivBrowserMobile` only with the necessary managed browser grant and provisioning for device acceptance.
 
+## Off-screen tab-memory benchmark
+
+```sh
+ORIV_BACKGROUND_UI=1 python3 scripts/tab-memory.py --product --label mac-tab-memory \
+  --policies native discard pressure --settle 30 --seconds 20 --focus-twenty
+```
+
+The isolated probe uses a synthetic page with 60 boxes, 120 paragraphs and a 1 Hz DOM timer. It opens tabs through WebKit's `target=_blank` delegate with the same site store as the opener. At 1, 10, 20 and back to 1 tab, it records the total physical footprint across responsible processes, CPU and wakeups per second for the full tree and WebContent, and the number of live views, released objects and snapshots. Each checkpoint starts after the requested settle time. `--focus-twenty` samples for two seconds at the other checkpoints and uses the full sampling interval at 20.
+
+The `native` arm uses the build's WebKit scheduling policy and turns off the automatic reclamation monitor to measure a live working set and closure. With `--product`, the `discard` and `pressure` arms age background views by 75 seconds and run the product reclamation pass. The pressure case injects the policy without triggering system-wide pressure. Run the same script against both revisions, or reuse a saved isolated probe with `--reuse-app`. Results and the individual process samples stay under `build/tab-memory/<label>/`.
+
+The probe uses an off-screen window and prohibits app activation. The selected page can be occluded, so treat the CPU and memory results as a matched off-screen comparison. Use the installed-app foreground benchmark separately for visible energy, compositor timing and site behavior.
+
 ## Manual browser acceptance
 
 1. Launch into search. Confirm there is no Workspace, chat, dashboard or tracker navigation. Optional Mac & iPhone continuity is accessible through Settings; other-device tabs are in Library.
