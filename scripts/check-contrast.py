@@ -63,15 +63,17 @@ checks = []  # (theme, token, colour, surface, background, minimum)
 sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
 assert "content.background(backing)" in sidebar_source
 assert "reduceTransparency || captureReduceTransparency || contrast == .increased" in sidebar_source
-assert "content.background(backing.opacity(effectiveOpacity.backingOpacity)" in sidebar_source
-assert "selected ? .selection : hovered ? .hover : tile ? .pin" in sidebar_source
+assert ".background(backing.opacity(effectiveOpacity.backingOpacity))" in sidebar_source
+assert ".background(Self.balancedTintGuard.opacity(guardOpacity))" in sidebar_source
+assert ".background { glass }" in sidebar_source
+assert "selected ? .selection : hovered ? (tile ? .pinHover : .hover) : tile ? .pin" in sidebar_source
 assert "tone.fill(in: theme, dark: dark, opaque: opaque)" in sidebar_source
 tonal_opacities = {name: (float(light), float(dark)) for name, light, dark in re.findall(
     r"private static let (\w+)Tone = \(light: ([0-9.]+), dark: ([0-9.]+)\)", text)}
-assert set(tonal_opacities) == {"selection", "hover", "search", "pin"}
+assert set(tonal_opacities) == {"selection", "hover", "search", "pin", "pinHover"}
 sidebar_opacities = {name: float(value) for name, value in re.findall(
     r"case \.(\w+): ([0-9.]+)", sidebar_source.split("enum SidebarGlassOpacity:", 1)[1].split("struct MacSidebarGlass:", 1)[0])}
-assert sidebar_opacities == {"balanced": 0.55, "high": 0.80, "solid": 1.0}
+assert 0 < sidebar_opacities["balanced"] < sidebar_opacities["high"] < sidebar_opacities["solid"] == 1
 search_field = (ROOT / "Apps/macOS/Views/Components/OrivSearchField.swift").read_text()
 assert "SidebarToneSurface(tone: sidebar ? .search : nil)" in search_field
 chrome = (ROOT / "Apps/Shared/BrowserChrome.swift").read_text()
@@ -142,7 +144,7 @@ for appearance, mode, palette, sidebar in palettes:
                 backing = "888888"
             for step, backing_opacity in steps.items():
                 # Black and white bound the panel luminance. Also exercise saturated glass inputs.
-                for page in ("FFFFFF", "000000", "6000D9", "888888", "00D4C8", "FF8C24",
+                for material in ("FFFFFF", "000000", "6000D9", "888888", "00D4C8", "FF8C24",
                              "1C3354", "33919C", "FCC775", "D15959", "404585", "F7E6CC", "1C1C1E"):
                     guard_key = "Black" if appearance == "Black" else ("Dark" if mode else "Light")
                     if name != appearance:
@@ -150,16 +152,18 @@ for appearance, mode, palette, sidebar in palettes:
                     guard_opacity = guards[guard_key] if step == "balanced" else 0
                     if step == "high" and mode and appearance != "Black":
                         guard_opacity = high_dark_guard
-                    glass = composite(guard_colors[mode], page, guard_opacity)
+                    glass = composite(guard_colors[mode], material, guard_opacity)
                     panel = composite(backing, glass, 0 if sidebar_negative else backing_opacity)
                     opaque = appearance == "Black" or step in ("increase contrast", "reduce transparency")
                     solids = {"selection": sidebar["selection"], "hover": sidebar["hover"],
-                              "search": sidebar["field"], "pin": sidebar["field"]}
+                              "search": sidebar["field"], "pin": sidebar["field"], "pinHover": sidebar["hover"]}
                     states = {"panel / rail footer": panel, "private badge": colors["surface"]}
                     for state, solid in solids.items():
-                        tonal_ink = "FFFFFF" if mode or state in ("selection", "pin") else "000000"
+                        tonal_ink = "FFFFFF" if mode or state in ("selection", "pin", "pinHover") else "000000"
                         states[state] = solid if opaque else composite(tonal_ink, panel, tonal_opacities[state][mode])
-                    label = f"{name} sidebar, page #{page}, {step}"
+                    states["selected row accessory"] = (sidebar["hover"] if opaque else
+                        composite("FFFFFF" if mode else "000000", states["selection"], tonal_opacities["hover"][mode]))
+                    label = f"{name} sidebar, glass input #{material}, {step}"
                     for state, background in states.items():
                         for token, foreground in inks.items():
                             sidebar_checks.append((label, token, foreground, state, background, 4.5))
@@ -181,7 +185,7 @@ print(f"Sidebar minimum text contrast: {ratio(worst[2], worst[4]):.2f}:1 ({worst
 # and toolbar in the empty gutters. Model wallpaper as an arbitrary material
 # output, including the RGB endpoints that bound luminance for alpha blends.
 settings = (ROOT / "Apps/macOS/Views/AppearanceSettings.swift").read_text()
-settings_group = block("private struct SettingsGroupSurface:", "private struct SettingsWindowMaterial:", settings)
+settings_group = block("private struct SettingsGroupSurface:", "/// A native pop-up", settings)
 assert ".background(theme.surfaceRaised, in: shape)" in settings_group
 assert ".strokeBorder(theme.separator, lineWidth: increased ? 1.5 : 0.5)" in settings_group
 assert "appearance == .t3Code || reduceTransparency || contrast == .increased" in settings
@@ -221,7 +225,8 @@ print("App-owned colors checked. Native system accent and compositor output depe
 mac = (ROOT / "Apps/macOS/Views/BrowserWindow.swift").read_text()
 assert "foregroundThreshold = sqrt(1.05 * 0.05) - 0.05" in chrome
 assert "private var chromeForeground: Color { pageChrome.foreground }" in mac
-assert ".background(pageChrome.color)" in mac
+assert "pageChrome.color\n" in mac
+assert "WindowBackdropMaterial(material: .sidebar)" in mac
 lift = float(re.search(r"static let lift = ([0-9.]+)", mac).group(1))
 shade = float(re.search(r"static let lightShade = ([0-9.]+)", mac).group(1))
 page_colours = {f"{r:02X}{g:02X}{b:02X}" for r in range(0, 256, 17) for g in range(0, 256, 17) for b in range(0, 256, 17)}

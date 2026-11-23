@@ -902,15 +902,15 @@ import WebKit
             manifest.failures.append("Sidebar v3 private window missing"); return
         }
 
-        for (appearance, color, label) in [(BrowserAppearance.light, SidebarColor.graphite, "light-graphite"),
-                                           (.dark, .graphite, "dark-graphite"), (.t3Code, .graphite, "black-graphite"),
-                                           (.light, .sky, "light-sky"), (.dark, .rose, "dark-rose")] {
-            controller.sidebarColor = color
-            for (layout, rail, width) in [("expanded", false, 256), ("rail", true, 256), ("220", false, 220), ("360", false, 360)] {
-                guard layout == "expanded" || layout == "rail" || label == "light-graphite" else { continue }
-                controller.sidebar.setExpandedWidth(CGFloat(width))
-                controller.compactSidebar = rail
-                await scene(label + "-" + layout, controller, appearance)
+        for (appearance, mode) in [(BrowserAppearance.light, "light"), (.dark, "dark"), (.t3Code, "black")] {
+            for color in [SidebarColor.graphite, .sky, .rose] {
+                controller.sidebarColor = color
+                for (layout, rail, width) in [("expanded", false, 256), ("rail", true, 256), ("220", false, 220), ("360", false, 360)] {
+                    guard layout == "expanded" || layout == "rail" || (mode == "light" && color == .graphite) else { continue }
+                    controller.sidebar.setExpandedWidth(CGFloat(width))
+                    controller.compactSidebar = rail
+                    await scene("\(mode)-\(color.rawValue)-\(layout)", controller, appearance)
+                }
             }
         }
         controller.sidebar.setExpandedWidth(MacBrowserLayout.sidebarWidth)
@@ -925,8 +925,36 @@ import WebKit
         controller.sidebar.setExpandedWidth(MacBrowserLayout.sidebarWidthRange.upperBound)
         await scene("rtl-360", controller, .light, rtl: true)
 
+        let lightPage = controller.session.addTab(select: true, load: false)
+        controller.session.togglePinned(lightPage.id)
+        controller.session.togglePinned(records[4].id)
+        let lightPageTitle = "Research and development reference"
+        lightPage.webView.loadHTMLString("""
+            <title>\(lightPageTitle)</title><meta name="theme-color" content="#ffffff">
+            <body style="background:#fff;color:#222;font:20px system-ui;padding:48px">
+            <h1>Light page fixture</h1><p>Local page for the sidebar backdrop check.</p></body>
+            """, baseURL: URL(string: "https://research-and-development-reference.example"))
+        for _ in 0..<200 {
+            if lightPage.webView.title == lightPageTitle && !lightPage.webView.isLoading { break }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        guard lightPage.webView.title == lightPageTitle else {
+            manifest.failures.append("Sidebar v3 light page fixture failed to load"); return
+        }
+        controller.sidebarColor = .graphite
+        for width in [220, 256, 360] {
+            controller.sidebar.setExpandedWidth(CGFloat(width))
+            await scene("dark-white-pins-\(width)", controller, .dark, hovered: records.first?.id)
+        }
+        controller.sidebar.setExpandedWidth(MacBrowserLayout.sidebarWidth)
+        for opacity in [SidebarGlassOpacity.high, .solid] {
+            await scene("dark-white-\(opacity.rawValue.lowercased())", controller, .dark,
+                        opacity: opacity, hovered: records.first?.id)
+        }
+
         func scene(_ label: String, _ active: BrowserController, _ appearance: BrowserAppearance,
-                   increased: Bool = false, rtl: Bool = false) async {
+                   increased: Bool = false, rtl: Bool = false,
+                   opacity: SidebarGlassOpacity = .balanced, hovered: UUID? = nil) async {
             let name = "mac-glass-sidebar-v3-\(label)"
             await capture(name, directory, CGSize(width: 1120, height: 650), key: false, settle: 280,
                           appearance: appearance, prepare: { window in
@@ -934,10 +962,10 @@ import WebKit
             }) {
                 BrowserWindow(controller: active, profiles: active === controller ? profiles : nil)
                     .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
-                    .environment(\.sidebarCaptureOpacity, .balanced)
+                    .environment(\.sidebarCaptureOpacity, opacity)
                     .environment(\.sidebarCaptureBackdrop, appearance == .light ? Color(white: 0.88) : Color(white: 0.18))
                     .environment(\.sidebarCaptureContrast, increased ? .increased : .standard)
-                    .environment(\.sidebarCaptureState, SidebarCaptureState(hover: records.last?.id, audio: records.dropLast().last?.id))
+                    .environment(\.sidebarCaptureState, SidebarCaptureState(hover: hovered ?? records.last?.id, audio: records.dropLast().last?.id))
             }
         }
     }
@@ -1494,7 +1522,7 @@ import WebKit
                     await scrollEvidence(web, controller: profiles.controller, window: window, name: name, directory: directory)
                 }
                 let metrics: [String: Any] = ["requested": address, "url": web.url?.absoluteString ?? "none", "error": tab.errorMessage ?? "none",
-                    "theme": hex(web.themeColor), "underPage": hex(web.underPageBackgroundColor), "band": hex(window.backgroundColor),
+                    "theme": hex(web.themeColor), "underPage": hex(web.underPageBackgroundColor), "band": hex(NSColor(profiles.controller.profileUI.pageChrome.color)),
                     "obscuredTop": web.obscuredContentInsets.top, "dom": dom, "edgeSelection": edge, "isLoading": web.isLoading]
                 if let data = try? JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys]) {
                     try? data.write(to: directory.appendingPathComponent("\(name)-geometry.json"))

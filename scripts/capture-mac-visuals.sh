@@ -141,11 +141,12 @@ if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
     expected = {"mac-glass-sidebar-" + mode for mode in ("light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest", "covered")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-v3":
-    expected = {f"mac-glass-sidebar-v3-{appearance}-{layout}"
-                for appearance in ("light-graphite", "dark-graphite", "black-graphite", "light-sky", "dark-rose")
+    expected = {f"mac-glass-sidebar-v3-{mode}-{tint}-{layout}"
+                for mode in ("light", "dark", "black") for tint in ("graphite", "sky", "rose")
                 for layout in ("expanded", "rail")}
     expected |= {"mac-glass-sidebar-v3-" + name for name in ("light-graphite-220", "light-graphite-360",
-                 "mixed-private", "private-rail", "increased-contrast", "rtl-360")}
+                 "mixed-private", "private-rail", "increased-contrast", "rtl-360",
+                 "dark-white-pins-220", "dark-white-pins-256", "dark-white-pins-360", "dark-white-high", "dark-white-solid")}
     if m.get("backgroundUI", {}).get("enabled", False):
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-synthetic-composite" for name in expected} - evidence
