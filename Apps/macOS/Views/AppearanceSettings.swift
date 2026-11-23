@@ -76,8 +76,9 @@ struct AppearanceSettings: View {
         return Form {
             Section("Browsing") {
                 if let profiles {
-                    Toggle(OrivStrings.openLinksPrivately, isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
-                    Text("External links open signed out, separate from every profile. Move a page to a profile when you choose.").font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                    SettingRow(detail: "External links open signed out, separate from every profile. Move a page to a profile when you choose.") {
+                        Toggle(OrivStrings.openLinksPrivately, isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
+                    }
                 }
                 SettingRow(detail: "Searches are sent only when you submit them. Address suggestions use local tabs, saved pages and history.") {
                     BrowsingPreferencePicker(title: "Search engine", selection: $settings.searchEngine,
@@ -92,18 +93,18 @@ struct AppearanceSettings: View {
                 }
             }
             Section("Default browser") {
-                Button("Make \(AppIdentity.name) the Default Browser…") {
-                    changingDefault = true
-                    Task {
-                        defer { changingDefault = false }
-                        do {
-                            for scheme in ["https", "http"] { try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpenURLsWithScheme: scheme) }
-                            defaultBrowserStatus = isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "The change wasn’t confirmed for both HTTP and HTTPS. Check macOS Settings."
-                        } catch { defaultBrowserStatus = "The default browser wasn’t changed for every scheme. \(error.localizedDescription)" }
-                    }
-                }.disabled(changingDefault || isDefaultBrowser)
-                Text(defaultBrowserStatus.isEmpty ? (isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "macOS will ask you to confirm this change.") : defaultBrowserStatus)
-                    .font(.caption).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: defaultBrowserStatus.isEmpty ? (isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "macOS will ask you to confirm this change.") : defaultBrowserStatus) {
+                    Button("Make \(AppIdentity.name) the Default Browser…") {
+                        changingDefault = true
+                        Task {
+                            defer { changingDefault = false }
+                            do {
+                                for scheme in ["https", "http"] { try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpenURLsWithScheme: scheme) }
+                                defaultBrowserStatus = isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "The change wasn’t confirmed for both HTTP and HTTPS. Check macOS Settings."
+                            } catch { defaultBrowserStatus = "The default browser wasn’t changed for every scheme. \(error.localizedDescription)" }
+                        }
+                    }.disabled(changingDefault || isDefaultBrowser)
+                }
             }
         }.formStyle(.grouped)
     }

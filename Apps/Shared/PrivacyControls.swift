@@ -34,17 +34,22 @@ struct PrivacySettingsControls: View {
         }
         ForEach(PrivacyLayer.allCases.filter { $0 != .cookieBanners }) { layer in
             let unavailable = layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC
-            SettingRow(detail: unavailable ? OrivStrings.globalPrivacyControlUnavailable : nil) {
+            let detail = if unavailable {
+                OrivStrings.globalPrivacyControlUnavailable
+            } else if layer == .linkCleaning {
+                "Copy and Share clean links. Use Copy Original Link to keep every parameter. This switch controls navigation."
+            } else {
+                nil as String?
+            }
+            SettingRow(detail: detail) {
                 Toggle(layer.title, isOn: Binding(get: { session.settings.privacy.isEnabled(layer) }, set: { session.settings.privacy.setEnabled($0, layer) }))
                     .disabled(unavailable)
             }
         }
-        SettingRow(detail: "Copy and Share clean links. Use Copy Original Link to keep every parameter. The link-cleaning switch controls navigation.") {
-            Toggle("Skip ads that still start", isOn: Binding(
-                get: { session.settings.privacy.skipYouTubeAds },
-                set: { session.settings.privacy.skipYouTubeAds = $0 }
-            )).disabled(!session.settings.privacy.isEnabled(.youtubeAds) || session.adBlocker.mode == .off)
-        }
+        Toggle("Skip ads that still start", isOn: Binding(
+            get: { session.settings.privacy.skipYouTubeAds },
+            set: { session.settings.privacy.skipYouTubeAds = $0 }
+        )).disabled(!session.settings.privacy.isEnabled(.youtubeAds) || session.adBlocker.mode == .off)
         SettingRow(detail: "Reject uses known opt-out controls and hides banners when no supported opt-out succeeds.") {
             Picker("Cookie banners", selection: Binding(
                 get: { session.settings.privacy.cookieBannerMode },
