@@ -8,7 +8,7 @@ The shared palette and tokens live in `Apps/Shared/Theme.swift` and are compiled
 
 Use semantic theme roles for colors. Main text belongs in address fields and secondary text is used for hints and supporting text. Increase Contrast strengthens secondary text and boundaries. Native controls inherit the platform accent. Selection includes a checkmark or a 3 pt leading marker whose system-accent hue is preserved when lightness needs adjustment for contrast. Purple glasses and explicit labels identify private browsing independently of the connection-security icon.
 
-Use system text styles for iPhone controls and content so Dynamic Type can reflow. Toolbar glyphs retain compact, labeled targets while text grows. At accessibility text sizes the appearance picker becomes one column and hides decorative previews. Mac controls use native text fields, menu commands and familiar keyboard shortcuts. Use system sans-serif throughout. The Mac profile name uses 17 pt semibold and section and sheet titles use 15 pt semibold. The active sidebar row uses 13 pt medium.
+Use system text styles for iPhone controls and content so Dynamic Type can reflow. Toolbar glyphs retain compact, labeled targets while text grows. At accessibility text sizes the appearance picker becomes one column and hides decorative previews. Mac controls use native text fields, menu commands and familiar keyboard shortcuts. Use system sans-serif throughout. The Mac profile name uses 17 pt semibold and sheet titles use 15 pt semibold. Sidebar section headings use 11 pt semibold secondary ink, and counts use 11 pt regular. The active sidebar row uses 13 pt medium.
 
 ## Shared metrics and content
 
@@ -153,23 +153,29 @@ indication is event-driven for HTML audio/video, including child frames; there
 are no per-row timers or playback polling loops. Web Audio-only pages require a
 separate future public-API strategy; pause/block still applies through WebKit.
 
-At narrow expanded widths, Share, New Tab and Overview remain in Browser Actions
-and the fixed sidebar controls, leaving the 230 pt address minimum and privacy
-button reachable. Active downloads also have a sidebar badge.
+At narrow expanded widths, Share remains available in Browser Actions and New Tab
+remains in the sidebar. The address capsule keeps a 230 pt minimum and centers
+on the page viewport. Active downloads also have a sidebar badge.
 
 The sidebar uses Graphite or the equivalent Black colors. The 32 pt search field
-and rows use 8 pt corners. Pinned tiles, rail selections and the 42 pt footer use
-10 pt corners. Selection uses a neutral fill and a leading accent marker. Hover
+and rows use 8 pt corners. Pinned tiles and rail selections use 10 pt corners.
+The footer puts Bookmarks, History, Downloads, Other devices and Settings directly
+on the sidebar glass. Each control has a minimum 24 pt target, an accessibility
+label, and keyboard focus feedback. Selection uses a neutral fill and a leading accent marker. Hover
 uses a quieter solid fill. The 60 pt page header retains monochrome controls and
 the filled address capsule in the page-derived color band. Browser Actions retains
 its 36 × 32 pt target. Suggestions float in a solid 12 pt panel with a quiet shadow.
 Restored pages receive initial native web-content focus and empty tabs focus
 the address editor. Keyboard navigation retains the system focus ring.
 
-The Mac start page centers its 640 pt content column and uses a four-column
-tile grid at standard text sizes. iPhone retains adaptive columns. Both use
+The Mac start page aligns its 640 pt content column with the address capsule
+and uses a four-column tile grid at standard text sizes. The private start page
+uses the shared private banner and a short explanation on the private surface. iPhone retains adaptive columns. Both use
 solid tiles and secondary section labels. Mac settings use native grouped
-forms and the system window background. Glass opacity applies to all profiles.
+forms and the system window background. Library counts appear beside their
+section names on the surface, with list content on the canvas. Find in Page
+uses the shared search field and toolbar controls. Glass opacity applies to all
+profiles.
 
 
 ## Copy and verification

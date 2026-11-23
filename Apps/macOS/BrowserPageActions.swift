@@ -4,6 +4,11 @@ import BrowserEngine
 import UniformTypeIdentifiers
 import WebKit
 
+struct BrowserActionError {
+    let title: String
+    let message: String
+}
+
 extension BrowserController {
     func importBookmarks() {
         Task { @MainActor in
@@ -18,11 +23,11 @@ extension BrowserController {
                 let alert = NSAlert(); alert.messageText = "Import \(parsed.bookmarks.count) bookmark links?"
                 alert.informativeText = "Links will be added to Bookmarks. Existing links are skipped. Folders, passwords, history and website data are not imported. \(parsed.skipped) invalid or duplicate entries were skipped."
                 alert.addButton(withTitle: "Import"); alert.addButton(withTitle: "Cancel")
-                guard !parsed.bookmarks.isEmpty else { browserError = "No supported HTTP or HTTPS bookmark links were found."; return }
+                guard !parsed.bookmarks.isEmpty else { browserError = BrowserActionError(title: "Couldn’t import bookmarks", message: "The file had no HTTP or HTTPS bookmark links."); return }
                 guard alert.runModal() == .alertFirstButtonReturn else { return }
                 let count = self.session.importBookmarks(parsed.bookmarks)
                 browserNotice = "Imported \(count) new bookmark links. Existing bookmark links were retained."
-            } catch { browserError = "Bookmarks couldn’t be imported. \(error.localizedDescription)" }
+            } catch { browserError = BrowserActionError(title: "Couldn’t import bookmarks", message: error.localizedDescription) }
         }
     }
     func exportBookmarks() {
@@ -32,7 +37,7 @@ extension BrowserController {
             guard await panel.begin() == .OK, let url = panel.url else { return }
             let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
             do { try data.write(to: url, options: .atomic) }
-            catch { browserError = "Bookmarks couldn’t be exported. \(error.localizedDescription)" }
+            catch { browserError = BrowserActionError(title: "Couldn’t export bookmarks", message: error.localizedDescription) }
         }
     }
     func printPage() {
@@ -52,7 +57,7 @@ extension BrowserController {
                 let data: Data
                 if asPDF { data = try await tab.webView.pdf(configuration: WKPDFConfiguration()) }
                 else { data = try await withCheckedThrowingContinuation { continuation in tab.webView.createWebArchiveData { continuation.resume(with: $0) } } }
-                guard tab.documentRevision == revision else { browserError = "The page changed while it was being saved. Try again when it has finished loading."; return }
+                guard tab.documentRevision == revision else { browserError = BrowserActionError(title: "Couldn’t save page", message: "The page changed while it was being saved. Try again when it has finished loading."); return }
                 let panel = NSSavePanel()
                 panel.title = asPDF ? "Export page as PDF" : "Save web archive"
                 panel.allowedContentTypes = asPDF ? [.pdf] : [UTType(filenameExtension: "webarchive") ?? .data]
@@ -61,7 +66,7 @@ extension BrowserController {
                 let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
                 try data.write(to: url, options: .atomic)
                 try DownloadManager.markDownloadedFile(url, source: tab.isPrivate ? nil : tab.url)
-            } catch { browserError = "The page couldn’t be saved. \(error.localizedDescription)" }
+            } catch { browserError = BrowserActionError(title: "Couldn’t save page", message: error.localizedDescription) }
         }
     }
 }

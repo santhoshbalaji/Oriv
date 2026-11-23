@@ -36,4 +36,4 @@ Oriv's original MIT script runs at document start on the desktop, mobile, Music 
 
 Apple references: [WKContentRuleList](https://developer.apple.com/documentation/webkit/wkcontentrulelist), [WKContentRuleListStore](https://developer.apple.com/documentation/webkit/wkcontentruleliststore), and [content-blocker rule syntax](https://developer.apple.com/documentation/safariservices/creating-a-content-blocker).
 
-On Mac, the shield in the content header opens Site Privacy alongside Share, New Tab and Tab Overview. The same panel is available from the browser actions menu. The address capsule retains a 230-point minimum at the 760-point window minimum; active downloads remain available in browser actions when the expanded sidebar leaves insufficient header space.
+On Mac, the shield in the content header opens Site Privacy alongside the page sharing controls. The same panel is available from the browser actions menu. The address capsule retains a 230-point minimum at the 760-point window minimum; active downloads remain available in browser actions when the expanded sidebar leaves insufficient header space.

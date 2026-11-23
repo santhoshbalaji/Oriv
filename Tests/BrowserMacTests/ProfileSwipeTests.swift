@@ -440,7 +440,6 @@ final class ProfileSwipeTests: XCTestCase {
         source.profileUI.showProtection = true
         source.profileUI.showPasswords = true
         source.profileUI.showSiteInfo = true
-        source.profileUI.showTabs = true
         source.profileUI.siteToForget = BrowserSite(url: try XCTUnwrap(URL(string: "https://source-only.test")))
         source.profileUI.closeOthers = source.session.selectedTabID
         source.profileUI.closeToRight = true
@@ -459,7 +458,6 @@ final class ProfileSwipeTests: XCTestCase {
         XCTAssertFalse(destination.profileUI.showProtection)
         XCTAssertFalse(destination.profileUI.showPasswords)
         XCTAssertFalse(destination.profileUI.showSiteInfo)
-        XCTAssertFalse(destination.profileUI.showTabs)
         XCTAssertNil(destination.profileUI.siteToForget)
         XCTAssertNil(destination.profileUI.closeOthers)
         XCTAssertFalse(destination.profileUI.closeToRight)

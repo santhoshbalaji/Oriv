@@ -214,7 +214,8 @@ if os.environ.get("ORIV_GLASS_SCENE") == "settings-audit":
         "general", "profiles", "continuity", "appearance", "privacy", "passwords", "about",
         "website-data", "clear-browsing-data", "profiles-manager", "delete-profile",
         "acknowledgements", "site-privacy-popover", "password-help-popover", "library-bookmarks",
-        "library-history", "library-downloads", "tab-overview", "find-bar-and-browser-actions-trigger", "private-window",
+        "library-history", "library-downloads", "library-devices", "reader", "load-error",
+        "start-page", "find-bar-and-browser-actions-trigger", "private-window",
     )
     expected = {f"mac-glass-settings-audit-{appearance}-{surface}"
                 for appearance in ("light", "dark", "t3-code") for surface in surfaces}

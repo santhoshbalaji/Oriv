@@ -61,19 +61,19 @@ struct WebsiteDataView: View {
             }
             List(records, id: \.displayName) { record in
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: OrivSpacing.xs) {
                         Text(record.displayName)
                         Text("\(record.dataTypes.count) storage types").font(OrivType.caption).foregroundStyle(theme.secondaryText)
                     }
                     Spacer()
                     Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivButton(.destructive)
                         .accessibilityLabel("Remove data for \(record.displayName)")
-                }.padding(.vertical, 4)
+                }.padding(.vertical, OrivSpacing.xs)
             }.overlay { if manager.isWorking { ProgressView() } else if records.isEmpty { BrowserEmptyState(manager.records.isEmpty ? "No website data" : "No results for “\(query)”.") } }
             HStack {
                 Text("\(manager.records.count) websites").font(OrivType.caption).foregroundStyle(theme.secondaryText)
                 Spacer()
-                Button("Refresh") { Task { await manager.refresh() } }
+                Button("Refresh") { Task { await manager.refresh() } }.orivButton(.secondary)
                 Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivButton(.destructive).disabled(manager.records.isEmpty)
             }
         } actions: {

@@ -37,7 +37,7 @@ struct ProfileMenu: View {
         Group {
             if tabCount != nil {
                 picker.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).focusEffectDisabled()
-                    .background(headerHovered ? theme.sidebar.hover : .clear, in: .rect(cornerRadius: 8))
+                    .background(headerHovered ? theme.sidebar.hover : .clear, in: .rect(cornerRadius: OrivRadius.control))
                     .onHover { headerHovered = $0 }
             }
             else { picker.menuStyle(.borderlessButton).menuIndicator(iconOnly ? .hidden : .automatic) }
@@ -61,11 +61,11 @@ struct ProfileMenu: View {
             if let tabCount {
                 ProfileHeaderArtwork(name: profiles.active.name, tabCount: tabCount)
             } else {
-                HStack(spacing: 8) {
+                HStack(spacing: OrivSpacing.small) {
                     Image(systemName: profiles.active.symbol.rawValue).foregroundStyle(profiles.active.color.tint(in: theme))
                     if !iconOnly { Text(profiles.active.name).font(OrivType.detail).foregroundStyle(theme.text).lineLimit(1) }
                     if !compact && !iconOnly { Spacer(minLength: 0) }
-                }.font(.system(size: 12, weight: .medium))
+                }.font(OrivType.detail.weight(.medium))
             }
         }
     }
@@ -79,16 +79,16 @@ struct ProfileHeaderArtwork: View {
     var marksGeometry = true
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: OrivSpacing.small) {
             Image(systemName: "rectangle.stack").font(.system(size: 17, weight: .semibold)).frame(width: 19)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(OrivType.profile).lineLimit(1)
+            VStack(alignment: .leading, spacing: OrivSpacing.xxs) {
+                Text(name).font(OrivType.windowTitle).lineLimit(1)
                     .browserGeometryMarker("sidebarProfileNameGeometry", when: marksGeometry)
                 Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast))
                     .browserGeometryMarker("sidebarProfileCountGeometry", when: marksGeometry)
             }.frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
-        }.foregroundStyle(theme.text).padding(.horizontal, 8).frame(height: 44).contentShape(Rectangle())
+            Image(systemName: "chevron.down").font(OrivIcon.close)
+        }.foregroundStyle(theme.text).padding(.horizontal, OrivSpacing.small).frame(height: 44).contentShape(Rectangle())
     }
 }
 
@@ -106,69 +106,27 @@ struct ProfilesView: View {
     @State private var deleting: BrowserProfile?
     private var selected: BrowserProfile? { (profiles.available + profiles.archived).first { $0.id == selectedID } }
     var body: some View {
-        HStack(alignment: .top, spacing: 24) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Profiles").font(.headline)
+        HStack(spacing: OrivSpacing.medium) {
+            VStack(alignment: .leading, spacing: OrivSpacing.medium) {
+                SectionHeader(title: "Profiles", kind: .content, ink: theme.text)
                 ScrollView {
-                    VStack(spacing: 4) {
+                    VStack(spacing: OrivSpacing.xs) {
                         ForEach(profiles.available) { profile in profileRow(profile) }
                         if !profiles.archived.isEmpty {
-                            Text("Archived").font(.caption).foregroundStyle(theme.secondaryText).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 16)
+                            SectionHeader(title: "Archived", kind: .sidebar)
+                                .padding(.top, OrivSpacing.large)
                             ForEach(profiles.archived) { profile in profileRow(profile) }
                         }
                     }
                 }
                 Button("Add Profile", systemImage: "plus") {
                     selectedID = nil; creating = true; name = ""; color = .ocean; symbol = .work; message = nil
-                }.disabled(!profiles.canModify)
-            }.frame(width: 175)
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Label(creating ? "New profile" : selected?.name ?? "Choose a profile", systemImage: symbol.rawValue)
-                        .font(.title2).foregroundStyle(color.tint(in: theme))
-                    Text("Separate website logins, tabs, history, settings, and bookmarks.")
-                        .font(.callout).foregroundStyle(theme.secondaryText)
-                    TextField("Profile name", text: $name).textFieldStyle(.roundedBorder).accessibilityIdentifier("profileNameField")
-                    Picker("Symbol", selection: $symbol) {
-                        ForEach(ProfileSymbol.allCases, id: \.self) { Label($0.title, systemImage: $0.rawValue).tag($0) }
-                    }
-                    Picker("Color", selection: $color) { ForEach(ProfileColor.allCases, id: \.self) { Text($0.title).tag($0) } }
-                    if let notice = profiles.notice { Text(notice).font(.caption).foregroundStyle(theme.secondaryText) }
-                    if let message { Text(message).font(.callout).foregroundStyle(theme.danger).accessibilityIdentifier("profileEditorMessage") }
-                    HStack {
-                        Button(creating ? "Create Profile" : "Save Changes") {
-                            do {
-                                if creating {
-                                    let profile = try profiles.create(name: name, color: color, symbol: symbol)
-                                    choose(profile)
-                                } else if let selected { try profiles.update(selected.id, name: name, color: color, symbol: symbol) }
-                                message = nil
-                            } catch { message = error.localizedDescription }
-                        }.orivButton(.primary).disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        if let selected, selected.archivedAt != nil {
-                            Button("Restore") { perform { try profiles.restore(selected.id) } }.disabled(!profiles.canModify)
-                        } else if let selected, selected.id != profiles.active.id, canSwitch {
-                            Button("Switch to Profile") {
-                                // Close the manager before the model checks for other open editors.
-                                profiles.pendingSelection = selected.id
-                                profiles.showManager = false
-                            }
-                        }
-                    }
-                    if let selected, selected.archivedAt == nil, selected.id != profiles.active.id, !selected.isPersonal {
-                        Button("Archive Profile…", role: .destructive) { archiveID = selected.id }.disabled(!profiles.canModify)
-                    }
-                    if let selected, !selected.isPersonal && selected.id != profiles.active.id {
-                        Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = selected }.orivButton(.destructive).disabled(!profiles.canModify)
-                    }
-                    Divider()
-                    Text("Profiles organize your browsing; they aren’t locked accounts. Anyone using this Mac account can switch profiles. Apple Passwords and files you explicitly save use the same macOS account.")
-                        .font(.caption).foregroundStyle(theme.secondaryText)
-                    Text("Archiving hides a profile. Its tabs, bookmarks, history and website data remain available when you restore it.")
-                        .font(.caption).foregroundStyle(theme.secondaryText)
-                }.padding(.trailing, 6)
+                }.orivButton(.secondary).disabled(!profiles.canModify)
             }
+            .padding(.vertical, OrivSpacing.medium)
+            .frame(width: 175)
+            Divider()
+            editor
         }
         .onAppear { if selectedID == nil && !creating { choose(profiles.active) } }
         .sheet(item: $deleting) { profile in
@@ -180,15 +138,80 @@ struct ProfilesView: View {
             }
         }
         .confirmationDialog("Archive this profile?", isPresented: Binding(get: { archiveID != nil }, set: { if !$0 { archiveID = nil } })) {
-            Button("Archive Profile") { if let archiveID { perform { try profiles.archive(archiveID) } }; archiveID = nil }
-        } message: { Text("Regular tabs and data are saved. Private tabs close. You can restore the profile from this screen. This does not delete its files.") }
+            Button("Archive Profile", role: .destructive) { if let archiveID { perform { try profiles.archive(archiveID) } }; archiveID = nil }
+        } message: { Text("Regular tabs and data are saved. Private tabs close. Restore the profile from this screen to find its files.") }
     }
+    private var editor: some View {
+        Form {
+            Section {
+                TextField("Profile name", text: $name).accessibilityIdentifier("profileNameField")
+                Picker("Symbol", selection: $symbol) {
+                    ForEach(ProfileSymbol.allCases, id: \.self) { Label($0.title, systemImage: $0.rawValue).tag($0) }
+                }
+                Picker("Color", selection: $color) {
+                    ForEach(ProfileColor.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                SettingRow(detail: profiles.notice) {
+                    Button(creating ? "Create Profile" : "Save Changes", action: saveProfile)
+                        .orivButton(.primary)
+                        .disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if let message {
+                    Text(message).font(OrivType.caption).foregroundStyle(theme.danger)
+                        .accessibilityIdentifier("profileEditorMessage")
+                }
+            } header: {
+                Text(creating ? "New profile" : selected?.name ?? "Choose a profile")
+            } footer: {
+                Text("Profiles keep website logins, tabs, history, settings, and bookmarks separate. Anyone using this Mac account can switch profiles. Apple Passwords and saved files use the same macOS account.")
+            }
+            if let selected, selected.id != profiles.active.id, canSwitch || !selected.isPersonal {
+                Section {
+                    if selected.archivedAt != nil {
+                        Button("Restore Profile") { perform { try profiles.restore(selected.id) } }
+                            .orivButton(.secondary).disabled(!profiles.canModify)
+                    } else {
+                        if canSwitch {
+                            Button("Switch to Profile") {
+                                // Close the manager before checking for other open editors.
+                                profiles.pendingSelection = selected.id
+                                profiles.showManager = false
+                            }.orivButton(.secondary)
+                        }
+                        if !selected.isPersonal {
+                            Button("Archive Profile…", role: .destructive) { archiveID = selected.id }
+                                .orivButton(.destructive).disabled(!profiles.canModify)
+                        }
+                    }
+                    if !selected.isPersonal {
+                        Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = selected }
+                            .orivButton(.destructive).disabled(!profiles.canModify)
+                    }
+                } header: {
+                    Text("Profile actions")
+                } footer: {
+                    Text("Archiving hides a profile. Its tabs, bookmarks, history and website data return when you restore it.")
+                }
+            }
+        }.formStyle(.grouped)
+    }
+
+    private func saveProfile() {
+        perform {
+            if creating {
+                choose(try profiles.create(name: name, color: color, symbol: symbol))
+            } else if let selected {
+                try profiles.update(selected.id, name: name, color: color, symbol: symbol)
+            }
+        }
+    }
+
     private func profileRow(_ profile: BrowserProfile) -> some View {
         Button { choose(profile) } label: {
             HStack(spacing: OrivSpacing.small) {
-                Image(systemName: profile.symbol.rawValue).foregroundStyle(profile.color.tint(in: theme)).frame(width: 20)
+                Image(systemName: profile.symbol.rawValue).foregroundStyle(profile.color.tint(in: theme)).frame(width: OrivSpacing.larger)
                 VStack(alignment: .leading, spacing: OrivSpacing.xs) {
-                    Text(profile.name).lineLimit(1)
+                    Text(profile.name).font(OrivType.body).lineLimit(1)
                     if profile.id == profiles.active.id { Badge(text: "Current profile", padsLabel: false) }
                     else if let count = profiles.loadedController(profile.id)?.downloads.items.filter({ !$0.isFinished }).count, count > 0 {
                         Badge(text: "\(count) active downloads", kind: .count, padsLabel: false)

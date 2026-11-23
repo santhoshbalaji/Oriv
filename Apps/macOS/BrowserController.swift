@@ -14,7 +14,6 @@ import WebKit
     var siteToForget: BrowserSite?
     var showPasswords = false
     var showSiteInfo = false
-    var showTabs = false
     let pageChrome = PageChrome()
     var closeOthers: UUID?
     var closeToRight = false
@@ -25,7 +24,6 @@ import WebKit
         siteToForget = nil
         showPasswords = false
         showSiteInfo = false
-        showTabs = false
         closeOthers = nil
         closeToRight = false
     }
@@ -136,7 +134,7 @@ final class BrowserController {
     }
     var library: LibrarySection?
     var addressError: String?
-    var browserError: String?
+    var browserError: BrowserActionError?
     var browserNotice: String?
     var showWebsiteData = false
     var showClearBrowsingData = false
@@ -266,9 +264,9 @@ final class BrowserController {
             do {
                 let capture = try await PageCaptureService.readerText(tab)
                 guard session.selectedTabID == tab.id else { return }
-                guard !capture.text.isEmpty else { browserError = "No readable text was found on this page."; return }
+                guard !capture.text.isEmpty else { browserError = BrowserActionError(title: "Couldn’t read page text", message: "No readable text was found on this page."); return }
                 readerCapture = capture
-            } catch { browserError = error.localizedDescription }
+            } catch { browserError = BrowserActionError(title: "Couldn’t read page text", message: error.localizedDescription) }
         }
     }
     func navigate(_ input: String) {

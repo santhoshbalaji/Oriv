@@ -6,18 +6,16 @@ import SwiftUI
 /// event tap, activation, or system keyboard permission is involved.
 struct BrowserKeyRouter: NSViewRepresentable {
     let session: BrowserSession
-    var overviewVisible = false
     var fillPassword: (() -> Void)? = nil
     func makeNSView(context: Context) -> RoutingView { RoutingView() }
     func updateNSView(_ view: RoutingView, context: Context) {
-        view.session = session; view.overviewVisible = overviewVisible
+        view.session = session
         view.fillPassword = fillPassword
     }
     static func dismantleNSView(_ view: RoutingView, coordinator: ()) { view.detach() }
 
     final class RoutingView: NSView {
         weak var session: BrowserSession?
-        var overviewVisible = false
         var fillPassword: (() -> Void)?
         private var monitor: Any?
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -32,15 +30,13 @@ struct BrowserKeyRouter: NSViewRepresentable {
         func detach() { if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil }
         func route(_ event: NSEvent) -> Bool {
             guard let window, let session, session.isProfileActive,
-                  event.window === window || (overviewVisible && event.window?.sheetParent === window),
-                  window.attachedSheet == nil || overviewVisible else { return false }
+                  event.window === window, window.attachedSheet == nil else { return false }
             let flags = event.modifierFlags.intersection([.control, .shift, .command, .option])
             // Handled shortcuts can bypass the sidebar's window monitor.
             if !flags.intersection([.command, .control, .option]).isEmpty {
                 (window.firstResponder as? SidebarTabCollection)?.updateFocusInput(for: event)
             }
-            if event.window === window, window.attachedSheet == nil,
-               flags == [.command, .shift, .option], event.charactersIgnoringModifiers?.lowercased() == "p",
+            if flags == [.command, .shift, .option], event.charactersIgnoringModifiers?.lowercased() == "p",
                let fillPassword {
                 if !event.isARepeat { fillPassword() }
                 return true

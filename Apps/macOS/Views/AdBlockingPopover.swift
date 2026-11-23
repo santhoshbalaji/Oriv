@@ -10,12 +10,12 @@ struct AdBlockingPopover: View {
 
     var body: some View {
         OrivPopover(title: OrivStrings.sitePrivacy, symbol: "shield.lefthalf.filled", maximumHeight: 620) {
-            Text("Protection for this profile").font(OrivType.detail).foregroundStyle(theme.textSecondary)
-            Picker("Blocking mode", selection: Binding(get: { blocker.mode }, set: { blocker.setMode($0) })) {
-                ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
-            }.pickerStyle(.segmented)
-                .focusable().focused($blockingModeFocused)
-            Text(blocker.mode.detail).font(OrivType.body).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
+            SettingRow(detail: blocker.mode.detail) {
+                Picker("Blocking mode", selection: Binding(get: { blocker.mode }, set: { blocker.setMode($0) })) {
+                    ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented)
+                    .focusable().focused($blockingModeFocused)
+            }
             if let tab, AdBlocker.host(for: tab.url) != nil {
                 Divider()
                 PrivacyShieldControls(session: session, tab: tab)
@@ -28,7 +28,7 @@ struct AdBlockingPopover: View {
                 if blocker.isPreparingCNAME { ProgressView(OrivStrings.preparingTrackerProtection).controlSize(.small) }
                 if let error = blocker.cnamePreparationError { Text(error).font(OrivType.caption).foregroundStyle(theme.danger) }
             }
-            Text("Works in normal and private tabs. Reload to apply changes fully. Filters update with Oriv releases; some ads may remain.")
+            Text("Protection applies to regular and private tabs in this profile. Reload to apply changes.")
                 .font(OrivType.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
             .defaultFocus($blockingModeFocused, true)
