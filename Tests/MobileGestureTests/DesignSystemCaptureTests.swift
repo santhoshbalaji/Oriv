@@ -54,7 +54,8 @@ import WebKit
             let expected = Set(controller.session.tabs.filter(\.isPrivate).map(\.id))
             let visible = grid.collectionView.visibleCells.compactMap { ($0 as? MobileTabCell)?.representedTabID }
             XCTAssertFalse(visible.isEmpty)
-            XCTAssertTrue(visible.allSatisfy { expected.contains($0) }, "Private grid must display only private tabs")
+            XCTAssertTrue(visible.allSatisfy { expected.contains($0) },
+                          "Private grid must display only private tabs. Model modes: \(grid.model.tabs.map(\.isPrivate)), visible IDs: \(visible)")
             log.append("\(name) visible private tabs: \(visible.filter { expected.contains($0) }.count)/\(visible.count)")
         }
         if bottom { scrollPresented(toBottom: true); try await shot(name + "-bottom", wait: 600) }

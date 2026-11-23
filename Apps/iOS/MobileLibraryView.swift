@@ -124,6 +124,10 @@ struct MobileTabsView: View {
         NavigationStack {
             MobileTabGrid(controller: controller, profiles: profiles, tabs: matches,
                 largeText: typeSize.isAccessibilitySize, reduceMotion: reduceMotion, open: { tab in controller.tabPresentation.pendingSelection = tab.id; dismissGrid() }, onPull: onPull, onPinch: onPinch, presented:presented, visible:visible)
+                // UIKit keeps a prewarmed collection mounted across presentations.
+                // Give each browsing mode its own collection identity so hidden
+                // cells from the other mode cannot survive a mode change.
+                .id(privateMode)
                 .background(theme.canvas)
                 .overlay {
                     if presented && matches.isEmpty {
