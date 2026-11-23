@@ -20,6 +20,24 @@ import BrowserEngine
     func testReduceMotionFrames() async throws { try await exercise(name:"reduce-motion",travel:100,velocity:0,commit:true,reduce:true) }
     func testLastTabFrames() async throws { try await exercise(name:"last",travel:100,velocity:0,commit:true,count:1) }
 
+    func testSwitchingModesReplacesTheVisibleCard() async throws {
+        let fixture = try GridSwipeFixture(count: 1, reduce: false)
+        defer { fixture.dispose() }
+        try await fixture.ready()
+
+        let grid = fixture.grid
+        let privateTab = fixture.controller.session.addTab(isPrivate: true, select: false, load: false)
+        let firstCard = IndexPath(item: 0, section: 0)
+        var model = grid.model
+        model.tabs = [privateTab]
+        grid.update(model)
+        grid.collectionView.layoutIfNeeded()
+
+        let cell = try XCTUnwrap(grid.collectionView.cellForItem(at: firstCard) as? MobileTabCell)
+        XCTAssertEqual(cell.representedTabID, privateTab.id)
+        XCTAssertTrue(cell.accessibilityLabel?.hasPrefix("Private.") == true)
+    }
+
     func testTerminalOnlyCommitAndRightResistance() async throws {
         let fixture = try GridSwipeFixture(count:4,reduce:false); defer { fixture.dispose() }
         try await fixture.ready()

@@ -88,6 +88,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             let oldIDs = previous.flatMap { $0.map(\.id) }, newIDs = updated.flatMap { $0.map(\.id) }
             let oldSections = previous.compactMap { $0.first?.isPrivate }
             let newSections = updated.compactMap { $0.first?.isPrivate }
+            let switchedMode = oldSections.count == 1 && newSections.count == 1 && oldSections != newSections
             let removedSections = IndexSet(oldSections.indices.filter { !newSections.contains(oldSections[$0]) })
             let deletions = previous.enumerated().flatMap { section, tabs in
                 tabs.enumerated().compactMap { item, tab in
@@ -100,7 +101,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             let lastReplacement = oldIDs.count == 1 && newIDs.count == 1 && oldIDs != newIDs
             let canAnimate = collectionView.window != nil && !collectionView.bounds.isEmpty
                 && !collectionView.isHidden && !collectionView.hasUncommittedUpdates
-            if (onlyDeletes || lastReplacement) && canAnimate {
+            if (onlyDeletes || lastReplacement) && canAnimate && !switchedMode {
                 // UIKit can refresh its pre-update counts during layout. Keep
                 // the old data source until the batch actually starts.
                 collectionView.layoutIfNeeded()
@@ -130,7 +131,9 @@ struct MobileTabGrid: UIViewControllerRepresentable {
                 if !changed.isEmpty { collectionView.reconfigureItems(at: changed) }
             } else {
                 sections = updated
-                if canAnimate && !onlyDeletes && !lastReplacement {
+                // A mode switch replaces the displayed privacy section. Reload it
+                // before the grid can reveal a card from the previous section.
+                if canAnimate && !onlyDeletes && !lastReplacement && !switchedMode {
                     UIView.transition(with:collectionView,duration:model.reduceMotion ? 0.18 : 0.25,options:.transitionCrossDissolve) { self.collectionView.reloadData() }
                 } else {
                     collectionView.reloadData()
