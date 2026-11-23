@@ -23,7 +23,19 @@ struct DesignSystemGallery: View {
     @State private var selected = true
     @FocusState private var searchFocused: Bool
 
-    var body: some View {
+    @ViewBuilder var body: some View {
+        #if os(iOS)
+        if page == .controls {
+            galleryContent.searchable(text: $query, isPresented: $searches, prompt: "Search bookmarks")
+        } else {
+            galleryContent
+        }
+        #else
+        galleryContent
+        #endif
+    }
+
+    private var galleryContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: OrivSpacing.large) {
                 Text(page == .foundations ? "Oriv design system" : page.rawValue.capitalized)
@@ -49,9 +61,6 @@ struct DesignSystemGallery: View {
             .padding(OrivSpacing.large)
         }
         .background(theme.canvas)
-        #if os(iOS)
-        .searchable(text: $query, isPresented: $searches, prompt: "Search bookmarks")
-        #endif
     }
 
     private var controls: some View {
