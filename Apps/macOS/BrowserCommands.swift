@@ -25,7 +25,6 @@ struct BrowserCommands: Commands {
         CommandGroup(after: .textEditing) {
             Button("AutoFill Password…") { controller.passwordFillRequest += 1 }
                 .keyboardShortcut("p", modifiers: [.command, .option, .shift])
-                .disabled(!controller.canAutoFillPassword)
             Divider()
             Button("Find in Page…") { if !controller.session.isExternalPrivate { openWindow(id: "browser") }; controller.findRequest += 1 }.keyboardShortcut("f")
                 .disabled(controller.session.selectedTab?.url == nil)

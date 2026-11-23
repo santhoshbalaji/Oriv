@@ -4,46 +4,95 @@ import WebKit
 
 /// Tests can observe the handoff without interacting with macOS Passwords.
 @MainActor protocol PasswordPickerRequesting {
-    func requestPicker(in webView: WKWebView) -> Bool
+    func requestPicker(in webView: WKWebView) async -> Bool
 }
 
 @MainActor struct AppKitPasswordPicker: PasswordPickerRequesting {
-    func requestPicker(in webView: WKWebView) -> Bool {
+    func requestPicker(in webView: WKWebView) async -> Bool {
         guard !BackgroundUIMode.isEnabled, NSApp.isActive,
-              let window = webView.window, window === NSApp.keyWindow,
-              let item = ApplePasswords.enabledPasswordsItem(in: NSApp.mainMenu),
-              ApplePasswords.webViewHasResponder(webView, in: window),
-              let action = item.action else { return false }
-        // Use the discovered item's action and target through AppKit's responder
-        // routing. AppKit reports dispatch, while the system owns picker UI.
-        return NSApp.sendAction(action, to: item.target, from: item)
+              let view = webView as? PasswordContextWebView,
+              let window = view.window, window === NSApp.keyWindow,
+              ApplePasswords.webViewHasResponder(view, in: window) else { return false }
+        return await view.requestFocusedFieldMenu()
+    }
+}
+
+@MainActor final class PasswordContextWebView: WKWebView {
+    private struct MenuRequest {
+        let id = UUID()
+        let result: CheckedContinuation<Bool, Never>
+    }
+
+    private var pendingMenu: MenuRequest?
+    private weak var openedMenu: NSMenu?
+    private var openedMenuID: UUID?
+
+    func requestFocusedFieldMenu() async -> Bool {
+        guard pendingMenu == nil else { return false }
+        return await withCheckedContinuation { result in
+            let request = MenuRequest(result: result)
+            pendingMenu = request
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self, self.pendingMenu?.id == request.id else { return }
+                self.pendingMenu = nil
+                request.result.resume(returning: false)
+            }
+            // WebKit locates the focused element in its own frame, accounting
+            // for scroll and zoom. The native menu retains the field context.
+            showContextMenuForSelection(nil)
+        }
+    }
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        guard let request = pendingMenu else { return }
+        pendingMenu = nil
+        guard let window, window === NSApp.keyWindow,
+              ApplePasswords.webViewHasResponder(self, in: window) else {
+            request.result.resume(returning: false)
+            return
+        }
+        openedMenu = menu
+        openedMenuID = request.id
+        request.result.resume(returning: true)
+
+        // AppKit can supply AutoFill as a contextual addition that is absent
+        // from WebKit's NSMenu. Keep tracking the native menu in that case.
+        let id = request.id
+        RunLoop.main.perform(inModes: [.eventTracking]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.openedMenuID == id, let menu = self.openedMenu,
+                      let window = self.window, window === NSApp.keyWindow, NSApp.isActive,
+                      ApplePasswords.webViewHasResponder(self, in: window),
+                      let item = ApplePasswords.passwordsItem(in: menu), let submenu = item.menu else { return }
+                let index = submenu.index(of: item)
+                guard index >= 0 else { return }
+                menu.cancelTrackingWithoutAnimation()
+                submenu.performActionForItem(at: index)
+            }
+        }
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        if openedMenu === menu {
+            openedMenu = nil
+            openedMenuID = nil
+        }
+        super.didCloseMenu(menu, with: event)
     }
 }
 
 /// Native handoff only. Oriv never reads the vault, clipboard credentials or password fields.
 @MainActor enum ApplePasswords {
-    /// This identifier is menu metadata observed on macOS. The menu placement
-    /// can change, so look it up each time and keep the native field-menu fallback.
-    static func autoFillSubmenu(in mainMenu: NSMenu?) -> NSMenu? {
-        for edit in mainMenu?.items.compactMap(\.submenu) ?? [] {
-            if let item = edit.items.first(where: {
-                $0.identifier?.rawValue == "_NSMenuItemAutoFillIdentifier" || $0.title == "AutoFill"
-            }), let submenu = item.submenu {
-                submenu.update()
-                return submenu
-            }
+    static func passwordsItem(in contextMenu: NSMenu) -> NSMenuItem? {
+        let autoFill = contextMenu.items.first {
+            !$0.isHidden && $0.isEnabled && $0.submenu != nil &&
+                ($0.identifier?.rawValue == "_NSMenuItemAutoFillIdentifier" || $0.title == "AutoFill")
         }
-        return nil
-    }
-
-    static func passwordsItem(in menu: NSMenu) -> NSMenuItem? {
-        menu.items.first { $0.title == "Passwords…" || $0.title == "Passwords..." }
-    }
-
-    static func enabledPasswordsItem(in mainMenu: NSMenu?) -> NSMenuItem? {
-        guard let menu = autoFillSubmenu(in: mainMenu),
-              let item = passwordsItem(in: menu), item.isEnabled, !item.isHidden else { return nil }
-        return item
+        return autoFill?.submenu?.items.first {
+            !$0.isHidden && $0.isEnabled && $0.action != nil && $0.submenu == nil &&
+                ($0.title == "Passwords…" || $0.title == "Passwords...")
+        }
     }
 
     static func requestFill(in tab: BrowserTab, window: NSWindow, picker: any PasswordPickerRequesting,
@@ -55,7 +104,7 @@ import WebKit
         guard await tab.passwordFields.canRequestPicker(in: webView),
               stillSelected(), webView.window === window,
               webViewHasResponder(webView, in: window) else { return false }
-        return picker.requestPicker(in: webView)
+        return await picker.requestPicker(in: webView)
     }
 
     fileprivate static func webViewHasResponder(_ webView: WKWebView, in window: NSWindow) -> Bool {

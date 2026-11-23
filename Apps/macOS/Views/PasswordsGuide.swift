@@ -19,7 +19,12 @@ struct PasswordsGuide: View {
 
     private var guide: some View {
         VStack(alignment: .leading, spacing: 18) {
-            EditorHeading(title: "Passwords, in the page", subtitle: "Use Apple’s secure AutoFill picker.", symbol: "key")
+            if compact {
+                Text("Right-click or Control-click the login field, then choose AutoFill → Passwords…")
+                    .font(.callout.weight(.medium))
+            } else {
+                EditorHeading(title: "Passwords, in the page", subtitle: "Use Apple’s secure AutoFill picker.", symbol: "key")
+            }
             instruction("1", title: "Choose a login field", detail: "Control-click or right-click the username or password field on the website.")
             instruction("2", title: "AutoFill → Passwords…", detail: "Choose Passwords from the field’s native AutoFill menu.")
             instruction("3", title: "Unlock and choose", detail: "Authenticate with macOS, then choose the matching website and account.")

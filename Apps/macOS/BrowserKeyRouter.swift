@@ -7,15 +7,18 @@ import SwiftUI
 struct BrowserKeyRouter: NSViewRepresentable {
     let session: BrowserSession
     var overviewVisible = false
+    var fillPassword: (() -> Void)? = nil
     func makeNSView(context: Context) -> RoutingView { RoutingView() }
     func updateNSView(_ view: RoutingView, context: Context) {
         view.session = session; view.overviewVisible = overviewVisible
+        view.fillPassword = fillPassword
     }
     static func dismantleNSView(_ view: RoutingView, coordinator: ()) { view.detach() }
 
     final class RoutingView: NSView {
         weak var session: BrowserSession?
         var overviewVisible = false
+        var fillPassword: (() -> Void)?
         private var monitor: Any?
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
@@ -35,6 +38,12 @@ struct BrowserKeyRouter: NSViewRepresentable {
             // Handled shortcuts can bypass the sidebar's window monitor.
             if !flags.intersection([.command, .control, .option]).isEmpty {
                 (window.firstResponder as? SidebarTabCollection)?.updateFocusInput(for: event)
+            }
+            if event.window === window, window.attachedSheet == nil,
+               flags == [.command, .shift, .option], event.charactersIgnoringModifiers?.lowercased() == "p",
+               let fillPassword {
+                if !event.isARepeat { fillPassword() }
+                return true
             }
             if event.keyCode == 48 && (flags == .control || flags == [.control, .shift]) {
                 session.selectRelativeTab(flags.contains(.shift) ? -1 : 1)

@@ -63,7 +63,7 @@ struct BrowserWindow: View {
 
     private var sceneContent: some View {
         routedContent
-            .background(BrowserKeyRouter(session: session, overviewVisible: ui.showTabs))
+            .background(BrowserKeyRouter(session: session, overviewVisible: ui.showTabs, fillPassword: fillPassword))
             .environment(\.siteIcons, session.siteIcons)
             .focusedSceneValue(\.browserController, controller)
     }

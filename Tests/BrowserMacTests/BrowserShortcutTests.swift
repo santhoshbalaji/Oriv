@@ -22,6 +22,19 @@ import XCTest
             context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
         NSApp.sendEvent(event)
     }
+    func testPasswordShortcutWithWebKitResponderShowsHelpWithoutAnEligibleField() async throws {
+        let controller = BrowserController(testing: true)
+        defer { controller.shutdown() }
+        let tab = try XCTUnwrap(controller.session.selectedTab)
+        tab.navigate(to: try XCTUnwrap(URL(string: "http://127.0.0.1:8768/login")))
+        let window = window(controller)
+        defer { window.close() }
+        try await waitForFixtureCondition("mounted WebKit", timeout: 5) { tab.webView.window === window }
+        XCTAssertTrue(window.makeFirstResponder(tab.webView))
+        try key(35, flags: [.command, .option, .shift], characters: "P", window: window)
+        try await waitForFixtureCondition("password shortcut fallback", timeout: 5) { controller.profileUI.showPasswords }
+    }
+
     func testControlTabRealEventsWithWebContentAndAddressEditorFocusWrapInSidebarOrder() async throws {
         let controller = BrowserController(testing: true); defer { controller.shutdown() }
         let session = controller.session

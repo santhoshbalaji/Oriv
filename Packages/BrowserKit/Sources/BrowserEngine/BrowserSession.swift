@@ -65,6 +65,9 @@ public final class BrowserSession {
         return orderedTabs.filter { $0.isPrivate == selectedTab.isPrivate }
     }
 
+    #if os(macOS)
+    @ObservationIgnored public var makeWebView: ((WKWebViewConfiguration) -> WKWebView)?
+    #endif
     @ObservationIgnored public var configureWebView: ((WKWebView, BrowserTab) -> Void)?
     @ObservationIgnored public var handleDownload: ((WKDownload) -> Void)?
     @ObservationIgnored public var handleExternalURL: ((URL) -> Void)?
@@ -777,6 +780,11 @@ public final class BrowserSession {
         configuration?.websiteDataStore = dataStore
         let tab = BrowserTab(record: record, isPrivate: isPrivate, configuration: configuration,
                              dataStore: dataStore, adBlocker: adBlocker, settings: settings)
+        #if os(macOS)
+        tab.createWebView = { [weak self] configuration in
+            self?.makeWebView?(configuration) ?? WKWebView(frame: .zero, configuration: configuration)
+        }
+        #endif
         tab.snapshotCache = tabSnapshots
         tab.setProfileActive(isProfileActive)
         tab.onChange = { [weak self, weak tab] in

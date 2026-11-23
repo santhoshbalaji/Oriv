@@ -161,6 +161,7 @@ final class BrowserController {
         sidebar.hoverEnabled = defaults?.bool(forKey: "hoverSidebar") ?? false
         appearance = BrowserAppearance.saved(defaults?.string(forKey: "browserAppearance"))
         session = factory.session
+        session.makeWebView = { PasswordContextWebView(frame: .zero, configuration: $0) }
         bookmarkMigration = factory.importLegacyBookmarks()
         session.configureWebView = { [weak self] view, tab in
             #if DEBUG
