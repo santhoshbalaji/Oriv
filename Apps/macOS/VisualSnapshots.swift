@@ -53,7 +53,9 @@ import WebKit
         }
         BackgroundUIMode.installAtLaunch()
         if BackgroundUIMode.isEnabled {
-            if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" {
+            if environment["ORIV_GLASS_SCENE"] == "sidebar-color" {
+                manifest.limitations.append("The real sidebar and Settings render off-screen. A static gradient models the glass input. WindowServer Liquid Glass and live transitions are outside this capture.")
+            } else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" {
                 manifest.limitations.append("The real sidebar and production backing render over a synthetic desktop pattern in off-screen windows. These images demonstrate the backing blend; the WindowServer Liquid Glass compositor is outside this capture.")
             } else if ["sidebar-contrast", "p2", "phase2-contrast"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("All windows stay off every display. Contrast matrix uses the real sidebar with a known white/black/purple glass input and labelled page swatch; the header is a layout spacer. It renders the production contrast backing and controls; reduced/increased variants use the opaque accessibility path. These are synthetic compositing/layout images, not live Liquid Glass acceptance.")
@@ -71,6 +73,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "phase2-contrast" { await renderThemeContrast(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-rtl" { await renderRightToLeft(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p2" { await renderP2Scenes(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-color" { await renderSidebarColors(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" { await renderSidebarOpacity(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-width" { await renderSidebarWidthScenes(into: directory) }
@@ -617,6 +620,72 @@ import WebKit
                         .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
                         .environment(\.sidebarCaptureContrast, variant == "increased" ? .increased : .standard)
                 }
+            }
+        }
+    }
+
+    private static func renderSidebarColors(into directory: URL) async {
+        let root = directory.appendingPathComponent("sidebar-color-fixture")
+        let records = [TabRecord(title: "Reading list", url: URL(string: "https://reading.example"), isPinned: true),
+                       TabRecord(title: "City design journal", url: URL(string: "https://design.example")),
+                       TabRecord(title: "Coastal routes", url: URL(string: "https://routes.example"))]
+        do {
+            try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: records, selectedTabID: records[1].id, legacyBookmarksImported: true), discardPrevious: true)
+        } catch { manifest.failures.append("Sidebar color fixture: \(error)"); return }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let controller = profiles.controller
+        _ = controller.session.addTab(isPrivate: true, select: false, load: false)
+        let choices = SidebarColor.allCases.flatMap { choice in
+            choice == .profile ? ProfileColor.allCases.map { (choice, $0.rawValue, Optional($0)) }
+                : [(choice, choice.rawValue, nil)]
+        }
+        for appearance in [BrowserAppearance.light, .dark] {
+            let mode = appearance.rawValue.lowercased()
+            controller.appearance = appearance
+            for (choice, name, profileColor) in choices {
+                if let profileColor {
+                    do { try profiles.update(profiles.active.id, name: "Personal", color: profileColor, symbol: .person) }
+                    catch { manifest.failures.append("Profile color fixture: \(error)"); return }
+                }
+                controller.sidebarColor = choice
+                for (layout, rail) in [("expanded", false), ("rail", true)] {
+                    controller.compactSidebar = rail
+                    let width = rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth
+                    await capture("mac-glass-sidebar-contrast-color-\(name)-\(mode)-\(layout)", directory,
+                                  CGSize(width: 640, height: 580), key: false, settle: 150, appearance: appearance) {
+                        ZStack(alignment: .leading) {
+                            LinearGradient(colors: [.indigo.opacity(0.22), .teal.opacity(0.15), .orange.opacity(0.18)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                                .background(appearance.theme.canvas)
+                            HStack(spacing: 0) {
+                                Color.clear.frame(width: width)
+                                Text("City design journal").font(OrivType.profile)
+                                    .padding(24)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                    .foregroundStyle(appearance.theme.text)
+                                    .background(appearance.theme.canvas)
+                            }
+                            BrowserSidebar(controller: controller, profiles: profiles)
+                                .padding(.top, 28)
+                                .frame(width: width)
+                                .modifier(MacSidebarGlass(color: controller.sidebarColor,
+                                                         profileColor: controller.sidebarProfileColor(in: profiles)))
+                        }
+                        .clipped()
+                        .ignoresSafeArea(.container, edges: .top)
+                        .environment(\.sidebarCaptureBackdrop, .clear)
+                        .environment(\.sidebarCaptureOpacity, .balanced)
+                        .environment(\.sidebarCaptureContrast, .standard)
+                        .environment(\.sidebarCaptureState, SidebarCaptureState(hover: records[2].id))
+                    }
+                }
+            }
+            controller.sidebarColor = .sage
+            await capture("mac-glass-sidebar-color-settings-\(mode)", directory,
+                          CGSize(width: 640, height: 580), key: false, settle: 220, appearance: appearance) {
+                AppearanceSettings(appearance: .constant(appearance), controller: controller, profiles: profiles, initialPane: .appearance)
             }
         }
     }

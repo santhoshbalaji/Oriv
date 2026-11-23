@@ -11,6 +11,7 @@
 #   --active   legacy alias for --key; activation additionally needs ORIV_FOREGROUND_UI=1.
 #   ORIV_BACKGROUND_UI=1 is the default. Foreground UI requires orchestrator approval.
 #   ORIV_GLASS_SCENE=sidebar captures the fixed-sidebar acceptance matrix.
+#   ORIV_GLASS_SCENE=sidebar-color captures Balanced tints and the Settings control.
 #   ORIV_GLASS_SCENE=sidebar-width captures the expanded sidebar and inventories the File menu.
 #   The default PID-validated PNG bridge captures only the app's own window IDs.
 #   ORIV_CAPTURE_RENDERER=inprocess opts into ScreenCaptureKit instead.
@@ -155,6 +156,18 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-b":
     expected |= {f"mac-glass-sidebar-b-12-{mode}-760-expanded-narrow" for mode in ("light", "dark")}
     expected |= {f"mac-glass-sidebar-b-100-{mode}-1280-{state}-scrolled" for mode in ("light", "dark") for state in ("expanded", "rail")}
     expected |= {"mac-glass-sidebar-b-private-" + state for state in ("expanded", "rail")}
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-color":
+    colors = ("graphite", "mulberry", "ocean", "fern", "amber", "slate",
+              "rose", "peach", "butter", "mint", "sage", "sky", "lavender")
+    sidebars = {f"mac-glass-sidebar-contrast-color-{color}-{mode}-{layout}"
+                for color in colors for mode in ("light", "dark") for layout in ("expanded", "rail")}
+    settings = {f"mac-glass-sidebar-color-settings-{mode}" for mode in ("light", "dark")}
+    expected = sidebars | settings
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = ({name + "-synthetic-composite" for name in sidebars} |
+                   {name + "-opaque-fallback" for name in settings}) - evidence
+        if missing: problems.append(f"missing sidebar color evidence: {sorted(missing)}")
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-opacity":
     expected = {f"mac-glass-sidebar-contrast-opacity-{mode}-{layout}-{level}"
                 for mode in ("light", "dark", "t3-code") for layout in ("expanded", "rail")
