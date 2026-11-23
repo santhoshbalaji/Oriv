@@ -59,8 +59,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(svg, 'image/svg+xml')
             return
         if path == '/favicon-page':
-            run = parse_qs(urlsplit(self.path).query).get('run', [''])[0]
+            query = parse_qs(urlsplit(self.path).query)
+            run = query.get('run', [''])[0]
             icon = '/favicon-redirect?run=' + quote(run, safe='')
+            if query.get('slow') == ['1']:
+                icon += '&amp;slow=1'
             body = f'<html><head><title>Favicon fixture</title><link rel="icon" href="{icon}"></head><body><h1>Site icon</h1><input value="Keyboard fixture"></body></html>'.encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -79,6 +82,8 @@ class Handler(BaseHTTPRequestHandler):
             if any(headers[name] is not None for name in ('Cookie', 'Authorization', 'Referer')):
                 self.send_error(403); return
             if path == '/favicon-redirect':
+                if parse_qs(urlsplit(self.path).query).get('slow') == ['1']:
+                    time.sleep(4)
                 self.send_response(302)
                 self.send_header('Location', '/favicon-image.svg?run=' + quote(run, safe=''))
                 self.send_header('Set-Cookie', 'oriv-icon-redirect=blocked; Path=/')

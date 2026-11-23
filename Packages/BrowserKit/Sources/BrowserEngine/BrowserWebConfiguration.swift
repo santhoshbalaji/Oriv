@@ -9,10 +9,12 @@ enum BrowserWebConfiguration {
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.preferences.isElementFullscreenEnabled = true
         configuration.preferences.isSiteSpecificQuirksModeEnabled = true
-        // Keep live background networking and media on WebKit's throttle policy.
-        // Eligible old GET pages are reclaimed separately with interaction state;
-        // suspension is not a substitute for the form/capture/download safeguards.
+        #if os(macOS)
+        // WebKit suspends detached idle views and exempts playing/capturing pages.
+        configuration.preferences.inactiveSchedulingPolicy = .suspend
+        #else
         configuration.preferences.inactiveSchedulingPolicy = .throttle
+        #endif
         configuration.allowsAirPlayForMediaPlayback = true
         // Require a gesture for audio; video autoplay still follows WebKit's
         // visibility and platform rules (including videos with an audio track).

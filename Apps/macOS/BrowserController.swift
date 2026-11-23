@@ -179,6 +179,9 @@ final class BrowserController {
             }
         }
         session.didCloseTab = { [weak self] id in self?.adapters.removeValue(forKey: id); self?.privacyMenus.removeValue(forKey: id)?.invalidate() }
+        downloads.activityChanged = { [weak self] view in
+            self?.session.tabs.first { $0.isInstantiated && $0.webView === view }?.updateInactiveScheduling()
+        }
         session.handleDownload = { [weak self] download in
             guard let self, self.session.isProfileActive else { download.cancel { _ in }; return }
             self.downloads.begin(download)

@@ -189,6 +189,66 @@ import SwiftUI
         print("TAB_RECLAMATION_LIFETIMES checked=\(objects.count) alive=\(objects.filter { $0.value != nil }.count)")
     }
 
+    func testCloseReleasesLoadedWebViewWhileFaviconDownloadIsPending() async throws {
+        let controller = BrowserController(testing: true)
+        defer { controller.shutdown() }
+        let session = controller.session, tab = try XCTUnwrap(session.selectedTab)
+        tab.onDocumentReady = nil
+        let run = UUID()
+        let url = URL(string: "http://127.0.0.1:18768/favicon-page?run=\(run)&slow=1")!
+        let requests = URL(string: "http://127.0.0.1:18768/favicon-requests?run=\(run)")!
+        let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = tab.webView
+        BackgroundUIMode.show(window, key: false)
+        tab.navigate(to: url)
+        try await wait { tab.title == "Favicon fixture" && tab.hasRenderedContent && !tab.isLoading }
+        weak var releasedView = tab.webView
+        weak var releasedController = tab.webView.configuration.userContentController
+        var iconLoadFinished = false
+        let iconLoad = Task {
+            await session.siteIcons.load(url, isPrivate: false)
+            iconLoadFinished = true
+        }
+        defer { iconLoad.cancel() }
+        try await waitForFixtureCondition("pending icon request", timeout: 3) {
+            guard let (data, _) = try? await URLSession.shared.data(from: requests),
+                  let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return false }
+            return rows.contains { $0["path"] as? String == "/favicon-redirect" && $0["Cookie"] is NSNull }
+        }
+        window.contentView = nil
+        session.closeTab(tab.id)
+        try await eventually("closed WebKit view and content controller", timeout: 2, poll: .milliseconds(20)) {
+            releasedView == nil && releasedController == nil
+        }
+        XCTAssertFalse(iconLoadFinished, "The view must release before the icon request finishes")
+        XCTAssertNil(tab.switchSnapshot)
+    }
+
+    func testOversizedWorkingSetReclaimsOldestEligibleViewAfterOneMinute() async throws {
+        let controller = BrowserController(testing: true)
+        defer { controller.shutdown() }
+        let session = controller.session
+        session.tabReclamationMonitor?.stopSources()
+        var pages: [BrowserTab] = []
+        for _ in 0..<9 {
+            let tab = session.addTab(url: base.appendingPathComponent("two"))
+            try await wait { !tab.isLoading && tab.title == "Second page" }
+            pages.append(tab)
+        }
+        for (index, tab) in pages.dropLast().enumerated() {
+            tab.lastSelectedTime = ProcessInfo.processInfo.systemUptime - Double(90 - index)
+        }
+        pages[0].recordFieldEdit()
+        let reclaimed = await session.reclaimBackgroundTabs()
+        XCTAssertEqual(reclaimed, 1)
+        XCTAssertTrue(pages[0].isInstantiated)
+        XCTAssertFalse(pages[1].isInstantiated)
+        XCTAssertTrue(pages.dropFirst(2).allSatisfy(\.isInstantiated))
+    }
+
     func testActualDownloadOwnerProtectsItsTabUntilDestinationCancellation() async throws {
         let controller = BrowserController(testing: true)
         defer { controller.shutdown() }
@@ -203,10 +263,12 @@ import SwiftUI
         tab.webView.startDownload(using: URLRequest(url: base.appendingPathComponent("large-download"))) { [weak tab] download in tab?.onDownload?(download) }
         try await wait { destination != nil && controller.downloads.hasActiveDownloads }
         controller.session.addTab(load: false); tab.lastSelectedTime -= 601
+        XCTAssertEqual(tab.webView.configuration.preferences.inactiveSchedulingPolicy, .throttle)
         let protected = await controller.session.reclaimBackgroundTabs(underMemoryPressure:true)
         XCTAssertEqual(protected, 0); XCTAssertTrue(tab.isInstantiated)
         destination?.resume(returning: nil); destination = nil
         try await wait { !controller.downloads.hasActiveDownloads }
+        XCTAssertEqual(tab.webView.configuration.preferences.inactiveSchedulingPolicy, .suspend)
         let reclaimed = await controller.session.reclaimBackgroundTabs(underMemoryPressure:true)
         XCTAssertEqual(reclaimed, 1)
     }

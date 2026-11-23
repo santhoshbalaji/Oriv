@@ -193,22 +193,18 @@ struct SiteIconMissCache {
             defer {
                 if requestTokens[key] == token { requests[key] = nil; requestTokens[key] = nil }
             }
-            var attempted = false
-            weak var attemptedView: WKWebView?
+            var attemptedPage: DiscoveryPage?
             var icon = isPrivate ? nil : await disk.read(key)
             let cacheHit = icon != nil
-            if icon == nil, !Task.isCancelled, let view = document?(url, isPrivate),
-               let pageURL = view.url, Self.key(pageURL, isPrivate: isPrivate) == key {
-                attempted = true
-                attemptedView = view
-                icon = await fetch(in: view, pageURL: pageURL, isPrivate: isPrivate)
+            if icon == nil, !Task.isCancelled, let page = discoveryPage(for: url, isPrivate: isPrivate) {
+                attemptedPage = page
+                icon = await fetch(in: page)
             }
             guard !Task.isCancelled, cacheGeneration == self.cacheGeneration, !isPrivate || generation == privateGeneration else { return }
             if let icon {
                 publish(icon, key: key)
                 if !isPrivate && !cacheHit { await disk.write(icon, key: key) }
-            } else if attempted, let view = attemptedView,
-                      canDiscover(in: view, pageURL: url, isPrivate: isPrivate) {
+            } else if let attemptedPage, currentView(for: attemptedPage) != nil {
                 misses.record(key)
             }
         }
@@ -273,13 +269,66 @@ struct SiteIconMissCache {
         revision += 1
         try await disk.forget(site)
     }
-    private func canDiscover(in view: WKWebView, pageURL: URL, isPrivate: Bool) -> Bool {
-        !Task.isCancelled && !view.isLoading && view.url == pageURL && document?(pageURL, isPrivate) === view
+    private final class DiscoveryPage {
+        weak var view: WKWebView?
+        let url: URL
+        let isPrivate: Bool
+
+        init(view: WKWebView, url: URL, isPrivate: Bool) {
+            self.view = view
+            self.url = url
+            self.isPrivate = isPrivate
+        }
     }
-    private func fetch(in view: WKWebView, pageURL: URL, isPrivate: Bool) async -> SiteIcon? {
-        guard canDiscover(in: view, pageURL: pageURL, isPrivate: isPrivate) else { return nil }
+
+    private func discoveryPage(for url: URL, isPrivate: Bool) -> DiscoveryPage? {
+        guard let view = document?(url, isPrivate), let pageURL = view.url,
+              Self.key(pageURL, isPrivate: isPrivate) == Self.key(url, isPrivate: isPrivate) else { return nil }
+        return DiscoveryPage(view: view, url: pageURL, isPrivate: isPrivate)
+    }
+
+    private func currentView(for page: DiscoveryPage) -> WKWebView? {
+        guard !Task.isCancelled, let view = page.view, !view.isLoading, view.url == page.url,
+              document?(page.url, page.isPrivate) === view else { return nil }
+        return view
+    }
+
+    private func fetch(in page: DiscoveryPage) async -> SiteIcon? {
+        guard let metadata = await readIconCandidates(in: page), let userAgent = metadata.first,
+              !userAgent.isEmpty, currentView(for: page) != nil else { return nil }
+        var candidates = metadata.dropFirst().compactMap(URL.init(string:))
+        if let fallback = URL(string: "/favicon.ico", relativeTo: page.url)?.absoluteURL { candidates.append(fallback) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.urlCredentialStorage = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpAdditionalHeaders = ["User-Agent": userAgent]
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 5; configuration.timeoutIntervalForResource = 8
+        let transport = IconTransport(securePage: page.url.scheme == "https")
+        let session = URLSession(configuration: configuration, delegate: transport, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        for url in candidates.prefix(9) {
+            guard currentView(for: page) != nil else { return nil }
+            var data: Data?
+            if url.scheme == "data", url.absoluteString.utf8.count < 1_400_000 { data = Self.dataURL(url) }
+            else if transport.allows(url) {
+                data = await Self.download(url, session: session)
+            }
+            guard let data else { continue }
+            let decoded = await disk.decode(data)
+            guard currentView(for: page) != nil else { return nil }
+            if let decoded { return decoded }
+            let png = await rasterize(data, in: page)
+            if let png, let url = URL(string: png), let data = Self.dataURL(url), let icon = await disk.decode(data) { return icon }
+        }
+        return nil
+    }
+    private func readIconCandidates(in page: DiscoveryPage) async -> [String]? {
+        guard let view = currentView(for: page) else { return nil }
         // The site's own DOM supplies candidates. No history URL is probed.
-        guard let metadata = (try? await view.callAsyncJavaScript("""
+        return (try? await view.callAsyncJavaScript("""
             const icons = [];
             for (const link of document.querySelectorAll('link[rel][href]')) {
                 const rel = link.rel.toLowerCase().trim().split(/\\s+/);
@@ -293,48 +342,23 @@ struct SiteIconMissCache {
             }
             icons.sort((a,b) => a.rank - b.rank);
             return [navigator.userAgent, ...new Set(icons.map(icon => icon.url))].slice(0, 9);
-            """, arguments: [:], in: nil, contentWorld: .world(name: "OrivSiteIcon"))) as? [String],
-              let userAgent = metadata.first, !userAgent.isEmpty,
-              canDiscover(in: view, pageURL: pageURL, isPrivate: isPrivate) else { return nil }
-        var candidates = metadata.dropFirst().compactMap(URL.init(string:))
-        if let fallback = URL(string: "/favicon.ico", relativeTo: pageURL)?.absoluteURL { candidates.append(fallback) }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.urlCredentialStorage = nil
-        configuration.httpCookieStorage = nil
-        configuration.httpShouldSetCookies = false
-        configuration.httpAdditionalHeaders = ["User-Agent": userAgent]
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.timeoutIntervalForRequest = 5; configuration.timeoutIntervalForResource = 8
-        let transport = IconTransport(securePage: pageURL.scheme == "https")
-        let session = URLSession(configuration: configuration, delegate: transport, delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
-        for url in candidates.prefix(9) {
-            guard canDiscover(in: view, pageURL: pageURL, isPrivate: isPrivate) else { return nil }
-            var data: Data?
-            if url.scheme == "data", url.absoluteString.utf8.count < 1_400_000 { data = Self.dataURL(url) }
-            else if transport.allows(url) {
-                data = await Self.download(url, session: session)
-            }
-            guard let data else { continue }
-            if let icon = await disk.decode(data) { return icon }
-            // Download/decoding can outlive selection, discard or a same-URL
-            // navigation. Revalidate before executing any more document JS.
-            guard canDiscover(in: view, pageURL: pageURL, isPrivate: isPrivate) else { return nil }
-            // WebKit can rasterize SVG / ICO types ImageIO doesn't accept. The
-            // bytes are supplied, so this fallback performs no extra network load.
-            let png = try? await view.callAsyncJavaScript("""
-                const image = new Image(); image.src = source;
-                await image.decode();
-                const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
-                const scale = Math.min(64/image.naturalWidth, 64/image.naturalHeight);
-                canvas.getContext('2d').drawImage(image, 0, 0, image.naturalWidth*scale, image.naturalHeight*scale);
-                return canvas.toDataURL('image/png');
-                """, arguments: ["source": "data:image/svg+xml;base64," + data.base64EncodedString()], in: nil, contentWorld: .world(name: "OrivSiteIcon")) as? String
-            if let png, let url = URL(string: png), let data = Self.dataURL(url), let icon = await disk.decode(data) { return icon }
-        }
-        return nil
+            """, arguments: [:], in: nil, contentWorld: .world(name: "OrivSiteIcon"))) as? [String]
     }
+
+    private func rasterize(_ data: Data, in page: DiscoveryPage) async -> String? {
+        guard let view = currentView(for: page) else { return nil }
+        // WebKit can rasterize SVG / ICO types ImageIO doesn't accept. The
+        // bytes are supplied, so this fallback performs no extra network load.
+        return try? await view.callAsyncJavaScript("""
+            const image = new Image(); image.src = source;
+            await image.decode();
+            const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+            const scale = Math.min(64/image.naturalWidth, 64/image.naturalHeight);
+            canvas.getContext('2d').drawImage(image, 0, 0, image.naturalWidth*scale, image.naturalHeight*scale);
+            return canvas.toDataURL('image/png');
+            """, arguments: ["source": "data:image/svg+xml;base64," + data.base64EncodedString()], in: nil, contentWorld: .world(name: "OrivSiteIcon")) as? String
+    }
+
     private nonisolated static func download(_ url: URL, session: URLSession) async -> Data? {
         do {
             var request = URLRequest(url: url)

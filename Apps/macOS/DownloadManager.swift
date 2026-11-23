@@ -32,6 +32,7 @@ final class DownloadManager: NSObject, WKDownloadDelegate {
     var items: [DownloadItem] = []
     var hasActiveDownloads: Bool { items.contains { !$0.isFinished } }
     @ObservationIgnored private var active: [ObjectIdentifier: DownloadItem] = [:]
+    @ObservationIgnored var activityChanged: ((WKWebView) -> Void)?
     @ObservationIgnored var chooseDestination: ((String) async -> URL?)?
 
     func begin(_ download: WKDownload) {
@@ -47,6 +48,7 @@ final class DownloadManager: NSObject, WKDownloadDelegate {
         item.download = download; item.isFinished = false; item.isFailed = false; item.isPaused = false
         active[ObjectIdentifier(download)] = item
         download.delegate = self
+        notifyActivity(for: item)
         let progress = download.progress
         item.observations = [progress.observe(\.completedUnitCount, options: [.initial, .new]) { [weak item] value, _ in
             let received = value.completedUnitCount, total = value.totalUnitCount
@@ -141,6 +143,10 @@ final class DownloadManager: NSObject, WKDownloadDelegate {
         guard let item = active.removeValue(forKey: ObjectIdentifier(download)) else { return }
         item.observations = []; item.download = nil
         if !preservingPartial { cleanup(item) }
+        notifyActivity(for: item)
+    }
+    private func notifyActivity(for item: DownloadItem) {
+        if let view = item.sourceView { activityChanged?(view) }
     }
     private func cleanup(_ item: DownloadItem) {
         if let temporary = item.temporaryURL { try? FileManager.default.removeItem(at: temporary) }

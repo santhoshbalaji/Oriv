@@ -103,6 +103,8 @@ public final class BrowserSession {
     @ObservationIgnored private(set) var tabReclamationMonitor: TabReclamationMonitor?
     @ObservationIgnored private var tabReclamationTask: Task<Void, Never>?
     @ObservationIgnored private var isReclaimingTabs = false
+    @ObservationIgnored private var pendingTabPressure = false
+    private static let liveTabBudget = 8
     #endif
 
     public init(store: (any BrowserSessionStore)? = nil, dataStore: WKWebsiteDataStore = .default(),
@@ -174,16 +176,8 @@ public final class BrowserSession {
         }
         updateTabSelection()
         #if os(macOS)
-        do {
-            tabReclamationMonitor = TabReclamationMonitor { [weak self] pressure in
-                guard let self, !self.isShutDown else { return }
-                if pressure { self.tabSnapshots.removeAll() }
-                guard self.tabReclamationTask == nil else { return }
-                self.tabReclamationTask = Task { @MainActor [weak self] in
-                    _ = await self?.reclaimBackgroundTabs(underMemoryPressure: pressure)
-                    self?.tabReclamationTask = nil
-                }
-            }
+        tabReclamationMonitor = TabReclamationMonitor { [weak self] pressure in
+            self?.scheduleTabReclamation(underMemoryPressure: pressure)
         }
         #endif
     }
@@ -261,6 +255,24 @@ public final class BrowserSession {
     }
 
     #if os(macOS)
+    private func scheduleTabReclamation(underMemoryPressure: Bool) {
+        guard !isShutDown else { return }
+        if underMemoryPressure {
+            tabSnapshots.removeAll()
+            pendingTabPressure = true
+        }
+        guard tabReclamationTask == nil else { return }
+        tabReclamationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                let pressure = self.pendingTabPressure
+                self.pendingTabPressure = false
+                _ = await self.reclaimBackgroundTabs(underMemoryPressure: pressure)
+            } while self.pendingTabPressure && !Task.isCancelled
+            self.tabReclamationTask = nil
+        }
+    }
+
     /// Reclaim oldest eligible views first. WebKit state stays in RAM and never
     /// enters session persistence or continuity. Each IPC request is bounded.
     @discardableResult public func reclaimBackgroundTabs(underMemoryPressure: Bool = false) async -> Int {
@@ -269,19 +281,29 @@ public final class BrowserSession {
         isReclaimingTabs = true
         defer { isReclaimingTabs = false }
         let candidates = tabs.filter(\.isInstantiated).sorted { $0.lastSelectedTime < $1.lastSelectedTime }
+        // A large working set uses the same one-minute safety window as
+        // pressure. After the set returns to budget, keep the usual longer idle age.
+        var liveCount = candidates.count
         var reclaimed = 0
         for tab in candidates {
             guard !isShutDown, !Task.isCancelled else { break }
             // Recompute after each IPC: selection may have changed while the
             // previous candidate was being checked. Pressure may use the reserve.
             let isInactiveSelection = !isProfileActive && tab.id == selectedTabID
-            if !underMemoryPressure && !isInactiveSelection && recentLiveTabIDs.contains(tab.id) { continue }
-            let minimumIdle = isInactiveSelection ? (underMemoryPressure ? 0 : 5 * 60)
-                : (underMemoryPressure ? TabDiscardPolicy.recentUseInterval : TabDiscardPolicy.idleInterval)
+            if !underMemoryPressure && isProfileActive && recentLiveTabIDs.contains(tab.id) { continue }
+            let minimumIdle: TimeInterval
+            if underMemoryPressure || (!isInactiveSelection && liveCount > Self.liveTabBudget) {
+                minimumIdle = TabDiscardPolicy.recentUseInterval
+            } else {
+                minimumIdle = isInactiveSelection ? 5 * 60 : TabDiscardPolicy.idleInterval
+            }
             let discarded = await withCheckedContinuation { continuation in
                 tab.discardBackgroundWebView(minimumIdle: minimumIdle) { continuation.resume(returning: $0) }
             }
-            if discarded { reclaimed += 1 }
+            if discarded {
+                reclaimed += 1
+                liveCount -= 1
+            }
         }
         return reclaimed
     }
@@ -303,6 +325,11 @@ public final class BrowserSession {
     public func openPopup(from opener: BrowserTab, url: URL?, configuration: WKWebViewConfiguration) -> WKWebView? {
         guard !isShutDown, isProfileActive, tabs.contains(where: { $0 === opener }),
               let dataStore = opener.websiteDataStore else { return nil }
+        #if os(macOS)
+        // WebKit can supply the opener's preferences by reference. Keep the
+        // related-page configuration, with independent Oriv scheduling and settings.
+        configuration.preferences = WKPreferences()
+        #endif
         return insertTab(url: url, isPrivate: opener.isPrivate, configuration: configuration,
                          dataStore: dataStore, select: true, load: false).webView
     }
@@ -790,8 +817,8 @@ public final class BrowserSession {
         }
         tab.onDocumentReady = { [weak self, weak tab] url in
             Task { @MainActor [weak self, weak tab] in
-                guard let self, !self.isShutDown, self.isProfileActive, let tab else { return }
-                await self.siteIcons.load(url, isPrivate: tab.isPrivate)
+                guard let self, !self.isShutDown, self.isProfileActive, let isPrivate = tab?.isPrivate else { return }
+                await self.siteIcons.load(url, isPrivate: isPrivate)
             }
         }
         tab.onWebViewCreated = { [weak self, weak tab] view in

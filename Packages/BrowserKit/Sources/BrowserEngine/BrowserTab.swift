@@ -51,6 +51,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     #if os(macOS)
     public private(set) var isAudioMuted = false
     @ObservationIgnored private var audibleFrames: Set<String> = []
+    @ObservationIgnored private var presentingFrames: Set<String> = []
     @ObservationIgnored private var muteRevision = 0
     @ObservationIgnored fileprivate let audioChannel = UUID().uuidString
     @ObservationIgnored private var mediaFrames: [String: WKFrameInfo] = [:]
@@ -85,7 +86,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored var discardTimeout:Duration = .seconds(8)
     @ObservationIgnored var lastSelectedTime = ProcessInfo.processInfo.systemUptime
     /// The platform download owner includes active and resumable downloads.
-    @ObservationIgnored public var hasActiveDownloads: (() -> Bool)?
+    @ObservationIgnored public var hasActiveDownloads: (() -> Bool)? {
+        didSet {
+            #if os(macOS)
+            updateInactiveScheduling()
+            #endif
+        }
+    }
     @ObservationIgnored private var didStartDownload = false
     @ObservationIgnored private var savedInteractionState: Any?
     @ObservationIgnored private var savedViewSize: CGSize?
@@ -179,13 +186,17 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             if (window.orivEditTracking) return;
             window.orivEditTracking = true;
             let reported = false;
+            function notifyEdited() { window.webkit.messageHandlers.editedField.postMessage(true); }
             function reportEdit(event) {
-                if (!reported && event.isTrusted && (event.target.matches('input,textarea,select') || event.target.isContentEditable)) {
-                    reported = true; window.webkit.messageHandlers.editedField.postMessage(true);
+                const target = event.target;
+                if (!reported && event.isTrusted && target instanceof Element &&
+                    (target.matches('input,textarea,select') || target.isContentEditable)) {
+                    reported = true; notifyEdited();
                 }
             }
             document.addEventListener('input', reportEdit, true);
             document.addEventListener('change', reportEdit, true);
+            window.addEventListener('pageshow', () => { if (reported) notifyEdited(); });
             })();
             """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world)
         if installEditTracker {
@@ -313,7 +324,11 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             view.observe(\.cameraCaptureState, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
             view.observe(\.microphoneCaptureState, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.refresh() } }
         ]
-        #if os(iOS)
+        #if os(macOS)
+        observations.append(view.observe(\.fullscreenState, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.updateInactiveScheduling() }
+        })
+        #else
         observations.append(view.scrollView.observe(\.contentSize,options:[.new]) { [weak self] _,_ in
             Task { @MainActor [weak self] in self?.restoreScrollPosition() }
         })
@@ -359,11 +374,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                         }
                         #endif
                         guard self.savedScrollOffset != nil else { request.finish(false); return }
-                        self.onWebViewDiscarded?()
-                        self.policyGeneration += 1; self.observations.removeAll()
-                        view.navigationDelegate = nil; view.uiDelegate = nil; self.onAuthentication = nil
                         self.savedViewSize = view.bounds.size
-                        self.savedInteractionState = state; self.backingWebView = nil; self.hasLoaded = false
+                        self.savedInteractionState = state
+                        self.releaseWebView(view)
+                        self.hasLoaded = false
                         self.hasRenderedContent = false
                         request.finish(true)
                     }
@@ -454,6 +468,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     private func canDiscard(_ view:WKWebView, minimumIdle: TimeInterval) -> Bool {
         #if os(macOS)
         let protectsSelection = isSelected && isProfileActive
+        guard !isPlayingAudio, presentingFrames.isEmpty, view.fullscreenState == .notInFullscreen else { return false }
         #else
         let protectsSelection = isSelected
         #endif
@@ -540,20 +555,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         finishedDocumentRevision = nil
         documentRevision += 1
         if let view = backingWebView {
-            onWebViewDiscarded?()
-            #if os(macOS)
-            resetAudio()
-            #else
-            view.findInteraction?.dismissFindNavigator()
-            #endif
-            onAuthentication = nil
-            policyGeneration += 1
-            observations.removeAll()
-            view.stopLoading()
-            view.navigationDelegate = nil
-            view.uiDelegate = nil
+            releaseWebView(view)
             view.loadHTMLString("", baseURL: nil)
-            backingWebView = nil
         }
         savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil
         isRestoringWebView = false; applyingRestoration = false
@@ -606,7 +609,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                 const send = message => { try { post(message); } catch {} };
                 let revision = \(muteRevision);
                 let muted = \(isAudioMuted);
-                let previous;
+                let previous, previousPresentation;
                 const mutedByTab = new WeakSet();
                 const contexts = new Map();
                 const contextEntries = new WeakMap();
@@ -627,14 +630,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                         (muted ? applyMute : restoreMute)(event.target);
                     }
                     const elements = media();
-                    if (!elements.length && !contexts.size && previous === undefined) return;
+                    if (!elements.length && !contexts.size && previous === undefined && !document.fullscreenElement) return;
                     const audible = !muted && (
                         [...elements].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0) ||
                         [...contexts.values()].some(ref => ref.deref()?.state === 'running')
                     );
-                    if (audible === previous) return;
-                    previous = audible;
-                    send({key, frame, audible});
+                    const presenting = !!(document.fullscreenElement || document.pictureInPictureElement) ||
+                        [...elements].some(m => m.webkitPresentationMode === 'picture-in-picture' || m.webkitPresentationMode === 'fullscreen');
+                    if (audible === previous && presenting === previousPresentation) return;
+                    previous = audible; previousPresentation = presenting;
+                    send({key, frame, audible, presenting});
                 };
 
                 const Audio = globalThis.AudioContext ?? globalThis.webkitAudioContext;
@@ -715,10 +720,12 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                     }
                     report();
                 };
-                ['play','playing','pause','ended','volumechange','emptied'].forEach(e => document.addEventListener(e, report, true));
+                ['play','playing','pause','ended','volumechange','emptied','fullscreenchange',
+                 'webkitpresentationmodechanged','enterpictureinpicture','leavepictureinpicture']
+                    .forEach(e => document.addEventListener(e, report, true));
                 window.addEventListener('pagehide', () => {
                     previous = undefined;
-                    send({key, frame, audible: false, hidden: true});
+                    send({key, frame, audible: false, presenting: false, hidden: true});
                 });
                 window.addEventListener('pageshow', () => { previous = undefined; report(); });
                 report();
@@ -765,7 +772,29 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         else { audibleFrames.remove(frame) }
         isPlayingAudio = !audibleFrames.isEmpty
     }
-    private func resetAudio() { audibleFrames.removeAll(); mediaFrames.removeAll(); isPlayingAudio = false }
+    fileprivate func recordMediaPresentation(frame: String, active: Bool) {
+        if active && presentingFrames.count < 256 { presentingFrames.insert(frame) }
+        else if !active { presentingFrames.remove(frame) }
+        updateInactiveScheduling()
+    }
+
+    /// WebKit handles media playback and camera/mic assertions. Keep detached
+    /// pages schedulable while a download or a separate presentation is active.
+    public func updateInactiveScheduling() {
+        guard let view = backingWebView else { return }
+        let exempt = isPlayingAudio || !presentingFrames.isEmpty || view.fullscreenState != .notInFullscreen ||
+            hasRequestedDisplayCapture || (hasActiveDownloads?() ?? didStartDownload)
+        let policy: WKPreferences.InactiveSchedulingPolicy = exempt ? .throttle : .suspend
+        let preferences = view.configuration.preferences
+        if preferences.inactiveSchedulingPolicy != policy { preferences.inactiveSchedulingPolicy = policy }
+    }
+
+    private func resetAudio() {
+        audibleFrames.removeAll()
+        mediaFrames.removeAll()
+        presentingFrames.removeAll()
+        isPlayingAudio = false
+    }
     #endif
     public func setProfileActive(_ active: Bool) {
         #if os(macOS)
@@ -916,27 +945,14 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
 
     public func close() {
         guard !isClosed else { return }
-        #if os(macOS)
-        resetAudio()
-        #endif
+        isClosed = true
         invalidateSwitchSnapshot()
         snapshotCache = nil
-        // Adapters must unregister while their live view is still reachable,
-        // including session shutdown (which does not call didCloseTab).
-        onWebViewDiscarded?(); onWebViewDiscarded = nil
-        onAuthentication = nil; onWebViewCreated = nil
-        endRefreshing()
-        #if os(iOS)
-        backingWebView?.findInteraction?.dismissFindNavigator()
-        #endif
-        savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil
-        isClosed = true
         cancelPendingHistory()
-        policyGeneration += 1
-        backingWebView?.stopLoading()
-        backingWebView?.navigationDelegate = nil
-        backingWebView?.uiDelegate = nil
-        observations.removeAll()
+        if let view = backingWebView { releaseWebView(view) }
+        onWebViewDiscarded = nil; onWebViewCreated = nil
+        savedInteractionState = nil; savedViewSize = nil; savedScrollOffset = nil
+        if let controller = configuration?.userContentController { adBlocker?.detach(from: controller) }
         configuration?.userContentController.removeScriptMessageHandler(forName: CookieConsent.handler, contentWorld: CookieConsent.world)
         configuration?.userContentController.removeScriptMessageHandler(forName: "editedField", contentWorld: .world(name: "OrivTabState"))
         configuration?.userContentController.removeScriptMessageHandler(forName: "tabPaint", contentWorld: .world(name: "OrivTabState"))
@@ -944,9 +960,27 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         configuration?.userContentController.removeScriptMessageHandler(forName: "tabAudio", contentWorld: .page)
         configuration?.userContentController.removeScriptMessageHandler(forName: "displayCaptureRequested", contentWorld: .page)
         #endif
-        hasActiveDownloads = nil
-        backingWebView = nil
         configuration = nil
+    }
+
+    private func releaseWebView(_ view: WKWebView) {
+        // Unregister adapters while the outgoing view is still available.
+        onWebViewDiscarded?()
+        onAuthentication = nil
+        policyGeneration += 1
+        observations.removeAll()
+        #if os(macOS)
+        resetAudio()
+        #else
+        endRefreshing()
+        view.findInteraction?.dismissFindNavigator()
+        #endif
+        view.navigationDelegate = nil
+        view.uiDelegate = nil
+        view.stopLoading()
+        backingWebView = nil
+        hasActiveDownloads = nil
+        didStartDownload = false
     }
 
     public func refreshContentBlocking() {
@@ -955,10 +989,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             adBlocker.refreshPrepared(on: view.configuration.userContentController)
             return
         }
-        Task { @MainActor [weak self] in
+        Task { @MainActor [weak self, weak view] in
             do {
                 if adBlocker.requiresRulePreparation { try await adBlocker.prepare() }
-                guard let self, self.backingWebView === view else { return }
+                guard let self, let view, self.backingWebView === view else { return }
                 adBlocker.refreshPrepared(on: view.configuration.userContentController)
             } catch { /* Navigation reports preparation failure before loading. */ }
         }
@@ -1089,10 +1123,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     #endif
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard !isClosed, backingWebView === webView else { return }
         #if os(macOS)
         resetAudio()
         #endif
-        guard !isClosed, backingWebView === webView else { return }
         cookieBannerResult = nil
         identifyPaintedDocument(webView)
         #if os(iOS)
@@ -1110,6 +1144,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         contentProcessTerminated = false
         hasEditedFields = false
         hasRequestedDisplayCapture = false
+        #if os(macOS)
+        updateInactiveScheduling()
+        #endif
         refresh(from: webView)
         if historyResponseAllowed, let committed = webView.url, AddressResolver.isWebURL(committed) {
             if isRestoringWebView || isReloadingForgottenSite {
@@ -1125,7 +1162,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         applySiteSettings()
     }
     func recordFieldEdit() { if !isClosed { hasEditedFields = true } }
-    func recordDisplayCaptureRequest() { if !isClosed { hasRequestedDisplayCapture = true } }
+    func recordDisplayCaptureRequest() {
+        guard !isClosed else { return }
+        hasRequestedDisplayCapture = true
+        #if os(macOS)
+        updateInactiveScheduling()
+        #endif
+    }
+    fileprivate func ownsMessage(from view: WKWebView?) -> Bool {
+        !isClosed && view != nil && view === backingWebView
+    }
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard !isClosed, backingWebView === webView else { return }
         isReloadingForgottenSite = false
@@ -1336,10 +1382,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         didStartDownload = true
         onDownload?(download)
+        #if os(macOS)
+        updateInactiveScheduling()
+        #endif
     }
     public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         didStartDownload = true
         onDownload?(download)
+        #if os(macOS)
+        updateInactiveScheduling()
+        #endif
     }
     public func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
                         completionHandler: @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -1355,11 +1407,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     private weak var tab: BrowserTab?
     init(tab: BrowserTab) { self.tab = tab }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let tab, let body = message.body as? [String: Any],
+        guard let tab, tab.ownsMessage(from: message.webView), let body = message.body as? [String: Any],
               body["key"] as? String == tab.audioChannel, let frame = body["frame"] as? String,
               let audible = body["audible"] as? Bool else { return }
         tab.updateMediaFrame(frame, frame: message.frameInfo, hidden: body["hidden"] as? Bool == true)
         tab.recordAudio(frame: frame, audible: audible)
+        guard frame.count <= 80 else { return }
+        tab.recordMediaPresentation(frame: frame, active: body["presenting"] as? Bool == true)
     }
 }
 
@@ -1367,7 +1421,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     private weak var tab: BrowserTab?
     init(tab: BrowserTab) { self.tab = tab }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if message.body as? Bool == true { tab?.recordDisplayCaptureRequest() }
+        if tab?.ownsMessage(from: message.webView) == true, message.body as? Bool == true { tab?.recordDisplayCaptureRequest() }
     }
 }
 #endif
@@ -1376,7 +1430,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     weak var tab: BrowserTab?
     init(tab: BrowserTab) { self.tab = tab }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if message.body as? Bool == true { tab?.recordFieldEdit() }
+        if tab?.ownsMessage(from: message.webView) == true, message.body as? Bool == true { tab?.recordFieldEdit() }
     }
 }
 
@@ -1384,7 +1438,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     weak var tab: BrowserTab?
     init(tab: BrowserTab) { self.tab = tab }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, let id = message.body as? Double else { return }
+        guard tab?.ownsMessage(from: message.webView) == true, message.frameInfo.isMainFrame, let id = message.body as? Double else { return }
         tab?.recordFirstPaint(id)
     }
 }

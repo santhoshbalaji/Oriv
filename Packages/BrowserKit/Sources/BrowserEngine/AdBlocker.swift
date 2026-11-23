@@ -415,6 +415,10 @@ public final class AdBlocker {
         applyPolicy(to: controller, installation: installation)
     }
 
+    func detach(from controller: WKUserContentController) {
+        installations.removeObject(forKey: controller)
+    }
+
     func refreshPrepared(on controller: WKUserContentController) {
         guard let installation = installations.object(forKey: controller) else { return }
         applyPolicy(to: controller, installation: installation)
