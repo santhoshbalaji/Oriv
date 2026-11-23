@@ -970,11 +970,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #if os(macOS)
         configuration?.userContentController.removeScriptMessageHandler(forName: "tabAudio", contentWorld: .page)
         configuration?.userContentController.removeScriptMessageHandler(forName: "displayCaptureRequested", contentWorld: .page)
+        if let controller = configuration?.userContentController { passwordFields.uninstall(from: controller) }
         #endif
         configuration = nil
     }
 
     private func releaseWebView(_ view: WKWebView) {
+        #if os(macOS)
+        passwordFields.reset()
+        #endif
         // Unregister adapters while the outgoing view is still available.
         onWebViewDiscarded?()
         onAuthentication = nil

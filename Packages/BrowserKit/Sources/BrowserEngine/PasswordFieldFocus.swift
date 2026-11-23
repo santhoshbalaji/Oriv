@@ -43,6 +43,15 @@ public final class PasswordFieldFocus: NSObject, WKScriptMessageHandler {
         }
     }
 
+    /// Closed tabs drop their handlers and the retained frame so the
+    /// configuration's controller and the page can release immediately.
+    func uninstall(from controller: WKUserContentController) {
+        for name in ["passwordFieldFocus", "passwordFieldGlyphFocus", "passwordFieldGlyphClick"] {
+            controller.removeScriptMessageHandler(forName: name, contentWorld: Self.world)
+        }
+        reset()
+    }
+
     func reset() {
         kind = nil
         showsGlyph = false
