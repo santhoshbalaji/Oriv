@@ -173,6 +173,11 @@ import XCTest
             controller.compactSidebar = false
             try await waitForSidebar(window, rail: width == 780, overlay: width == 780)
             XCTAssertEqual(controller.sidebar.narrowOverlay, width == 780)
+            let backdropWidth = controller.sidebar.width + 2 * MacBrowserLayout.panelInset
+            try await eventually("window backdrop completes its width transition") {
+                guard let backdrop = self.geometry("sidebarBackdropGeometry", in: window) else { return false }
+                return abs(backdrop.width - backdropWidth) < 0.5
+            }
             let surface = try frame("sidebarSurfaceGeometry", in: window)
             let tab = try XCTUnwrap(controller.session.selectedTabID)
             let rowView = try XCTUnwrap(window.contentView.flatMap {
