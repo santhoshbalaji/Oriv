@@ -2009,6 +2009,11 @@ import WebKit
                 if sidebarV3 {
                     save(data, suffix: "synthetic-composite",
                          note: "Actual browser-window content with a synthetic sidebar glass input. WindowServer effects and native titlebar pixels are outside this capture.")
+                } else if name.hasPrefix("mac-glass-settings-v3-") {
+                    let synthetic = name.contains("-standard-") && !name.contains("-black-")
+                    save(data, suffix: "opaque-fallback", note: synthetic
+                         ? "Off-screen Settings with a fixed synthetic material and desktop. No live compositor pixels."
+                         : "Off-screen Settings with the production opaque backdrop.")
                 } else {
                     save(data, suffix: contrastFixture ? "synthetic-composite" : "opaque-fallback", note: contrastFixture
                      ? "Real sidebar over synthetic sampled glass input and labelled page swatch, with production contrast backing/controls. Header is a layout spacer. Reduced/increased scenes use opaque accessibility material. No live Liquid Glass acceptance."

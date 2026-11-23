@@ -4,7 +4,7 @@ import BrowserCore
 import BrowserEngine
 
 enum MacSettingsLayout {
-    static let windowMaterialOpacity: CGFloat = 0.76
+    static let windowMaterialOpacity: CGFloat = 0.88
     static let formHorizontalInset = OrivSpacing.xl
     static let formVerticalInset = OrivSpacing.large
     static let groupGap = OrivSpacing.larger

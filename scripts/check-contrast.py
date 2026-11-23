@@ -185,11 +185,13 @@ for name, minima in sidebar_levels.items():
     values = " / ".join(f"{minima[token]:.2f}" for token in ("text", "textSecondary", "private"))
     print(f"{name.capitalize()} sidebar (primary / secondary / private): {values}")
 print(f"Sidebar minimum text contrast: {ratio(worst[2], worst[4]):.2f}:1 ({worst[0]}, {worst[1]} on {worst[3]})")
-# Settings owns the foreground and the complete card. AppKit owns the material
-# and toolbar in the empty gutters. Model wallpaper as an arbitrary material
-# output, including the RGB endpoints that bound luminance for alpha blends.
+# Settings owns the foreground and the opaque card. Model the material at its
+# configured opacity over desktop colours. The native toolbar uses system ink.
 settings = (ROOT / "Apps/macOS/Views/AppearanceSettings.swift").read_text()
 settings_group = block("private struct SettingsGroupSurface:", "/// A native pop-up", settings)
+material_opacity = float(re.search(r"windowMaterialOpacity: CGFloat = ([0-9.]+)", settings)[1])
+assert 0 < material_opacity < 1
+assert "WindowBackdropMaterial(material: .underWindowBackground, opacity: MacSettingsLayout.windowMaterialOpacity)" in settings
 assert ".background(theme.surfaceRaised, in: shape)" in settings_group
 assert ".strokeBorder(theme.separator, lineWidth: increased ? 1.5 : 0.5)" in settings_group
 assert "appearance == .t3Code || reduceTransparency || contrast == .increased" in settings
@@ -203,11 +205,16 @@ for appearance, mode, palette, _ in palettes:
         if variant == "increase contrast":
             secondary = (re.search(r"palette.textSecondary = isT3Code \? Self.hex\(0x(\w+)\)", text)[1]
                          if appearance == "Black" else adaptive_constant("highContrastSecondary", mode))
-        inputs = (palette["canvas"],) if solid else ("FFFFFF", "000000", "6000D9", "00D4C8", "FF8C24")
+        desktops = ("FFFFFF", "000000", "6000D9", "00D4C8", "FF8C24")
+        materials = (palette["canvas"],) if solid else (palette["chrome"], *desktops)
+        gutters = set()
         minima = [float("inf"), float("inf")]
-        for backdrop in inputs:
-            card = composite(palette["surfaceRaised"], backdrop, 0.5 if settings_negative else 1.0)
-            label = f"{appearance} Settings / {variant} / material #{backdrop}"
+        for material in materials:
+            for desktop in desktops if not solid else (palette["canvas"],):
+                gutters.add(material if solid else composite(material, desktop, material_opacity))
+        for gutter in sorted(gutters):
+            card = composite(palette["surfaceRaised"], gutter, 0.5 if settings_negative else 1.0)
+            label = f"{appearance} Settings / {variant} / gutter #{gutter}"
             for index, (role, ink, minimum) in enumerate((
                 ("primary", palette["text"], 7.0),
                 ("secondary", secondary, 4.5),
@@ -218,8 +225,9 @@ for appearance, mode, palette, _ in palettes:
                 strong = (re.search(r"separatorStrong: Color \{ isT3Code \? Self.hex\(0x(\w+)\)", text)[1]
                           if appearance == "Black" else adaptive_constant("highContrastSeparator", mode))
                 settings_checks.append((label, "strong boundary", strong, "card", card, 3.0))
-                settings_checks.append((label, "strong boundary", strong, "canvas", backdrop, 3.0))
+                settings_checks.append((label, "strong boundary", strong, "canvas", gutter, 3.0))
         print(f"{appearance} Settings / {variant} (primary / secondary): {minima[0]:.2f} / {minima[1]:.2f}")
+print(f"Settings material opacity: {material_opacity:.0%}")
 checks.extend(settings_checks)
 print("App-owned colors checked. Native system accent and compositor output depend on runtime settings.")
 
