@@ -50,7 +50,7 @@ import XCTest
         for name in ["Work", "Reading"] { try profiles.create(name: name, color: .ocean, symbol: .work) }
         try await eventually("three profile dots") { self.marker("sidebarProfileDot-2", in: window) != nil }
         let dots = try frame("sidebarProfileDotsGeometry", in: window)
-        XCTAssertEqual(dots.height, 20, accuracy: 1)
+        XCTAssertEqual(dots.height, OrivTarget.macMinimum.height, accuracy: 1)
         XCTAssertEqual(dots.minY, try frame("sidebarFooterGeometry", in: window).maxY, accuracy: 1)
         for (name, old) in zip(footer, baseline) {
             let new = try frame(name, in: window)
@@ -58,6 +58,8 @@ import XCTest
             XCTAssertEqual(new.minY, old.minY, accuracy: 1, name)
             XCTAssertEqual(new.width, old.width, accuracy: 1, name)
             XCTAssertEqual(new.height, old.height, accuracy: 1, name)
+            XCTAssertGreaterThanOrEqual(new.width, OrivTarget.macMinimum.width, name)
+            XCTAssertGreaterThanOrEqual(new.height, OrivTarget.macMinimum.height, name)
         }
         XCTAssertLessThan(try frame("sidebarProfileDot-0", in: window).midX, try frame("sidebarProfileDot-2", in: window).midX)
         let rtl = makeWindow(controller, profiles: profiles, rtl: true, largestText: false, key: false)
@@ -353,7 +355,9 @@ import XCTest
             for name in ["browserPrivacyGeometry", "browserPageMenuGeometry"] {
                 XCTAssertTrue(toolbar.contains(try frame(name, in: window)))
             }
-            XCTAssertGreaterThan(try frame("browserAddressGeometry", in: window).width, rail ? 600 : 570)
+            let address = try frame("browserAddressGeometry", in: window)
+            XCTAssertGreaterThan(address.width, rail ? 600 : 570)
+            XCTAssertEqual(address.midX, toolbar.midX, accuracy: 1)
         }
     }
 

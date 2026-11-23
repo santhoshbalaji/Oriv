@@ -15,7 +15,7 @@ struct SidebarSearchPanel: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: OrivSpacing.medium) {
-            Text("Search Tabs").font(OrivType.title)
+            Text(OrivStrings.searchTabs).font(OrivType.title)
             Picker("Search scope", selection: $privateScope) {
                 Text("Regular tabs").tag(false)
                 Text("Private tabs").tag(true)

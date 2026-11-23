@@ -100,7 +100,6 @@
 		856D2A9BA7D98AB4C6704BF9 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8397FA3C0661857919FA445F /* MobileRootView.swift */; };
 		86E46B442F0992094F5CB6D7 /* PrivacyControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD8CF1CCF6E199AC31D49CE /* PrivacyControls.swift */; };
 		8701DFFD06629E8A4530C1A1 /* WebPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB76D8DF92E50B12564B1B4 /* WebPageView.swift */; };
-		87AC1D88FED6F264F6717960 /* Theme+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6088E7F0604E72B069D029 /* Theme+macOS.swift */; };
 		883A32727BE3AA309D860C76 /* BrowserEngineeringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11518C9B56976D35E872267C /* BrowserEngineeringTests.swift */; };
 		8B17AAB4B375BEEB08E7BA92 /* MobileGestureIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8663F5C5D65B7617EA913F /* MobileGestureIntegrationTests.swift */; };
 		8C0E85DD1753E9E36060A3C0 /* ApplePasswordsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61D4D19FF13F770CB8786B9 /* ApplePasswordsTests.swift */; };
@@ -300,7 +299,6 @@
 		980F5D142A5B1310570AB521 /* ContinuityRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ContinuityRelease.entitlements; sourceTree = "<group>"; };
 		995194D366FEFCE103CBBAAE /* MobileTabSwipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTabSwipe.swift; sourceTree = "<group>"; };
 		9B55CCF3D8EAB4AC5F798DBC /* MobileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSettingsView.swift; sourceTree = "<group>"; };
-		9D6088E7F0604E72B069D029 /* Theme+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Theme+macOS.swift"; sourceTree = "<group>"; };
 		9E11DD6CE1B842D99BAD0FDE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A56D7991B2A01DBD63E34369 /* SidebarBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarBehaviorTests.swift; sourceTree = "<group>"; };
 		A61D4D19FF13F770CB8786B9 /* ApplePasswordsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplePasswordsTests.swift; sourceTree = "<group>"; };
@@ -671,7 +669,6 @@
 				FAFA8D2D76B5827E97C95E69 /* SidebarPresentation.swift */,
 				D379387B5CB4C2EDCCA550DD /* SidebarSearchPanel.swift */,
 				12CAAA24DB8987B27A3552F8 /* StartPage.swift */,
-				9D6088E7F0604E72B069D029 /* Theme+macOS.swift */,
 				6FB76D8DF92E50B12564B1B4 /* WebPageView.swift */,
 				F50D66C958A59A4833591FB4 /* Components */,
 			);
@@ -1011,7 +1008,6 @@
 				E4115D012015E2ABE1654D5E /* StartPageSites.swift in Sources */,
 				0BF4C5582692881CF11C61CC /* SyncTimingProbe.swift in Sources */,
 				1A2937BE93A886FAA4343F72 /* TabSwitchCover.swift in Sources */,
-				87AC1D88FED6F264F6717960 /* Theme+macOS.swift in Sources */,
 				4EB191F92276364B53913D00 /* Theme.swift in Sources */,
 				D9A1E69E7EA26FE9C6210D7D /* Tile.swift in Sources */,
 				D65F271BB7765222453667AD /* ToolbarButton.swift in Sources */,

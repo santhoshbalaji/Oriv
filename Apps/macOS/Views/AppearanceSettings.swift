@@ -62,11 +62,11 @@ struct AppearanceSettings: View {
     @ViewBuilder private var panel: some View {
         switch selectedPane {
         case .general: generalPanel
-        case .profiles: if let profiles { ProfilesView(profiles: profiles, canSwitch: false).padding(8) }
+        case .profiles: if let profiles { ProfilesView(profiles: profiles, canSwitch: false).padding(OrivSpacing.small) }
         case .continuity: if let profiles { ContinuitySettingsView(continuity: profiles.continuity) }
         case .appearance: appearancePanel
         case .privacy: privacyPanel
-        case .passwords: ScrollView { PasswordsGuide() }
+        case .passwords: PasswordsGuide()
         case .about: aboutPanel
         }
     }
@@ -123,19 +123,22 @@ struct AppearanceSettings: View {
                             VStack(spacing: OrivSpacing.small) {
                                 AppearancePreview(choice: choice)
                                 Text(choice.displayName).font(OrivType.body.weight(appearance == choice ? .semibold : .regular))
-                                Image(systemName: appearance == choice ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(appearance == choice ? theme.accent : theme.secondaryText)
+                                Image(systemName: "checkmark")
+                                    .font(OrivType.caption.weight(.semibold))
+                                    .foregroundStyle(theme.accent)
+                                    .opacity(appearance == choice ? 1 : 0)
+                                    .accessibilityHidden(true)
                             }.padding(OrivSpacing.small).frame(maxWidth: .infinity)
                                 .modifier(Tile(kind: .appearance(.clear), selected: appearance == choice))
                         }.orivButton(.quiet).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
-                Text(OrivStrings.appearanceSummary)
-                    .font(OrivType.detail).foregroundStyle(theme.secondaryText)
             } header: {
                 Text("Appearance for the \(controller.profile?.name ?? "Private") profile")
                     .browserGeometryMarker("settingsAppearanceHeader")
+            } footer: {
+                Text(OrivStrings.appearanceSummary)
             }
             if let profileColor = controller.sidebarProfileColor(in: profiles) {
                 Section("Sidebar color") {
@@ -205,10 +208,9 @@ struct AppearanceSettings: View {
 
     private var privacyPanel: some View {
         Form {
-            Section("Browsing data") {
-                Button("Manage Website Data…") { websiteData = true }
-                Button("Clear Browsing Data…") { clearBrowsingData = true }
-                Text("Review cookies and offline storage, or clear history and caches by time range.").font(.caption).foregroundStyle(theme.secondaryText)
+            Section {
+                Button("Manage Website Data…") { websiteData = true }.orivButton(.secondary)
+                Button("Clear Browsing Data…") { clearBrowsingData = true }.orivButton(.destructive)
                 if !controller.session.settings.rules.isEmpty {
                     DisclosureGroup("Site permissions (\(controller.session.settings.rules.count))") {
                         ForEach(controller.session.settings.rules.keys.sorted(), id: \.self) { origin in
@@ -216,13 +218,18 @@ struct AppearanceSettings: View {
                         }
                     }
                 }
+            } header: {
+                Text("Browsing data")
+            } footer: {
+                Text("Review cookies and offline storage, or clear history and caches by time range.")
             }
             Section {
                 PrivacySettingsControls(session: controller.session)
-                Picker("Ad blocking", selection: Binding(get: { adBlocker.mode }, set: { adBlocker.setMode($0) })) {
-                    ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
-                }.pickerStyle(.segmented).tint(theme.accent)
-                Text(adBlocker.mode.detail).font(.callout).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: adBlocker.mode.detail) {
+                    Picker("Ad blocking", selection: Binding(get: { adBlocker.mode }, set: { adBlocker.setMode($0) })) {
+                        ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
+                    }.pickerStyle(.segmented).tint(theme.accent)
+                }
                 if adBlocker.mode == .strict {
                     if adBlocker.isPreparingCNAME { ProgressView(OrivStrings.preparingTrackerProtection) }
                     if let error = adBlocker.cnamePreparationError { Text(error).foregroundStyle(theme.danger) }
@@ -245,24 +252,25 @@ struct AppearanceSettings: View {
         }.formStyle(.grouped)
     }
     private var aboutPanel: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            OrivIdentity()
-            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 12) {
-                GridRow { Text(AppIdentity.name).foregroundStyle(theme.secondaryText); Text("\(runtime.appVersion) (\(runtime.appBuild))") }
-                GridRow { Text("Build").foregroundStyle(theme.secondaryText); Text(AppIdentity.channel) }
-                GridRow { Text("macOS").foregroundStyle(theme.secondaryText); Text(runtime.operatingSystem) }
-                GridRow { Text("Protection list version").foregroundStyle(theme.textSecondary); Text(AdBlocker.rulesVersion) }
-                GridRow { Text("WebKit").foregroundStyle(theme.secondaryText); Text(runtime.webKitBuild) }
-            }.font(.callout).textSelection(.enabled)
-            if AppIdentity.isDevelopment {
-                Text("Development build. Its browsing profiles and website data are separate from the installed Oriv release.")
-                    .font(.callout).foregroundStyle(theme.secondaryText)
+        Form {
+            Section {
+                LabeledContent("Version", value: "\(runtime.appVersion) (\(runtime.appBuild))")
+                LabeledContent("Build", value: AppIdentity.channel)
+                LabeledContent("macOS", value: runtime.operatingSystem)
+                LabeledContent("WebKit", value: runtime.webKitBuild)
+                LabeledContent("Protection list version", value: AdBlocker.rulesVersion)
+            } header: {
+                Text(AppIdentity.name)
+            } footer: {
+                Text("Oriv uses the web engine supplied by macOS. Install macOS and Safari updates for WebKit fixes and media support.")
             }
-            Divider()
-            Text("Built with SwiftUI and WebKit. The browser engine is supplied by macOS; install macOS and Safari updates for engine fixes and media support.")
-                .font(.callout).foregroundStyle(theme.secondaryText).lineSpacing(3)
-            Spacer()
-        }.padding(28).frame(maxWidth: .infinity, alignment: .leading)
+            if AppIdentity.isDevelopment {
+                Section("Development build") {
+                    Text("This build keeps its browsing profiles and website data separate from the installed Oriv release.")
+                        .font(OrivType.body).foregroundStyle(theme.textSecondary)
+                }
+            }
+        }.formStyle(.grouped).textSelection(.enabled)
     }
 }
 

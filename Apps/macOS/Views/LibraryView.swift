@@ -18,18 +18,19 @@ struct LibraryView: View {
 
     private var bookmarks: [Bookmark] { controller.savedBookmarks.filter { matches($0.title, $0.url) } }
     private let historyPageSize = 100
-    private var count: Int {
+    private func count(for section: LibrarySection) -> Int? {
         switch section {
         case .bookmarks: controller.savedBookmarks.count
         case .history: controller.session.historyCount
         case .downloads: controller.downloads.items.count
-        case .devices: 0
+        case .devices: nil
         }
     }
-    private var subtitle: String {
+    private var count: Int { count(for: section) ?? 0 }
+
+    private var subtitle: String? {
         switch section {
-        case .bookmarks: count == 0 ? "" : "\(count)"
-        case .history: count == 0 ? "" : "\(count)"
+        case .bookmarks, .history: nil
         case .downloads: "This session"
         case .devices: "Last synced tabs"
         }
@@ -40,12 +41,11 @@ struct LibraryView: View {
             sectionNavigation
             Divider()
             VStack(spacing: 0) {
-                HStack(alignment: .firstTextBaseline) {
-                    OrivSheetHeader(title: section.title)
-                    Text(subtitle).font(OrivType.detail).foregroundStyle(theme.secondaryText)
+                HStack(alignment: .top) {
+                    OrivSheetHeader(title: section.title, subtitle: subtitle)
                     Spacer()
                     Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
-                }.padding(.horizontal, OrivSpacing.xl).padding(.top, 20).padding(.bottom, 14)
+                }.padding(.horizontal, OrivSpacing.xl).padding(.top, OrivSpacing.larger).padding(.bottom, OrivSpacing.large)
 
                 if section != .downloads {
                     OrivSearchField(text: $search, focused: searchFocused, onClear: { searchFocused = true }) {
@@ -58,26 +58,26 @@ struct LibraryView: View {
                 contents.frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 if controller.session.canUndoBookmarkRemoval {
-                    OrivBanner(message: "Bookmark removed") {
+                    OrivBanner(message: "Bookmark removed", dismiss: { controller.session.dismissBookmarkUndo() }) {
                         Button("Undo") { controller.session.undoBookmarkRemoval() }.orivButton(.link)
                     }
                 }
                 HStack {
                     if section == .history && count > 0 {
-                        Text("Private tabs aren’t included").font(.caption).foregroundStyle(theme.secondaryText)
+                        Text("Private tabs aren’t included").font(OrivType.caption).foregroundStyle(theme.secondaryText)
                         Spacer()
                         Button(OrivStrings.clearHistoryPrompt, role: .destructive) { confirmClear = true }.orivButton(.destructive)
                     } else if section == .downloads {
-                        Text("Downloads are kept for this session").font(.caption).foregroundStyle(theme.secondaryText)
+                        Text("Downloads are kept for this session").font(OrivType.caption).foregroundStyle(theme.secondaryText)
                         Spacer()
                         Button("Clear Finished") { controller.downloads.removeFinished() }
                     } else {
                         Text(section == .bookmarks ? "Save a page with ⌘D" : "Private tabs aren’t included")
-                            .font(.caption).foregroundStyle(theme.secondaryText)
+                            .font(OrivType.caption).foregroundStyle(theme.secondaryText)
                         Spacer()
                     }
                 }.padding(.horizontal, OrivSpacing.xl).frame(height: 48)
-            }.background(theme.surface)
+            }.background(theme.canvas)
         }
         .frame(width: 760, height: 540)
         .onChange(of: section) { _, _ in search = ""; historyOffset = 0 }
@@ -95,19 +95,24 @@ struct LibraryView: View {
     }
 
     private var sectionNavigation: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: OrivSpacing.xs) {
             ForEach(LibrarySection.allCases) { item in
                 Button { section = item } label: {
-                    Label(item.title, systemImage: item.symbol)
-                        .font(OrivType.body.weight(section == item ? .semibold : .regular))
-                        .foregroundStyle(section == item ? theme.text : theme.secondaryText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .modifier(ListSelection(selected: section == item))
-                        .contentShape(Rectangle())
+                    HStack(spacing: OrivSpacing.small) {
+                        Label(item.title, systemImage: item.symbol)
+                            .font(section == item ? OrivType.bodyEmphasized : OrivType.body)
+                            .foregroundStyle(section == item ? theme.text : theme.textSecondary)
+                        Spacer(minLength: 0)
+                        if let count = count(for: item), count > 0 {
+                            Badge(text: count.formatted(), kind: .count, padsLabel: false)
+                        }
+                    }
+                    .padding(.horizontal, OrivLayout.rowInset)
+                    .frame(minHeight: OrivLayout.listRowHeight)
+                    .modifier(ListSelection(selected: section == item))
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .orivButton(.quiet)
                 .focusable()
                 .focused($focusedSection, equals: item)
                 .accessibilityAddTraits(section == item ? [.isSelected] : [])
@@ -130,7 +135,7 @@ struct LibraryView: View {
         .padding(.top, OrivSpacing.medium)
         .padding(.horizontal, OrivSpacing.small)
         .frame(width: 174)
-        .background(theme.canvas)
+        .background(theme.surface)
     }
 
     @ViewBuilder private var contents: some View {
@@ -148,7 +153,7 @@ struct LibraryView: View {
                     HStack(spacing: OrivSpacing.medium) {
                         pageRow(bookmark.title, url: bookmark.url, context: context)
                         Button { controller.session.removeBookmark(bookmark.id) } label: {
-                            Image(systemName: "trash").font(OrivType.caption).frame(width: 24, height: 24)
+                            Image(systemName: "trash").font(OrivType.caption).frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
                         }.buttonStyle(.borderless).foregroundStyle(theme.secondaryText)
                             .accessibilityLabel("Remove bookmark for \(bookmark.title)")
                     }
@@ -168,8 +173,8 @@ struct LibraryView: View {
                         HStack(spacing: OrivSpacing.medium) {
                             pageRow(entry.title, url: entry.url, context: context)
                             Text(entry.visitedAt, format: .dateTime.month(.abbreviated).day())
-                                .font(.caption).foregroundStyle(theme.secondaryText).fixedSize()
-                            Button { controller.session.removeHistory(entry.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 24, height: 24) }
+                                .font(OrivType.caption).foregroundStyle(theme.secondaryText).fixedSize()
+                            Button { controller.session.removeHistory(entry.id) } label: { Image(systemName: "xmark").font(OrivIcon.close).frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height) }
                                 .buttonStyle(.borderless).foregroundStyle(theme.secondaryText).accessibilityLabel("Remove \(entry.title) from history")
                         }
                         .contextMenu {
@@ -194,15 +199,15 @@ struct LibraryView: View {
                 List(controller.downloads.items) { item in
                     HStack(spacing: OrivSpacing.medium) {
                         Image(systemName: item.isFailed ? "exclamationmark.triangle" : "doc")
-                            .font(.title2).foregroundStyle(theme.secondaryText).frame(width: 32)
+                            .font(.system(size: OrivIcon.rail)).foregroundStyle(theme.secondaryText).frame(width: 32)
                         VStack(alignment: .leading, spacing: OrivSpacing.xs) {
-                            Text(item.name).font(.callout.weight(.medium)).lineLimit(1)
-                            Text(item.status).font(.caption).foregroundStyle(theme.secondaryText)
+                            Text(item.name).font(OrivType.bodyEmphasized).lineLimit(1)
+                            Text(item.status).font(OrivType.caption).foregroundStyle(theme.secondaryText)
                             if !item.isFinished && item.temporaryURL != nil {
                                 if let fraction = item.fractionCompleted { ProgressView(value: fraction).frame(maxWidth: 260) }
                                 else { ProgressView().controlSize(.small) }
                                 Text(item.totalBytes > 0 ? "\(ByteCountFormatter.string(fromByteCount: item.bytesReceived, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: item.totalBytes, countStyle: .file))" : ByteCountFormatter.string(fromByteCount: item.bytesReceived, countStyle: .file))
-                                    .font(.caption).foregroundStyle(theme.secondaryText)
+                                    .font(OrivType.caption).foregroundStyle(theme.secondaryText)
                             }
                             if item.isPrivate { Badge(text: "Private download", kind: .privateBrowsing) }
                         }
@@ -230,7 +235,7 @@ struct LibraryView: View {
             dismiss()
         } label: {
             PageRowContent(title: title, url: url, context: context)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2).contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, OrivSpacing.xxs).contentShape(Rectangle())
         }.orivButton(.quiet).help(url.absoluteString)
     }
     private func matches(_ title: String, _ url: URL) -> Bool {

@@ -8,6 +8,9 @@ struct SectionHeader: View {
     var kind: Kind = .suggestions
     var count: Int? = nil
     var symbol: String? = nil
+    #if os(macOS)
+    var symbolInk: Color? = nil
+    #endif
     var ink: Color? = nil
     var countInk: Color? = nil
     var showAll: (() -> Void)? = nil
@@ -15,7 +18,7 @@ struct SectionHeader: View {
     var body: some View {
         HStack(spacing: OrivSpacing.small) {
             if let symbol {
-                Image(systemName: symbol).foregroundStyle(ink ?? theme.textSecondary).accessibilityHidden(true)
+                Image(systemName: symbol).foregroundStyle(iconColor).accessibilityHidden(true)
             }
             Text(title).font(font).foregroundStyle(ink ?? theme.textSecondary)
                 .accessibilityAddTraits(.isHeader)
@@ -36,9 +39,22 @@ struct SectionHeader: View {
         }
     }
 
+    private var iconColor: Color {
+        #if os(macOS)
+        symbolInk ?? ink ?? theme.textSecondary
+        #else
+        ink ?? theme.textSecondary
+        #endif
+    }
+
     private var font: Font {
         switch kind {
-        case .sidebar: OrivType.title // The Mac screen pass owns the sidebar hierarchy.
+        case .sidebar:
+            #if os(macOS)
+            OrivType.sectionLabel
+            #else
+            OrivType.title
+            #endif
         case .content: OrivType.headline
         case .suggestions: OrivType.sectionLabel
         }
