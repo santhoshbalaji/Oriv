@@ -16,6 +16,7 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
     var pointerInside = false
     var panelInside = false { didSet { releaseIfNeeded() } }
     var focusInside = false { didSet { releaseIfNeeded() } }
+    var showsUtilityKeyboardFocus = false
     var menuOpen = false { didSet { releaseIfNeeded() } }
     var searchOpen = false { didSet { releaseIfNeeded() } }
     var dragging = false { didSet { releaseIfNeeded() } }
@@ -178,6 +179,20 @@ struct SidebarWindowEvents: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp]) { [weak self] event in
                 guard let self, event.window === self.window, let controller = self.controller else { return event }
                 self.tabList?.collection?.updateFocusInput(for: event)
+                switch event.type {
+                case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+                    if controller.sidebar.showsUtilityKeyboardFocus {
+                        controller.sidebar.showsUtilityKeyboardFocus = false
+                    }
+                case .keyDown:
+                    let navigationKey = [48, 123, 124, 125, 126].contains(event.keyCode)
+                    if navigationKey && event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                       !controller.sidebar.showsUtilityKeyboardFocus {
+                        controller.sidebar.showsUtilityKeyboardFocus = true
+                    }
+                default:
+                    break
+                }
                 let tooltipVisible = controller.sidebarTooltip.tabID != nil
                 controller.sidebarTooltip.dismiss()
                 if event.type == .keyDown, event.keyCode == 53, tooltipVisible,
@@ -249,7 +264,7 @@ struct SidebarLabelFade: ViewModifier {
     @State private var visible = false
     func body(content: Content) -> some View {
         content.opacity(visible || reduceMotion ? 1 : 0)
-            .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) { visible = true } }
+            .onAppear { withAnimation(reduceMotion ? nil : OrivMotion.quick) { visible = true } }
     }
 }
 

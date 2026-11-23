@@ -315,6 +315,8 @@ struct BrowserSidebar: View {
                 }
             }.orivButton(.quiet).foregroundStyle(theme.sidebarSecondaryText(contrast))
                 .focused($utilityFocus, equals: section.rawValue)
+                .focusEffectDisabled()
+                .overlay { footerFocusIndicator(section.rawValue) }
                 .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.title)
                 .help(section.title).browserGeometryMarker("sidebarFooter-\(section.rawValue)")
         }
@@ -329,7 +331,18 @@ struct BrowserSidebar: View {
         }
             .orivButton(.quiet).foregroundStyle(theme.sidebarSecondaryText(contrast)).accessibilityLabel("Settings").help("Settings (⌘,)")
             .focused($utilityFocus, equals: "settings")
+            .focusEffectDisabled()
+            .overlay { footerFocusIndicator("settings") }
             .browserGeometryMarker("sidebarFooter-Settings")
+    }
+
+    @ViewBuilder private func footerFocusIndicator(_ id: String) -> some View {
+        if utilityFocus == id && controller.sidebar.showsUtilityKeyboardFocus {
+            RoundedRectangle(cornerRadius: OrivRadius.tile)
+                .strokeBorder(theme.accent, lineWidth: 2)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 }
 

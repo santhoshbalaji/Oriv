@@ -73,9 +73,6 @@
   "Apps/macOS/Views/ProfileViews.swift": {
     "font size": 1
   },
-  "Apps/macOS/Views/SidebarPresentation.swift": {
-    "motion": 1
-  },
   "Apps/macOS/Views/SidebarSearchPanel.swift": {
     "padding": 1,
     "spacing": 2
