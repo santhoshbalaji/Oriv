@@ -284,13 +284,26 @@ import WebKit
             await capture("\(prefix)-password-help-popover", directory, CGSize(width: 340, height: 620), key: false, settle: 350, appearance: appearance, fitHeight: true) {
                 PasswordsGuide(compact: true)
             }
-            for section in [LibrarySection.bookmarks, .history, .downloads] {
+            for section in LibrarySection.allCases {
                 await capture("\(prefix)-library-\(section.id.lowercased())", directory, CGSize(width: 760, height: 540),
                               key: false, settle: 350, appearance: appearance) {
                     LibraryView(controller: controller, profiles: profiles, section: section)
                 }
             }
+            let page = PageCapture(url: URL(string: "https://example.test/reading")!, title: "Example reading view",
+                                   text: "This is a local reading fixture. Reader presents text from the current page and keeps it available while this sheet is open.",
+                                   kind: .readable, explanation: "Extracted the readable text from this page.")
+            await capture("\(prefix)-reader", directory, CGSize(width: 760, height: 650), key: false, appearance: appearance) {
+                ReaderTextView(capture: page)
+            }
+            await capture("\(prefix)-load-error", directory, CGSize(width: 760, height: 540), key: false, appearance: appearance) {
+                PageErrorState(message: "Could not connect to the server.", host: page.url.host, retry: {})
+            }
             let browserSize = CGSize(width: 1120, height: 700)
+            await capture("\(prefix)-start-page", directory, browserSize, key: false, settle: 350, appearance: appearance) {
+                BrowserWindow(controller: controller, profiles: profiles)
+                    .environment(\.chromeReduceTransparencyOverride, true)
+            }
             await capture("\(prefix)-find-bar-and-browser-actions-trigger", directory, browserSize,
                           key: false, settle: 350, appearance: appearance, prepare: { window in
                 controller.findRequest += 1

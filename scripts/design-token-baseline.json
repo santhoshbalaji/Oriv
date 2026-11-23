@@ -48,36 +48,19 @@
   "Apps/macOS/Views/AddressField.swift": {
     "raw color": 3
   },
-  "Apps/macOS/Views/AppearanceSettings.swift": {
-    "font style": 5,
-    "padding": 2,
-    "spacing": 1
-  },
-  "Apps/macOS/Views/BrowserPrivacyViews.swift": {
-    "padding": 1,
-    "spacing": 1
-  },
   "Apps/macOS/Views/BrowserSidebar.swift": {
-    "font size": 7,
-    "font style": 1,
-    "padding": 6,
-    "spacing": 11
+    "font size": 3,
+    "padding": 2,
+    "spacing": 3
   },
   "Apps/macOS/Views/BrowserWindow.swift": {
-    "font size": 1,
-    "font style": 1,
-    "motion": 2,
-    "padding": 7,
-    "radius": 1,
+    "motion": 1,
+    "padding": 1,
     "raw color": 6,
-    "shadow": 1,
-    "spacing": 6
+    "spacing": 3
   },
   "Apps/macOS/Views/LibraryView.swift": {
-    "font size": 1,
-    "font style": 8,
-    "padding": 5,
-    "spacing": 3
+    "spacing": 2
   },
   "Apps/macOS/Views/NativeSidebarTabs.swift": {
     "raw color": 1
@@ -88,16 +71,7 @@
     "spacing": 7
   },
   "Apps/macOS/Views/ProfileViews.swift": {
-    "font size": 3,
-    "font style": 8,
-    "padding": 3,
-    "radius": 1,
-    "spacing": 7
-  },
-  "Apps/macOS/Views/ReaderTextView.swift": {
-    "font style": 2,
-    "padding": 1,
-    "spacing": 1
+    "font size": 1
   },
   "Apps/macOS/Views/SidebarPresentation.swift": {
     "motion": 1
@@ -105,16 +79,6 @@
   "Apps/macOS/Views/SidebarSearchPanel.swift": {
     "padding": 1,
     "spacing": 2
-  },
-  "Apps/macOS/Views/StartPage.swift": {
-    "padding": 2,
-    "spacing": 1
-  },
-  "Apps/macOS/Views/Theme+macOS.swift": {
-    "font size": 1,
-    "font style": 3,
-    "padding": 1,
-    "spacing": 4
   },
   "Apps/macOS/Views/WebPageView.swift": {
     "raw color": 3
