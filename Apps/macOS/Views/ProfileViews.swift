@@ -111,8 +111,8 @@ struct ProfilesView: View {
         HStack(spacing: OrivSpacing.medium) {
             if inSettings {
                 profileList.settingsGroupSurface()
-                    .padding(.leading, OrivSpacing.xl)
-                    .padding(.vertical, OrivSpacing.medium)
+                    .padding(.leading, MacSettingsLayout.formHorizontalInset)
+                    .padding(.vertical, MacSettingsLayout.formVerticalInset)
             } else {
                 profileList.padding(.vertical, OrivSpacing.medium)
                 Divider()

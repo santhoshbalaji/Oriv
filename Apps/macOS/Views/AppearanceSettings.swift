@@ -3,6 +3,17 @@ import SwiftUI
 import BrowserCore
 import BrowserEngine
 
+enum MacSettingsLayout {
+    static let windowMaterialOpacity: CGFloat = 0.76
+    static let formHorizontalInset = OrivSpacing.xl
+    static let formVerticalInset = OrivSpacing.large
+    static let groupGap = OrivSpacing.larger
+    static let groupHorizontalInset = OrivSpacing.large
+    static let groupVerticalInset = OrivSpacing.medium
+    static let rowGap = OrivSpacing.xs
+    static let headingGap = OrivSpacing.small
+}
+
 enum SettingsPane: String, CaseIterable, Hashable {
     case general, profiles, continuity, appearance, privacy, passwords, about
 
@@ -94,7 +105,8 @@ struct AppearanceSettings: View {
                 } else if BackgroundUIMode.isEnabled {
                     theme.chrome.ignoresSafeArea()
                 } else {
-                    SettingsWindowMaterial().ignoresSafeArea()
+                    WindowBackdropMaterial(material: .underWindowBackground, opacity: MacSettingsLayout.windowMaterialOpacity)
+                        .ignoresSafeArea()
                 }
             }
             .background {
@@ -366,9 +378,9 @@ struct SettingsForm<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: OrivSpacing.medium, content: content)
-                .padding(.horizontal, OrivSpacing.xl)
-                .padding(.vertical, OrivSpacing.medium)
+            VStack(alignment: .leading, spacing: MacSettingsLayout.groupGap, content: content)
+                .padding(.horizontal, MacSettingsLayout.formHorizontalInset)
+                .padding(.vertical, MacSettingsLayout.formVerticalInset)
         }
         .scrollEdgeEffectStyle(.soft, for: .top)
         .font(OrivType.body)
@@ -417,16 +429,18 @@ struct SettingsGroup<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: OrivSpacing.small) {
+        VStack(alignment: .leading, spacing: MacSettingsLayout.headingGap) {
             HStack(alignment: .firstTextBaseline) {
                 if let marker { heading.browserGeometryMarker(marker) }
                 else { heading }
                 Spacer(minLength: OrivSpacing.small)
                 if let scope {
                     Text(scope).font(OrivType.caption).foregroundStyle(theme.textSecondary)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
                 }
             }
-            content()
+            VStack(alignment: .leading, spacing: MacSettingsLayout.rowGap, content: content)
             if let detail {
                 Text(detail).font(OrivType.caption).foregroundStyle(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -438,7 +452,7 @@ struct SettingsGroup<Content: View>: View {
     }
 
     private var heading: some View {
-        Text(title).font(OrivType.headline).accessibilityAddTraits(.isHeader)
+        Text(title).font(OrivType.headline).layoutPriority(1).accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -454,22 +468,11 @@ private struct SettingsGroupSurface: ViewModifier {
     func body(content: Content) -> some View {
         let increased = (captureContrast ?? systemContrast) == .increased
         let shape = RoundedRectangle(cornerRadius: OrivRadius.panel)
-        content.padding(OrivSpacing.medium)
+        content.padding(.horizontal, MacSettingsLayout.groupHorizontalInset)
+            .padding(.vertical, MacSettingsLayout.groupVerticalInset)
             .background(theme.surfaceRaised, in: shape)
             .overlay { shape.strokeBorder(theme.separator, lineWidth: increased ? 1.5 : 0.5) }
     }
-}
-
-private struct SettingsWindowMaterial: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .underWindowBackground
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 /// A native pop-up exposes both its label and AppKit's standard AX press action.

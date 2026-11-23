@@ -222,9 +222,8 @@ profiles.
 ## Mac Settings
 
 Settings keeps the native seven-item preference toolbar. In System, Light and
-Dark, AppKit supplies the behind-window material and the top of each scrolling
-pane uses a soft scroll edge under the toolbar. Standard material is visible
-only in the gutters. Each group contains its heading, controls, scope and
+Dark, AppKit supplies behind-window material at 76% opacity in the gutters.
+Each scrolling pane uses a soft scroll edge under the toolbar. Each group contains its heading, controls, scope and
 supporting text on opaque `surfaceRaised`, with a half-point inset hairline.
 The backdrop follows window activity and is independent of website colors
 and sidebar tints. System follows the Mac appearance, while explicit appearance
@@ -240,7 +239,17 @@ changes. An open browsing-data sheet retains the session it was opened for.
 Use **This profile** with the profile name for profile-scoped controls and
 **All profiles on this Mac** for Mac-wide browser defaults. Show **Synced**
 on profile preference groups in the continuity allowlist while sync is enabled.
-Copy for local data and for deletion explains their scope separately.
+Copy for local data and for deletion explains their scope separately. Scope
+labels use 11 pt secondary ink and align to the trailing edge. Section headings
+use 13 pt semibold.
+
+| Mac Settings token | Points |
+| --- | ---: |
+| Form horizontal and vertical inset | 24 and 16 |
+| Gap between groups | 20 |
+| Group horizontal and vertical padding | 16 and 12 |
+| Gap between heading, controls and detail | 8 |
+| Gap between controls | 4 |
 
 ## Copy and verification
 
