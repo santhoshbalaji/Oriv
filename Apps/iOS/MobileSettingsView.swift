@@ -94,7 +94,7 @@ struct MobileAppearanceSettings: View {
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
-                Text("System follows your device appearance. T3 Code uses black surfaces. Websites keep their own colors.").font(.callout).foregroundStyle(theme.secondaryText)
+                Text(OrivStrings.appearanceSummary).font(.callout).foregroundStyle(theme.secondaryText)
             }.padding(20)
         }.background(theme.canvas).navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline)
     }

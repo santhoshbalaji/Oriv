@@ -126,7 +126,7 @@ struct AppearanceSettings: View {
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
-                Text("System follows your Mac. T3 Code uses black surfaces. Websites keep their own colors.")
+                Text(OrivStrings.appearanceSummary)
                     .font(OrivType.detail).foregroundStyle(theme.secondaryText)
             } header: {
                 Text("Appearance for the \(controller.profile?.name ?? "Private") profile")

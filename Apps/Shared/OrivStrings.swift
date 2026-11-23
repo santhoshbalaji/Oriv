@@ -14,6 +14,7 @@ enum OrivStrings {
     static let setupSyncInSettings = "Set Up Sync in Settings"
     static let otherDevices = "Other devices"
     static let black = "Black"
+    static let appearanceSummary = "System follows your device appearance. Black uses a black canvas. Websites keep their own colors."
     static let profileColor = "Profile color"
     static let openLinksPrivately = "Open links from other apps privately"
     static let websiteData = "Website data"

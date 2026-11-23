@@ -22,7 +22,7 @@ RULES = {
                  r"|\.foregroundStyle\(\.(?:secondary|tertiary|primary|quaternary|red|green|orange|yellow|blue|purple|white|black|tint)\b",
     "shadow": r"\.shadow\(",
     "motion": r"\.(?:easeInOut|easeOut|easeIn|linear|spring|snappy|smooth|bouncy|interactiveSpring)\(",
-    "retired copy": r'"(?:[^"\\]*\b(?:colour|colours|acknowledgements|Mac & iPhone|Other Devices|Browser sync|Sync with iCloud|iCloud continuity|'
+    "retired copy": r'"(?:[^"\\]*\b(?:colour|colours|acknowledgements|Mac & iPhone|Other Devices|T3 Code|Browser sync|Sync with iCloud|iCloud continuity|'
                     r'Search or enter website|Search or address|Page could not load|developer account)\b|Lists:)',
 }
 RULES = {name: re.compile(pattern) for name, pattern in RULES.items()}
