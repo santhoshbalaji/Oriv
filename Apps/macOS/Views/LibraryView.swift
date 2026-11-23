@@ -40,7 +40,7 @@ struct LibraryView: View {
             Divider()
             VStack(spacing: 0) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(section.title).font(OrivType.title).accessibilityAddTraits(.isHeader)
+                    OrivSheetHeader(title: section.title)
                     Text(subtitle).font(OrivType.detail).foregroundStyle(theme.secondaryText)
                     Spacer()
                     Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)

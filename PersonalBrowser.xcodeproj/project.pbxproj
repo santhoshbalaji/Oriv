@@ -118,6 +118,7 @@
 		AC8BF2F30504BEB3A55BDC44 /* Eventually.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33574558F88C2351D8CE0A3A /* Eventually.swift */; };
 		AE071FB1F9C886A322C9BD45 /* SettingsToolbarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54EC913433B46977A52ACF48 /* SettingsToolbarTests.swift */; };
 		AF13F7A746597DAD204E0211 /* PrivacyIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC7A7BD6C8E078FD4DE7F5E5 /* PrivacyIntegrationTests.swift */; };
+		B0CBB8E5E5703E031A1B2AF1 /* OrivSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2353AAC9F2B90338EA9B9F58 /* OrivSheet.swift */; };
 		B3098FFB19E9637DF1CB511A /* BrowserEmptyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D9EDC99D580A3F7CA455F0 /* BrowserEmptyState.swift */; };
 		B44264910455A64371EA1A57 /* BackgroundUIMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7B7577E600003F62813F89 /* BackgroundUIMode.swift */; };
 		B67C9174151DD01C0ACAEF6D /* MobileTabActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D28834443837551BCE2149 /* MobileTabActions.swift */; };
@@ -126,6 +127,7 @@
 		B884E5734BF57485E0133304 /* TabSwitchRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B9E1ED7B2024600A67919F1 /* TabSwitchRenderingTests.swift */; };
 		B89BB986D36795A17079B74A /* SiteIconAndSuggestionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57455593DDC0D73552125AB2 /* SiteIconAndSuggestionTests.swift */; };
 		B8B298A837E3C433E865C676 /* MobileWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C78856EC2DB2D0C977AA88 /* MobileWebView.swift */; };
+		BA212683BC6BB68A5DA35623 /* OrivSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2353AAC9F2B90338EA9B9F58 /* OrivSheet.swift */; };
 		BBE064347687A04BF6A49CEC /* GridSwipeCloseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377823E87EDA7E4C62893718 /* GridSwipeCloseTests.swift */; };
 		BDDCB00F0FFC7AC1F9781F9D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9E11DD6CE1B842D99BAD0FDE /* Assets.xcassets */; };
 		BEE1F4F33087B56DAD736006 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 510FEC9B1B9E6E53BD6B1D0D /* LibraryView.swift */; };
@@ -217,6 +219,7 @@
 		1D670FDB7EB9A853088E58D3 /* TabSwitchGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabSwitchGeometryTests.swift; sourceTree = "<group>"; };
 		1E0EC8456692C8BC6A674709 /* ExternalPrivateWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPrivateWindowPresenter.swift; sourceTree = "<group>"; };
 		21A8868EF770C5958E66724C /* SyncTimingProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTimingProbe.swift; sourceTree = "<group>"; };
+		2353AAC9F2B90338EA9B9F58 /* OrivSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrivSheet.swift; sourceTree = "<group>"; };
 		23D22D3C8E0E2E8C0A91E90B /* ContinuityIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuityIntegrationTests.swift; sourceTree = "<group>"; };
 		243D91BF404183996A8BF8A0 /* AccessibilityAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAuditTests.swift; sourceTree = "<group>"; };
 		27B442D594891DC82B3D250D /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
@@ -604,6 +607,7 @@
 			children = (
 				4D1D6921E208F8739CFD3669 /* ListSelection.swift */,
 				964480D72B2F65884062A245 /* OrivButtonStyles.swift */,
+				2353AAC9F2B90338EA9B9F58 /* OrivSheet.swift */,
 				5DE378E0D33F3FF1E1368B7E /* SettingRow.swift */,
 			);
 			path = Components;
@@ -936,6 +940,7 @@
 				69C564E3660C6E14953AFA24 /* MacWebUIDelegate.swift in Sources */,
 				FA5346ECB8A28BCC21C28CC0 /* NativeSidebarTabs.swift in Sources */,
 				E7617729048671BC722C04E3 /* OrivButtonStyles.swift in Sources */,
+				B0CBB8E5E5703E031A1B2AF1 /* OrivSheet.swift in Sources */,
 				75B5E2E14E24151D4FEB71A7 /* OrivStrings.swift in Sources */,
 				B6DFC29B8EB588CB7116B6E0 /* PageErrorState.swift in Sources */,
 				25B070B35FD099FDD67B2CE6 /* PageRowContent.swift in Sources */,
@@ -1002,6 +1007,7 @@
 				B8B298A837E3C433E865C676 /* MobileWebView.swift in Sources */,
 				D2D4AE334DE0B1ED75BA157D /* OrivButtonStyles.swift in Sources */,
 				07E201A47EA21356D3102ABA /* OrivMobileApp.swift in Sources */,
+				BA212683BC6BB68A5DA35623 /* OrivSheet.swift in Sources */,
 				A5D7D6F875D41BCBD21FBC6E /* OrivStrings.swift in Sources */,
 				6110AB4C540BBF4C7403003E /* PageErrorState.swift in Sources */,
 				EB75BE5BA43385BE46BD7F40 /* PageRowContent.swift in Sources */,

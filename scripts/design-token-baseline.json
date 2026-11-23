@@ -8,20 +8,16 @@
     "retired copy": 3
   },
   "Apps/Shared/ContinuityViews.swift": {
-    "font style": 4,
-    "padding": 1,
-    "spacing": 1
+    "font style": 3
   },
   "Apps/Shared/PageRowContent.swift": {
     "font style": 1,
     "spacing": 1
   },
   "Apps/Shared/PrivacyControls.swift": {
-    "font style": 6,
-    "padding": 1,
+    "font style": 4,
     "raw color": 1,
-    "retired copy": 1,
-    "spacing": 1
+    "retired copy": 1
   },
   "Apps/Shared/StartPageSites.swift": {
     "padding": 1
@@ -71,9 +67,9 @@
     "spacing": 1
   },
   "Apps/macOS/Views/BrowserPrivacyViews.swift": {
-    "font style": 9,
-    "padding": 4,
-    "spacing": 4
+    "font style": 8,
+    "padding": 2,
+    "spacing": 2
   },
   "Apps/macOS/Views/BrowserSidebar.swift": {
     "font size": 9,
@@ -83,13 +79,13 @@
   },
   "Apps/macOS/Views/BrowserWindow.swift": {
     "font size": 1,
-    "font style": 4,
+    "font style": 3,
     "motion": 2,
-    "padding": 12,
+    "padding": 11,
     "radius": 1,
     "raw color": 6,
     "shadow": 2,
-    "spacing": 10
+    "spacing": 9
   },
   "Apps/macOS/Views/LibraryView.swift": {
     "font size": 1,
@@ -113,14 +109,14 @@
   "Apps/macOS/Views/ProfileViews.swift": {
     "font size": 3,
     "font style": 10,
-    "padding": 5,
+    "padding": 4,
     "radius": 2,
-    "spacing": 10
+    "spacing": 9
   },
   "Apps/macOS/Views/ReaderTextView.swift": {
     "font style": 2,
-    "padding": 2,
-    "spacing": 2
+    "padding": 1,
+    "spacing": 1
   },
   "Apps/macOS/Views/SidebarPresentation.swift": {
     "font size": 1,

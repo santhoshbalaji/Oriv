@@ -210,9 +210,10 @@ struct ProfilesSheet: View {
     let profiles: BrowserProfiles
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack { Text("Your browsing profiles").font(OrivType.title); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
+        OrivSheet(title: "Your browsing profiles", size: .large, height: 560) {
             ProfilesView(profiles: profiles)
-        }.padding(24).frame(width: 700, height: 560)
+        } actions: {
+            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+        }
     }
 }

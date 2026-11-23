@@ -739,12 +739,7 @@ struct MacTabOverview: View {
     let dismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Tabs").font(.title2)
-                Spacer()
-                Button("Done", action: dismiss).keyboardShortcut(.cancelAction)
-            }
+        OrivSheet(title: "Tabs", size: .large, height: 500) {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))]) {
                     ForEach(session.orderedTabs) { tab in
@@ -761,7 +756,9 @@ struct MacTabOverview: View {
                     }
                 }
             }
-        }.padding(24).frame(width: 760, height: 500)
+        } actions: {
+            Button("Done", action: dismiss).keyboardShortcut(.cancelAction)
+        }
     }
 }
 

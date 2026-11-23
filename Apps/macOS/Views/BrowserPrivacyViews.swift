@@ -54,9 +54,9 @@ struct WebsiteDataView: View {
     @Environment(\.dismiss) private var dismiss
     private var records: [WKWebsiteDataRecord] { manager.records.filter { query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query) } }
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack { Text(OrivStrings.websiteData).font(OrivType.title); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
-            Text("Cookies, caches and offline storage from regular browsing. Removing data may sign you out and delete a site's offline work. Bookmarks are kept separately.").font(.callout).foregroundStyle(theme.secondaryText)
+        OrivSheet(title: OrivStrings.websiteData,
+                  subtitle: "Removing cookies and offline storage may sign you out or delete a site's offline work.",
+                  height: 520) {
             TextField("Search websites", text: $query).textFieldStyle(.roundedBorder)
             List(records, id: \.displayName) { record in
                 HStack {
@@ -75,7 +75,9 @@ struct WebsiteDataView: View {
                 Button("Refresh") { Task { await manager.refresh() } }
                 Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivButton(.destructive).disabled(manager.records.isEmpty)
             }
-        }.padding(24).frame(width: 600, height: 520)
+        } actions: {
+            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+        }
             .disabled(manager.isWorking)
             .task { await manager.refresh() }
             .confirmationDialog("Remove website data?", isPresented: $confirm) {
@@ -96,8 +98,7 @@ struct ClearBrowsingDataView: View {
     @State private var working = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Clear browsing data").font(OrivType.title)
+        OrivSheet(title: "Clear browsing data", busy: working) {
             Picker("Time range", selection: $hours) {
                 Text("Last hour").tag(1); Text("Last 24 hours").tag(24); Text("Last 7 days").tag(168); Text("All time").tag(0)
             }
@@ -107,8 +108,13 @@ struct ClearBrowsingDataView: View {
             Toggle("All saved site permissions", isOn: $clearPermissions).tint(theme.accent)
             Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Open tabs, bookmarks and downloaded files remain.")
                 .font(.callout).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
-            HStack { Spacer(); if working { ProgressView().controlSize(.small) }; Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).keyboardShortcut(.defaultAction); Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivButton(.destructive).disabled(!clearHistory && !clearCache && !clearSites && !clearPermissions) }
-        }.padding(28).frame(width: 520).disabled(working)
+        } actions: {
+            OrivSheetCancel(isDefault: true) { dismiss() }
+            Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }
+                .orivButton(.destructive)
+                .disabled(!clearHistory && !clearCache && !clearSites && !clearPermissions)
+        }
+        .disabled(working)
             .confirmationDialog("Clear selected browsing data?", isPresented: $confirm) {
                 Button("Clear Data", role: .destructive) {
                     working = true

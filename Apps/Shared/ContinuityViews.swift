@@ -202,22 +202,14 @@ struct DeleteProfileConfirmation: View {
     let confirm: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Delete \(profile.name)?").font(.title2.bold())
+        OrivSheet(title: "Delete \(profile.name)?", size: .small) {
             Text("This permanently deletes this profile’s tabs, history, bookmarks, website data, and synced records. Deletion reaches other devices when they sync. This can’t be undone.")
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.bordered)
-                Button(OrivStrings.deleteProfile, role: .destructive) { dismiss(); confirm() }
-                    .orivButton(.destructive)
-            }
+                .font(OrivType.body).fixedSize(horizontal: false, vertical: true)
+        } actions: {
+            OrivSheetCancel(isDefault: true) { dismiss() }
+            Button(OrivStrings.deleteProfile, role: .destructive) { dismiss(); confirm() }
+                .orivButton(.destructive)
         }
-        .padding(24)
-        .frame(idealWidth: 380, maxWidth: 420)
         #if os(iOS)
         .presentationDetents([.medium, .large])
         #endif

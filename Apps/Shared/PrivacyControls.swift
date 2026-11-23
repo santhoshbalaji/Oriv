@@ -140,10 +140,27 @@ private extension View {
 struct PrivacyAcknowledgements: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack { Text("Privacy Acknowledgments").font(.headline); Spacer(); Button("Done") { dismiss() } }
-            ScrollView { Text(BundledPrivacyRules.acknowledgements).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-        }.padding(20).frame(minWidth: 280, idealWidth: 600, minHeight: 350, idealHeight: 600)
+        #if os(macOS)
+        OrivSheet(title: "Privacy Acknowledgments", height: 600) {
+            acknowledgmentText
+        } actions: {
+            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+        }
+        #else
+        NavigationStack {
+            acknowledgmentText.padding(OrivSpacing.large)
+                .navigationTitle("Privacy Acknowledgments")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        #endif
+    }
+
+    private var acknowledgmentText: some View {
+        ScrollView {
+            Text(BundledPrivacyRules.acknowledgements).font(OrivType.body).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
