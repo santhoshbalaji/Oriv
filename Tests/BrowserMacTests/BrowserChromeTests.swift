@@ -289,47 +289,36 @@ import XCTest
         XCTAssertEqual(chrome.sampleCount, 0)
     }
 
-    func testTitlebarColorPreservesChromeTransparencyAndRemainsWindowLocal() {
+    func testWindowBackdropUsesGlassInWindowedLayoutAndFallsBackForFullscreen() {
         let window = BackgroundUIMode.Window(), other = BackgroundUIMode.Window()
         window.isReleasedWhenClosed = false
         other.isReleasedWhenClosed = false
         defer { window.close(); other.close() }
         let otherColor = other.backgroundColor
-        let bridge = BrowserTitlebar.TitlebarView()
-        bridge.color = .white
-        bridge.reduceMotion = true
+        let bridge = BrowserWindowChrome.WindowChromeView()
+        bridge.backdrop = .darkGray
+        bridge.usesWindowMaterial = true
         window.contentView!.addSubview(bridge)
-        for transparent in [true, false] {
-            window.titlebarAppearsTransparent = transparent
-            bridge.configure()
-            XCTAssertEqual(window.titlebarAppearsTransparent, transparent)
-        }
-        XCTAssertEqual(window.titlebarSeparatorStyle, .none)
-        XCTAssertEqual(window.backgroundColor, .white)
-        XCTAssertEqual(other.backgroundColor, otherColor)
-    }
+        bridge.configure()
 
-    func testTitlebarColourAnimationAndReduceMotionCancellation() async throws {
-        let window = BackgroundUIMode.Window()
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let bridge = BrowserTitlebar.TitlebarView()
-        bridge.color = .white
-        bridge.reduceMotion = true
-        window.contentView!.addSubview(bridge)
+        XCTAssertTrue(window.titlebarAppearsTransparent)
+        XCTAssertFalse(window.isOpaque)
+        XCTAssertEqual(window.backgroundColor, .clear)
+        XCTAssertEqual(window.titlebarSeparatorStyle, .none)
+
+        bridge.simulatesFullscreenLayout = true
         bridge.configure()
-        bridge.color = .black
-        bridge.reduceMotion = false
+        XCTAssertFalse(window.titlebarAppearsTransparent)
+        XCTAssertTrue(window.isOpaque)
+        XCTAssertEqual(window.backgroundColor, .darkGray)
+
+        bridge.simulatesFullscreenLayout = false
+        bridge.usesWindowMaterial = false
         bridge.configure()
-        try await Task.sleep(for: .milliseconds(70))
-        let middle = try XCTUnwrap(window.backgroundColor.usingColorSpace(.sRGB)).redComponent
-        XCTAssertGreaterThan(middle, 0)
-        XCTAssertLessThan(middle, 1)
-        bridge.reduceMotion = true
-        bridge.configure()
-        XCTAssertEqual(window.backgroundColor, .black)
-        try await Task.sleep(for: .milliseconds(200))
-        XCTAssertEqual(window.backgroundColor, .black, "Reduce Motion cancels an in-flight colour animation")
+        XCTAssertTrue(window.titlebarAppearsTransparent)
+        XCTAssertTrue(window.isOpaque)
+        XCTAssertEqual(window.backgroundColor, .darkGray)
+        XCTAssertEqual(other.backgroundColor, otherColor)
     }
 
     func testWebKitExtendsUnderToolbarWithMeasuredInsets() {

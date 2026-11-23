@@ -74,16 +74,13 @@ struct ProfileHeaderArtwork: View {
         HStack(spacing: OrivSpacing.small) {
             Image(systemName: profile?.symbol.rawValue ?? "eyeglasses").font(OrivIcon.toolbarFont)
                 .foregroundStyle(profile?.color.sidebarInk(dark: scheme == .dark) ?? theme.sidebarPrivateAccent)
-                .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
-                .background(theme.surface, in: .rect(cornerRadius: OrivRadius.badge))
+                .frame(width: OrivLayout.sidebarProfileIconSize, height: OrivLayout.sidebarProfileIconSize)
                 .accessibilityHidden(true)
             if !iconOnly {
                 Text(profile?.name ?? "Private").font(OrivType.headline).lineLimit(1)
                     .browserGeometryMarker("sidebarProfileNameGeometry", when: marksGeometry)
-                Text(tabCount.formatted()).font(OrivType.badge.monospacedDigit())
+                Text(tabCount.formatted()).font(OrivType.caption.monospacedDigit())
                     .foregroundStyle(theme.sidebarSecondaryText(contrast))
-                    .padding(.horizontal, OrivSpacing.xs).padding(.vertical, OrivSpacing.xxs)
-                    .modifier(SidebarToneSurface(tone: .search, radius: OrivRadius.badge))
                     .browserGeometryMarker("sidebarProfileCountGeometry", when: marksGeometry)
                 Spacer(minLength: 0)
                 if profile != nil { Image(systemName: "chevron.up.chevron.down").font(OrivIcon.close) }

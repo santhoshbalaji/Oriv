@@ -71,10 +71,17 @@ enum OrivLayout {
     static let railWidth: CGFloat = 72
     static let toolbarHeight: CGFloat = 50
     static let controlHeight: CGFloat = 32
-    static let tabRowHeight: CGFloat = 33
-    static let sidebarProfileHeight: CGFloat = 34
-    static let sidebarPinHeight: CGFloat = 42
-    static let sidebarFooterHeight: CGFloat = 40
+    static let tabRowHeight: CGFloat = 32
+    static let sidebarProfileHeight: CGFloat = 32
+    static let sidebarProfileIconSize: CGFloat = 22
+    static let sidebarSearchHeight: CGFloat = 28
+    static let sidebarSectionHeight: CGFloat = 24
+    static let sidebarPinHeight: CGFloat = 46
+    static let sidebarPinThreeColumnWidth: CGFloat = 250
+    static let sidebarPinIconSize: CGFloat = 17
+    static let sidebarFooterHeight: CGFloat = 36
+    static let sidebarDownloadBadgeSize: CGFloat = 6
+    static let sidebarAccessoryWidth: CGFloat = 22
     static let sidebarBadgeSize: CGFloat = 12
     static let sidebarFaviconSize: CGFloat = 19
     static let sidebarRailFaviconSize: CGFloat = 22
@@ -252,8 +259,8 @@ struct Theme {
     #endif
     #if os(macOS)
     // These roles stay legible across the brighter and darker glass inputs.
-    private static let glassSecondary = adaptive("GlassSecondary", light: 0x303037, dark: 0xEEEEF2)
-    private static let glassPrivate = adaptive("GlassPrivate", light: 0x4C2269, dark: 0xF8DEFF)
+    private static let glassSecondary = adaptive("GlassSecondary", light: 0x282830, dark: 0xEEEEF2)
+    private static let glassPrivate = adaptive("GlassPrivate", light: 0x391552, dark: 0xFAEDFF)
     func sidebarSecondaryText(_ contrast: ColorSchemeContrast) -> Color {
         guard contrast == .increased else { return Self.glassSecondary }
         return isT3Code ? Self.hex(0xB8B8B8) : Self.highContrastSecondary
@@ -261,13 +268,14 @@ struct Theme {
     var sidebarPrivateAccent: Color { Self.glassPrivate }
 
     enum SidebarTone {
-        case selection, hover, search, pin
+        case selection, hover, search, pin, pinHover
 
         // The contrast gate reads these values and composites them over all tint backings.
-        private static let selectionTone = (light: 0.68, dark: 0.12)
-        private static let hoverTone = (light: 0.05, dark: 0.07)
-        private static let searchTone = (light: 0.055, dark: 0.07)
-        private static let pinTone = (light: 0.46, dark: 0.08)
+        private static let selectionTone = (light: 0.42, dark: 0.10)
+        private static let hoverTone = (light: 0.045, dark: 0.04)
+        private static let searchTone = (light: 0.06, dark: 0.07)
+        private static let pinTone = (light: 0.28, dark: 0.06)
+        private static let pinHoverTone = (light: 0.35, dark: 0.085)
 
         func fill(in theme: Theme, dark: Bool, opaque: Bool) -> Color {
             let opacity: (light: Double, dark: Double)
@@ -277,9 +285,10 @@ struct Theme {
             case .hover: (opacity, solid) = (Self.hoverTone, theme.sidebar.hover)
             case .search: (opacity, solid) = (Self.searchTone, theme.sidebar.field)
             case .pin: (opacity, solid) = (Self.pinTone, theme.sidebar.field)
+            case .pinHover: (opacity, solid) = (Self.pinHoverTone, theme.sidebar.hover)
             }
             if opaque || theme.isT3Code { return solid }
-            let white = dark || self == .selection || self == .pin
+            let white = dark || self == .selection || self == .pin || self == .pinHover
             return (white ? Color.white : Color.black).opacity(dark ? opacity.dark : opacity.light)
         }
     }
@@ -294,7 +303,7 @@ struct Theme {
     var separatorStrong: Color { isT3Code ? Self.hex(0x818181) : Self.highContrastSeparator }
     let danger = adaptive("Danger", light: 0xB3261E, dark: 0xFF9A8F)
     let success = adaptive("Success", light: 0x1D6B3A, dark: 0x7FD99A)
-    let controlPrivate = adaptive("ControlPrivate", light: 0x4C2269, dark: 0xF8DEFF)
+    let controlPrivate = adaptive("ControlPrivate", light: 0x391552, dark: 0xFAEDFF)
     let privateWash = adaptive("PrivateWash", light: 0xF3E9F9, dark: 0x33263D)
     let iconPlate = Color.white.opacity(0.88)
 

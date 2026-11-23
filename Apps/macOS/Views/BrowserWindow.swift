@@ -8,7 +8,7 @@ struct BrowserWindow: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.displayScale) private var displayScale
-    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.sidebarContrast) private var contrast
     @Environment(\.browserReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
@@ -66,6 +66,10 @@ struct BrowserWindow: View {
     }
     private var emptyPageColor: ChromeColor { PageChrome.resolveCanvas(theme.page, scheme: colorScheme) }
     private var contentUnderChrome: Bool { pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
+    private var usesWindowMaterial: Bool {
+        !fullscreen && !theme.isT3Code && !reduceTransparency && !captureReduceTransparency
+            && contrast != .increased && !BackgroundUIMode.isEnabled
+    }
     private var chromeForeground: Color { pageChrome.foreground }
     private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark) }
 
@@ -201,12 +205,20 @@ struct BrowserWindow: View {
 
     private var shell: some View {
         ZStack(alignment: .topLeading) {
-            theme.canvas.overlay(alignment: .top) {
-                pageChrome.color.frame(height: MacBrowserLayout.headerHeight)
-                    .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
+            if !controller.sidebar.webpageFullscreen {
+                Group {
+                    if usesWindowMaterial {
+                        WindowBackdropMaterial(material: .sidebar)
+                    } else {
+                        theme.chrome
+                    }
+                }
+                .frame(width: controller.sidebar.reservation)
+                .frame(maxHeight: .infinity)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+                .browserGeometryMarker("sidebarBackdropGeometry")
             }
-            .accessibilityHidden(true)
-            .allowsHitTesting(false)
             VStack(spacing: 0) {
                 mainTopBar.zIndex(1)
                     .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
@@ -216,7 +228,7 @@ struct BrowserWindow: View {
             }
             .padding(.leading, controller.sidebar.reservation)
             // The page receives one final viewport update, never interpolated widths.
-            .transaction { $0.animation = nil; $0.disablesAnimations = true }
+            .transaction(value: controller.sidebar.reservation) { $0.animation = nil; $0.disablesAnimations = true }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             sidebarPanel
                 .frame(width: controller.sidebar.isResizing ? controller.sidebar.width : sidebarClipWidth, alignment: .leading)
@@ -266,9 +278,8 @@ struct BrowserWindow: View {
         .onDisappear { controller.sidebar.cancel(); controller.sidebarTooltip.dismiss() }
         .background(SidebarWindowEvents(controller: controller, profiles: controller === profiles?.controller ? profiles : nil, tabList: sidebarTabs, layoutDirection: layoutDirection, dismiss: dismissSidebarOverlay))
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
-        .background(pageChrome.color, ignoresSafeAreaEdges: [])
-        .background(BrowserTitlebar(color: pageChrome.color, reduceMotion: reduceMotion || !pageChrome.animatesColor, profileEpoch: controller.sidebarDragID))
         .background(BrowserWindowChrome(windowContext: windowContext, compact: controller.sidebar.reservesRail, sidebarWidth: controller.sidebar.width,
+            backdrop: theme.chrome, usesWindowMaterial: usesWindowMaterial,
             initialContentFocus: tab?.url != nil || tab?.hasLoaded == true ? tab?.webView : nil,
             shouldApplyProfileSwitchFocus: profileSwitchFocus, profileEpoch: controller.sidebarDragID,
             externalPresentationRequest: session.isExternalPrivate ? profiles?.externalPresentationRequest : nil,
@@ -314,7 +325,7 @@ struct BrowserWindow: View {
         VStack(spacing: 0) {
             sidebarHeader
             BrowserSidebar(controller: controller, profiles: profiles, tabList: sidebarTabs,
-                           profileTrailingInset: fullscreen ? 38 : 0)
+                           profileTrailingInset: fullscreen ? MacBrowserLayout.fullscreenProfileTrailingInset : 0)
                 .onPreferenceChange(SidebarKeyboardFocusKey.self) {
                     sidebarContainsKeyboardFocus = $0; controller.sidebar.focusInside = $0 || sidebarHeaderToggleFocused
                 }
@@ -330,10 +341,9 @@ struct BrowserWindow: View {
                         ProfileSidebarSwipeRegion(switcher: profiles.sidebarSwitch, controller: controller, kind: .titlebarControl)
                     }
                 }
-                .padding(.leading, railHeader ? MacBrowserLayout.railInset : controller.sidebar.width - MacBrowserLayout.sidebarInset - 30)
+                .padding(.leading, railHeader ? MacBrowserLayout.railInset : controller.sidebar.width - MacBrowserLayout.sidebarInset - MacBrowserLayout.sidebarToggleSize)
                 .padding(.top, railHeader ? (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight)
-                                          : (fullscreen ? OrivSpacing.xs : (MacBrowserLayout.sidebarTitlebarHeight - OrivTarget.macToolbar.height) / 2))
-                .offset(y: !fullscreen && !railHeader ? -MacBrowserLayout.panelInset / 2 : 0)
+                                          : (fullscreen ? OrivSpacing.xs : MacBrowserLayout.sidebarToggleTopInset))
                 .opacity(windowActive ? 1 : 0.75)
         }
         .background {
@@ -384,7 +394,7 @@ struct BrowserWindow: View {
     private var railHeader: Bool { compact || controller.sidebar.peeking }
     private var sidebarHeader: some View {
         Color.clear
-            .frame(height: railHeader ? (fullscreen ? 36 : MacBrowserLayout.sidebarTitlebarHeight + 36) : (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight))
+            .frame(height: railHeader ? (fullscreen ? MacBrowserLayout.railItemHeight : MacBrowserLayout.sidebarTitlebarHeight + MacBrowserLayout.railItemHeight) : (fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight))
             .background(BrowserDragRegion())
             .browserGeometryMarker("sidebarTitlebarGeometry")
             .accessibilityHidden(true)
@@ -392,7 +402,7 @@ struct BrowserWindow: View {
 
     private var sidebarToggle: some View {
         Button(action: toggleSidebar) {
-            Image(systemName: layoutDirection == .rightToLeft ? "sidebar.right" : "sidebar.left").font(OrivIcon.toolbarFont).frame(width: railHeader ? 42 : 30, height: railHeader ? 36 : 30).contentShape(Rectangle())
+            Image(systemName: layoutDirection == .rightToLeft ? "sidebar.right" : "sidebar.left").font(OrivIcon.toolbarFont).frame(width: railHeader ? MacBrowserLayout.railItemWidth : MacBrowserLayout.sidebarToggleSize, height: railHeader ? MacBrowserLayout.railItemHeight : MacBrowserLayout.sidebarToggleSize).contentShape(Rectangle())
         }
         .buttonStyle(SidebarToneButtonStyle()).focusable().focused($sidebarHeaderToggleFocused)
         .keyboardShortcut("s", modifiers: [.command, .option])
@@ -433,7 +443,10 @@ struct BrowserWindow: View {
             .frame(width: toolbarSideWidth, alignment: .trailing)
         }
         .padding(.horizontal, OrivSpacing.medium).frame(height: MacBrowserLayout.headerHeight)
-        .background(pageChrome.color)
+        .background {
+            pageChrome.color
+                .animation(reduceMotion || !pageChrome.animatesColor ? nil : OrivMotion.standard, value: pageChrome.color)
+        }
         .background(BrowserDragRegion())
         .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
         .accessibilityIdentifier("mainTopBar")
@@ -755,7 +768,7 @@ private struct MacAddressBounds: PreferenceKey {
 /// A filled address capsule without the system glass rim. Its colour still
 /// follows the page; a contrast guard bounds the lifted dark fill.
 struct MacAddressGlass: ViewModifier {
-    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.sidebarContrast) private var contrast
     @Environment(\.self) private var environment
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let color: Color

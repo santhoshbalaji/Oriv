@@ -56,16 +56,16 @@ inside a profile uses that profile’s backing and keeps its glasses and private
 | Lavender | `#E6DDF7` | `#39284D` |
 
 The backing follows the active profile in the expanded sidebar and 72 pt rail.
-**Glass opacity** under **All profiles** offers **Balanced** (55%, default),
-**High** (80%), and **Solid** (100%). Balanced uses a neutral contrast layer
-under the sidebar backing. The layer is white at 42% for Graphite Light and 47%
-for light tints. It is black at 52% for Graphite Dark, 60% for dark tints, and
-18% for Black. High also uses a 38% black guard in Dark. Selected rows, hover,
+**Glass opacity** under **All profiles** offers **Balanced** (43%, default),
+**High** (74%), and **Solid** (100%). Balanced uses a neutral contrast layer
+under the sidebar backing. The layer is white at 42% for Graphite Light and 45%
+for light tints. It is black at 54% for Graphite Dark, 60% for dark tints, and
+36% for Black. High also uses a 38% black guard in Dark. Selected rows, hover,
 search and pins add translucent tonal fills over the backing. Black uses solid
 control fills.
 Reduce Transparency and Increase Contrast use the opaque backing. Increase
 Contrast also strengthens secondary text, the panel edge and the selected row’s
-outline. Selection still uses the 3 pt system-accent marker. Websites and the
+outline. The active tab row uses the 3 pt system-accent marker. Websites and the
 page-derived toolbar keep their own colors.
 
 Black uses the near-black `#0A0A0A` backing and disables the swatches. Settings

@@ -55,8 +55,16 @@ struct SidebarSearchScope: View {
 /// explicit on headings; a row drop never silently changes privacy or pin state.
 @MainActor enum SidebarTabs {
     /// Up to two complete rows, with a full-width tile when there is one pin.
-    static func pinRows(count: Int) -> [Int] {
-        switch count {
+    static func pinRows(count: Int, width: CGFloat) -> [Int] {
+        if width < OrivLayout.sidebarPinThreeColumnWidth {
+            switch count {
+            case ...0: return []
+            case 1: return [1]
+            case 2, 3: return [2]
+            default: return [2, 2]
+            }
+        }
+        return switch count {
         case ...0: []
         case 1...3: [count]
         case 4: [2, 2]
@@ -165,7 +173,7 @@ struct BrowserSidebar: View {
                     Text(notice).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)).padding(.horizontal, OrivSpacing.large)
                 }
                 NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
-                                  searchRequest: request) { id, right in
+                                  expandedWidth: controller.sidebar.expandedWidth, searchRequest: request) { id, right in
                     controller.profileUI.closeToRight = right
                     controller.profileUI.closeOthers = id
                 }
@@ -343,7 +351,7 @@ struct BrowserSidebar: View {
                 .frame(height: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
                 .accessibilityHidden(true)
             if railLayout {
-                VStack(spacing: OrivSpacing.xs) { footerButtons }
+                VStack(spacing: OrivSpacing.xxs) { footerButtons }
                     .padding(.bottom, OrivSpacing.small)
             } else {
                 HStack(spacing: OrivSpacing.xs) { footerButtons }
@@ -356,37 +364,20 @@ struct BrowserSidebar: View {
     }
 
     @ViewBuilder private var footerButtons: some View {
-        Menu {
-            ForEach(LibrarySection.allCases) { section in
-                Button(section.title, systemImage: section.symbol) { controller.library = section }
-            }
-        } label: {
-            footerLabel("Library", symbol: "books.vertical", showsText: !railLayout)
-        }
-        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-        .accessibilityLabel("Library").help("Library")
-        .browserGeometryMarker("sidebarFooter-Library")
-        if !railLayout { Spacer(minLength: 0) }
-        if controller.downloads.hasActiveDownloads {
-            Button { controller.library = .downloads } label: {
-                ZStack {
-                    footerLabel("Downloads", symbol: "arrow.down", showsText: false)
-                    if let fraction = controller.downloads.items.first(where: { !$0.isFinished })?.fractionCompleted {
-                        Circle().trim(from: 0, to: fraction)
-                            .stroke(theme.accent, style: StrokeStyle(lineWidth: OrivOutline.enhanced, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                            .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
-                    } else {
-                        Circle().strokeBorder(theme.accent, lineWidth: OrivOutline.enhanced)
-                            .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
-                    }
-                }.accessibilityHidden(true)
+        ForEach(LibrarySection.allCases) { section in
+            let activeDownload = section == .downloads && controller.downloads.hasActiveDownloads
+            Button { controller.library = section } label: {
+                footerLabel(section.title, symbol: section.symbol, activeDownload: activeDownload)
             }
             .buttonStyle(SidebarToneButtonStyle())
-            .accessibilityLabel("Downloads in progress").help("Downloads in progress")
-            .browserGeometryMarker("sidebarFooter-Downloads")
+            .focused($utilityFocus, equals: section.rawValue)
+            .modifier(SidebarFocusRing(visible: utilityFocus == section.rawValue && controller.sidebar.showsUtilityKeyboardFocus))
+            .accessibilityLabel(activeDownload ? "Downloads in progress" : section.title)
+            .help(section.title)
+            .browserGeometryMarker("sidebarFooter-\(section.rawValue)")
         }
-        SettingsLink { footerLabel("Settings", symbol: "gearshape", showsText: false) }
+        if !railLayout { Spacer(minLength: 0) }
+        SettingsLink { footerLabel("Settings", symbol: "gearshape") }
             .buttonStyle(SidebarToneButtonStyle())
             .focused($utilityFocus, equals: "settings")
             .modifier(SidebarFocusRing(visible: utilityFocus == "settings" && controller.sidebar.showsUtilityKeyboardFocus))
@@ -394,17 +385,21 @@ struct BrowserSidebar: View {
             .browserGeometryMarker("sidebarFooter-Settings")
     }
 
-    private func footerLabel(_ title: String, symbol: String, showsText: Bool) -> some View {
-        HStack(spacing: OrivSpacing.xs) {
-            Image(systemName: symbol).font(OrivIcon.toolbarFont)
-            if showsText {
-                Text(title).font(OrivType.detail)
-                Image(systemName: "chevron.down").font(OrivIcon.close)
-            }
+    private func footerLabel(_ title: String, symbol: String, activeDownload: Bool = false) -> some View {
+        HStack(spacing: OrivSpacing.small) {
+            Image(systemName: symbol).font(.system(size: OrivIcon.footer))
+                .frame(width: railLayout ? MacBrowserLayout.railItemWidth : OrivLayout.controlHeight,
+                       height: railLayout ? MacBrowserLayout.railItemHeight : OrivLayout.controlHeight)
+                .overlay(alignment: .topTrailing) {
+                    if activeDownload {
+                        Circle().fill(theme.accent)
+                            .frame(width: OrivLayout.sidebarDownloadBadgeSize, height: OrivLayout.sidebarDownloadBadgeSize)
+                            .padding(OrivSpacing.xs)
+                            .accessibilityHidden(true)
+                    }
+                }
+            if peeking { Text(title).modifier(SidebarLabelFade()); Spacer(minLength: 0) }
         }
-        .padding(.horizontal, showsText ? OrivSpacing.small : 0)
-        .frame(width: railLayout ? OrivTarget.macRail.width : (showsText ? nil : OrivLayout.controlHeight),
-               height: railLayout ? OrivTarget.macRail.height : OrivLayout.controlHeight)
         .contentShape(Rectangle())
     }
 
@@ -489,8 +484,8 @@ struct SidebarSectionHeading: View {
                       ink: secondary,
                       countInk: secondary)
         .browserGeometryMarker("sidebarSection-\(title)", when: marksGeometry)
-        .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 27)
-        .padding(.top, title == "Private" ? OrivSpacing.small : (title == "Tabs" || title == "More pinned tabs" ? OrivSpacing.xs : 0))
+        .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: OrivLayout.sidebarSectionHeight)
+        .padding(.top, title == "Pinned" || title == "Pin tab" ? 0 : OrivSpacing.xs)
     }
 }
 
@@ -625,10 +620,12 @@ struct SidebarTabArtwork: View {
                     }
                 if peek { Text(title).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
             } else if tile {
-                VStack(spacing: OrivSpacing.xxs) {
+                VStack(spacing: OrivSpacing.xs) {
                     favicon
                     Text(pinLabel)
-                        .font(OrivType.badge).lineLimit(1)
+                        .font(active ? OrivType.sectionLabel : OrivType.caption)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             } else {
                 favicon
@@ -657,10 +654,10 @@ struct SidebarTabArtwork: View {
         .padding(.horizontal, rail ? 0 : MacBrowserLayout.sidebarRowInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(theme.text)
-        .modifier(SidebarToneSurface(tone: selected ? .selection : hovered ? .hover : tile ? .pin : nil, radius: radius))
+        .modifier(SidebarToneSurface(tone: selected ? .selection : hovered ? (tile ? .pinHover : .hover) : tile ? .pin : nil, radius: radius))
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .leading) {
-            if active { SelectionMarker(height: OrivIcon.toolbar, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil).padding(.leading, OrivSpacing.xs) }
+            if active && !tile { SelectionMarker(height: OrivIcon.toolbar, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil).padding(.leading, OrivSpacing.xs) }
         }
         .overlay {
             if selected && contrast == .increased {
@@ -678,7 +675,7 @@ struct SidebarTabArtwork: View {
                     .foregroundStyle(theme.sidebarSecondaryText(contrast))
             }
         }
-        .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
+        .frame(width: OrivLayout.sidebarAccessoryWidth, height: OrivTarget.macMinimum.height)
         .modifier(SidebarToneSurface(tone: hoveredAccessory == kind ? .hover : nil))
     }
 
@@ -689,7 +686,8 @@ struct SidebarTabArtwork: View {
     }
 
     private var favicon: some View {
-        let size = rail ? OrivLayout.sidebarRailFaviconSize : OrivLayout.sidebarFaviconSize
+        let size = rail ? OrivLayout.sidebarRailFaviconSize
+            : (tile ? OrivLayout.sidebarPinIconSize : OrivLayout.sidebarFaviconSize)
         return ZStack {
             SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true,
                          showsSidebarPrivateBadge: rail, previewIcons: previewIcons)
@@ -816,8 +814,8 @@ enum SidebarGlassOpacity: String, CaseIterable {
 
     var backingOpacity: Double {
         switch self {
-        case .balanced: 0.55
-        case .high: 0.80
+        case .balanced: 0.43
+        case .high: 0.74
         case .solid: 1.0
         }
     }
@@ -835,10 +833,10 @@ struct MacSidebarGlass: ViewModifier {
     // colors need more protection against bright page input than Black.
     private static let balancedTintGuard = Theme.adaptive("SidebarTintGuard", light: 0xFFFFFF, dark: 0x000000)
     private static let balancedLightGuard = 0.42
-    private static let balancedLightTintGuard = 0.47
-    private static let balancedDarkGuard = 0.52
+    private static let balancedLightTintGuard = 0.45
+    private static let balancedDarkGuard = 0.54
     private static let balancedDarkTintGuard = 0.60
-    private static let balancedBlackGuard = 0.18
+    private static let balancedBlackGuard = 0.36
     private static let highDarkGuard = 0.38
 
     @Environment(\.colorScheme) private var colorScheme
@@ -870,8 +868,10 @@ struct MacSidebarGlass: ViewModifier {
             let guardOpacity = effectiveOpacity == .balanced
                 ? balancedGuard(tinted: tinted)
                 : (colorScheme == .dark && !theme.isT3Code ? Self.highDarkGuard : 0)
-            edge(glass(content.background(backing.opacity(effectiveOpacity.backingOpacity))
-                .background(Self.balancedTintGuard.opacity(guardOpacity))))
+            edge(content
+                .background(backing.opacity(effectiveOpacity.backingOpacity))
+                .background(Self.balancedTintGuard.opacity(guardOpacity))
+                .background { glass })
         }
     }
     private func balancedGuard(tinted: Bool) -> Double {
@@ -890,16 +890,20 @@ struct MacSidebarGlass: ViewModifier {
                     .accessibilityHidden(true)
             }
     }
-    @ViewBuilder private func glass<Surface: View>(_ content: Surface) -> some View {
+    @ViewBuilder private var glass: some View {
         #if DEBUG
         if let captureBackdrop {
-            content.background(captureBackdrop)
+            captureBackdrop
         } else {
-            GlassEffectContainer { content.glassEffect(.clear, in: shape) }
+            liveGlass
         }
         #else
-        GlassEffectContainer { content.glassEffect(.clear, in: shape) }
+        liveGlass
         #endif
+    }
+
+    private var liveGlass: some View {
+        shape.fill(.clear).glassEffect(.clear, in: shape)
     }
 }
 

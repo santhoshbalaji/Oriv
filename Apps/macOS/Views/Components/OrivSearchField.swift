@@ -35,7 +35,7 @@ struct OrivSearchField<Field: View>: View {
         .font(sidebar ? OrivType.detail : OrivType.body)
         .foregroundStyle(ink ?? theme.textSecondary)
         .padding(.horizontal, OrivSpacing.small)
-        .frame(height: OrivLayout.controlHeight)
+        .frame(height: sidebar ? OrivLayout.sidebarSearchHeight : OrivLayout.controlHeight)
         .background(sidebar ? .clear : theme.fill, in: shape)
         .modifier(SidebarToneSurface(tone: sidebar ? .search : nil))
         .overlay {

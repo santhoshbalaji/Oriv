@@ -60,6 +60,7 @@ struct ProfileSidebarPreview: Sendable {
 struct ProfileSidebarPreviewArtwork: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.dynamicTypeSize) private var textSize
+    @Environment(\.sidebarContrast) private var contrast
     let profile: BrowserProfile
     let preview: ProfileSidebarPreview
     let size: CGSize
@@ -74,11 +75,11 @@ struct ProfileSidebarPreviewArtwork: View {
                 Image(systemName: "magnifyingglass")
                 Text(query.isEmpty ? OrivStrings.searchTabs : query).lineLimit(1)
                 Spacer(minLength: 0)
-                if query.isEmpty { Text("⇧⌘A").font(OrivType.badge) }
-                else { Image(systemName: "xmark.circle.fill").frame(width: 24) }
+                if query.isEmpty { Text("⇧⌘A").font(OrivType.caption) }
+                else { Image(systemName: "xmark.circle.fill").frame(width: OrivTarget.macMinimum.width) }
             }
-            .font(OrivType.detail).foregroundStyle(theme.textSecondary)
-            .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 32)
+            .font(OrivType.detail).foregroundStyle(theme.sidebarSecondaryText(contrast))
+            .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: OrivLayout.sidebarSearchHeight)
             .modifier(SidebarToneSurface(tone: .search))
             .padding(.bottom, OrivSpacing.small)
             GeometryReader { _ in
@@ -102,7 +103,7 @@ struct ProfileSidebarPreviewArtwork: View {
         let privateRows = preview.rows.filter(\.isPrivate)
         let duplicateTitles = Set(Dictionary(grouping: preview.rows, by: { $0.record.title }).filter { $0.value.count > 1 }.keys)
         let limit = max(1, Int(size.height / OrivLayout.tabRowHeight) + 1)
-        let pinRows = SidebarTabs.pinRows(count: pins.count)
+        let pinRows = SidebarTabs.pinRows(count: pins.count, width: size.width + 2 * MacBrowserLayout.sidebarInset)
         return VStack(spacing: OrivSpacing.xxs) {
             if !pins.isEmpty {
                 SidebarSectionHeading(title: "Pinned", count: pins.count, marksGeometry: false)

@@ -41,7 +41,7 @@ import XCTest
         let controller = profiles.controller
         let window = makeWindow(controller, profiles: profiles, largestText: false, key: false)
         defer { window.close() }
-        let footer = ["sidebarFooterGeometry", "sidebarFooter-Library", "sidebarFooter-Settings"]
+        let footer = ["sidebarFooterGeometry", "sidebarFooter-Settings"] + LibrarySection.allCases.map { "sidebarFooter-\($0.rawValue)" }
         try await eventually("one-profile footer") { footer.allSatisfy { self.geometry($0, in: window) != nil } }
         let baseline = try footer.map { try frame($0, in: window) }
         XCTAssertNil(marker("sidebarProfileDotsGeometry", in: window))
@@ -191,8 +191,16 @@ import XCTest
             XCTAssertEqual(row.height, OrivLayout.tabRowHeight, accuracy: 1)
             XCTAssertEqual(icon.minX - row.minX, 8, accuracy: 1)
             XCTAssertEqual(try frame("sidebarSection-Tabs", in: window).minX, icon.minX, accuracy: 1)
+            let backdrop = try frame("sidebarBackdropGeometry", in: window)
+            let toolbar = try frame("browserTopBarGeometry", in: window)
+            XCTAssertEqual(backdrop.minX, 0, accuracy: 1)
+            XCTAssertEqual(surface.minX - backdrop.minX, MacBrowserLayout.panelInset, accuracy: 1)
+            XCTAssertEqual(backdrop.maxX - surface.maxX, MacBrowserLayout.panelInset, accuracy: 1)
+            XCTAssertEqual(backdrop.maxX, toolbar.minX, accuracy: 1)
+            XCTAssertEqual(backdrop.maxY, toolbar.maxY, accuracy: 1)
+            XCTAssertEqual(try frame("sidebarSearchGeometry", in: window).height, OrivLayout.sidebarSearchHeight, accuracy: 1)
             let footer = try frame("sidebarFooterGeometry", in: window)
-            let footerTitles = ["Library", "Settings"]
+            let footerTitles = LibrarySection.allCases.map(\.rawValue) + ["Settings"]
             let footerButtons = try footerTitles.map { try frame("sidebarFooter-\($0)", in: window) }
             for (title, button) in zip(footerTitles, footerButtons) {
                 XCTAssertTrue(footer.contains(button), title)

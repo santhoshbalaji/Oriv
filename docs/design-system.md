@@ -42,7 +42,7 @@ Liquid Glass belongs to the navigation layer, the Mac sidebar, iPhone bars and f
 
 ## Navigation
 
-Mac: a native toolbar with one address/search field, a vertical tab sidebar, and a browser content area. The start-page search affordance focuses that same field. Suggestions are available from any page. The sidebar Library menu opens Bookmarks, History, Downloads and Other devices. Settings has its own control.
+Mac: a native toolbar with one address/search field, a vertical tab sidebar, and a browser content area. The start-page search affordance focuses that same field. Suggestions are available from any page. The sidebar footer opens Bookmarks, History, Downloads, Other devices and Settings.
 
 The Mac header’s **Browser Actions** ellipsis opens a native SwiftUI pull-down `Menu`. Its 36 × 32 pt target uses the shared toolbar button style. The menu inherits system material, selection, dismissal, keyboard navigation and accessibility. Group Bookmark (with its current state), Copy Link / Copy Original Link and Find first, followed by a zoom section (Zoom In, Zoom Out, Actual Size with the current percentage; a palette hid the reset label in practice), tab actions (including active downloads), and Sync / reading / privacy / Password AutoFill Help. Keep page-dependent and private-tab disabled states. Password help opens a popover from its menu action. Do not reintroduce a full-window tap-catcher or a custom menu panel. The native menu inherits the platform’s accessibility material preferences. Off-screen captures verify toolbar layout only; a menu tracking window must not be opened under the background-only policy.
 
@@ -120,7 +120,11 @@ retains an independent width. The 50 pt browser toolbar aligns with the native
 traffic lights. ⌥⌘S toggles the rail. At narrow window sizes explicit expansion
 overlays the page.
 
-The expanded sidebar and rail share one `MacSidebarGlass` backing. Per-profile
+The sidebar and rail share one full-height `MacSidebarGlass` surface. The
+traffic lights and expanded toggle align at the toolbar midpoint. The
+8 pt gutter shows the window’s sidebar material, with a theme chrome fill in
+Black, accessibility fallbacks and fullscreen. Page tinting starts at the
+toolbar’s leading edge. Per-profile
 **Sidebar color** offers Graphite, Profile color and seven pastels. Black keeps
 its near-black backing while retaining the saved color choice. The Mac-wide
 **Glass opacity** applies a contrast guard below the selected backing. White
@@ -130,9 +134,9 @@ backing and solid control fills. Increase Contrast strengthens outlines.
 [Sidebar backing tokens](appearance.md#mac-sidebar-color)
 
 The profile picker shows the current profile’s symbol and color in both
-layouts. Expanded mode also shows the profile name and tab count, plus colored
+layouts. Expanded mode also shows the profile name, a plain secondary tab count and colored
 profile dots for direct switching. Keyboard focus receives a visible outline.
-Expanded rows are 33 pt high at standard text sizes. They reserve two trailing
+Expanded rows are 32 pt high at standard text sizes. They reserve two trailing
 targets for audio and close. The close glyph appears on hover and selection.
 Clicking a speaker toggles mute. The context menu retains the separate media
 pause action. VoiceOver announces the title, host, and applicable selected,
@@ -140,11 +144,26 @@ pinned, private, loading and audio states. Its row actions include Close and
 Mute or Unmute. Keyboard users can use ⌘W and ⌃⌘M.
 
 Pins show the site icon and a short site label. A single pin uses the full
-width. Groups of two or three fill each row, up to six tiles, with additional
-pins as title-bearing rows in the same section. The rail uses 42 × 36 pt icon
+width. Below 250 pt the grid uses two columns and up to four tiles. At 250 pt
+and above it uses rows of two or three and up to six tiles. Additional pins
+continue as title-bearing rows in the same section. The rail uses 42 × 36 pt icon
 targets and context menus. New Tab stays reachable outside the scrolling list.
-The footer has a divider, a Library menu and Settings. An active download
-adds a button with its progress ring and opens Downloads.
+The footer has a hairline and five icon buttons. Downloads shows a dot while
+a download is active.
+
+| Mac sidebar token | Points |
+| --- | ---: |
+| Toolbar height and expanded titlebar spacer | 50 and 38 |
+| Panel, content and row horizontal inset | 8 |
+| Expanded toggle and profile picker height | 30 and 32 |
+| Profile symbol frame | 22 |
+| Search height and horizontal padding | 28 and 8 |
+| Section height and extra spacing before Tabs and Private | 24 and 4 |
+| Standard row height and between-row gap | 32 and 2 |
+| Close and audio slot width | 22 each |
+| Pin tile height, icon and gap | 46, 17 and 4 |
+| Expanded footer button band and button size | 36 and 32 × 32 |
+| Rail footer button target | 42 × 36 |
 
 Search uses one active-profile finder for both widths and ⇧⌘A. It begins in the
 selected tab’s privacy scope. Mixed sessions show a **Tabs / Private** control.

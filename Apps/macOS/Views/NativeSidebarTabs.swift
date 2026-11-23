@@ -23,6 +23,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
     let duplicateTitles: Set<String>
     let rail: Bool
     let peek: Bool
+    let expandedWidth: CGFloat
     let searchRequest: ProfileScoped<SidebarTabQuery>?
     var searching: Bool { searchRequest != nil }
     let confirmClose: (UUID, Bool) -> Void
@@ -124,7 +125,7 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
             }
             if group.grid {
                 var index = 0
-                for columns in SidebarTabs.pinRows(count: group.tabs.count) {
+                for columns in data.pinRows(count: group.tabs.count) {
                     let tileWidth = max(0, (rowWidth - CGFloat(columns - 1) * gridGap) / CGFloat(columns))
                     for column in 0..<columns {
                         let path = IndexPath(item: index, section: section)
@@ -216,9 +217,8 @@ private struct SidebarSection {
     var headerHeight: CGFloat {
         if separator { return 25 }
         switch heading {
-        case "Pinned", "Pin tab": return 28
-        case "Private": return 36
-        case "Tabs", "Unpin tab": return 32
+        case "Pinned", "Pin tab": return OrivLayout.sidebarSectionHeight
+        case "Private", "Tabs", "Unpin tab": return OrivLayout.sidebarSectionHeight + OrivSpacing.xs
         case .some: return 40
         case nil: return 0
         }
@@ -239,6 +239,9 @@ private struct SidebarSection {
     var controller: BrowserController? { configuration?.controller }
     var isRail: Bool { configuration?.rail == true }
     var isIconLayout: Bool { isRail || configuration?.peek == true }
+    func pinRows(count: Int) -> [Int] {
+        SidebarTabs.pinRows(count: count, width: configuration?.expandedWidth ?? MacBrowserLayout.sidebarWidth)
+    }
     var rowHeight: CGFloat {
         if isIconLayout { return OrivTarget.macRail.height }
         return environment.dynamicTypeSize.isAccessibilitySize ? OrivLayout.sidebarAccessibilityRowHeight : OrivLayout.tabRowHeight
@@ -254,7 +257,7 @@ private struct SidebarSection {
                 result.append(SidebarSection(kind: kind, tabs: tabs, separator: !result.isEmpty))
             }
         } else {
-            let gridCount = SidebarTabs.pinRows(count: pinned.count).reduce(0, +)
+            let gridCount = SidebarTabs.pinRows(count: pinned.count, width: configuration.expandedWidth).reduce(0, +)
             let pins = configuration.searching ? pinned : Array(pinned.prefix(gridCount))
             let pinDrag = drag.flatMap { item in
                 configuration.tabs.first(where: { $0.id == item.id && !$0.isPrivate })
@@ -312,7 +315,7 @@ private struct SidebarSection {
             setHovered(nil)
             list.reloadData()
         }
-        if changesLayout || changesContent || oldSize != environment.dynamicTypeSize || directionChanged {
+        if changesLayout || changesContent || old?.expandedWidth != value.expandedWidth || oldSize != environment.dynamicTypeSize || directionChanged {
             list.collectionViewLayout?.invalidateLayout()
         }
         if changesLayout || changesActive || profileChanged {
@@ -372,7 +375,7 @@ private struct SidebarSection {
         list.layoutSubtreeIfNeeded()
         guard let frame = list.layoutAttributesForItem(at: path)?.frame else { return }
         let section = sections[path.section]
-        if section.heading != nil, path.item < (section.grid ? SidebarTabs.pinRows(count: section.tabs.count).first ?? 1 : 1),
+        if section.heading != nil, path.item < (section.grid ? pinRows(count: section.tabs.count).first ?? 1 : 1),
            let header = list.layoutAttributesForSupplementaryElement(ofKind: NSCollectionView.elementKindSectionHeader,
                                                                     at: IndexPath(item: 0, section: path.section)) {
             list.scrollToVisible(frame.union(header.frame))
@@ -877,7 +880,7 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
         guard !iconOnly, let tab else { return nil }
         let rtl = collectionView?.userInterfaceLayoutDirection == .rightToLeft
         let trailing = (rtl ? point.x - view.bounds.minX : view.bounds.maxX - point.x) - MacBrowserLayout.sidebarRowInset
-        let slot = OrivTarget.macMinimum.width
+        let slot = OrivLayout.sidebarAccessoryWidth
         guard trailing >= 0, abs(point.y - view.bounds.midY) <= OrivTarget.macMinimum.height / 2 else { return nil }
         if trailing < slot { return includesClose ? .close : nil }
         if trailing < 2 * slot, tab.mediaSuspended || tab.isAudioMuted || tab.isPlayingAudio { return .audio }

@@ -10,7 +10,10 @@ enum MacBrowserLayout {
     static let panelInset = OrivSpacing.small
     static let sidebarInset = OrivSpacing.small
     static let sidebarRowInset = OrivSpacing.small
-    static let sidebarTitlebarHeight = headerHeight - panelInset
+    static let sidebarTitlebarHeight = headerHeight - panelInset - OrivSpacing.xs
+    static let sidebarToggleSize: CGFloat = 30
+    static let sidebarToggleTopInset = (headerHeight - sidebarToggleSize) / 2 - panelInset
+    static let fullscreenProfileTrailingInset = sidebarToggleSize + sidebarInset
     static let sidebarFooterGap = OrivSpacing.xs
     static let railItemWidth = OrivTarget.macRail.width
     static let railItemHeight = OrivTarget.macRail.height
@@ -19,6 +22,24 @@ enum MacBrowserLayout {
     static let railLightsInset = panelInset + (railWidth - lightsWidth) / 2
     static let lightsInset = panelInset + OrivSpacing.medium
     static let lightsSpacing: CGFloat = 20
+}
+
+/// Window blending stays in one view across the titlebar and the body.
+struct WindowBackdropMaterial: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    var opacity: CGFloat = 1
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+        view.alphaValue = opacity
+    }
 }
 
 /// Weak window ownership lets the toggle inspect focus before SwiftUI removes
@@ -53,6 +74,8 @@ struct BrowserWindowChrome: NSViewRepresentable {
     let windowContext: MacBrowserWindowContext
     var compact = false
     var sidebarWidth = MacBrowserLayout.sidebarWidth
+    var backdrop: Color? = nil
+    var usesWindowMaterial = false
     var initialContentFocus: NSView? = nil
     var shouldApplyProfileSwitchFocus: (() -> Bool)? = nil
     var profileEpoch: UUID? = nil
@@ -65,6 +88,8 @@ struct BrowserWindowChrome: NSViewRepresentable {
         view.initialContentFocus = initialContentFocus
         view.shouldApplyProfileSwitchFocus = shouldApplyProfileSwitchFocus
         view.compact = compact
+        view.backdrop = backdrop.map { NSColor($0) }
+        view.usesWindowMaterial = usesWindowMaterial
         view.stateChanged = stateChanged
         view.contentWidthChanged = contentWidthChanged
         windowContext.layoutDirection = context.environment.layoutDirection
@@ -88,6 +113,8 @@ struct BrowserWindowChrome: NSViewRepresentable {
             }
         }
         var compact = false
+        var backdrop: NSColor?
+        var usesWindowMaterial = false
         var stateChanged: ((Bool, Bool) -> Void)?
         var contentWidthChanged: ((CGFloat) -> Void)?
         private var widthTask: Task<Void, Never>?
@@ -175,6 +202,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
             // AttributeGraph during a profile rebuild, so only write real changes.
             if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
             if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
+            if window.toolbarStyle != .unified { window.toolbarStyle = .unified }
             if window.titlebarSeparatorStyle != .none { window.titlebarSeparatorStyle = .none }
             if window.isMovableByWindowBackground { window.isMovableByWindowBackground = false }
             // There is no NSToolbar to migrate into a separate fullscreen host.
@@ -190,6 +218,12 @@ struct BrowserWindowChrome: NSViewRepresentable {
             // fixed content. An opaque titlebar prevents the compact profile and
             // toggle showing through the revealed lights. Never derive content
             // spacing from their visibility: revealing them must not move it.
+            if let backdrop {
+                let opaque = fullscreen || !usesWindowMaterial
+                let backgroundColor: NSColor = opaque ? backdrop : .clear
+                if window.isOpaque != opaque { window.isOpaque = opaque }
+                if window.backgroundColor != backgroundColor { window.backgroundColor = backgroundColor }
+            }
             if window.titlebarAppearsTransparent == fullscreen { window.titlebarAppearsTransparent = !fullscreen }
             if !fullscreen {
                 for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {

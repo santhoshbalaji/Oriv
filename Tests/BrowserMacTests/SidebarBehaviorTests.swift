@@ -274,13 +274,20 @@ import XCTest
         c.compactSidebar = true
         let w = host(c); defer { w.close() }; try await pause(350)
         let all = views(try XCTUnwrap(w.contentView))
-        for title in ["Library", "Settings"] {
+        for title in LibrarySection.allCases.map(\.rawValue) + ["Settings"] {
             let marker = try XCTUnwrap(all.first { $0.identifier?.rawValue == "sidebarFooter-\(title)" })
             XCTAssertGreaterThanOrEqual(marker.bounds.width, 42)
             XCTAssertGreaterThanOrEqual(marker.bounds.height, 36)
         }
         XCTAssertFalse(all.contains { $0.identifier?.rawValue.hasPrefix("sidebarClose-") == true })
     }
+    func testNarrowPinGridUsesTwoColumnsWithoutAnOrphanTile() {
+        XCTAssertEqual(SidebarTabs.pinRows(count: 3, width: 220), [2])
+        XCTAssertEqual(SidebarTabs.pinRows(count: 6, width: 220), [2, 2])
+        XCTAssertEqual(SidebarTabs.pinRows(count: 5, width: 256), [3, 2])
+        XCTAssertEqual(SidebarTabs.pinRows(count: 6, width: 360), [3, 3])
+    }
+
     func testNinePinsUseSixTilesAndTitleBearingOverflow() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         for _ in 0..<9 { let tab = c.session.addTab(select: false, load: false); c.session.togglePinned(tab.id) }
