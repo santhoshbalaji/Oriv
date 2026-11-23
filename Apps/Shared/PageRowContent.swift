@@ -24,6 +24,10 @@ struct PageRowContent: View {
     var isLoading = false
     var showsNewTabSymbol = false
     var accessory: Accessory = .none
+    var highlightedTitle: Text? = nil
+    var highlightedAddress: Text? = nil
+    var identitySymbol: String? = nil
+    var compactTitle = false
     @Environment(\.browserTheme) private var theme
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -35,7 +39,7 @@ struct PageRowContent: View {
         HStack(spacing: spacing) {
             identity
             if stacks {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: OrivSpacing.xxs) {
                     primary
                     secondary
                     // Keep the badge/checkmark clear of the separate close button at AX sizes.
@@ -51,17 +55,22 @@ struct PageRowContent: View {
         .modifier(FullRowAddress(url: url))
     }
 
-    private var primary: some View {
-        Text(displayTitle).font(OrivType.body.weight(titleWeight)).foregroundStyle(theme.text).rowTitleLines()
+    @ViewBuilder private var primary: some View {
+        let title = (highlightedTitle ?? Text(displayTitle)).font(OrivType.body.weight(titleWeight)).foregroundStyle(theme.text)
+        if compactTitle && !typeSize.isAccessibilitySize { title.lineLimit(1) }
+        else { title.rowTitleLines() }
     }
     @ViewBuilder private var secondary: some View {
-        if let address {
+        if let address = highlightedAddress ?? address.map({ Text($0) }) {
             // Addresses stay on one line so Dynamic Type never splits a host, port or path token.
-            Text(address).font(secondaryFont).foregroundStyle(theme.secondaryText).lineLimit(1).truncationMode(.middle)
+            address.font(secondaryFont).foregroundStyle(theme.secondaryText).lineLimit(1).truncationMode(.middle)
         }
     }
     @ViewBuilder private var identity: some View {
-        if isLoading { ProgressView().controlSize(.mini).frame(width: iconSize) }
+        if isLoading { ProgressView().controlSize(.mini).frame(width: iconSize).accessibilityLabel("Loading") }
+        else if let identitySymbol {
+            Image(systemName: identitySymbol).frame(width: iconSize).accessibilityHidden(true)
+        }
         else if showsNewTabSymbol && url == nil {
             Image(systemName: isPrivate ? "eyeglasses" : "plus.square.dashed")
                 .foregroundStyle(theme.secondaryText).frame(width: iconSize).accessibilityHidden(true)
@@ -72,7 +81,7 @@ struct PageRowContent: View {
         case .none: EmptyView()
         case .alreadyOpen: SwitchToTabBadge()
         case .selected:
-            Image(systemName: "checkmark").font(.footnote.weight(.semibold))
+            Image(systemName: "checkmark").font(OrivType.detail.weight(.semibold))
                 .foregroundStyle(theme.secondaryText).accessibilityHidden(true)
         }
     }

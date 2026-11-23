@@ -46,7 +46,6 @@ struct AddressSuggestionRow: View {
     let suggestion: BrowserSuggestion
     let query: String
     var isPrivate = false
-    @Environment(\.browserTheme) private var theme
     private var address: String {
         // Suggestions must expose the path/query being chosen, including when
         // several results have the same title and host.
@@ -56,20 +55,14 @@ struct AddressSuggestionRow: View {
         return value.replacingOccurrences(of: "^https?://", with: "", options: .regularExpression)
     }
     var body: some View {
-        HStack(spacing: 10) {
-            if suggestion.source == .search { Image(systemName: "magnifyingglass").frame(width: 20).accessibilityHidden(true) }
-            else { SiteIdentity(url: suggestion.url, size: 20, isPrivate: isPrivate) }
-            VStack(alignment: .leading, spacing: 2) {
-                suggestionText(suggestion.title.isEmpty ? (URLDisplay.site(suggestion.url) ?? "Page") : suggestion.title, query: query).foregroundStyle(theme.text).lineLimit(1)
-                if suggestion.source != .search {
-                    suggestionText(address, query: query)
-                        .font(.caption).foregroundStyle(theme.secondaryText).lineLimit(1).truncationMode(.middle)
-                }
-            }
-            Spacer(minLength: 4)
-            if suggestion.tabID != nil { SwitchToTabBadge() }
-        }.font(OrivType.body).contentShape(Rectangle())
-            .accessibilityElement(children: .combine)
-            .accessibilityCustomContent(Text("Address"), Text(verbatim: suggestion.url.absoluteString))
+        let isSearch = suggestion.source == .search
+        let title = suggestion.title.isEmpty ? (URLDisplay.site(suggestion.url) ?? "Page") : suggestion.title
+        PageRowContent(title: title, url: suggestion.url, layout: isSearch ? .titleOnly : .stacked,
+                       iconSize: OrivSpacing.larger, spacing: OrivSpacing.medium, secondaryFont: OrivType.caption,
+                       isPrivate: isPrivate, accessory: suggestion.tabID == nil ? .none : .alreadyOpen,
+                       highlightedTitle: suggestionText(title, query: query),
+                       highlightedAddress: isSearch ? nil : suggestionText(address, query: query),
+                       identitySymbol: isSearch ? "magnifyingglass" : nil, compactTitle: true)
+            .contentShape(Rectangle()).accessibilityElement(children: .combine)
     }
 }

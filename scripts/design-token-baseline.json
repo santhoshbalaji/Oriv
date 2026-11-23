@@ -1,18 +1,10 @@
 {
-  "Apps/Shared/AddressSuggestions.swift": {
-    "font style": 1,
-    "spacing": 2
-  },
   "Apps/Shared/BrowserChrome.swift": {
     "raw color": 2,
     "retired copy": 3
   },
   "Apps/Shared/ContinuityViews.swift": {
     "font style": 3
-  },
-  "Apps/Shared/PageRowContent.swift": {
-    "font style": 1,
-    "spacing": 1
   },
   "Apps/Shared/PrivacyControls.swift": {
     "font style": 4,
