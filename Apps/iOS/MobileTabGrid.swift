@@ -246,6 +246,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         #endif
         cell.setCard(UIHostingConfiguration {
             MobileGridCard(tab: tab, presentation: controller.tabPresentation, selected: controller.session.selectedTabID == tab.id, largeText: model.largeText, close: { controller.close([tab.id]) })
+                .id(tab.id)
                 .browserAppearance(controller.appearance)
                 .environment(\.siteIcons, controller.session.siteIcons)
         }.margins(.all, 0))
