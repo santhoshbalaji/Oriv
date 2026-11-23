@@ -328,7 +328,7 @@ import WebKit
     private static func renderDesignSystem(into directory: URL) async {
         for (name, appearance) in [("light", BrowserAppearance.light), ("dark", .dark), ("black", .t3Code)] {
             for variant in ["standard", "reduced", "increased"] {
-                await capture("mac-design-system-\(name)-\(variant)", directory, CGSize(width: 560, height: 660),
+                await capture("mac-glass-design-system-\(name)-\(variant)", directory, CGSize(width: 560, height: 660),
                               key: false, appearance: appearance) {
                     DesignSystemGallery()
                         .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)

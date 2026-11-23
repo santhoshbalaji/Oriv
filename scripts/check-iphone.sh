@@ -74,7 +74,7 @@ for suite in "${suites[@]}"; do selection+=("-only-testing:OrivMobileTests/$suit
 xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivMobile \
   -configuration Debug -destination "platform=iOS Simulator,id=$simulator" \
   -derivedDataPath "${ORIV_IOS_DERIVED_DATA:-build/iphone-quality-derived}" CODE_SIGNING_ALLOWED=NO \
-  -parallel-testing-enabled NO -test-timeouts-enabled YES \
+  -parallel-testing-enabled NO -collect-test-diagnostics never -test-timeouts-enabled YES \
   -default-test-execution-time-allowance 120 -maximum-test-execution-time-allowance 180 \
   -resultBundlePath "$output/OrivMobileTests.xcresult" "${selection[@]}" test 2>&1 | tee "$output/native.log"
 printf 'iPhone test artifacts: %s\n' "$output"

@@ -17,7 +17,7 @@ xcrun simctl bootstatus "$ORIV_IOS_SIMULATOR_ID" -b
 xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivMobile \
   -configuration Debug -destination "platform=iOS Simulator,id=$ORIV_IOS_SIMULATOR_ID" \
   -derivedDataPath "$ORIV_IOS_DERIVED_DATA" CODE_SIGNING_ALLOWED=NO \
-  -parallel-testing-enabled NO -test-timeouts-enabled YES \
+  -parallel-testing-enabled NO -collect-test-diagnostics never -test-timeouts-enabled YES \
   -default-test-execution-time-allowance 360 -maximum-test-execution-time-allowance 360 \
   -only-testing:OrivMobileTests/DesignSystemCaptureTests \
   -resultBundlePath "$output/Captures.xcresult" test 2>&1 | tee "$output/native.log"
