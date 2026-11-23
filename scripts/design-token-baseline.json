@@ -18,29 +18,9 @@
     "raw color": 2
   },
   "Apps/iOS/MobileBrowserView.swift": {
-    "font size": 6,
-    "font style": 5,
-    "motion": 8,
-    "padding": 8,
-    "raw color": 2,
-    "spacing": 12
-  },
-  "Apps/iOS/MobileLibraryView.swift": {
-    "font size": 3,
-    "font style": 7,
-    "padding": 2,
-    "spacing": 2
-  },
-  "Apps/iOS/MobileSettingsView.swift": {
-    "font style": 8,
-    "padding": 1,
-    "spacing": 1
-  },
-  "Apps/iOS/MobileTabGrid.swift": {
-    "font size": 1,
-    "font style": 1,
+    "motion": 3,
     "raw color": 1,
-    "spacing": 1
+    "spacing": 2
   },
   "Apps/iOS/MobileWebView.swift": {
     "motion": 1

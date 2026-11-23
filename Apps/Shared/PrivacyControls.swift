@@ -81,19 +81,23 @@ struct PrivacyShieldControls: View {
     @Environment(\.browserTheme) private var theme
     let session: BrowserSession
     let tab: BrowserTab
+    #if os(macOS)
     @State private var reloadPrompt = false
+    #endif
     private var privacy: BrowserPrivacy { session.settings.privacy }
     var body: some View {
+        #if os(macOS)
         selectableLabel(tab.hostname, font: .headline)
+        #endif
         LabeledContent("Ad & tracker blocking", value: session.adBlocker.mode.rawValue)
         Toggle("Block ads and trackers on this site", isOn: Binding(
             get: { session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate) },
-            set: { session.adBlocker.setException(!$0, for: tab.url, isPrivate: tab.isPrivate); reloadPrompt = true }
+            set: { session.adBlocker.setException(!$0, for: tab.url, isPrivate: tab.isPrivate); requestReload() }
         )).disabled(session.adBlocker.mode == .off).shieldKeyboardFocus()
         ForEach(PrivacyLayer.allCases.filter { $0 != .youtubeAds || YouTubeProtection.supports(tab.url) }) { layer in
             Toggle(layer.title, isOn: Binding(
                 get: { privacy.isEnabled(layer, for: tab.url, isPrivate: tab.isPrivate) && (layer != .globalPrivacyControl || BrowserPrivacy.supportsGPC) && (layer != .youtubeAds || session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate)) },
-                set: { privacy.setException(!$0, layer, for: tab.url, isPrivate: tab.isPrivate); reloadPrompt = true }
+                set: { privacy.setException(!$0, layer, for: tab.url, isPrivate: tab.isPrivate); requestReload() }
             )).disabled(!privacy.isEnabled(layer) || layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC
                         || layer == .youtubeAds && !session.adBlocker.isEnabled(for: tab.url, isPrivate: tab.isPrivate))
                 .shieldKeyboardFocus()
@@ -104,15 +108,21 @@ struct PrivacyShieldControls: View {
             LabeledContent("Cookie banners", value: tab.cookieBannerResult ?? privacy.cookieBannerMode.rawValue)
         }
         if tab.isPrivate { Label("Exceptions last only for this private session.", systemImage: "eyeglasses").font(.caption) }
-        Button("Site broken? Turn protections off for this site") {
+        #if os(macOS)
+        let disableTitle = "Site broken? Turn protections off for this site"
+        #else
+        let disableTitle = "Turn Off Site Protections"
+        #endif
+        Button(disableTitle) {
             session.adBlocker.setException(true, for: tab.url, isPrivate: tab.isPrivate)
             for layer in PrivacyLayer.allCases { privacy.setException(true, layer, for: tab.url, isPrivate: tab.isPrivate) }
-            reloadPrompt = true
+            requestReload()
         }.shieldKeyboardFocus()
+        #if os(macOS)
         Button("Reset Site Protections") {
             session.adBlocker.setException(false, for: tab.url, isPrivate: tab.isPrivate)
             for layer in PrivacyLayer.allCases { privacy.setException(false, layer, for: tab.url, isPrivate: tab.isPrivate) }
-            reloadPrompt = true
+            requestReload()
         }.shieldKeyboardFocus()
         Button("Reload Page") { tab.reload() }.shieldKeyboardFocus()
         Text("Reload to apply changes fully. Existing form contents stay in place until you choose to reload.").font(.caption).foregroundStyle(theme.textSecondary)
@@ -120,6 +130,13 @@ struct PrivacyShieldControls: View {
             Button("Later", role: .cancel) {}
             Button("Reload") { tab.reload() }
         } message: { Text("Reload applies the changed protections and may discard unsaved form contents.") }
+        #endif
+    }
+
+    private func requestReload() {
+        #if os(macOS)
+        reloadPrompt = true
+        #endif
     }
 
     private func selectableLabel(_ label: String, font: Font) -> some View {
