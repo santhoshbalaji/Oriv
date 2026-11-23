@@ -379,6 +379,17 @@ import XCTest
         try await eventually("sidebar fixture state") { self.marker("homeBookmarks", in: window) != nil && self.marker("homeFrequent", in: window) == nil }
     }
 
+    func testSitePrivacyPopoverFitsShortContent() {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let host = NSHostingController(rootView: AdBlockingPopover(session: profiles.controller.session))
+        let size = host.sizeThatFits(in: CGSize(width: 360, height: 620))
+
+        XCTAssertEqual(size.width, 360)
+        XCTAssertGreaterThan(size.height, 80)
+        XCTAssertLessThan(size.height, 360, "An empty tab should not reserve room for per-site controls.")
+    }
+
     func testPrivacyShieldOpensRealPopover() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let controller = profiles.controller
