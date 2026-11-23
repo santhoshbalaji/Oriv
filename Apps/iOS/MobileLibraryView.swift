@@ -62,12 +62,14 @@ struct MobileSavedPages: View {
                 }
                 if controller.session.historyCount > 0 {
                     Button(OrivStrings.clearHistoryPrompt, role: .destructive) { confirmClear = true }
-                        .orivDestructiveButton(theme).listRowBackground(theme.row)
+                        .orivButton(.destructive).listRowBackground(theme.row)
                 }
             } else {
                 let entries = controller.session.bookmarks.filter { matches($0.title, $0.url) }
                 if controller.session.canUndoBookmarkRemoval {
-                    HStack { Text("Bookmark removed").foregroundStyle(theme.secondaryText); Spacer(); Button("Undo") { controller.session.undoBookmarkRemoval() } }.listRowBackground(theme.row)
+                    OrivBanner(message: "Bookmark removed") {
+                        Button("Undo") { controller.session.undoBookmarkRemoval() }
+                    }.listRowBackground(theme.surfaceRaised)
                 }
                 if entries.isEmpty { empty(isEmpty: controller.session.bookmarks.isEmpty) }
                 let context = URLDisplay.Context(entries.map { ($0.title, $0.url) })
@@ -119,15 +121,8 @@ struct MobileTabsView: View {
             MobileTabGrid(controller: controller, profiles: profiles, tabs: matches,
                 largeText: typeSize.isAccessibilitySize, reduceMotion: reduceMotion, open: { tab in controller.tabPresentation.pendingSelection = tab.id; dismissGrid() }, onPull: onPull, onPinch: onPinch, presented:presented, visible:visible)
                 .background(theme.canvas).navigationBarTitleDisplayMode(.inline)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    if searching {
-                        HStack {
-                            Image(systemName: "magnifyingglass")
-                            TextField(OrivStrings.searchTabs, text: $query).accessibilityIdentifier("tabSearch")
-                            Button("Cancel") { query = ""; searching = false }
-                        }.padding(12).modifier(OrivMaterial.control()).padding(.horizontal, 16).padding(.bottom, 8)
-                    }
-                }
+                .searchable(text: $query, isPresented: $searching, placement: .toolbar, prompt: OrivStrings.searchTabs)
+                .toolbar(removing: .search)
                 .onAppear { privateMode = controller.session.selectedTab?.isPrivate == true }
                 .onChange(of:presented) { _, visible in if visible { privateMode = controller.session.selectedTab?.isPrivate == true } }
                 .onChange(of:controller.session.selectedTab?.isPrivate) { _, value in if !presented { privateMode = value == true } }
@@ -143,10 +138,7 @@ struct MobileTabsView: View {
                             Button("Close All Tabs", role: .destructive) { closeModeTabs() }
                         } label: { Image(systemName: "ellipsis").font(.system(size: 22)).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Tab actions").menuOrder(.fixed).tint(.primary)
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Search Tabs", systemImage: "magnifyingglass") { searching.toggle(); if !searching { query = "" } }
-                            .tint(.primary)
-                    }
+                    DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
                     ToolbarItem(placement: .bottomBar) {
                         Button { controller.newTab(isPrivate: privateMode) } label: { Image(systemName: "plus").font(.system(size: 22)).frame(minWidth: 44, minHeight: 44) }
                             .accessibilityLabel("New Tab").tint(.primary).contextMenu { recentlyClosed }.menuOrder(.fixed)

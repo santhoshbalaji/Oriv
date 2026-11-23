@@ -205,16 +205,17 @@ struct BrowserSidebar: View {
                     if peeking { Text("Search Tabs").modifier(SidebarLabelFade()); Spacer() }
                 }
             }.frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
-                .buttonStyle(ContentButtonStyle()).focused($utilityFocus, equals: "search")
+                .orivButton(.quiet).focused($utilityFocus, equals: "search")
                 .browserGeometryMarker("sidebarSearchGeometry")
                 .accessibilityLabel(OrivStrings.searchTabs).help("Search Tabs (⇧⌘A)")
                 .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
                 .padding(.horizontal, MacBrowserLayout.railInset)
         } else {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass").accessibilityHidden(true)
+            OrivSearchField(text: $controller.tabSearch, shortcut: "⇧⌘A", sidebar: true,
+                            focused: searchFocused, ink: theme.sidebarSecondaryText(contrast),
+                            clearLabel: "Clear tab search", onClear: { searchFocused = true }) {
                 TextField(OrivStrings.searchTabs, text: $controller.tabSearch,
-                          prompt: Text(OrivStrings.searchTabs).foregroundStyle(theme.sidebarSecondaryText(contrast))).textFieldStyle(.plain)
+                          prompt: Text(OrivStrings.searchTabs).foregroundStyle(theme.sidebarSecondaryText(contrast)))
                     .focused($searchFocused).accessibilityLabel(OrivStrings.searchTabs).accessibilityIdentifier("tabSearchField")
                     .accessibilityHint("Press Shift-Command-A to focus Search tabs.")
                     .onExitCommand { controller.tabSearch = ""; focusTabAfterSearch(session.selectedTabID) }
@@ -225,22 +226,7 @@ struct BrowserSidebar: View {
                     .onSubmit {
                         if let first = filteredTabs.first { focusTabAfterSearch(first.id); session.selectTab(first.id) }
                     }
-                if controller.tabSearch.isEmpty {
-                    Canvas { context, size in
-                        context.draw(Text("⇧⌘A").font(.system(size: 10)).foregroundStyle(theme.text),
-                                     at: CGPoint(x: size.width, y: size.height / 2), anchor: .trailing)
-                    }
-                    .frame(width: 30, height: 14)
-                    .accessibilityHidden(true)
-                } else {
-                    Button { controller.tabSearch = ""; searchFocused = true } label: {
-                        Image(systemName: "xmark.circle.fill").frame(width: 24, height: 24)
-                    }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Clear tab search")
-                }
             }
-            .font(OrivType.detail).foregroundStyle(theme.sidebarSecondaryText(contrast))
-            .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 32)
-            .background(theme.sidebar.field.opacity(searchFocused ? 1 : 0.7), in: .rect(cornerRadius: OrivRadius.small))
             .background {
                 if searchFocused, let profiles {
                     ProfileSidebarSwipeRegion(switcher: profiles.sidebarSwitch, controller: controller, kind: .editing)
@@ -264,7 +250,7 @@ struct BrowserSidebar: View {
                 if peeking { Text("New Tab").modifier(SidebarLabelFade()); Spacer() }
                 if !railLayout { Text("New Tab"); Spacer(); Text("⌘T").font(.system(size: 10)).foregroundStyle(theme.sidebarSecondaryText(contrast)) }
             }.font(OrivType.body).padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarRowInset).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
-        }.buttonStyle(ContentButtonStyle()).frame(width: compact ? 42 : nil)
+        }.orivButton(.quiet).frame(width: compact ? 42 : nil)
             .padding(.horizontal, peeking ? MacBrowserLayout.railInset : 0)
             .browserGeometryMarker("sidebarNewTabGeometry")
             .focused($utilityFocus, equals: "new-tab")
@@ -327,7 +313,7 @@ struct BrowserSidebar: View {
                     }
                     if peeking { Text(section.title).font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
                 }
-            }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText(contrast))
+            }.orivButton(.quiet).foregroundStyle(theme.sidebarSecondaryText(contrast))
                 .focused($utilityFocus, equals: section.rawValue)
                 .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.title)
                 .help(section.title).browserGeometryMarker("sidebarFooter-\(section.rawValue)")
@@ -339,7 +325,7 @@ struct BrowserSidebar: View {
                 if peeking { Text("Settings").font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
             }
         }
-            .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText(contrast)).accessibilityLabel("Settings").help("Settings (⌘,)")
+            .orivButton(.quiet).foregroundStyle(theme.sidebarSecondaryText(contrast)).accessibilityLabel("Settings").help("Settings (⌘,)")
             .focused($utilityFocus, equals: "settings")
             .browserGeometryMarker("sidebarFooter-Settings")
     }
@@ -417,16 +403,14 @@ struct SidebarSectionHeading: View {
     let count: Int
     var marksGeometry = true
     var body: some View {
-        HStack(spacing: 6) {
-            if title == "Private" { Image(systemName: "eyeglasses").foregroundStyle(theme.sidebarPrivateAccent) }
-            Text(title).foregroundStyle(title == "Private" ? theme.sidebarPrivateAccent : theme.sidebarSecondaryText(contrast))
-            Spacer()
-            if count > 0 { Text("\(count)").font(.system(size: 11)).monospacedDigit() }
-        }
-        .font(OrivType.title).foregroundStyle(theme.sidebarSecondaryText(contrast))
+        let secondary = theme.sidebarSecondaryText(contrast)
+        SectionHeader(title: title, kind: .sidebar, count: count,
+                      symbol: title == "Private" ? "eyeglasses" : nil,
+                      ink: title == "Private" ? theme.sidebarPrivateAccent : secondary,
+                      countInk: secondary)
         .browserGeometryMarker("sidebarSection-\(title)", when: marksGeometry)
         .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 27)
-        .padding(.top, title == "Private" ? 8 : (title == "Tabs" || title == "More pinned tabs" ? 4 : 0))
+        .padding(.top, title == "Private" ? OrivSpacing.small : (title == "Tabs" || title == "More pinned tabs" ? OrivSpacing.xs : 0))
     }
 }
 
@@ -527,8 +511,14 @@ struct SidebarTabArtwork: View {
         .padding(.horizontal, rail || tile ? 0 : MacBrowserLayout.sidebarRowInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(theme.text)
-        .background(selected ? theme.sidebar.selection : (hovered ? theme.sidebar.hover : (tile && !rail ? theme.sidebar.field.opacity(0.6) : .clear)),
-                    in: .rect(cornerRadius: radius))
+        .background {
+            let fill = selected ? theme.sidebar.selection : hovered ? theme.sidebar.hover : .clear
+            if rail || tile {
+                Rectangle().fill(.clear).modifier(Tile(kind: .pinned(tile && !rail && !selected && !hovered ? theme.sidebar.field.opacity(0.6) : fill)))
+            } else {
+                RoundedRectangle(cornerRadius: OrivRadius.control).fill(fill)
+            }
+        }
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .leading) {
             if active { SelectionMarker(height: 16, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil).padding(.leading, 1) }
@@ -540,7 +530,7 @@ struct SidebarTabArtwork: View {
         }
     }
 
-    private var radius: CGFloat { rail || tile ? OrivRadius.medium : OrivRadius.small }
+    private var radius: CGFloat { rail || tile ? OrivRadius.tile : OrivRadius.control }
 
     private func badge(_ symbol: String) -> some View {
         Image(systemName: symbol).font(.system(size: 10, weight: .bold)).frame(width: 12, height: 12)

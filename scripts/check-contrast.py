@@ -68,9 +68,12 @@ assert "selected ? theme.sidebar.selection" in sidebar_source
 sidebar_opacities = {name: float(value) for name, value in re.findall(
     r"case \.(\w+): ([0-9.]+)", sidebar_source.split("enum SidebarGlassOpacity:", 1)[1].split("struct MacSidebarGlass:", 1)[0])}
 assert sidebar_opacities == {"balanced": 0.55, "high": 0.80, "solid": 1.0}
-focused_field, idle_field = map(float, re.search(
-    r"background\(theme.sidebar.field.opacity\(searchFocused \? ([0-9.]+) : ([0-9.]+)\)", sidebar_source).groups())
-tile_opacity = float(re.search(r"tile && !rail \? theme.sidebar.field.opacity\(([0-9.]+)\)", sidebar_source).group(1))
+search_field = (ROOT / "Apps/macOS/Views/Components/OrivSearchField.swift").read_text()
+assert "sidebar && !focused && !opaque && !increased ? idleSidebarOpacity : 1" in search_field
+assert "(sidebar ? theme.sidebar.field : theme.fill).opacity(opacity)" in search_field
+focused_field = 1.0
+idle_field = float(re.search(r"idleSidebarOpacity = ([0-9.]+)", search_field).group(1))
+tile_opacity = float(re.search(r"!hovered \? theme.sidebar.field.opacity\(([0-9.]+)\)", sidebar_source).group(1))
 chrome = (ROOT / "Apps/Shared/BrowserChrome.swift").read_text()
 control = block("struct BrowserGlass:", "private struct ChromeReduceTransparencyKey", chrome)
 assert "accessibilityReduceTransparency" in control and "contrast == .increased" in control
@@ -149,7 +152,7 @@ for appearance, mode, palette, sidebar in palettes:
                     states = {"panel / rail footer": panel, "selection / rail": sidebar["selection"],
                               "hover": sidebar["hover"], "pressed": sidebar["selection"],
                               "pin": composite(field, panel, tile_opacity),
-                              "search": composite(field, panel, idle_field),
+                              "search": composite(field, panel, focused_field if step in ("increase contrast", "reduce transparency") else idle_field),
                               "focused search": composite(field, panel, focused_field),
                               "expanded footer / private badge": colors["surface"]}
                     label = f"{name} sidebar, page #{page}, {step}"

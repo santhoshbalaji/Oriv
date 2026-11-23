@@ -30,10 +30,13 @@ struct MobileSettingsView: View {
             }.listRowBackground(theme.row)
             Section {
                 PrivacySettingsControls(session: controller.session)
-                Picker("Ad blocking", selection: Binding(get: { controller.session.adBlocker.mode }, set: { controller.session.adBlocker.setMode($0) })) { ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) } }.id(controller.appearance)
+                SettingRow(detail: controller.session.adBlocker.mode == .strict ? AdBlockingMode.strict.detail : nil) {
+                    Picker("Ad blocking", selection: Binding(get: { controller.session.adBlocker.mode }, set: { controller.session.adBlocker.setMode($0) })) {
+                        ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }
+                    }.id(controller.appearance)
+                }
                 if let error = controller.session.adBlocker.preparationError { Text(error).foregroundStyle(theme.danger) }
                 if controller.session.adBlocker.mode == .strict {
-                    Text(AdBlockingMode.strict.detail).font(.footnote).foregroundStyle(theme.secondaryText)
                     if controller.session.adBlocker.isPreparingCNAME { ProgressView(OrivStrings.preparingTrackerProtection) }
                     if let error = controller.session.adBlocker.cnamePreparationError { Text(error).foregroundStyle(theme.danger) }
                 }
@@ -84,12 +87,11 @@ struct MobileAppearanceSettings: View {
                         Button { appearance = choice } label: {
                             VStack(alignment: .leading, spacing: OrivSpacing.medium) {
                                 if !typeSize.isAccessibilitySize { AppearancePreview(choice: choice) }
-                                Text(choice.displayName).font(.body).foregroundStyle(theme.text).fixedSize(horizontal: false, vertical: true)
+                                Text(choice.displayName).font(OrivType.body).foregroundStyle(theme.text).fixedSize(horizontal: false, vertical: true)
                                 Label(appearance == choice ? "Selected" : "Use theme", systemImage: appearance == choice ? "checkmark.circle.fill" : "circle")
-                                    .font(.callout).foregroundStyle(theme.secondaryText)
+                                    .font(OrivType.detail).foregroundStyle(theme.secondaryText)
                             }.padding(OrivSpacing.large).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(theme.surface, in: .rect(cornerRadius: OrivRadius.large))
-                                .overlay { RoundedRectangle(cornerRadius: OrivRadius.large).strokeBorder(appearance == choice ? theme.accent : theme.separator, lineWidth: appearance == choice ? 2 : 1) }
+                                .modifier(Tile(kind: .appearance(theme.surface), selected: appearance == choice))
                         }.buttonStyle(.plain).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
@@ -166,7 +168,7 @@ struct MobileClearBrowsingData: View {
             }.listRowBackground(theme.row)
             Section {
                 Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Bookmarks, open tabs and files you saved are retained.").font(.callout).foregroundStyle(theme.secondaryText)
-                Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivDestructiveButton(theme).disabled(!history && !cache && !sites && !permissions)
+                Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivButton(.destructive).disabled(!history && !cache && !sites && !permissions)
                 if working { ProgressView("Clearing data…") }
                 if completed { Label("Selected browsing data cleared", systemImage: "checkmark.circle").foregroundStyle(theme.success).accessibilityAddTraits(.updatesFrequently) }
             }.listRowBackground(theme.row)
@@ -201,9 +203,9 @@ struct MobileWebsiteData: View {
             else if manager.records.isEmpty { BrowserEmptyState("No website data").listRowBackground(theme.row).listRowSeparator(.hidden) }
             else if records.isEmpty { BrowserEmptyState("No results for “\(query)”.").listRowBackground(theme.row).listRowSeparator(.hidden) }
             ForEach(records, id: \.displayName) { record in
-                VStack(alignment: .leading) { Text(record.displayName); Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivDestructiveButton(theme) }
+                VStack(alignment: .leading) { Text(record.displayName); Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivButton(.destructive) }
             }
-            if !manager.records.isEmpty { Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivDestructiveButton(theme) }
+            if !manager.records.isEmpty { Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivButton(.destructive) }
         }.orivListStyle(theme).navigationTitle(OrivStrings.websiteData).searchable(text: $query)
             .disabled(manager.isWorking).task { await manager.refresh() }
             .confirmationDialog("Remove website data?", isPresented: $confirm, titleVisibility: .visible) {
@@ -234,7 +236,7 @@ private struct MobileProfileChooser: View {
                             if !profile.isPersonal { Button("Rename") { editingID = profile.id; name = profile.name; editing = true } }
                             if !profile.isPersonal && profile.id != profiles.lastRegularProfileID {
                                 Button("Archive…") { archiving = profile }
-                                Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = profile }.orivDestructiveButton(theme)
+                                Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = profile }.orivButton(.destructive)
                             }
                         }
                 }

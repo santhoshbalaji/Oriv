@@ -379,6 +379,22 @@ import XCTest
         try await eventually("sidebar fixture state") { self.marker("homeBookmarks", in: window) != nil && self.marker("homeFrequent", in: window) == nil }
     }
 
+    func testSitePrivacyPopoverFitsShortContent() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let controller = profiles.controller
+        let window = makeWindow(controller, profiles: profiles)
+        defer { window.close() }
+
+        controller.profileUI.showProtection = true
+        try await eventually("Site Privacy fits settings for an empty tab") {
+            NSApp.windows.contains {
+                $0 !== window && $0.isVisible && $0.frame.height < 360 &&
+                    self.marker("sitePrivacyPanelGeometry", in: $0) != nil
+            }
+        }
+    }
+
     func testPrivacyShieldOpensRealPopover() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
         let controller = profiles.controller

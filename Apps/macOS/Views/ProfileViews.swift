@@ -145,7 +145,7 @@ struct ProfilesView: View {
                                 } else if let selected { try profiles.update(selected.id, name: name, color: color, symbol: symbol) }
                                 message = nil
                             } catch { message = error.localizedDescription }
-                        }.buttonStyle(.borderedProminent).tint(theme.accent).disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }.orivButton(.primary).disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         if let selected, selected.archivedAt != nil {
                             Button("Restore") { perform { try profiles.restore(selected.id) } }.disabled(!profiles.canModify)
                         } else if let selected, selected.id != profiles.active.id, canSwitch {
@@ -160,7 +160,7 @@ struct ProfilesView: View {
                         Button("Archive Profile…", role: .destructive) { archiveID = selected.id }.disabled(!profiles.canModify)
                     }
                     if let selected, !selected.isPersonal && selected.id != profiles.active.id {
-                        Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = selected }.orivDestructiveButton(theme).disabled(!profiles.canModify)
+                        Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = selected }.orivButton(.destructive).disabled(!profiles.canModify)
                     }
                     Divider()
                     Text("Profiles organize your browsing; they aren’t locked accounts. Anyone using this Mac account can switch profiles. Apple Passwords and files you explicitly save use the same macOS account.")
@@ -185,19 +185,21 @@ struct ProfilesView: View {
     }
     private func profileRow(_ profile: BrowserProfile) -> some View {
         Button { choose(profile) } label: {
-            HStack(spacing: 9) {
+            HStack(spacing: OrivSpacing.small) {
                 Image(systemName: profile.symbol.rawValue).foregroundStyle(profile.color.tint(in: theme)).frame(width: 20)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: OrivSpacing.xs) {
                     Text(profile.name).lineLimit(1)
-                    if profile.id == profiles.active.id { Text("Current profile").font(.caption2).foregroundStyle(theme.secondaryText) }
+                    if profile.id == profiles.active.id { Badge(text: "Current profile", padsLabel: false) }
                     else if let count = profiles.loadedController(profile.id)?.downloads.items.filter({ !$0.isFinished }).count, count > 0 {
-                        Text("\(count) active downloads").font(.caption2).foregroundStyle(theme.secondaryText)
+                        Badge(text: "\(count) active downloads", kind: .count, padsLabel: false)
                     }
                 }
                 Spacer(minLength: 0)
-            }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(selectedID == profile.id ? theme.accent.opacity(0.12) : .clear, in: .rect(cornerRadius: 8))
-        }.buttonStyle(.plain).accessibilityLabel(profile.name + (profile.id == profiles.active.id ? ", current profile" : ""))
+            }.padding(OrivSpacing.medium).frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(ListSelection(selected: selectedID == profile.id))
+        }.orivButton(.quiet)
+            .accessibilityLabel(profile.name + (profile.id == profiles.active.id ? ", current profile" : ""))
+            .accessibilityAddTraits(selectedID == profile.id ? [.isSelected] : [])
     }
     private func choose(_ profile: BrowserProfile) {
         selectedID = profile.id; creating = false; name = profile.name; color = profile.color; symbol = profile.symbol; message = nil
@@ -210,9 +212,10 @@ struct ProfilesSheet: View {
     let profiles: BrowserProfiles
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack { Text("Your browsing profiles").font(OrivType.title); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
+        OrivSheet(title: "Your browsing profiles", size: .large, height: 560) {
             ProfilesView(profiles: profiles)
-        }.padding(24).frame(width: 700, height: 560)
+        } actions: {
+            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+        }
     }
 }

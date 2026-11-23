@@ -83,10 +83,20 @@ import WebKit
             controller.appearance = appearance
             window.overrideUserInterfaceStyle = appearance == .light ? .light : .dark
             for variant in ["standard", "reduced", "increased"] {
-                try await present("\(name)-gallery-\(variant)", controller) {
-                    DesignSystemGallery()
-                        .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
-                        .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
+                for page in DesignSystemGallery.Page.allCases {
+                    let suffix = page == .foundations ? "" : "-\(page.rawValue)"
+                    try await present("\(name)-gallery-\(variant)\(suffix)", controller) {
+                        DesignSystemGallery(page: page)
+                            .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
+                            .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
+                    }
+                }
+            }
+            if appearance == .light {
+                for page in [DesignSystemGallery.Page.controls, .rows, .notices] {
+                    try await present("light-gallery-accessibility-\(page.rawValue)", controller, bottom: true) {
+                        DesignSystemGallery(page: page).dynamicTypeSize(.accessibility3)
+                    }
                 }
             }
         }

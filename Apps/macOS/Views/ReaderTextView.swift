@@ -7,15 +7,7 @@ struct ReaderTextView: View {
     @State private var size: Double = 18
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Label("Read page text", systemImage: "doc.plaintext")
-                Spacer()
-                Button("Smaller Text", systemImage: "textformat.size.smaller") { size = max(14, size - 2) }.labelStyle(.iconOnly)
-                Button("Larger Text", systemImage: "textformat.size.larger") { size = min(30, size + 2) }.labelStyle(.iconOnly)
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
-            }.padding(18)
-            Divider()
+        OrivSheet(title: "Read page text", size: .large, height: 650) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text(capture.title).font(OrivType.title)
@@ -25,6 +17,10 @@ struct ReaderTextView: View {
                     Text(capture.explanation + " This reading view is temporary and stays on your Mac.").font(.caption).foregroundStyle(theme.secondaryText)
                 }.padding(32).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }.frame(width: 680, height: 650).background(theme.surface)
+        } actions: {
+            Button("Smaller Text", systemImage: "textformat.size.smaller") { size = max(14, size - 2) }.labelStyle(.iconOnly)
+            Button("Larger Text", systemImage: "textformat.size.larger") { size = min(30, size + 2) }.labelStyle(.iconOnly)
+            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+        }.background(theme.surface)
     }
 }

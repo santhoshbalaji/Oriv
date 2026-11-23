@@ -14,26 +14,26 @@ struct SidebarSearchPanel: View {
         controller.session.orderedTabs.map { "\($0.id)-\($0.displayTitle)-\($0.hostname)-\($0.isPrivate)" }
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Search Tabs").font(.headline)
+        VStack(alignment: .leading, spacing: OrivSpacing.medium) {
+            Text("Search Tabs").font(OrivType.title)
             Picker("Search scope", selection: $privateScope) {
                 Text("Regular tabs").tag(false)
                 Text("Private tabs").tag(true)
             }.pickerStyle(.segmented)
-            TextField("Search titles and hosts", text: $controller.tabSearch)
-                .textFieldStyle(.plain).focused($focused)
-                .padding(8).background(theme.sidebar.field, in: .rect(cornerRadius: OrivRadius.small))
-                .accessibilityIdentifier("railTabSearchField")
-                .onExitCommand(perform: dismiss)
-                .onSubmit { activate() }
-                .onKeyPress(.downArrow) { selected = min(max(0, results.count - 1), selected + 1); return .handled }
-                .onKeyPress(.upArrow) { selected = max(0, selected - 1); return .handled }
+            OrivSearchField(text: $controller.tabSearch, focused: focused, onClear: { focused = true }) {
+                TextField("Search titles and hosts", text: $controller.tabSearch)
+                    .focused($focused)
+                    .accessibilityIdentifier("railTabSearchField")
+                    .onExitCommand(perform: dismiss)
+                    .onSubmit { activate() }
+                    .onKeyPress(.downArrow) { selected = min(max(0, results.count - 1), selected + 1); return .handled }
+                    .onKeyPress(.upArrow) { selected = max(0, selected - 1); return .handled }
+            }
             Text("\(results.count) \(privateScope ? "private" : "regular") tabs")
-                .font(.caption).foregroundStyle(theme.secondaryText).accessibilityIdentifier("tabSearchResultCount")
+                .font(OrivType.caption).foregroundStyle(theme.secondaryText).accessibilityIdentifier("tabSearchResultCount")
             resultList
-        }.padding(14).foregroundStyle(theme.text)
-            .background(theme.surface, in: .rect(cornerRadius: OrivRadius.popover))
-            .overlay { RoundedRectangle(cornerRadius: OrivRadius.popover).stroke(theme.separator) }
+        }.padding(OrivSpacing.large).foregroundStyle(theme.text)
+            .modifier(OrivMaterial.overlay())
             .background(SidebarHitTarget(kind: .searchPanel))
             .task {
                 privateScope = controller.session.selectedTab?.isPrivate ?? controller.session.isExternalPrivate
@@ -66,13 +66,14 @@ struct SidebarSearchPanel: View {
             Button { controller.session.selectTab(tab.id); dismiss() } label: {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(tab.displayTitle).lineLimit(2)
-                    Text(tab.hostname).font(.caption).foregroundStyle(theme.secondaryText)
+                    Text(tab.hostname).font(OrivType.caption).foregroundStyle(theme.secondaryText)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
-            }.buttonStyle(ContentButtonStyle()).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
+            }.orivButton(.quiet).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
+                .accessibilityAddTraits(index == selected ? [.isSelected] : [])
             Button { controller.requestCloseTab(tab.id) } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
-                .buttonStyle(ContentButtonStyle()).accessibilityLabel("Close \(tab.displayTitle)")
+                .orivButton(.quiet).accessibilityLabel("Close \(tab.displayTitle)")
         }
-        .background(index == selected ? theme.sidebar.selection : .clear, in: .rect(cornerRadius: OrivRadius.small))
+        .modifier(ListSelection(selected: index == selected, fill: theme.sidebar.selection))
         .id(tab.id)
     }
 

@@ -9,12 +9,13 @@ struct PageErrorState: View {
     var body: some View {
         ContentUnavailableView {
             Label(OrivStrings.pageError, systemImage: "network.slash").foregroundStyle(theme.text)
+                .accessibilityAddTraits(.isHeader)
         } description: {
             if let host { Text(host).font(OrivType.caption).foregroundStyle(theme.textSecondary) }
             Text(message).foregroundStyle(theme.textSecondary)
             Text(OrivStrings.pageErrorRecovery).foregroundStyle(theme.textSecondary)
         } actions: {
-            Button(OrivStrings.tryAgain, action: retry).buttonStyle(.borderedProminent)
+            Button(OrivStrings.tryAgain, action: retry).orivButton(.primary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.canvas)

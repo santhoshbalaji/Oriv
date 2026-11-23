@@ -356,23 +356,25 @@ struct MobileBrowserView: View {
     }
 
     private var backButton: some View {
-        ZStack {
-            Image(systemName: "chevron.left").font(.system(size: 21, weight: .medium)).frame(width: 48, height: 48)
-                .allowsHitTesting(false).accessibilityHidden(true)
-            MobileHistoryMenuSource(tab:tab,forward:false)
-        }.frame(width:48,height:48).tint(.primary)
-            .disabled(tab?.canGoBack != true).buttonStyle(.plain).modifier(OrivMaterial.control()).accessibilityLabel("Back")
-            .accessibilityAction(named: "Show History") { showHistory(forward: false) }
+        BarButton {
+            ZStack {
+                BarButtonIcon(symbol: "chevron.left").allowsHitTesting(false)
+                MobileHistoryMenuSource(tab: tab, forward: false)
+            }
+        }
+        .disabled(tab?.canGoBack != true).accessibilityLabel("Back")
+        .accessibilityAction(named: "Show History") { showHistory(forward: false) }
     }
 
     private var forwardButton: some View {
-        ZStack {
-            Image(systemName: "chevron.right").font(.system(size: 21, weight: .medium)).frame(width: 44, height: 48)
-                .allowsHitTesting(false).accessibilityHidden(true)
-            MobileHistoryMenuSource(tab:tab,forward:true)
-        }.frame(width:44,height:48).tint(.primary)
-            .buttonStyle(.plain).modifier(OrivMaterial.control()).accessibilityLabel("Forward")
-            .accessibilityAction(named: "Show History") { showHistory(forward: true) }
+        BarButton(width: OrivTarget.touch.width) {
+            ZStack {
+                BarButtonIcon(symbol: "chevron.right", width: OrivTarget.touch.width).allowsHitTesting(false)
+                MobileHistoryMenuSource(tab: tab, forward: true)
+            }
+        }
+        .accessibilityLabel("Forward")
+        .accessibilityAction(named: "Show History") { showHistory(forward: true) }
     }
     @ViewBuilder private var tabsMenu: some View {
         Button("New Tab", systemImage: "plus") { controller.newTab() }
@@ -387,16 +389,18 @@ struct MobileBrowserView: View {
     }
 
     private var tabsButton: some View {
-        Menu {
-            tabsMenu
-        } label: {
-            Image(systemName: "square.on.square").font(.system(size: 21, weight: .medium)).frame(width: 48, height: 48)
-        } primaryAction: { controller.sheet = .tabs }
-            .menuOrder(.fixed).tint(.primary)
-            .buttonStyle(.plain).modifier(OrivMaterial.control())
-            .accessibilityLabel("Show All Tabs").accessibilityValue("\(controller.session.tabsInSelectedMode.count) tabs")
-            .accessibilityIdentifier("browserTabs")
+        BarButton {
+            Menu {
+                tabsMenu
+            } label: {
+                BarButtonIcon(symbol: "square.on.square")
+            } primaryAction: { controller.sheet = .tabs }
+                .menuOrder(.fixed)
+        }
+        .accessibilityLabel("Show All Tabs").accessibilityValue("\(controller.session.tabsInSelectedMode.count) tabs")
+        .accessibilityIdentifier("browserTabs")
     }
+
     private func showHistory(forward: Bool) {
         guard let tab else { return }
         let items = forward ? tab.webView.backForwardList.forwardList : Array(tab.webView.backForwardList.backList.reversed())
@@ -733,12 +737,14 @@ struct MobileBrowserView: View {
     @ViewBuilder private var notices: some View {
         if let notice = profiles.continuity.notice { ContinuityNotice(text: notice) }
         if let notice = controller.session.persistenceNotice {
-            HStack { Text(notice).font(.footnote); Spacer(); if controller.session.canPersist { Button("Dismiss") { controller.session.dismissNotice() } } }
-                .padding(.horizontal, OrivSpacing.large).padding(.vertical, 10).background(theme.surface)
+            OrivBanner(notice, tone: .warning,
+                       dismiss: controller.session.canPersist ? { controller.session.dismissNotice() } : nil)
         }
         if controller.session.canUndoBookmarkRemoval {
-            HStack { Text("Bookmark removed").foregroundStyle(theme.secondaryText); Spacer(); Button("Undo") { controller.session.undoBookmarkRemoval() }; Button("Dismiss", systemImage: "xmark") { controller.session.dismissBookmarkUndo() }.labelStyle(.iconOnly).foregroundStyle(theme.secondaryText) }
-                .font(.footnote).padding(.horizontal, OrivSpacing.large).frame(minHeight: 44).background(theme.surface)
+            OrivBanner(message: "Bookmark removed", dismiss: { controller.session.dismissBookmarkUndo() }) {
+                Button("Undo") { controller.session.undoBookmarkRemoval() }
+                    .frame(minHeight: OrivTarget.touch.height)
+            }
         }
     }
     @ViewBuilder private func page(top: CGFloat, bottom: CGFloat) -> some View {
@@ -816,13 +822,13 @@ struct MobileBrowserView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(addressMatches.rows.enumerated()), id: \.element.id) { index, match in
                     if index == 0 || addressMatches.rows[index - 1].source != match.source {
-                        Text(match.source.rawValue).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
-                            .padding(.horizontal, 12).padding(.top, 8)
+                        SectionHeader(title: match.source.rawValue)
+                            .padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.small)
                     }
                     Button { chooseSuggestion(match) } label: {
                         AddressSuggestionRow(suggestion: match, query: address, isPrivate: tab?.isPrivate == true)
                             .padding(.horizontal, 12).frame(minHeight: 52).contentShape(Rectangle())
-                            .background { if addressMatches.selected == index { SelectedRowBackground() } }
+                            .modifier(ListSelection(selected: addressMatches.selected == index))
                     }.buttonStyle(.plain).accessibilityAddTraits(addressMatches.selected == index ? [.isSelected] : [])
                 }
             }.padding(OrivSpacing.small).modifier(OrivMaterial.overlay()).padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)

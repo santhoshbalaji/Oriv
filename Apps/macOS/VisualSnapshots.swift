@@ -278,10 +278,10 @@ import WebKit
             await capture("\(prefix)-acknowledgements", directory, CGSize(width: 600, height: 570), key: false, settle: 350, appearance: appearance) {
                 PrivacyAcknowledgements()
             }
-            await capture("\(prefix)-site-privacy-popover", directory, CGSize(width: 360, height: 620), key: false, settle: 350, appearance: appearance) {
+            await capture("\(prefix)-site-privacy-popover", directory, CGSize(width: 360, height: 620), key: false, settle: 350, appearance: appearance, fitHeight: true) {
                 AdBlockingPopover(session: session)
             }
-            await capture("\(prefix)-password-help-popover", directory, CGSize(width: 340, height: 400), key: false, settle: 350, appearance: appearance) {
+            await capture("\(prefix)-password-help-popover", directory, CGSize(width: 340, height: 620), key: false, settle: 350, appearance: appearance, fitHeight: true) {
                 PasswordsGuide(compact: true)
             }
             for section in [LibrarySection.bookmarks, .history, .downloads] {
@@ -328,11 +328,14 @@ import WebKit
     private static func renderDesignSystem(into directory: URL) async {
         for (name, appearance) in [("light", BrowserAppearance.light), ("dark", .dark), ("black", .t3Code)] {
             for variant in ["standard", "reduced", "increased"] {
-                await capture("mac-glass-design-system-\(name)-\(variant)", directory, CGSize(width: 560, height: 660),
-                              key: false, appearance: appearance) {
-                    DesignSystemGallery()
-                        .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
-                        .environment(\.chromeReduceTransparencyOverride, variant == "reduced" || BackgroundUIMode.isEnabled)
+                for page in DesignSystemGallery.Page.allCases {
+                    let suffix = page == .foundations ? "" : "-\(page.rawValue)"
+                    await capture("mac-glass-design-system-\(name)-\(variant)\(suffix)", directory,
+                                  CGSize(width: 560, height: 660), key: false, appearance: appearance) {
+                        DesignSystemGallery(page: page)
+                            .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
+                            .environment(\.chromeReduceTransparencyOverride, variant == "reduced" || BackgroundUIMode.isEnabled)
+                    }
                 }
             }
         }
@@ -1595,6 +1598,7 @@ import WebKit
                                                appearance: BrowserAppearance = .t3Code,
                                                applyBrowserAppearance: Bool = true,
                                                covered: Bool = false,
+                                               fitHeight: Bool = false,
                                                prepare: (NSWindow) async -> Void = { _ in },
                                                @ViewBuilder content: () -> Content) async {
         @ViewBuilder func rootView() -> some View {
@@ -1626,6 +1630,10 @@ import WebKit
         let cover = covered ? BackgroundUIMode.makeCover(for: window) : nil
         defer { cover?.orderOut(nil); cover?.close(); window.orderOut(nil); window.close() }
         try? await Task.sleep(for: .milliseconds(settle))
+        if fitHeight {
+            let height = min(size.height, ceil(hosting.sizeThatFits(in: size).height) + 32)
+            window.setContentSize(CGSize(width: size.width, height: height))
+        }
         var attempts = 0
         while key && !window.isKeyWindow && !BackgroundUIMode.isEnabled && attempts < 20 {
             attempts += 1

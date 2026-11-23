@@ -76,31 +76,35 @@ struct AppearanceSettings: View {
         return Form {
             Section("Browsing") {
                 if let profiles {
-                    Toggle(OrivStrings.openLinksPrivately, isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
-                    Text("External links open signed out, separate from every profile. Move a page to a profile when you choose.").font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                    SettingRow(detail: "External links open signed out, separate from every profile. Move a page to a profile when you choose.") {
+                        Toggle(OrivStrings.openLinksPrivately, isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
+                    }
                 }
-                BrowsingPreferencePicker(title: "Search engine", selection: $settings.searchEngine,
-                                         options: SearchEngine.allCases, label: \.rawValue)
-                Text("Searches are sent only when you submit them. Address suggestions use local tabs, saved pages and history.").font(.caption).foregroundStyle(theme.secondaryText)
-                Toggle("Restore tabs when Oriv starts", isOn: $settings.restoreTabs).tint(theme.accent)
-                Text("Pinned tabs always return. Private tabs are never restored. This takes effect on the next launch.").font(.caption).foregroundStyle(theme.secondaryText)
-                BrowsingPreferencePicker(title: "Default page zoom", selection: $settings.defaultZoom,
-                                         options: [0.75, 0.9, 1, 1.1, 1.25, 1.5, 2], label: { "\(Int($0 * 100))%" })
-                Text("Applies to newly opened tabs.").font(.caption).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: "Searches are sent only when you submit them. Address suggestions use local tabs, saved pages and history.") {
+                    BrowsingPreferencePicker(title: "Search engine", selection: $settings.searchEngine,
+                                             options: SearchEngine.allCases, label: \.rawValue)
+                }
+                SettingRow(detail: "Pinned tabs always return. Private tabs are never restored. This takes effect on the next launch.") {
+                    Toggle("Restore tabs when Oriv starts", isOn: $settings.restoreTabs).tint(theme.accent)
+                }
+                SettingRow(detail: "Applies to newly opened tabs.") {
+                    BrowsingPreferencePicker(title: "Default page zoom", selection: $settings.defaultZoom,
+                                             options: [0.75, 0.9, 1, 1.1, 1.25, 1.5, 2], label: { "\(Int($0 * 100))%" })
+                }
             }
             Section("Default browser") {
-                Button("Make \(AppIdentity.name) the Default Browser…") {
-                    changingDefault = true
-                    Task {
-                        defer { changingDefault = false }
-                        do {
-                            for scheme in ["https", "http"] { try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpenURLsWithScheme: scheme) }
-                            defaultBrowserStatus = isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "The change wasn’t confirmed for both HTTP and HTTPS. Check macOS Settings."
-                        } catch { defaultBrowserStatus = "The default browser wasn’t changed for every scheme. \(error.localizedDescription)" }
-                    }
-                }.disabled(changingDefault || isDefaultBrowser)
-                Text(defaultBrowserStatus.isEmpty ? (isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "macOS will ask you to confirm this change.") : defaultBrowserStatus)
-                    .font(.caption).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: defaultBrowserStatus.isEmpty ? (isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "macOS will ask you to confirm this change.") : defaultBrowserStatus) {
+                    Button("Make \(AppIdentity.name) the Default Browser…") {
+                        changingDefault = true
+                        Task {
+                            defer { changingDefault = false }
+                            do {
+                                for scheme in ["https", "http"] { try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpenURLsWithScheme: scheme) }
+                                defaultBrowserStatus = isDefaultBrowser ? "\(AppIdentity.name) is your default browser." : "The change wasn’t confirmed for both HTTP and HTTPS. Check macOS Settings."
+                            } catch { defaultBrowserStatus = "The default browser wasn’t changed for every scheme. \(error.localizedDescription)" }
+                        }
+                    }.disabled(changingDefault || isDefaultBrowser)
+                }
             }
         }.formStyle(.grouped)
     }
@@ -122,7 +126,8 @@ struct AppearanceSettings: View {
                                 Image(systemName: appearance == choice ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(appearance == choice ? theme.accent : theme.secondaryText)
                             }.padding(OrivSpacing.small).frame(maxWidth: .infinity)
-                        }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Use \(choice.displayName) appearance")
+                                .modifier(Tile(kind: .appearance(.clear), selected: appearance == choice))
+                        }.orivButton(.quiet).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
@@ -167,26 +172,24 @@ struct AppearanceSettings: View {
                 }.pickerStyle(.segmented)
             }
             Section("Sidebar for this profile") {
-                Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
-                Text("Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.")
-                    .font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: "Off by default. Hover reveals titles over the page. Use ⌥⌘S to expand or collapse with the keyboard. Hover reveal is suspended while VoiceOver is running.") {
+                    Toggle("Show sidebar when hovering over collapsed tabs", isOn: Binding(get: { controller.hoverSidebar }, set: { controller.hoverSidebar = $0 }))
+                }
             }
         }.formStyle(.grouped)
     }
 
     private func sidebarSwatch(_ choice: SidebarColor, profileColor: ProfileColor) -> some View {
         let selected = controller.sidebarColor == choice
-        let shape = RoundedRectangle(cornerRadius: OrivRadius.small)
         return Button {
             controller.sidebarColor = choice
         } label: {
             VStack(spacing: OrivSpacing.xs) {
-                shape.fill(choice.backing(in: .graphite, profileColor: profileColor))
-                    .frame(height: 24)
-                    .overlay { shape.strokeBorder(selected ? theme.accent : theme.separator, lineWidth: selected ? 2 : 1) }
+                Rectangle().fill(.clear).frame(height: OrivTarget.macMinimum.height)
+                    .modifier(Tile(kind: .swatch(choice.backing(in: .graphite, profileColor: profileColor)), selected: selected))
                     .overlay {
                         if selected {
-                            Image(systemName: "checkmark").font(.caption.weight(.semibold))
+                            Image(systemName: "checkmark").font(OrivType.caption.weight(.semibold))
                                 .foregroundStyle(Theme.graphite.text)
                         }
                     }
@@ -195,7 +198,7 @@ struct AppearanceSettings: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(ContentButtonStyle())
+        .orivButton(.quiet)
         .accessibilityLabel(choice.title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }

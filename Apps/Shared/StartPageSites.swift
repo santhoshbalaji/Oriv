@@ -59,18 +59,7 @@ struct StartPageSites: View {
 
     private func section(_ title: String, id: String, items: [(String, URL)], showAll: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: OrivSpacing.small) {
-            HStack {
-                Text(title).font(OrivType.body.weight(.semibold)).foregroundStyle(theme.secondaryText)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                Button("Show All", action: showAll).font(OrivType.detail)
-                    .accessibilityLabel("Show All \(title)")
-                    #if os(macOS)
-                    .buttonStyle(.borderless)
-                    #else
-                    .frame(minHeight: 44)
-                    #endif
-            }
+            SectionHeader(title: title, kind: .content, showAll: showAll)
             LazyVGrid(columns: columns, alignment: .leading, spacing: OrivSpacing.small) {
                 ForEach(items, id: \.1) { title, url in
                     let name = title.isEmpty ? (url.host ?? "Saved page") : title
@@ -80,16 +69,16 @@ struct StartPageSites: View {
                             Text(name).font(OrivType.detail).lineLimit(2, reservesSpace: true).multilineTextAlignment(.center)
                         }
                         .padding(OrivSpacing.small)
-                        .frame(maxWidth: .infinity, minHeight: 84)
+                        .frame(maxWidth: .infinity, minHeight: OrivLayout.tileMinimumHeight)
                         .foregroundStyle(theme.text)
-                        .contentShape(.rect(cornerRadius: OrivRadius.medium))
+                        .contentShape(.rect(cornerRadius: OrivRadius.tile))
                     }
                     #if os(macOS)
-                    .buttonStyle(ContentButtonStyle())
+                    .orivButton(.quiet)
                     #else
                     .buttonStyle(.plain)
                     #endif
-                    .background(theme.surface, in: .rect(cornerRadius: OrivRadius.medium))
+                    .modifier(Tile(kind: .site))
                     .accessibilityLabel(name)
                     .accessibilityHint(url.host ?? "")
                     .accessibilityIdentifier("\(id)-tile")

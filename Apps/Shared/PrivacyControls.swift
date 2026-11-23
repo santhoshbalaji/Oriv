@@ -26,32 +26,38 @@ struct PrivacySettingsControls: View {
     let session: BrowserSession
     @State private var acknowledgements = false
     var body: some View {
-        Toggle("Isolate each private tab", isOn: Binding(
-            get: { session.settings.privateTabIsolation.isEnabled },
-            set: { session.settings.privateTabIsolation.isEnabled = $0 }
-        ))
-        Text("Give new private tabs their own cookies and website data. Changes apply only to tabs you open next.")
-            .font(.caption).foregroundStyle(theme.textSecondary)
+        SettingRow(detail: "Give new private tabs their own cookies and website data. Changes apply only to tabs you open next.") {
+            Toggle("Isolate each private tab", isOn: Binding(
+                get: { session.settings.privateTabIsolation.isEnabled },
+                set: { session.settings.privateTabIsolation.isEnabled = $0 }
+            ))
+        }
         ForEach(PrivacyLayer.allCases.filter { $0 != .cookieBanners }) { layer in
-            Toggle(layer.title, isOn: Binding(get: { session.settings.privacy.isEnabled(layer) }, set: { session.settings.privacy.setEnabled($0, layer) }))
-                .disabled(layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC)
-            if layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC {
-                Text(OrivStrings.globalPrivacyControlUnavailable).font(.caption).foregroundStyle(theme.textSecondary)
+            let unavailable = layer == .globalPrivacyControl && !BrowserPrivacy.supportsGPC
+            let detail = if unavailable {
+                OrivStrings.globalPrivacyControlUnavailable
+            } else if layer == .linkCleaning {
+                "Copy and Share clean links. Use Copy Original Link to keep every parameter. This switch controls navigation."
+            } else {
+                nil as String?
+            }
+            SettingRow(detail: detail) {
+                Toggle(layer.title, isOn: Binding(get: { session.settings.privacy.isEnabled(layer) }, set: { session.settings.privacy.setEnabled($0, layer) }))
+                    .disabled(unavailable)
             }
         }
         Toggle("Skip ads that still start", isOn: Binding(
             get: { session.settings.privacy.skipYouTubeAds },
             set: { session.settings.privacy.skipYouTubeAds = $0 }
         )).disabled(!session.settings.privacy.isEnabled(.youtubeAds) || session.adBlocker.mode == .off)
-        Text("Copy and Share clean links. Use Copy Original Link to keep every parameter. The link-cleaning switch controls navigation.").font(.caption).foregroundStyle(theme.textSecondary)
-        Picker("Cookie banners", selection: Binding(
-            get: { session.settings.privacy.cookieBannerMode },
-            set: { session.settings.privacy.setCookieBannerMode($0) }
-        )) {
-            ForEach(CookieBannerMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+        SettingRow(detail: "Reject uses known opt-out controls and hides banners when no supported opt-out succeeds.") {
+            Picker("Cookie banners", selection: Binding(
+                get: { session.settings.privacy.cookieBannerMode },
+                set: { session.settings.privacy.setCookieBannerMode($0) }
+            )) {
+                ForEach(CookieBannerMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+            }
         }
-        Text("Reject uses known opt-out controls and hides banners when no supported opt-out succeeds.")
-            .font(.caption).foregroundStyle(theme.textSecondary)
         Button("Acknowledgments") { acknowledgements = true }
             .sheet(isPresented: $acknowledgements) { PrivacyAcknowledgements() }
         if !session.settings.privacy.regularExceptions.isEmpty {
@@ -139,10 +145,27 @@ private extension View {
 struct PrivacyAcknowledgements: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack { Text("Privacy Acknowledgments").font(.headline); Spacer(); Button("Done") { dismiss() } }
-            ScrollView { Text(BundledPrivacyRules.acknowledgements).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-        }.padding(20).frame(minWidth: 280, idealWidth: 600, minHeight: 350, idealHeight: 600)
+        #if os(macOS)
+        OrivSheet(title: "Privacy Acknowledgments", height: 600) {
+            acknowledgmentText
+        } actions: {
+            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+        }
+        #else
+        NavigationStack {
+            acknowledgmentText.padding(OrivSpacing.large)
+                .navigationTitle("Privacy Acknowledgments")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        #endif
+    }
+
+    private var acknowledgmentText: some View {
+        ScrollView {
+            Text(BundledPrivacyRules.acknowledgements).font(OrivType.body).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

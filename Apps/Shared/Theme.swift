@@ -97,6 +97,7 @@ enum OrivMotion {
 
 enum OrivIcon {
     static let toolbar: CGFloat = 14
+    static let toolbarFont = Font.system(size: toolbar)
     static let rail: CGFloat = 16
     static let footer = rail
     static let inline: CGFloat = 12
@@ -420,41 +421,6 @@ struct AppearancePreview: View {
     }
 }
 
-/// Marks a suggestion that switches to an open tab instead of loading the page again.
-struct SwitchToTabBadge: View {
-    @Environment(\.browserTheme) private var theme
-    var body: some View {
-        Text(OrivStrings.alreadyOpen).font(.caption2.weight(.medium)).foregroundStyle(theme.secondaryText).lineLimit(1).fixedSize()
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(theme.field, in: Capsule())
-            .accessibilityLabel(OrivStrings.alreadyOpen)
-    }
-}
-
-/// The system-accent marker identifies the active row at its leading edge.
-struct SelectionMarker: View {
-    @Environment(\.browserTheme) private var theme
-    @Environment(\.self) private var environment
-    var height: CGFloat = 16
-    var background: Color? = nil
-
-    var body: some View {
-        let surface = (background ?? theme.selection).resolve(in: environment)
-        Capsule().fill(theme.markerAccent(on: surface, in: environment))
-            .frame(width: 3, height: height).accessibilityHidden(true)
-    }
-}
-
-/// Selected-row background with the leading marker, for lists that draw their own selection.
-struct SelectedRowBackground: View {
-    @Environment(\.browserTheme) private var theme
-    var cornerRadius: CGFloat = OrivRadius.small
-    var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius).fill(theme.selection)
-            .overlay(alignment: .leading) { SelectionMarker().padding(.leading, 2) }
-    }
-}
-
 /// Site-owned favicons, with a local monogram while unavailable.
 struct SiteIdentity: View {
     @Environment(\.siteIcons) private var icons
@@ -534,11 +500,6 @@ struct SiteIdentity: View {
 }
 
 extension View {
-    /// Use with a destructive role for app-owned buttons outside native alerts and menus.
-    func orivDestructiveButton(_ theme: Theme) -> some View {
-        buttonStyle(.bordered).tint(theme.danger).foregroundStyle(theme.danger)
-    }
-
     /// Shared list and form backdrop for app-owned rows.
     func orivListStyle(_ theme: Theme) -> some View {
         scrollContentBackground(.hidden).background(theme.surface)

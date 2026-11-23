@@ -10,21 +10,22 @@ struct ContinuitySettingsView: View {
         Form {
             Section {
                 // Wrap actor-isolated setters to avoid Xcode 26's method-reference reabstraction crash.
-                Toggle(OrivStrings.sync, isOn: Binding(get: { continuity.state.enabled }, set: { continuity.setEnabled($0) })).tint(theme.accent)
-                    .disabled(!continuity.isConfigured || !continuity.canSave)
-                    .accessibilityIdentifier("continuityEnabled")
-                Text("Keep bookmarks, history, profiles, regular tabs and browser preferences available on your Mac and iPhone.")
-                    .font(.callout).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: "Keep bookmarks, history, profiles, regular tabs and browser preferences available on your Mac and iPhone.") {
+                    Toggle(OrivStrings.sync, isOn: Binding(get: { continuity.state.enabled }, set: { continuity.setEnabled($0) })).tint(theme.accent)
+                        .disabled(!continuity.isConfigured || !continuity.canSave)
+                        .accessibilityIdentifier("continuityEnabled")
+                }
             } footer: {
                 Text("Uses your private iCloud database. Turning sync off pauses this device and retains existing copies. History deletions sync when your devices reconnect.")
             }.listRowBackground(theme.surface)
             Section("Status") {
                 Text(continuity.status).accessibilityIdentifier("continuityStatus")
                 if let date = continuity.state.lastSync { LabeledContent("Last successful sync", value: date.formatted(date: .abbreviated, time: .shortened)) }
-                Button { Task { await continuity.syncNow() } } label: {
-                    HStack { Text(OrivStrings.syncNow); if continuity.isSyncing { ProgressView().controlSize(.small) } }
-                }.disabled(!continuity.state.enabled || continuity.isSyncing || !continuity.isConfigured)
-                Text("Sync runs while Oriv is active and resumes when you return. Tabs on other devices reflect their last sync.").font(.caption).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: "Sync runs while Oriv is active and resumes when you return. Tabs on other devices reflect their last sync.") {
+                    Button { Task { await continuity.syncNow() } } label: {
+                        HStack { Text(OrivStrings.syncNow); if continuity.isSyncing { ProgressView().controlSize(.small) } }
+                    }.disabled(!continuity.state.enabled || continuity.isSyncing || !continuity.isConfigured)
+                }
             }.listRowBackground(theme.surface)
             Section("This device") {
                 LabeledContent("Device name") {
@@ -34,9 +35,10 @@ struct ContinuitySettingsView: View {
                         .accessibilityLabel("Device name").onSubmit { continuity.setDeviceName(deviceName) }
                 }
                 Button("Save Device Name") { continuity.setDeviceName(deviceName) }.disabled(deviceName == continuity.state.deviceName || deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || deviceName.count > 80)
-                Toggle("Handoff", isOn: Binding(get: { continuity.isConfigured && continuity.state.handoffEnabled }, set: { continuity.setHandoff($0) })).tint(theme.accent)
-                    .disabled(!continuity.isConfigured || !continuity.canSave)
-                Text("Continue your current regular page on a nearby device signed in to the same Apple Account. Opens a new tab in the matching profile.").font(.caption).foregroundStyle(theme.secondaryText)
+                SettingRow(detail: "Continue your current regular page on a nearby device signed in to the same Apple Account. Opens a new tab in the matching profile.") {
+                    Toggle("Handoff", isOn: Binding(get: { continuity.isConfigured && continuity.state.handoffEnabled }, set: { continuity.setHandoff($0) })).tint(theme.accent)
+                        .disabled(!continuity.isConfigured || !continuity.canSave)
+                }
             }.listRowBackground(theme.surface)
             Section("Stays on this device") {
                 Text("Website logins and cookies, private tabs, form drafts, downloads, device permissions and profile selection. Archiving a profile is local to this device.")
@@ -182,14 +184,10 @@ struct SendPageMenu: View {
 }
 
 struct ContinuityNotice: View {
-    @Environment(\.browserTheme) private var theme
     let text: String
+
     var body: some View {
-        Label { Text(text).foregroundStyle(theme.text) } icon: {
-            Image(systemName: "checkmark.circle").foregroundStyle(theme.success)
-        }.font(OrivType.detail)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(OrivSpacing.medium).background(theme.surface)
-            .accessibilityElement(children: .combine).accessibilityAddTraits(.updatesFrequently)
+        OrivBanner(text, tone: .success).accessibilityAddTraits(.updatesFrequently)
     }
 }
 
@@ -200,22 +198,14 @@ struct DeleteProfileConfirmation: View {
     let confirm: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Delete \(profile.name)?").font(.title2.bold())
+        OrivSheet(title: "Delete \(profile.name)?", size: .small) {
             Text("This permanently deletes this profile’s tabs, history, bookmarks, website data, and synced records. Deletion reaches other devices when they sync. This can’t be undone.")
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.bordered)
-                Button(OrivStrings.deleteProfile, role: .destructive) { dismiss(); confirm() }
-                    .orivDestructiveButton(theme)
-            }
+                .font(OrivType.body).fixedSize(horizontal: false, vertical: true)
+        } actions: {
+            OrivSheetCancel(isDefault: true) { dismiss() }
+            Button(OrivStrings.deleteProfile, role: .destructive) { dismiss(); confirm() }
+                .orivButton(.destructive)
         }
-        .padding(24)
-        .frame(idealWidth: 380, maxWidth: 420)
         #if os(iOS)
         .presentationDetents([.medium, .large])
         #endif

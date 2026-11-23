@@ -3,6 +3,7 @@ import SwiftUI
 /// A DEBUG-only presentation substitute keeps the production label and style
 /// available to off-screen hit-testing without starting an AppKit menu session.
 struct MacPageMenu<Content: View, Label: View>: View {
+    var active = false
     @ViewBuilder let content: () -> Content
     @ViewBuilder let label: () -> Label
     #if DEBUG
@@ -22,7 +23,7 @@ struct MacPageMenu<Content: View, Label: View>: View {
             #endif
         }
         .menuOrder(.fixed)
-        .buttonStyle(MacChromeButtonStyle())
+        .buttonStyle(ToolbarButtonStyle(active: active))
     }
 }
 

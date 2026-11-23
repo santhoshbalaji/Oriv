@@ -397,15 +397,15 @@ struct BrowserWindow: View {
     }
 
     private var navigationControls: some View {
-                HStack(spacing: 2) {
-                Button { tab?.goBack() } label: { Image(systemName: "chevron.backward").frame(width: 28, height: 28) }
-                    .disabled(tab?.canGoBack != true).help("Back (⌘[)").accessibilityLabel("Back")
-                    .foregroundStyle(chromeForeground)
-                Button { tab?.goForward() } label: { Image(systemName: "chevron.forward").frame(width: 28, height: 28) }
-                    .disabled(tab?.canGoForward != true).help("Forward (⌘])").accessibilityLabel("Forward")
-                    .foregroundStyle(chromeForeground)
-                }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
-                    .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+        HStack(spacing: OrivSpacing.xxs) {
+            ToolbarButton(label: "Back", symbol: "chevron.backward", help: "Back (⌘[)") { tab?.goBack() }
+                .disabled(tab?.canGoBack != true)
+            ToolbarButton(label: "Forward", symbol: "chevron.forward", help: "Forward (⌘])") { tab?.goForward() }
+                .disabled(tab?.canGoForward != true)
+        }
+        .foregroundStyle(chromeForeground)
+        .frame(height: OrivLayout.controlHeight)
+        .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
     }
 
     private var addressCapsule: some View {
@@ -422,7 +422,7 @@ struct BrowserWindow: View {
                                 Image(systemName: cue.symbol)
                                 if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
                             }.font(OrivType.detail).foregroundStyle(chromeForeground).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
-                        }.buttonStyle(MacChromeButtonStyle()).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
+                        }.buttonStyle(ToolbarButtonStyle(active: ui.showSiteInfo)).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
                             .browserGeometryMarker("browserSiteInformationGeometry")
                             .background {
                                 BrowserPopover(isPresented: $ui.showSiteInfo) {
@@ -454,14 +454,14 @@ struct BrowserWindow: View {
                         if tab?.url != nil {
                             if let tab, tab.pageZoom != 1 {
                                 Button { tab.resetZoom() } label: {
-                                    Text("\(Int(tab.pageZoom * 100))%").font(.caption2).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
-                                }.buttonStyle(MacChromeButtonStyle()).accessibilityLabel("Reset Page Zoom").accessibilityValue("\(Int(tab.pageZoom * 100)) percent").help("Reset Page Zoom")
+                                    Text("\(Int(tab.pageZoom * 100))%").font(OrivType.caption).frame(minWidth: OrivTarget.macMinimum.width, minHeight: OrivTarget.macMinimum.height).contentShape(Rectangle())
+                                }.buttonStyle(ToolbarButtonStyle()).accessibilityLabel("Reset Page Zoom").accessibilityValue("\(Int(tab.pageZoom * 100)) percent").help("Reset Page Zoom")
                             }
                             Button { tab?.isLoading == true ? tab?.stop() : tab?.reload() } label: {
                                 Image(systemName: tab?.isLoading == true ? "xmark" : "arrow.clockwise")
                                     .font(OrivType.detail).frame(width: 24, height: 24)
                             }
-                            .buttonStyle(MacChromeButtonStyle())
+                            .buttonStyle(ToolbarButtonStyle())
                             .accessibilityLabel(tab?.isLoading == true ? "Stop loading" : "Reload page")
                             .help(tab?.isLoading == true ? "Stop loading" : "Reload (⌘R)")
                         }
@@ -477,25 +477,17 @@ struct BrowserWindow: View {
     // Site privacy shares the content header's glass and adaptive foreground.
     private var toolbarActions: some View {
         @Bindable var ui = self.ui
-        return HStack(spacing: 2) {
+        return HStack(spacing: OrivSpacing.xxs) {
             if showsToolbarPasswordKey {
-                Button(action: fillPassword) {
-                    Image(systemName: "key.fill")
-                        .frame(width: 28, height: 28)
-                        .foregroundStyle(chromeForeground)
-                        .background(chromeForeground.opacity(0.16), in: Circle())
-                }
-                .help("AutoFill from Passwords")
-                .accessibilityLabel("AutoFill from Passwords")
+                ToolbarButton(label: "AutoFill from Passwords", symbol: "key.fill", action: fillPassword)
             }
             if showsToolbarDownloads && showsExpandedToolbarActions {
-                Button { controller.library = .downloads } label: { Label("Downloads in progress", systemImage: "arrow.down.circle.fill") }
-                    .labelStyle(.iconOnly).help("View downloads in progress")
+                ToolbarButton(label: "Downloads in progress", symbol: "arrow.down.circle.fill",
+                              help: "View downloads in progress", active: true) { controller.library = .downloads }
             }
-            Button { ui.showProtection.toggle() } label: {
-                Image(systemName: "shield.lefthalf.filled").frame(width: 28, height: 28).foregroundStyle(chromeForeground)
+            ToolbarButton(label: OrivStrings.sitePrivacy, symbol: "shield.lefthalf.filled", active: ui.showProtection) {
+                ui.showProtection.toggle()
             }
-            .help(OrivStrings.sitePrivacy).accessibilityLabel(OrivStrings.sitePrivacy)
             .accessibilityIdentifier("sitePrivacyButton")
             .browserGeometryMarker("browserPrivacyGeometry")
             .background {
@@ -506,30 +498,31 @@ struct BrowserWindow: View {
             }
             if showsExpandedToolbarActions {
                 if let url = tab?.url {
-                    ShareLink(item: URLCleaner.clean(url)) { Image(systemName: "square.and.arrow.up").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
-                        .help("Share Page").accessibilityLabel("Share Page")
+                    ShareLink(item: URLCleaner.clean(url)) {
+                        Image(systemName: "square.and.arrow.up").font(OrivIcon.toolbarFont)
+                            .frame(width: OrivTarget.macToolbar.width, height: OrivTarget.macToolbar.height)
+                    }
+                    .buttonStyle(ToolbarButtonStyle()).help("Share Page").accessibilityLabel("Share Page")
                 }
-                Button { ui.showTabs = true } label: { Image(systemName: "square.on.square").frame(width: 28, height: 28).foregroundStyle(chromeForeground) }
-                    .help("Tab Overview").accessibilityLabel("Tab Overview")
+                ToolbarButton(label: "Tab Overview", symbol: "square.on.square", active: ui.showTabs) { ui.showTabs = true }
                     .browserGeometryMarker("browserOverviewGeometry")
             }
-        }.buttonStyle(MacChromeButtonStyle()).frame(height: 32)
+        }.foregroundStyle(chromeForeground).frame(height: OrivLayout.controlHeight)
             .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
     }
 
     private var toolbarMenu: some View {
         @Bindable var ui = self.ui
         let fillAction: (() -> Void)? = canFillPassword ? { fillPassword() } : nil
-        let menu = MacPageMenu {
+        let menu = MacPageMenu(active: ui.showPasswords) {
             MacPageActions(controller: controller, profiles: profiles,
                 findOnPage: { ui.showFind = true; findFocused = true },
                 showSitePrivacy: { ui.showProtection = true },
                 fillPassword: fillAction, showPasswordsGuide: { showPasswordHelp() },
                 requestSiteForget: { ui.siteToForget = $0 })
         } label: {
-            Image(systemName: "ellipsis")
-                .frame(width: 36, height: 32)
-                .modifier(chromeGlass).contentShape(Rectangle())
+            Image(systemName: "ellipsis").font(OrivIcon.toolbarFont)
+                .frame(width: OrivTarget.macRail.height, height: OrivLayout.controlHeight)
         }
         return menu
         .help("Browser Actions").accessibilityLabel("Browser Actions")
@@ -586,29 +579,21 @@ struct BrowserWindow: View {
                         move: { profiles.perform { try profiles.moveExternalTab() } }, dismiss: { profiles.externalBannerVisible = false })
                 }
                 if session.canUndoBookmarkRemoval {
-                    HStack { Text("Bookmark removed").foregroundStyle(theme.secondaryText); Spacer(); Button("Undo") { session.undoBookmarkRemoval() }.buttonStyle(.borderless); Button("Dismiss", systemImage: "xmark") { session.dismissBookmarkUndo() }.labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(theme.secondaryText) }
-                        .font(OrivType.detail).padding(.horizontal, OrivSpacing.large).frame(height: 32).background(theme.surface)
+                    OrivBanner(message: "Bookmark removed", dismiss: { session.dismissBookmarkUndo() }) {
+                        Button("Undo") { session.undoBookmarkRemoval() }.orivButton(.link)
+                    }
                 }
                 if let notice = profiles?.continuity.notice { ContinuityNotice(text: notice) }
                 if let notice = controller.browserNotice {
-                    noticeBar(notice, symbol: "checkmark.circle", isWarning: false) { controller.browserNotice = nil }
+                    OrivBanner(notice, tone: .success, dismiss: { controller.browserNotice = nil })
                 }
                 if let notice = session.persistenceNotice {
-                    noticeBar(notice, symbol: "externaldrive.badge.exclamationmark") {
-                        session.dismissNotice()
-                    }
+                    OrivBanner(notice, tone: .warning, symbol: "externaldrive.badge.exclamationmark",
+                               dismiss: session.canPersist ? { session.dismissNotice() } : nil)
                 }
                 // The private start page explains itself; loaded private pages keep this persistent cue.
                 if tab?.isPrivate == true && !showsExternalPrivateBar && tab?.url != nil {
-                    HStack(spacing: 6) {
-                        Image(systemName: "eyeglasses")
-                        Text("Private browsing")
-                        Spacer()
-                    }
-                    .font(OrivType.caption.weight(.medium)).foregroundStyle(theme.privateAccent)
-                    .padding(.horizontal, OrivSpacing.large).frame(height: 24)
-                    .background(theme.field)
-                    .accessibilityElement(children: .combine)
+                    OrivBanner("Private browsing", tone: .privateBrowsing)
                 }
                 if ui.showFind {
                     HStack {
@@ -686,15 +671,7 @@ struct BrowserWindow: View {
     }
     private func syncAddress() { ui.address = tab?.url?.absoluteString ?? "" }
 
-    private func noticeBar(_ message: String, symbol: String, isWarning: Bool = true, dismiss: @escaping () -> Void) -> some View {
-        HStack {
-            Image(systemName: symbol).foregroundStyle(isWarning ? theme.warning : theme.secondaryText)
-            Text(message).font(.caption).foregroundStyle(isWarning ? theme.warning : theme.text)
-            Spacer()
-            if !isWarning || session.canPersist { Button("Dismiss", action: dismiss).buttonStyle(.borderless) }
-        }
-        .padding(10).background(theme.surface)
-    }
+
 }
 
 private struct MacAddressBounds: PreferenceKey {
@@ -739,12 +716,7 @@ struct MacTabOverview: View {
     let dismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Tabs").font(.title2)
-                Spacer()
-                Button("Done", action: dismiss).keyboardShortcut(.cancelAction)
-            }
+        OrivSheet(title: "Tabs", size: .large, height: 500) {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))]) {
                     ForEach(session.orderedTabs) { tab in
@@ -761,25 +733,9 @@ struct MacTabOverview: View {
                     }
                 }
             }
-        }.padding(24).frame(width: 760, height: 500)
-    }
-}
-
-struct MacChromeButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        MacChromeButtonFace(label: configuration.label, pressed: configuration.isPressed)
-    }
-}
-
-private struct MacChromeButtonFace<Label: View>: View {
-    let label: Label
-    let pressed: Bool
-    @Environment(\.isEnabled) private var enabled
-    @State private var hovered = false
-    var body: some View {
-        label.contentShape(Rectangle())
-            .background(.primary.opacity(enabled ? (pressed ? 0.12 : hovered ? 0.07 : 0) : 0), in: Capsule())
-            .onHover { hovered = $0 }
+        } actions: {
+            Button("Done", action: dismiss).keyboardShortcut(.cancelAction)
+        }
     }
 }
 
@@ -798,13 +754,13 @@ struct AddressSuggestionList: View {
         VStack(alignment: .leading, spacing: OrivSpacing.xs) {
             ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, match in
                 if index == 0 || suggestions[index - 1].source != match.source {
-                    Text(match.source.rawValue).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
-                        .padding(.horizontal, 10).padding(.top, 4)
+                    SectionHeader(title: match.source.rawValue)
+                        .padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
                 }
                 Button { choose(match) } label: {
                     AddressSuggestionRow(suggestion: match, query: address, isPrivate: isPrivate)
                         .padding(.horizontal, 10).frame(height: 38).contentShape(Rectangle())
-                        .background { if selectedIndex == index { SelectedRowBackground() } }
+                        .modifier(ListSelection(selected: selectedIndex == index))
                 }.buttonStyle(.plain).accessibilityAddTraits(selectedIndex == index ? [.isSelected] : [])
             }
             // Snapshot/noninteractive callers can still supply local matches.
@@ -814,9 +770,7 @@ struct AddressSuggestionList: View {
                         .foregroundStyle(theme.text).padding(.horizontal, 10).frame(height: 32).frame(maxWidth: .infinity, alignment: .leading)
                 }.buttonStyle(.plain)
             }
-        }.font(OrivType.body).padding(6).background(theme.surface, in: .rect(cornerRadius: OrivRadius.popover))
-            .overlay { RoundedRectangle(cornerRadius: OrivRadius.popover).strokeBorder(theme.separator) }
-            .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        }.font(OrivType.body).padding(OrivSpacing.small).modifier(OrivMaterial.overlay())
     }
 }
 
@@ -888,6 +842,7 @@ private struct BrowserPopover<Content: View>: NSViewRepresentable {
                 // resigns key. The field can start editing again on return.
                 returnResponder = editor?.isFieldEditor == true ? (editor?.delegate as? NSResponder ?? responder) : responder
                 let host = NSHostingController(rootView: root)
+                host.sizingOptions.insert(.preferredContentSize)
                 let popover = NSPopover()
                 popover.behavior = .transient
                 popover.appearance = window.effectiveAppearance
