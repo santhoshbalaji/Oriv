@@ -9,6 +9,7 @@ struct PageErrorState: View {
     var body: some View {
         ContentUnavailableView {
             Label(OrivStrings.pageError, systemImage: "network.slash").foregroundStyle(theme.text)
+                .accessibilityAddTraits(.isHeader)
         } description: {
             if let host { Text(host).font(OrivType.caption).foregroundStyle(theme.textSecondary) }
             Text(message).foregroundStyle(theme.textSecondary)
