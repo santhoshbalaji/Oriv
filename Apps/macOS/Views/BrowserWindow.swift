@@ -269,7 +269,8 @@ struct BrowserWindow: View {
                 .opacity(windowActive ? 1 : 0.75)
         }
         .background {
-            Color.clear.modifier(MacSidebarGlass())
+            Color.clear.modifier(MacSidebarGlass(color: controller.sidebarColor,
+                                                 profileColor: controller.sidebarProfileColor(in: profiles)))
                 .accessibilityHidden(true)
                 .browserGeometryMarker("sidebarSurfaceGeometry")
         }

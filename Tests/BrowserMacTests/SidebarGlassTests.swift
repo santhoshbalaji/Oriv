@@ -19,6 +19,69 @@ import XCTest
         XCTAssertEqual(levels.map(\.backingOpacity), [0.70, 0.92, 1.0])
     }
 
+    func testSidebarColorReadsOnlyRecognizedPreferences() {
+        XCTAssertEqual(SidebarColor.saved(nil), .graphite)
+        XCTAssertEqual(SidebarColor.saved("future-color"), .graphite)
+        for choice in SidebarColor.allCases {
+            XCTAssertEqual(SidebarColor.saved(choice.rawValue), choice)
+        }
+    }
+
+    func testSidebarColorFollowsProfileRebindingAndProfileColorEdits() throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        let first = profiles.controller
+        XCTAssertEqual(first.sidebarColor, .graphite)
+        first.sidebarColor = .rose
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        try profiles.select(work.id)
+        let second = profiles.controller
+        XCTAssertEqual(second.sidebarColor, .graphite)
+        second.sidebarColor = .profile
+        let ocean = second.sidebarColor.backing(in: .graphite, profileColor: second.sidebarProfileColor(in: profiles))
+        try profiles.update(work.id, name: work.name, color: .fern, symbol: work.symbol)
+        let fern = second.sidebarColor.backing(in: .graphite, profileColor: second.sidebarProfileColor(in: profiles))
+        XCTAssertNotEqual(ocean, fern)
+        try profiles.select(BrowserProfile.personalID)
+        XCTAssertTrue(profiles.controller === first)
+        XCTAssertEqual(profiles.controller.sidebarColor, .rose)
+        try profiles.select(work.id)
+        XCTAssertTrue(profiles.controller === second)
+        XCTAssertEqual(profiles.controller.sidebarColor, .profile)
+        XCTAssertEqual(profiles.controller.sidebarProfileColor(in: profiles), .fern)
+    }
+
+    func testSidebarColorKeepsItsChoiceThroughT3CodeAppearance() {
+        let controller = BrowserController(testing: true)
+        defer { controller.shutdown() }
+        controller.sidebarColor = .mint
+        let profile = controller.sidebarProfileColor(in: nil)
+        controller.appearance = .t3Code
+        XCTAssertEqual(controller.sidebarColor.backing(in: controller.appearance.theme, profileColor: profile), Theme.t3Code.sidebar.backing)
+        XCTAssertEqual(controller.sidebarColor, .mint)
+        controller.appearance = .system
+        XCTAssertNotEqual(controller.sidebarColor.backing(in: controller.appearance.theme, profileColor: profile), Theme.graphite.sidebar.backing)
+    }
+
+    func testProfilelessPrivateWindowsUseGraphite() throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        profiles.controller.appearance = .light
+        profiles.controller.sidebarColor = .lavender
+        let privateID = profiles.createPrivateWindow()
+        let privateWindow = try XCTUnwrap(profiles.privateWindows[privateID])
+        profiles.openExternalLinksPrivately = true
+        profiles.handleIncomingURL(try XCTUnwrap(URL(string: "https://example.test")))
+        let external = try XCTUnwrap(profiles.externalPrivate)
+        for context in [privateWindow, external] {
+            context.sidebarColor = .butter
+            XCTAssertEqual(context.sidebarColor, .graphite)
+            XCTAssertNil(context.sidebarProfileColor(in: profiles))
+            XCTAssertEqual(SidebarColor.butter.backing(in: .graphite, profileColor: context.sidebarProfileColor(in: profiles)),
+                           Theme.graphite.sidebar.backing)
+        }
+    }
+
     private func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
     private func nodes(_ element: Any, depth: Int = 0) -> [any NSAccessibilityProtocol] {
         guard depth < 24, let node = element as? any NSAccessibilityProtocol else { return [] }

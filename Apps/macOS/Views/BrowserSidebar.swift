@@ -113,7 +113,7 @@ struct BrowserSidebar: View {
                 searchField
                 if railLayout { newTab }
                 if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
-                    Text(notice).font(.caption).foregroundStyle(theme.sidebarSecondaryText).padding(.horizontal, 14)
+                    Text(notice).font(.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)).padding(.horizontal, 14)
                 }
                 NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
                                   searching: !controller.tabSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) { id, right in
@@ -180,7 +180,7 @@ struct BrowserSidebar: View {
                     if !compact {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(privateWindow ? "Private" : controller.profile?.name ?? "Personal").font(OrivType.profile)
-                            if !session.tabs.isEmpty { Text(SidebarTabs.countLabel(session.tabs.count)).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText) }
+                            if !session.tabs.isEmpty { Text(SidebarTabs.countLabel(session.tabs.count)).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)) }
                         }
                         Spacer(minLength: 0)
                     }
@@ -214,7 +214,7 @@ struct BrowserSidebar: View {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").accessibilityHidden(true)
                 TextField("Search tabs", text: $controller.tabSearch,
-                          prompt: Text("Search tabs").foregroundStyle(theme.sidebarSecondaryText)).textFieldStyle(.plain)
+                          prompt: Text("Search tabs").foregroundStyle(theme.sidebarSecondaryText(contrast))).textFieldStyle(.plain)
                     .focused($searchFocused).accessibilityLabel("Search tabs").accessibilityIdentifier("tabSearchField")
                     .accessibilityHint("Press Shift-Command-A to focus Search tabs.")
                     .onExitCommand { controller.tabSearch = ""; focusTabAfterSearch(session.selectedTabID) }
@@ -238,7 +238,7 @@ struct BrowserSidebar: View {
                     }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Clear tab search")
                 }
             }
-            .font(OrivType.detail).foregroundStyle(theme.sidebarSecondaryText)
+            .font(OrivType.detail).foregroundStyle(theme.sidebarSecondaryText(contrast))
             .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 32)
             .background(theme.sidebar.field.opacity(searchFocused ? 1 : 0.7), in: .rect(cornerRadius: OrivRadius.small))
             .background {
@@ -262,7 +262,7 @@ struct BrowserSidebar: View {
             HStack(spacing: 8) {
                 Image(systemName: "plus").frame(width: railLayout ? 42 : 19)
                 if peeking { Text("New Tab").modifier(SidebarLabelFade()); Spacer() }
-                if !railLayout { Text("New Tab"); Spacer(); Text("⌘T").font(.system(size: 10)).foregroundStyle(theme.sidebarSecondaryText) }
+                if !railLayout { Text("New Tab"); Spacer(); Text("⌘T").font(.system(size: 10)).foregroundStyle(theme.sidebarSecondaryText(contrast)) }
             }.font(OrivType.body).padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarRowInset).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
         }.buttonStyle(ContentButtonStyle()).frame(width: compact ? 42 : nil)
             .padding(.horizontal, peeking ? MacBrowserLayout.railInset : 0)
@@ -283,7 +283,7 @@ struct BrowserSidebar: View {
                         profiles.switchFromSidebar(profile.id, source: controller)
                     } label: {
                         Circle()
-                            .fill(selected ? theme.accent : theme.sidebarSecondaryText.opacity(contrast == .increased ? 1 : 0.60))
+                            .fill(selected ? theme.accent : theme.sidebarSecondaryText(contrast).opacity(contrast == .increased ? 1 : 0.60))
                             .overlay {
                                 if contrast == .increased { Circle().strokeBorder(theme.text, lineWidth: 1) }
                             }
@@ -306,7 +306,7 @@ struct BrowserSidebar: View {
     @ViewBuilder private var footer: some View {
         if railLayout {
             VStack(alignment: .leading, spacing: 6) { footerButtons }.frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, MacBrowserLayout.railInset).foregroundStyle(theme.sidebarSecondaryText)
+                .padding(.horizontal, MacBrowserLayout.railInset).foregroundStyle(theme.sidebarSecondaryText(contrast))
                 .browserGeometryMarker("sidebarFooterGeometry")
         } else {
             HStack(spacing: 0) { footerButtons }.padding(.horizontal, 8).frame(height: 42)
@@ -327,7 +327,7 @@ struct BrowserSidebar: View {
                     }
                     if peeking { Text(section.rawValue).font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
                 }
-            }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText)
+            }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText(contrast))
                 .focused($utilityFocus, equals: section.rawValue)
                 .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.rawValue)
                 .help(section.rawValue).browserGeometryMarker("sidebarFooter-\(section.rawValue)")
@@ -339,7 +339,7 @@ struct BrowserSidebar: View {
                 if peeking { Text("Settings").font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
             }
         }
-            .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText).accessibilityLabel("Settings").help("Settings (⌘,)")
+            .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText(contrast)).accessibilityLabel("Settings").help("Settings (⌘,)")
             .focused($utilityFocus, equals: "settings")
             .browserGeometryMarker("sidebarFooter-Settings")
     }
@@ -411,6 +411,7 @@ private struct ProfileDotsScroll<Content: View>: NSViewRepresentable {
 }
 
 struct SidebarSectionHeading: View {
+    @Environment(\.sidebarContrast) private var contrast
     @Environment(\.browserTheme) private var theme
     let title: String
     let count: Int
@@ -418,11 +419,11 @@ struct SidebarSectionHeading: View {
     var body: some View {
         HStack(spacing: 6) {
             if title == "Private" { Image(systemName: "eyeglasses").foregroundStyle(theme.sidebarPrivateAccent) }
-            Text(title).foregroundStyle(title == "Private" ? theme.sidebarPrivateAccent : theme.sidebarSecondaryText)
+            Text(title).foregroundStyle(title == "Private" ? theme.sidebarPrivateAccent : theme.sidebarSecondaryText(contrast))
             Spacer()
             if count > 0 { Text("\(count)").font(.system(size: 11)).monospacedDigit() }
         }
-        .font(OrivType.title).foregroundStyle(theme.sidebarSecondaryText)
+        .font(OrivType.title).foregroundStyle(theme.sidebarSecondaryText(contrast))
         .browserGeometryMarker("sidebarSection-\(title)", when: marksGeometry)
         .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 27)
         .padding(.top, title == "Private" ? 8 : (title == "Tabs" || title == "More pinned tabs" ? 4 : 0))
@@ -505,19 +506,19 @@ struct SidebarTabArtwork: View {
                         if let subtitle {
                             Text(subtitle)
                                 .font(.system(size: textSize.isAccessibilitySize ? 17 : 11))
-                                .foregroundStyle(theme.sidebarSecondaryText)
+                                .foregroundStyle(theme.sidebarSecondaryText(contrast))
                                 .lineLimit(1).truncationMode(.middle)
                                 .browserGeometryMarker("sidebarHost-\(id)", when: previewIcons == nil)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     if let mediaSymbol {
                         Image(systemName: mediaSymbol)
-                            .font(.system(size: 11)).foregroundStyle(theme.sidebarSecondaryText)
+                            .font(.system(size: 11)).foregroundStyle(theme.sidebarSecondaryText(contrast))
                             .frame(width: 24, height: 24).padding(.leading, -8)
                             .browserGeometryMarker("sidebarMedia-\(id)")
                     }
                     Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.sidebarSecondaryText).frame(width: 24, height: 24).padding(.leading, -8)
+                        .foregroundStyle(theme.sidebarSecondaryText(contrast)).frame(width: 24, height: 24).padding(.leading, -8)
                         .opacity(hovered || selected || active ? 1 : 0)
                         .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
                 }
@@ -609,6 +610,62 @@ extension EnvironmentValues {
     }
 }
 
+enum SidebarColor: String, CaseIterable {
+    case graphite, profile, rose, peach, butter, mint, sage, sky, lavender
+
+    static let preferenceKey = "SidebarColor"
+
+    var title: String { self == .profile ? "Profile colour" : rawValue.capitalized }
+
+    static func saved(_ value: String?) -> Self {
+        value.flatMap(Self.init(rawValue:)) ?? .graphite
+    }
+
+    func effective(profileColor: ProfileColor?, isT3Code: Bool) -> Self {
+        profileColor == nil || isT3Code ? .graphite : self
+    }
+
+    func backing(in theme: Theme, profileColor: ProfileColor?) -> Color {
+        switch effective(profileColor: profileColor, isT3Code: theme.isT3Code) {
+        case .graphite: theme.sidebar.backing
+        case .profile: profileColor?.sidebarBacking ?? theme.sidebar.backing
+        case .rose: Self.roseBacking
+        case .peach: Self.peachBacking
+        case .butter: Self.butterBacking
+        case .mint: Self.mintBacking
+        case .sage: Self.sageBacking
+        case .sky: Self.skyBacking
+        case .lavender: Self.lavenderBacking
+        }
+    }
+
+    private static let roseBacking = Theme.adaptive("SidebarRose", light: 0xF6DCE5, dark: 0x492736)
+    private static let peachBacking = Theme.adaptive("SidebarPeach", light: 0xF8E1D4, dark: 0x4C2E27)
+    private static let butterBacking = Theme.adaptive("SidebarButter", light: 0xF7EDC5, dark: 0x42351D)
+    private static let mintBacking = Theme.adaptive("SidebarMint", light: 0xD8EFE3, dark: 0x173B30)
+    private static let sageBacking = Theme.adaptive("SidebarSage", light: 0xDDE8CD, dark: 0x303A24)
+    private static let skyBacking = Theme.adaptive("SidebarSky", light: 0xD6E9F8, dark: 0x21364A)
+    private static let lavenderBacking = Theme.adaptive("SidebarLavender", light: 0xE6DDF7, dark: 0x39284D)
+}
+
+private extension ProfileColor {
+    var sidebarBacking: Color {
+        switch self {
+        case .mulberry: Self.mulberryBacking
+        case .ocean: Self.oceanBacking
+        case .fern: Self.fernBacking
+        case .amber: Self.amberBacking
+        case .slate: Self.slateBacking
+        }
+    }
+
+    private static let mulberryBacking = Theme.adaptive("SidebarMulberry", light: 0xF1DBEE, dark: 0x45243F)
+    private static let oceanBacking = Theme.adaptive("SidebarOcean", light: 0xCFEAF8, dark: 0x1C344D)
+    private static let fernBacking = Theme.adaptive("SidebarFern", light: 0xD7EED5, dark: 0x233A25)
+    private static let amberBacking = Theme.adaptive("SidebarAmber", light: 0xFAE7CC, dark: 0x493223)
+    private static let slateBacking = Theme.adaptive("SidebarSlate", light: 0xDFE7F2, dark: 0x2A3544)
+}
+
 enum SidebarGlassOpacity: String, CaseIterable {
     case balanced = "Balanced"
     case high = "High"
@@ -630,6 +687,14 @@ enum SidebarGlassOpacity: String, CaseIterable {
 /// text cannot become white-on-light-grey when the page and system differ.
 /// check-contrast.py reads these constants to test the composited backgrounds.
 struct MacSidebarGlass: ViewModifier {
+    var color: SidebarColor = .graphite
+    var profileColor: ProfileColor? = nil
+
+    // The tint sits above this neutral layer so saturated and very bright
+    // glass inputs stay within the readable range at Balanced.
+    private static let balancedTintGuard = Theme.adaptive("SidebarTintGuard", light: 0xFFFFFF, dark: 0x000000)
+    private static let balancedTintGuardOpacity = 0.16
+
     @AppStorage(SidebarGlassOpacity.preferenceKey) private var opacity: SidebarGlassOpacity = .balanced
     #if DEBUG
     @Environment(\.sidebarCaptureOpacity) private var captureOpacity
@@ -649,10 +714,14 @@ struct MacSidebarGlass: ViewModifier {
     @Environment(\.sidebarCaptureBackdrop) private var captureBackdrop
     #endif
     func body(content: Content) -> some View {
+        let backing = color.backing(in: theme, profileColor: profileColor)
         if reduceTransparency || captureReduceTransparency || contrast == .increased || effectiveOpacity == .solid {
-            edge(content.background(theme.sidebar.backing))
+            edge(content.background(backing))
         } else {
-            edge(glass(content.background(theme.sidebar.backing.opacity(effectiveOpacity.backingOpacity))))
+            let tinted = color.effective(profileColor: profileColor, isT3Code: theme.isT3Code) != .graphite
+            let guardOpacity = tinted && effectiveOpacity == .balanced ? Self.balancedTintGuardOpacity : 0
+            edge(glass(content.background(backing.opacity(effectiveOpacity.backingOpacity))
+                .background(Self.balancedTintGuard.opacity(guardOpacity))))
         }
     }
     private func edge<Surface: View>(_ content: Surface) -> some View {

@@ -77,15 +77,23 @@ The expanded panel is 256 pt wide with an 8 pt horizontal content inset. The ico
 rail is 72 pt wide. The existing toggle and
 ⌥⌘S animate between them, respecting Reduce Motion. The address editor and page host retain their identity.
 
-The panel uses `GlassEffectContainer` and `.glassEffect(.clear)` with a
-semantic backing. Balanced blends 70% backing over the glass, High blends 92%,
-and Solid uses the opaque backing. Sidebar-specific secondary and private text
-colors maintain contrast across the lighter and darker glass inputs. Rows and the footer use quiet fills, without extra
-per-row glass effects. Reduce Transparency and Increase Contrast replace the
-panel material with the semantic light/dark surface; increased contrast adds a
-strong boundary and selected/focused row outlines. The observed page colour
-continues behind the panel and transparent titlebar. Do not mirror page text
-into the titlebar. Sidebar and rail colors follow the selected appearance.
+The expanded sidebar and icon rail use one `MacSidebarGlass` backing. **Sidebar color**
+in the Mac’s per-profile Appearance settings offers Graphite, Profile colour and seven
+Pastel swatches. Name every swatch and mark the selected choice with a checkmark
+and the selected accessibility trait. Graphite is the fallback for unset or unknown
+preferences and profile-less private windows, including windows opened by external links.
+The choice lives in device-local profile defaults. The active controller supplies the
+backing at the existing profile switch handoff. T3 Code keeps its near-black backing
+and disables the swatches while keeping the saved choice. See [sidebar backing tokens](appearance.md#mac-sidebar-color).
+
+**Glass opacity** applies to all profiles. Balanced uses 70% backing, High uses 92%,
+and Solid uses the opaque backing. At Balanced, coloured backings add a 16% neutral
+layer below the tint to protect text contrast over extreme glass inputs. Sidebar-only
+secondary and private text use dedicated ink. Reduce Transparency and Increase Contrast
+use the chosen opaque backing in both widths. Increase Contrast also uses stronger
+secondary ink, a stronger panel boundary and selection outline. Rows and the footer
+use neutral fills. The 3 pt marker and controls use the system accent, while purple
+glasses and labels convey privacy. Page colour continues behind the panel and titlebar.
 
 The profile picker uses a primary-colour stacked-tabs glyph, bold name, tab count
 and chevron, followed by persistent Search tabs. Empty Pinned is hidden; a compact

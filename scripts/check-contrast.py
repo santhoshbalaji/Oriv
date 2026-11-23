@@ -55,9 +55,9 @@ for source in (ROOT / "Apps").rglob("*.swift"):
 
 checks = []  # (theme, token, colour, surface, background, minimum)
 sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
-assert "content.background(theme.sidebar.backing)" in sidebar_source
+assert "content.background(backing)" in sidebar_source
 assert "reduceTransparency || captureReduceTransparency || contrast == .increased" in sidebar_source
-assert "content.background(theme.sidebar.backing.opacity(effectiveOpacity.backingOpacity)" in sidebar_source
+assert "content.background(backing.opacity(effectiveOpacity.backingOpacity)" in sidebar_source
 assert "selected ? theme.sidebar.selection" in sidebar_source
 sidebar_opacities = {name: float(value) for name, value in re.findall(
     r"case \.(\w+): ([0-9.]+)", sidebar_source.split("enum SidebarGlassOpacity:", 1)[1].split("struct MacSidebarGlass:", 1)[0])}
@@ -68,7 +68,16 @@ tile_opacity = float(re.search(r"tile && !rail \? theme.sidebar.field.opacity\((
 chrome = (ROOT / "Apps/Shared/BrowserChrome.swift").read_text()
 opacity = float(re.search(r"theme.field.opacity\((0\.\d+)\)", chrome).group(1))
 sidebar_negative = "--negative-sidebar-test" in sys.argv
+tint_negative = "--negative-sidebar-tint-test" in sys.argv
 sidebar_checks = []
+sidebar_balanced = {}
+tints = {name.removesuffix("Backing"): (light.upper(), dark.upper())
+         for name, light, dark in re.findall(
+             r'(\w+Backing) = Theme.adaptive\("Sidebar\w+", light: 0x(\w{6}), dark: 0x(\w{6})\)', sidebar_source)}
+guard_opacity = float(re.search(r"balancedTintGuardOpacity = ([0-9.]+)", sidebar_source)[1])
+guard_colors = re.search(r'balancedTintGuard = Theme.adaptive\("SidebarTintGuard", light: 0x(\w{6}), dark: 0x(\w{6})\)', sidebar_source).groups()
+assert set(tints) == {"rose", "peach", "butter", "mint", "sage", "sky", "lavender",
+                      "mulberry", "ocean", "fern", "amber", "slate"}
 for appearance, mode, palette, sidebar in palettes:
     palette["privateAccent"] = adaptive_constant("privateAccent", mode)
     sidebar_text = {
@@ -102,28 +111,47 @@ for appearance, mode, palette, sidebar in palettes:
 
         steps = {"increase contrast": 1.0} if accessibility == "increase contrast" else {
             **sidebar_opacities, "reduce transparency": 1.0}
-        for step, backing_opacity in steps.items():
-            for page in ("FFFFFF", "000000", "6000D9", "888888", "00D4C8", "FF8C24"):
-                panel = composite(sidebar["backing"], page, 0 if sidebar_negative else backing_opacity)
-                field = sidebar["field"]
-                states = {"panel": panel, "selection / rail": sidebar["selection"], "hover": sidebar["hover"],
-                          "pin": composite(field, panel, tile_opacity), "search": composite(field, panel, idle_field),
-                          "focused search": composite(field, panel, focused_field), "footer": colors["surface"],
-                          "pressed": sidebar["selection"]}
-                label = f"{appearance} sidebar, page #{page}, {step}"
-                for state, background in states.items():
-                    for token, foreground in sidebar_text.items():
-                        sidebar_checks.append((label, token, foreground, state, background, 4.5))
-                    if accessibility == "increase contrast":
-                        sidebar_checks.append((label, "strong boundary", colors["text"], state, background, 3))
+        backings = {appearance: sidebar["backing"]}
+        if appearance != "T3 Code":
+            scheme = "Dark" if mode else "Light"
+            backings.update({f"{name.capitalize()} {scheme}": values[mode] for name, values in tints.items()})
+        inks = dict(sidebar_text)
+        if accessibility == "increase contrast":
+            inks["secondaryText"] = colors["secondaryText"]
+        for name, backing in backings.items():
+            if name == "Rose Light" and tint_negative:
+                backing = "888888"
+            for step, backing_opacity in steps.items():
+                # Black and white bound the panel luminance. Also exercise saturated glass inputs.
+                for page in ("FFFFFF", "000000", "6000D9", "888888", "00D4C8", "FF8C24",
+                             "1C3354", "33919C", "FCC775", "D15959", "404585", "F7E6CC", "1C1C1E"):
+                    glass = composite(guard_colors[mode], page, guard_opacity) if name != appearance and step == "balanced" else page
+                    panel = composite(backing, glass, 0 if sidebar_negative else backing_opacity)
+                    field = sidebar["field"]
+                    states = {"panel / rail footer": panel, "selection / rail": sidebar["selection"],
+                              "hover": sidebar["hover"], "pressed": sidebar["selection"],
+                              "pin": composite(field, panel, tile_opacity),
+                              "search": composite(field, panel, idle_field),
+                              "focused search": composite(field, panel, focused_field),
+                              "expanded footer / private badge": colors["surface"]}
+                    label = f"{name} sidebar, page #{page}, {step}"
+                    for state, background in states.items():
+                        for token, foreground in inks.items():
+                            sidebar_checks.append((label, token, foreground, state, background, 4.5))
+                            if step == "balanced":
+                                minima = sidebar_balanced.setdefault(name, {})
+                                minima[token] = min(minima.get(token, float("inf")), ratio(foreground, background))
+                        if accessibility == "increase contrast":
+                            sidebar_checks.append((label, "strong boundary", colors["text"], state, background, 3))
+            if appearance != "T3 Code":
+                # The Settings swatch shows a primary-ink checkmark on the opaque backing.
+                sidebar_checks.append((f"{name} sidebar swatch", "checkmark", colors["text"], "swatch", backing, 3))
 
 checks.extend(sidebar_checks)
 worst = min((check for check in sidebar_checks if check[-1] == 4.5), key=lambda check: ratio(check[2], check[4]))
-for appearance, *_ in palettes:
-    for token in ("text", "secondaryText"):
-        minimum = min(ratio(check[2], check[4]) for check in sidebar_checks
-                      if check[0].startswith(appearance + " sidebar") and check[1] == token and check[0].endswith(", balanced"))
-        print(f"{appearance} Balanced {token}: {minimum:.2f}:1")
+for name, minima in sorted(sidebar_balanced.items()):
+    values = " / ".join(f"{minima[token]:.2f}" for token in ("text", "secondaryText", "privateAccent"))
+    print(f"{name} Balanced (primary / secondary / private): {values}")
 print(f"Sidebar minimum text contrast: {ratio(worst[2], worst[4]):.2f}:1 ({worst[0]}, {worst[1]} on {worst[3]})")
 print("App-owned colors checked. Native system accent and compositor output depend on runtime settings.")
 
@@ -158,7 +186,13 @@ for theme, token, colour, surface, background, minimum in checks:
     if value < minimum:
         failures += 1
         print(f"FAIL {theme}: {token} #{colour} on {surface} #{background} = {value:.2f}:1 (needs {minimum}:1)")
-if negative_test or sidebar_negative:
+if tint_negative:
+    caught = any(label.startswith("Rose Light sidebar,") and ratio(foreground, background) < minimum
+                 for label, _, foreground, _, background, minimum in sidebar_checks)
+    if not caught:
+        sys.exit("FAIL negative tint test: low-contrast Rose backing was not caught")
+    print(f"Negative tint test passed: caught {failures} low-contrast uses")
+elif negative_test or sidebar_negative:
     if not failures:
         print("FAIL negative test: low-contrast foreground was not caught")
         sys.exit(1)

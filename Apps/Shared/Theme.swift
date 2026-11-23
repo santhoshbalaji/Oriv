@@ -83,7 +83,10 @@ struct Theme {
     // These roles stay legible across the brighter and darker glass inputs.
     private static let glassSecondary = adaptive("GlassSecondary", light: 0x303037, dark: 0xEEEEF2)
     private static let glassPrivate = adaptive("GlassPrivate", light: 0x4C2269, dark: 0xF8DEFF)
-    var sidebarSecondaryText: Color { Self.glassSecondary }
+    func sidebarSecondaryText(_ contrast: ColorSchemeContrast) -> Color {
+        guard contrast == .increased else { return Self.glassSecondary }
+        return isT3Code ? Self.hex(0xB8B8B8) : Self.highContrastSecondary
+    }
     var sidebarPrivateAccent: Color { Self.glassPrivate }
     #endif
 

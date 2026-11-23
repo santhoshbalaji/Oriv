@@ -132,6 +132,26 @@ struct AppearanceSettings: View {
                 Text("Appearance for the \(controller.profile?.name ?? "Private") profile")
                     .browserGeometryMarker("settingsAppearanceHeader")
             }
+            if let profileColor = controller.sidebarProfileColor(in: profiles) {
+                Section("Sidebar color") {
+                    VStack(alignment: .leading, spacing: OrivSpacing.medium) {
+                        HStack(spacing: OrivSpacing.small) {
+                            sidebarSwatch(.graphite, profileColor: profileColor).frame(width: 108)
+                            sidebarSwatch(.profile, profileColor: profileColor).frame(width: 108)
+                        }
+                        HStack(spacing: OrivSpacing.small) {
+                            ForEach(SidebarColor.allCases.dropFirst(2), id: \.self) { choice in
+                                sidebarSwatch(choice, profileColor: profileColor)
+                            }
+                        }
+                    }
+                    .disabled(appearance == .t3Code)
+                    if appearance == .t3Code {
+                        Text("Sidebar color is available in System, Light and Dark.")
+                            .font(OrivType.caption).foregroundStyle(theme.secondaryText)
+                    }
+                }
+            }
             Section("All profiles") {
                 if let profiles {
                     Picker("Swipe between profiles", selection: Binding(
@@ -152,6 +172,32 @@ struct AppearanceSettings: View {
                     .font(OrivType.caption).foregroundStyle(theme.secondaryText)
             }
         }.formStyle(.grouped)
+    }
+
+    private func sidebarSwatch(_ choice: SidebarColor, profileColor: ProfileColor) -> some View {
+        let selected = controller.sidebarColor == choice
+        let shape = RoundedRectangle(cornerRadius: OrivRadius.small)
+        return Button {
+            controller.sidebarColor = choice
+        } label: {
+            VStack(spacing: OrivSpacing.xs) {
+                shape.fill(choice.backing(in: .graphite, profileColor: profileColor))
+                    .frame(height: 24)
+                    .overlay { shape.strokeBorder(selected ? theme.accent : theme.separator, lineWidth: selected ? 2 : 1) }
+                    .overlay {
+                        if selected {
+                            Image(systemName: "checkmark").font(.caption.weight(.semibold))
+                                .foregroundStyle(Theme.graphite.text)
+                        }
+                    }
+                Text(choice.title).font(OrivType.caption.weight(selected ? .semibold : .regular))
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(ContentButtonStyle())
+        .accessibilityLabel(choice.title)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     private var privacyPanel: some View {

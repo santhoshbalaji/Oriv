@@ -193,6 +193,7 @@ final class ProfileSwipeTests: XCTestCase {
         for id in [work.id, BrowserProfile.personalID] {
             try profiles.select(id)
             profiles.controller.sidebar.setPreference(false)
+            profiles.controller.sidebarColor = id == work.id ? .profile : .rose
             let session = profiles.controller.session
             for _ in 0..<12 { session.addTab(select: false, load: false) }
             let tab = try XCTUnwrap(session.selectedTab)

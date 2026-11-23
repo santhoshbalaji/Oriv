@@ -41,6 +41,22 @@ final class BrowserController {
     let profile: BrowserProfile?
     @ObservationIgnored private let profileDefaults: UserDefaults?
     var appearance: BrowserAppearance { didSet { profileDefaults?.set(appearance.rawValue, forKey: "browserAppearance") } }
+    private var storedSidebarColor: SidebarColor
+    var sidebarColor: SidebarColor {
+        get { storedSidebarColor }
+        set {
+            guard profile != nil, storedSidebarColor != newValue else { return }
+            storedSidebarColor = newValue
+            profileDefaults?.set(newValue.rawValue, forKey: SidebarColor.preferenceKey)
+        }
+    }
+
+    func sidebarProfileColor(in profiles: BrowserProfiles?) -> ProfileColor? {
+        guard let profile else { return nil }
+        if let active = profiles?.active, active.id == profile.id { return active.color }
+        return profile.color
+    }
+
     let session: BrowserSession
     let downloads = DownloadManager()
     let sidebar = SidebarPresentation()
@@ -135,6 +151,7 @@ final class BrowserController {
             privateTabIsolation: privateTabIsolation)
         let defaults = factory.defaults
         profileDefaults = defaults
+        storedSidebarColor = SidebarColor.saved(defaults?.string(forKey: SidebarColor.preferenceKey))
         sidebar.preferredRail = defaults?.bool(forKey: "compactSidebar") ?? false
         sidebar.hoverEnabled = defaults?.bool(forKey: "hoverSidebar") ?? false
         appearance = BrowserAppearance.saved(defaults?.string(forKey: "browserAppearance"))

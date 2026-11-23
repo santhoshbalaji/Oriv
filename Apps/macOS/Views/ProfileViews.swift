@@ -72,6 +72,7 @@ struct ProfileMenu: View {
 }
 
 struct ProfileHeaderArtwork: View {
+    @Environment(\.sidebarContrast) private var contrast
     @Environment(\.browserTheme) private var theme
     let name: String
     let tabCount: Int
@@ -83,7 +84,7 @@ struct ProfileHeaderArtwork: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(OrivType.profile).lineLimit(1)
                     .browserGeometryMarker("sidebarProfileNameGeometry", when: marksGeometry)
-                Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText)
+                Text(SidebarTabs.countLabel(tabCount)).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast))
                     .browserGeometryMarker("sidebarProfileCountGeometry", when: marksGeometry)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))

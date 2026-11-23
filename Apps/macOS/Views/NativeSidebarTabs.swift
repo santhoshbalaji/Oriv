@@ -471,7 +471,7 @@ private struct SidebarSection {
             Rectangle().fill(environment.browserTheme.separator.opacity(0.7)).frame(width: 24, height: 1)
         } else if let heading = section.heading {
             if section.count > 0 { SidebarSectionHeading(title: heading, count: section.count) }
-            else { Text(heading).font(OrivType.detail).foregroundStyle(environment.browserTheme.sidebarSecondaryText) }
+            else { Text(heading).font(OrivType.detail).foregroundStyle(environment.browserTheme.sidebarSecondaryText(environment.sidebarContrast)) }
         }
     }
 
