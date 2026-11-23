@@ -8,6 +8,7 @@ struct LibraryView: View {
     var profiles: BrowserProfiles? = nil
     @State var section: LibrarySection
     @FocusState private var focusedSection: LibrarySection?
+    @FocusState private var searchFocused: Bool
     @State private var search = ""
     @State private var historyOffset = 0
     @State private var confirmClear = false
@@ -47,16 +48,10 @@ struct LibraryView: View {
                 }.padding(.horizontal, OrivSpacing.xl).padding(.top, 20).padding(.bottom, 14)
 
                 if section != .downloads {
-                    HStack(spacing: OrivSpacing.small) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(theme.secondaryText).accessibilityHidden(true)
-                        TextField("Search \(section.title.lowercased())", text: $search).textFieldStyle(.plain)
-                            .accessibilityIdentifier("librarySearchField")
-                        if !search.isEmpty {
-                            Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
-                                .buttonStyle(.plain).foregroundStyle(theme.secondaryText).accessibilityLabel("Clear search")
-                        }
+                    OrivSearchField(text: $search, focused: searchFocused, onClear: { searchFocused = true }) {
+                        TextField("Search \(section.title.lowercased())", text: $search)
+                            .focused($searchFocused).accessibilityIdentifier("librarySearchField")
                     }
-                    .font(OrivType.body).padding(.horizontal, 10).frame(height: 30).background(theme.field, in: RoundedRectangle(cornerRadius: OrivRadius.small))
                     .padding(.horizontal, OrivSpacing.xl).padding(.bottom, OrivSpacing.medium)
                 }
                 Divider()

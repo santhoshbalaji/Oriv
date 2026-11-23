@@ -811,9 +811,7 @@ struct AddressSuggestionList: View {
                         .foregroundStyle(theme.text).padding(.horizontal, 10).frame(height: 32).frame(maxWidth: .infinity, alignment: .leading)
                 }.buttonStyle(.plain)
             }
-        }.font(OrivType.body).padding(6).background(theme.surface, in: .rect(cornerRadius: OrivRadius.popover))
-            .overlay { RoundedRectangle(cornerRadius: OrivRadius.popover).strokeBorder(theme.separator) }
-            .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        }.font(OrivType.body).padding(OrivSpacing.small).modifier(OrivMaterial.overlay())
     }
 }
 

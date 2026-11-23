@@ -39,6 +39,14 @@ struct DesignSystemGallery: View {
                     SettingRow(detail: "Unavailable for this session.") {
                         Toggle("Sync", isOn: .constant(false)).disabled(true)
                     }
+                    #if os(macOS)
+                    OrivSearchField(text: .constant(""), shortcut: "⇧⌘A", sidebar: true) {
+                        TextField("Search tabs", text: .constant(""))
+                    }
+                    OrivSearchField(text: .constant("Atlas"), focused: true) {
+                        TextField("Search bookmarks", text: .constant("Atlas"))
+                    }
+                    #endif
                     Text("Control").padding(OrivSpacing.medium).modifier(OrivMaterial.control())
                     Text("Overlay").padding(OrivSpacing.medium).modifier(OrivMaterial.overlay())
                 }.modifier(OrivMaterial.sheet)

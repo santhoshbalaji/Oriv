@@ -211,10 +211,11 @@ struct BrowserSidebar: View {
                 .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
                 .padding(.horizontal, MacBrowserLayout.railInset)
         } else {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass").accessibilityHidden(true)
+            OrivSearchField(text: $controller.tabSearch, shortcut: "⇧⌘A", sidebar: true,
+                            focused: searchFocused, ink: theme.sidebarSecondaryText(contrast),
+                            clearLabel: "Clear tab search", onClear: { searchFocused = true }) {
                 TextField(OrivStrings.searchTabs, text: $controller.tabSearch,
-                          prompt: Text(OrivStrings.searchTabs).foregroundStyle(theme.sidebarSecondaryText(contrast))).textFieldStyle(.plain)
+                          prompt: Text(OrivStrings.searchTabs).foregroundStyle(theme.sidebarSecondaryText(contrast)))
                     .focused($searchFocused).accessibilityLabel(OrivStrings.searchTabs).accessibilityIdentifier("tabSearchField")
                     .accessibilityHint("Press Shift-Command-A to focus Search tabs.")
                     .onExitCommand { controller.tabSearch = ""; focusTabAfterSearch(session.selectedTabID) }
@@ -225,22 +226,7 @@ struct BrowserSidebar: View {
                     .onSubmit {
                         if let first = filteredTabs.first { focusTabAfterSearch(first.id); session.selectTab(first.id) }
                     }
-                if controller.tabSearch.isEmpty {
-                    Canvas { context, size in
-                        context.draw(Text("⇧⌘A").font(.system(size: 10)).foregroundStyle(theme.text),
-                                     at: CGPoint(x: size.width, y: size.height / 2), anchor: .trailing)
-                    }
-                    .frame(width: 30, height: 14)
-                    .accessibilityHidden(true)
-                } else {
-                    Button { controller.tabSearch = ""; searchFocused = true } label: {
-                        Image(systemName: "xmark.circle.fill").frame(width: 24, height: 24)
-                    }.orivButton(.quiet).accessibilityLabel("Clear tab search")
-                }
             }
-            .font(OrivType.detail).foregroundStyle(theme.sidebarSecondaryText(contrast))
-            .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: 32)
-            .background(theme.sidebar.field.opacity(searchFocused ? 1 : 0.7), in: .rect(cornerRadius: OrivRadius.small))
             .background {
                 if searchFocused, let profiles {
                     ProfileSidebarSwipeRegion(switcher: profiles.sidebarSwitch, controller: controller, kind: .editing)

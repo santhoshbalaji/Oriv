@@ -46,6 +46,7 @@ struct SiteInformationView: View {
 struct WebsiteDataView: View {
     @Environment(\.browserTheme) private var theme
     let manager: WebsiteDataManager
+    @FocusState private var searchFocused: Bool
     @State private var query = ""
     @State private var pending: [WKWebsiteDataRecord] = []
     @State private var confirm = false
@@ -55,7 +56,9 @@ struct WebsiteDataView: View {
         OrivSheet(title: OrivStrings.websiteData,
                   subtitle: "Removing cookies and offline storage may sign you out or delete a site's offline work.",
                   height: 520) {
-            TextField("Search websites", text: $query).textFieldStyle(.roundedBorder)
+            OrivSearchField(text: $query, focused: searchFocused, onClear: { searchFocused = true }) {
+                TextField("Search websites", text: $query).focused($searchFocused)
+            }
             List(records, id: \.displayName) { record in
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {

@@ -66,25 +66,25 @@
     "spacing": 1
   },
   "Apps/macOS/Views/BrowserSidebar.swift": {
-    "font size": 9,
+    "font size": 8,
     "font style": 1,
     "padding": 6,
-    "spacing": 13
+    "spacing": 12
   },
   "Apps/macOS/Views/BrowserWindow.swift": {
     "font size": 1,
     "font style": 3,
     "motion": 2,
-    "padding": 11,
+    "padding": 10,
     "radius": 1,
     "raw color": 6,
-    "shadow": 2,
+    "shadow": 1,
     "spacing": 9
   },
   "Apps/macOS/Views/LibraryView.swift": {
     "font size": 1,
     "font style": 9,
-    "padding": 6,
+    "padding": 5,
     "spacing": 3
   },
   "Apps/macOS/Views/NativeSidebarTabs.swift": {
@@ -114,9 +114,8 @@
     "radius": 2
   },
   "Apps/macOS/Views/SidebarSearchPanel.swift": {
-    "font style": 3,
-    "padding": 3,
-    "spacing": 3
+    "padding": 1,
+    "spacing": 2
   },
   "Apps/macOS/Views/StartPage.swift": {
     "padding": 2,

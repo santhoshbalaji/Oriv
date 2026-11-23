@@ -161,6 +161,7 @@
 		EBBB853DFB1C54D477E84F94 /* BrowserExperienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80FE58BD2C07D09BCCF7E554 /* BrowserExperienceTests.swift */; };
 		EC03A499CE0EB70149CC5523 /* AdBlockingPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77112F5272BD8CB1F8016434 /* AdBlockingPopover.swift */; };
 		ED64DE649A41E08CE96852BD /* ListSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D1D6921E208F8739CFD3669 /* ListSelection.swift */; };
+		EED0907E61EE754173BC40FF /* OrivSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E5C40BD9106DE18F0D31B15 /* OrivSearchField.swift */; };
 		EFC31DFE15E209B55B9D86E7 /* ProfileViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF55C942D2FD9E5A4585AEA7 /* ProfileViews.swift */; };
 		F4664E23C0364DB15431149E /* SettingRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DE378E0D33F3FF1E1368B7E /* SettingRow.swift */; };
 		FA2F6146E260B8C8E3599B96 /* BrowserMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67E72309073859AFEA5D96F2 /* BrowserMigrationTests.swift */; };
@@ -206,6 +207,7 @@
 		0690E72226F4CCC6B7FF74EE /* GridMorphTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridMorphTests.swift; sourceTree = "<group>"; };
 		07E01AFCC14310BF5EE1A60D /* ContinuityRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ContinuityRelease.entitlements; sourceTree = "<group>"; };
 		0D8663F5C5D65B7617EA913F /* MobileGestureIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileGestureIntegrationTests.swift; sourceTree = "<group>"; };
+		0E5C40BD9106DE18F0D31B15 /* OrivSearchField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrivSearchField.swift; sourceTree = "<group>"; };
 		0EA0AA22268D1C3635A65D38 /* MobileController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileController.swift; sourceTree = "<group>"; };
 		0FF5732ED0D6A94A4A805EDB /* MobileProfiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileProfiles.swift; sourceTree = "<group>"; };
 		100961E091A57276804EB9BD /* SidebarGlassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGlassTests.swift; sourceTree = "<group>"; };
@@ -677,6 +679,7 @@
 			isa = PBXGroup;
 			children = (
 				786D833A52C3AF2B341CB7BA /* OrivPopover.swift */,
+				0E5C40BD9106DE18F0D31B15 /* OrivSearchField.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -952,6 +955,7 @@
 				FA5346ECB8A28BCC21C28CC0 /* NativeSidebarTabs.swift in Sources */,
 				E7617729048671BC722C04E3 /* OrivButtonStyles.swift in Sources */,
 				66898DE66049E2EFC97E2A7C /* OrivPopover.swift in Sources */,
+				EED0907E61EE754173BC40FF /* OrivSearchField.swift in Sources */,
 				B0CBB8E5E5703E031A1B2AF1 /* OrivSheet.swift in Sources */,
 				75B5E2E14E24151D4FEB71A7 /* OrivStrings.swift in Sources */,
 				B6DFC29B8EB588CB7116B6E0 /* PageErrorState.swift in Sources */,
