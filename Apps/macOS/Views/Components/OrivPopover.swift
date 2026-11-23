@@ -17,13 +17,18 @@ struct OrivPopover<Content: View>: View {
             }
             .font(OrivType.title).foregroundStyle(titleInk ?? theme.text)
             ViewThatFits(in: .vertical) {
-                content().fixedSize(horizontal: false, vertical: true)
-                ScrollView { content() }
+                popoverContent.fixedSize(horizontal: false, vertical: true)
+                ScrollView { popoverContent }
             }
         }
         .padding(OrivLayout.popoverPadding)
         .frame(width: width, alignment: .leading)
         .frame(maxHeight: maximumHeight, alignment: .topLeading)
         .modifier(OrivMaterial.sheet)
+    }
+
+    private var popoverContent: some View {
+        VStack(alignment: .leading, spacing: OrivSpacing.medium, content: content)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

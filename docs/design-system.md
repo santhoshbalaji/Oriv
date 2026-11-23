@@ -4,7 +4,7 @@ Oriv is a privacy-first native browser for Mac and iPhone. The active interface 
 
 ## Appearance and typography
 
-The shared palette and components live in `Apps/Shared/Theme.swift` and are compiled into both apps. **System** is the default and uses the Graphite palette. Light and Dark set Graphite explicitly. Black keeps its dark canvas. The choice belongs to the current profile. When the user turns on Sync on their devices, appearance syncs for that same profile across Mac and iPhone. The continuity allowlist includes `appearance`, keyed as `preference.<profile UUID>.appearance`; different profiles retain independent choices. With Sync off, the choice stays local. Website logins, cookies and passwords remain on the device inside the profile and are never synced. See [Appearance](appearance.md) for the exact palette and website-color behavior.
+The shared palette and tokens live in `Apps/Shared/Theme.swift` and are compiled into both apps. **System** is the default and uses the Graphite palette. Light and Dark set Graphite explicitly. Black keeps its dark canvas. The choice belongs to the current profile. When the user turns on Sync on their devices, appearance syncs for that same profile across Mac and iPhone. The continuity allowlist includes `appearance`, keyed as `preference.<profile UUID>.appearance`; different profiles retain independent choices. With Sync off, the choice stays local. Website logins, cookies and passwords remain on the device inside the profile and are never synced. See [Appearance](appearance.md) for the exact palette and website-color behavior.
 
 Use semantic theme roles for colors. Main text belongs in address fields and secondary text is used for hints and supporting text. Increase Contrast strengthens secondary text and boundaries. Native controls inherit the platform accent. Selection includes a checkmark or a 3 pt leading marker whose system-accent hue is preserved when lightness needs adjustment for contrast. Purple glasses and explicit labels identify private browsing independently of the connection-security icon.
 
@@ -44,7 +44,7 @@ Liquid Glass belongs to the navigation layer, the Mac sidebar, iPhone bars and f
 
 Mac: a native toolbar with one address/search field, a vertical tab sidebar, and a browser content area. The start-page search affordance focuses that same field. Suggestions are available from any page. Bookmarks, history and downloads open from the sidebar; Settings is labeled explicitly.
 
-The Mac header’s **Browser Actions** ellipsis opens a native SwiftUI pull-down `Menu`. Its 36 × 32 pt rectangular label includes all glass padding in the target. Use the header’s `MacAddressGlass` treatment; let the system render menu material, selection, dismissal, keyboard navigation and accessibility. Group Bookmark (with its current state), Copy Link / Copy Original Link and Find first, followed by a zoom section (Zoom In, Zoom Out, Actual Size with the current percentage; a palette hid the reset label in practice), tab actions (including active downloads), and Sync / reading / privacy / Password AutoFill Help. Keep page-dependent and private-tab disabled states. Password help opens a popover from its menu action. Do not reintroduce a full-window tap-catcher or a custom menu panel. The native menu inherits the platform’s accessibility material preferences. Off-screen captures verify toolbar layout only; a menu tracking window must not be opened under the background-only policy.
+The Mac header’s **Browser Actions** ellipsis opens a native SwiftUI pull-down `Menu`. Its 36 × 32 pt target uses the shared toolbar button style. The menu inherits system material, selection, dismissal, keyboard navigation and accessibility. Group Bookmark (with its current state), Copy Link / Copy Original Link and Find first, followed by a zoom section (Zoom In, Zoom Out, Actual Size with the current percentage; a palette hid the reset label in practice), tab actions (including active downloads), and Sync / reading / privacy / Password AutoFill Help. Keep page-dependent and private-tab disabled states. Password help opens a popover from its menu action. Do not reintroduce a full-window tap-catcher or a custom menu panel. The native menu inherits the platform’s accessibility material preferences. Off-screen captures verify toolbar layout only; a menu tracking window must not be opened under the background-only policy.
 
 iPhone: one browser screen with an address control above the page and a single bottom row for Back, Forward, Library, tab count and Page options. Tabs, Library, Site settings and Settings open as sheets. Library groups bookmarks, history and downloads. The page menu names the active profile in its Settings action. Profile names are also visible on the start page and tab list.
 
@@ -190,3 +190,26 @@ For the iPhone gallery and browser inventory, select an isolated simulator and
 derived data folder with `ORIV_IOS_SIMULATOR_ID` and `ORIV_IOS_DERIVED_DATA`,
 then run `scripts/capture-iphone-design.sh <output-directory>`. Both use synthetic
 fixtures. Live glass compositing and VoiceOver require a foreground or device check.
+
+## Component catalogue
+
+Shared SwiftUI components live in `Apps/Shared/Components`. Platform controls live in `Apps/macOS/Views/Components` and `Apps/iOS/Components`.
+
+| Component | Use |
+| --- | --- |
+| `orivButton` | Primary, secondary, quiet, destructive and link roles. Native bordered styles supply keyboard and accessibility behavior. Quiet actions use hover and press fills. Busy actions expose an in-progress value and are disabled. The external-private handoff uses the contrast-resolved accent fill on iPhone. |
+| `ToolbarButton` | Page-adaptive ink and a shared Mac toolbar hit area. Inline address controls use the same style at the smaller target. Hover, press and active states use 7%, 12% and 16% capsule fills. The system tracks the Browser Actions menu and ShareLink. |
+| `BarButton` | iPhone control glass and 48 pt bar targets, with a 44 pt variant for Forward. Glyphs grow with Dynamic Type up to the icon cap. Native history and tab menus own their primary actions and long-press behavior. |
+| `PageRowContent` | Inline, stacked and title-only site rows with highlighted suggestion text, private and loading icons, and optional selected and already-open accessories. |
+| `ListSelection` | List fill and leading marker, card border, and a stronger Increase Contrast outline. Appearance choices add a checkmark. Platform containers set the selected accessibility trait and own keyboard navigation and focus. |
+| `SettingRow` | Native toggle, picker or action followed by optional inline helper text. This keeps each control and its explanation in one form row. Native controls retain disabled and focus behavior. |
+| `SectionHeader` | Sidebar title and count, content title with optional Show All, and suggestion group label. Forms use native section headings. |
+| `OrivPopover` | Native Mac popover content with a title, optional symbol and scrollable overflow at the height cap. BrowserPopover still routes Escape, Tab and responder restoration. |
+| `OrivSheet` | Native presentations with a shared title, optional subtitle, content and trailing actions. Mac widths are 420, 560 and 760 pt. Busy and error lines sit above or beside the actions. Cancel is the default for destructive confirmations. Library uses the same title style in its split layout. |
+| `OrivSearchField` | Mac sidebar and content fields with 32 pt chrome, magnifier, clear action and optional shortcut hint. Callers own focus and key commands. The sidebar fill becomes opaque with focus or accessibility settings. iPhone content searches use native searchable navigation. |
+| `OrivBanner` | Info, success, warning and private notices with optional action and dismiss. Minimum height is 32 pt on Mac and 44 pt on iPhone. At accessibility sizes the text wraps above the actions. The external-private destination picker shares the banner label and colors. |
+| `Badge` | Neutral Already open, private and count labels. Counts may use an unfilled variant. |
+| `BrowserEmptyState`, `PageErrorState` | Shared empty and retry presentation. Retain the caller’s container, full attempted host and optional recovery action. |
+| `Tile` | Start-page and pinned surfaces, appearance choices and sidebar swatches. Tiles share their radius and card selection treatment while the platform retains input handling. |
+
+The debug design-system scene captures foundations, controls, rows, notices and presentations in Light, Dark and Black with standard, reduced-transparency and increased-contrast settings. The iPhone inventory includes accessibility-sized text. Offscreen captures show the fallback material on Mac. Check live menu tracking, glass compositing, keyboard traversal and VoiceOver on an authorized foreground or physical-device pass.
