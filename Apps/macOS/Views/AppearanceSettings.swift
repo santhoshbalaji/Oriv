@@ -122,7 +122,7 @@ struct AppearanceSettings: View {
                                 Image(systemName: appearance == choice ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(appearance == choice ? theme.accent : theme.secondaryText)
                             }.padding(OrivSpacing.small).frame(maxWidth: .infinity)
-                        }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Use \(choice.displayName) appearance")
+                        }.orivButton(.quiet).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
@@ -195,7 +195,7 @@ struct AppearanceSettings: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(ContentButtonStyle())
+        .orivButton(.quiet)
         .accessibilityLabel(choice.title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }

@@ -108,9 +108,9 @@ struct ExternalPrivateBar: View {
                     #endif
             }
             #if os(iOS)
-            .buttonStyle(ExternalMoveButtonStyle(fill: theme.accent))
+            .orivButton(.accentFill)
             #else
-            .buttonStyle(.borderedProminent).controlSize(.regular).tint(theme.accent)
+            .orivButton(.primary).controlSize(.regular)
             // No defaultAction shortcut: Return in the address field or page must never move a private page.
             #endif
             .accessibilityHint("Opens this address in \(selectedName) and closes its private tab")
@@ -139,16 +139,3 @@ struct ExternalPrivateBar: View {
         #endif
     }
 }
-
-#if os(iOS)
-private struct ExternalMoveButtonStyle: ButtonStyle {
-    @Environment(\.browserTheme) private var theme
-    let fill: Color
-    @Environment(\.self) private var environment
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.foregroundStyle(theme.onAccent(for: fill.resolve(in: environment)))
-            .background(fill, in: .rect(cornerRadius: OrivRadius.small))
-            .brightness(configuration.isPressed ? -0.08 : 0)
-    }
-}
-#endif

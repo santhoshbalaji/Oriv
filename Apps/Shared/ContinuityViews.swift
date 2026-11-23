@@ -211,7 +211,7 @@ struct DeleteProfileConfirmation: View {
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.bordered)
                 Button(OrivStrings.deleteProfile, role: .destructive) { dismiss(); confirm() }
-                    .orivDestructiveButton(theme)
+                    .orivButton(.destructive)
             }
         }
         .padding(24)

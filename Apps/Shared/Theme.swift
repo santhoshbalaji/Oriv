@@ -534,11 +534,6 @@ struct SiteIdentity: View {
 }
 
 extension View {
-    /// Use with a destructive role for app-owned buttons outside native alerts and menus.
-    func orivDestructiveButton(_ theme: Theme) -> some View {
-        buttonStyle(.bordered).tint(theme.danger).foregroundStyle(theme.danger)
-    }
-
     /// Shared list and form backdrop for app-owned rows.
     func orivListStyle(_ theme: Theme) -> some View {
         scrollContentBackground(.hidden).background(theme.surface)

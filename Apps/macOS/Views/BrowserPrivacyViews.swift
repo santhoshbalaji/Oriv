@@ -65,7 +65,7 @@ struct WebsiteDataView: View {
                         Text("\(record.dataTypes.count) storage types").font(.caption).foregroundStyle(theme.secondaryText)
                     }
                     Spacer()
-                    Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivDestructiveButton(theme)
+                    Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivButton(.destructive)
                         .accessibilityLabel("Remove data for \(record.displayName)")
                 }.padding(.vertical, 4)
             }.overlay { if manager.isWorking { ProgressView() } else if records.isEmpty { BrowserEmptyState(manager.records.isEmpty ? "No website data" : "No results for “\(query)”.") } }
@@ -73,7 +73,7 @@ struct WebsiteDataView: View {
                 Text("\(manager.records.count) websites").font(.caption).foregroundStyle(theme.secondaryText)
                 Spacer()
                 Button("Refresh") { Task { await manager.refresh() } }
-                Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivDestructiveButton(theme).disabled(manager.records.isEmpty)
+                Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivButton(.destructive).disabled(manager.records.isEmpty)
             }
         }.padding(24).frame(width: 600, height: 520)
             .disabled(manager.isWorking)
@@ -107,7 +107,7 @@ struct ClearBrowsingDataView: View {
             Toggle("All saved site permissions", isOn: $clearPermissions).tint(theme.accent)
             Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Open tabs, bookmarks and downloaded files remain.")
                 .font(.callout).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
-            HStack { Spacer(); if working { ProgressView().controlSize(.small) }; Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).keyboardShortcut(.defaultAction); Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivDestructiveButton(theme).disabled(!clearHistory && !clearCache && !clearSites && !clearPermissions) }
+            HStack { Spacer(); if working { ProgressView().controlSize(.small) }; Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).keyboardShortcut(.defaultAction); Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivButton(.destructive).disabled(!clearHistory && !clearCache && !clearSites && !clearPermissions) }
         }.padding(28).frame(width: 520).disabled(working)
             .confirmationDialog("Clear selected browsing data?", isPresented: $confirm) {
                 Button("Clear Data", role: .destructive) {

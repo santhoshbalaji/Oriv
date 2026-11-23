@@ -28,10 +28,10 @@ struct DesignSystemGallery: View {
                         SwitchToTabBadge()
                     }.padding(OrivSpacing.small).background { SelectedRowBackground() }
                     HStack {
-                        Button("Continue") {}.buttonStyle(.borderedProminent)
-                        Button("Cancel") {}.buttonStyle(.bordered)
-                        Button(OrivStrings.deleteProfile, role: .destructive) {}.orivDestructiveButton(theme)
-                        Button("Unavailable") {}.buttonStyle(.bordered).disabled(true)
+                        Button("Continue") {}.orivButton(.primary)
+                        Button("Cancel") {}.orivButton(.secondary)
+                        Button(OrivStrings.deleteProfile, role: .destructive) {}.orivButton(.destructive)
+                        Button("Unavailable") {}.orivButton(.quiet).disabled(true)
                     }
                     Text("Control").padding(OrivSpacing.medium).modifier(OrivMaterial.control())
                     Text("Overlay").padding(OrivSpacing.medium).modifier(OrivMaterial.overlay())

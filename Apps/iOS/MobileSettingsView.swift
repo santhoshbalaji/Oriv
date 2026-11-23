@@ -166,7 +166,7 @@ struct MobileClearBrowsingData: View {
             }.listRowBackground(theme.row)
             Section {
                 Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Bookmarks, open tabs and files you saved are retained.").font(.callout).foregroundStyle(theme.secondaryText)
-                Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivDestructiveButton(theme).disabled(!history && !cache && !sites && !permissions)
+                Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivButton(.destructive).disabled(!history && !cache && !sites && !permissions)
                 if working { ProgressView("Clearing data…") }
                 if completed { Label("Selected browsing data cleared", systemImage: "checkmark.circle").foregroundStyle(theme.success).accessibilityAddTraits(.updatesFrequently) }
             }.listRowBackground(theme.row)
@@ -201,9 +201,9 @@ struct MobileWebsiteData: View {
             else if manager.records.isEmpty { BrowserEmptyState("No website data").listRowBackground(theme.row).listRowSeparator(.hidden) }
             else if records.isEmpty { BrowserEmptyState("No results for “\(query)”.").listRowBackground(theme.row).listRowSeparator(.hidden) }
             ForEach(records, id: \.displayName) { record in
-                VStack(alignment: .leading) { Text(record.displayName); Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivDestructiveButton(theme) }
+                VStack(alignment: .leading) { Text(record.displayName); Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivButton(.destructive) }
             }
-            if !manager.records.isEmpty { Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivDestructiveButton(theme) }
+            if !manager.records.isEmpty { Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivButton(.destructive) }
         }.orivListStyle(theme).navigationTitle(OrivStrings.websiteData).searchable(text: $query)
             .disabled(manager.isWorking).task { await manager.refresh() }
             .confirmationDialog("Remove website data?", isPresented: $confirm, titleVisibility: .visible) {
@@ -234,7 +234,7 @@ private struct MobileProfileChooser: View {
                             if !profile.isPersonal { Button("Rename") { editingID = profile.id; name = profile.name; editing = true } }
                             if !profile.isPersonal && profile.id != profiles.lastRegularProfileID {
                                 Button("Archive…") { archiving = profile }
-                                Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = profile }.orivDestructiveButton(theme)
+                                Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = profile }.orivButton(.destructive)
                             }
                         }
                 }

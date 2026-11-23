@@ -84,7 +84,7 @@
   },
   "Apps/macOS/Views/BrowserWindow.swift": {
     "font size": 1,
-    "font style": 5,
+    "font style": 4,
     "motion": 2,
     "padding": 12,
     "radius": 1,

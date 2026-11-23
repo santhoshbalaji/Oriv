@@ -145,7 +145,7 @@ struct ProfilesView: View {
                                 } else if let selected { try profiles.update(selected.id, name: name, color: color, symbol: symbol) }
                                 message = nil
                             } catch { message = error.localizedDescription }
-                        }.buttonStyle(.borderedProminent).tint(theme.accent).disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }.orivButton(.primary).disabled(!profiles.canModify || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         if let selected, selected.archivedAt != nil {
                             Button("Restore") { perform { try profiles.restore(selected.id) } }.disabled(!profiles.canModify)
                         } else if let selected, selected.id != profiles.active.id, canSwitch {
@@ -160,7 +160,7 @@ struct ProfilesView: View {
                         Button("Archive Profile…", role: .destructive) { archiveID = selected.id }.disabled(!profiles.canModify)
                     }
                     if let selected, !selected.isPersonal && selected.id != profiles.active.id {
-                        Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = selected }.orivDestructiveButton(theme).disabled(!profiles.canModify)
+                        Button(OrivStrings.deleteProfilePrompt, role: .destructive) { deleting = selected }.orivButton(.destructive).disabled(!profiles.canModify)
                     }
                     Divider()
                     Text("Profiles organize your browsing; they aren’t locked accounts. Anyone using this Mac account can switch profiles. Apple Passwords and files you explicitly save use the same macOS account.")

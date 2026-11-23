@@ -689,7 +689,7 @@ struct BrowserWindow: View {
     private func noticeBar(_ message: String, symbol: String, isWarning: Bool = true, dismiss: @escaping () -> Void) -> some View {
         HStack {
             Image(systemName: symbol).foregroundStyle(isWarning ? theme.warning : theme.secondaryText)
-            Text(message).font(.caption).foregroundStyle(isWarning ? theme.warning : theme.text)
+            Text(message).font(OrivType.caption).foregroundStyle(isWarning ? theme.warning : theme.text)
             Spacer()
             if !isWarning || session.canPersist { Button("Dismiss", action: dismiss).buttonStyle(.borderless) }
         }

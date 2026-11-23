@@ -205,7 +205,7 @@ struct BrowserSidebar: View {
                     if peeking { Text("Search Tabs").modifier(SidebarLabelFade()); Spacer() }
                 }
             }.frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
-                .buttonStyle(ContentButtonStyle()).focused($utilityFocus, equals: "search")
+                .orivButton(.quiet).focused($utilityFocus, equals: "search")
                 .browserGeometryMarker("sidebarSearchGeometry")
                 .accessibilityLabel(OrivStrings.searchTabs).help("Search Tabs (⇧⌘A)")
                 .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
@@ -235,7 +235,7 @@ struct BrowserSidebar: View {
                 } else {
                     Button { controller.tabSearch = ""; searchFocused = true } label: {
                         Image(systemName: "xmark.circle.fill").frame(width: 24, height: 24)
-                    }.buttonStyle(ContentButtonStyle()).accessibilityLabel("Clear tab search")
+                    }.orivButton(.quiet).accessibilityLabel("Clear tab search")
                 }
             }
             .font(OrivType.detail).foregroundStyle(theme.sidebarSecondaryText(contrast))
@@ -264,7 +264,7 @@ struct BrowserSidebar: View {
                 if peeking { Text("New Tab").modifier(SidebarLabelFade()); Spacer() }
                 if !railLayout { Text("New Tab"); Spacer(); Text("⌘T").font(.system(size: 10)).foregroundStyle(theme.sidebarSecondaryText(contrast)) }
             }.font(OrivType.body).padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarRowInset).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
-        }.buttonStyle(ContentButtonStyle()).frame(width: compact ? 42 : nil)
+        }.orivButton(.quiet).frame(width: compact ? 42 : nil)
             .padding(.horizontal, peeking ? MacBrowserLayout.railInset : 0)
             .browserGeometryMarker("sidebarNewTabGeometry")
             .focused($utilityFocus, equals: "new-tab")
@@ -327,7 +327,7 @@ struct BrowserSidebar: View {
                     }
                     if peeking { Text(section.title).font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
                 }
-            }.buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText(contrast))
+            }.orivButton(.quiet).foregroundStyle(theme.sidebarSecondaryText(contrast))
                 .focused($utilityFocus, equals: section.rawValue)
                 .accessibilityLabel(section == .downloads && controller.downloads.hasActiveDownloads ? "Downloads in progress" : section.title)
                 .help(section.title).browserGeometryMarker("sidebarFooter-\(section.rawValue)")
@@ -339,7 +339,7 @@ struct BrowserSidebar: View {
                 if peeking { Text("Settings").font(OrivType.body).modifier(SidebarLabelFade()); Spacer() }
             }
         }
-            .buttonStyle(ContentButtonStyle()).foregroundStyle(theme.sidebarSecondaryText(contrast)).accessibilityLabel("Settings").help("Settings (⌘,)")
+            .orivButton(.quiet).foregroundStyle(theme.sidebarSecondaryText(contrast)).accessibilityLabel("Settings").help("Settings (⌘,)")
             .focused($utilityFocus, equals: "settings")
             .browserGeometryMarker("sidebarFooter-Settings")
     }

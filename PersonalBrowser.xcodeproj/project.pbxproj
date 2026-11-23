@@ -135,6 +135,7 @@
 		CD17ED12609F67128EE4A303 /* MobileTabSwipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 995194D366FEFCE103CBBAAE /* MobileTabSwipe.swift */; };
 		D03C484B323CEC9954FDDAFF /* BrowserCore in Frameworks */ = {isa = PBXBuildFile; productRef = AE0E855503C1832D2A811C06 /* BrowserCore */; };
 		D1CDE97F1C131A8229BF7046 /* MobileAddressField.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48C168AB3FA7165F540E5E1 /* MobileAddressField.swift */; };
+		D2D4AE334DE0B1ED75BA157D /* OrivButtonStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 964480D72B2F65884062A245 /* OrivButtonStyles.swift */; };
 		D3B2FC2A4CC349CA60CEA729 /* BrowserCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7461202644629BDE4F81AB96 /* BrowserCommands.swift */; };
 		D3F8FD8F11F278F0CE7B252B /* BrowserEngineeringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11518C9B56976D35E872267C /* BrowserEngineeringTests.swift */; };
 		D48EBFE0C3B5EA6C9D42C6EE /* SidebarPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAFA8D2D76B5827E97C95E69 /* SidebarPresentation.swift */; };
@@ -148,6 +149,7 @@
 		E4115D012015E2ABE1654D5E /* StartPageSites.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1CB1146946ED3C1E2055FC0 /* StartPageSites.swift */; };
 		E4B5140CF1963D1038E785DC /* ProfileIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16EA6FC078DC2D217EEDE63C /* ProfileIntegrationTests.swift */; };
 		E73FB73E889B2A11BAFE0A5A /* BrowserShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 286D4B2C4819DD7F153AE8D9 /* BrowserShortcutTests.swift */; };
+		E7617729048671BC722C04E3 /* OrivButtonStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 964480D72B2F65884062A245 /* OrivButtonStyles.swift */; };
 		E8EDCB9AD952B8693638A9A3 /* BrowserEmptyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D9EDC99D580A3F7CA455F0 /* BrowserEmptyState.swift */; };
 		EA6897A111AEAA8A8FDA283B /* DesignSystemGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C04EB078F5F2FC08091590 /* DesignSystemGallery.swift */; };
 		EB75BE5BA43385BE46BD7F40 /* PageRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D26B9FF7F9135A6F74F29C71 /* PageRowContent.swift */; };
@@ -267,6 +269,7 @@
 		8D48A78D9C7717BE1CA013CD /* BrowserQualityIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserQualityIntegrationTests.swift; sourceTree = "<group>"; };
 		8E7B7577E600003F62813F89 /* BackgroundUIMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundUIMode.swift; sourceTree = "<group>"; };
 		942AC4469EC07F35658A8613 /* TabSwitchCover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabSwitchCover.swift; sourceTree = "<group>"; };
+		964480D72B2F65884062A245 /* OrivButtonStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrivButtonStyles.swift; sourceTree = "<group>"; };
 		980F5D142A5B1310570AB521 /* ContinuityRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ContinuityRelease.entitlements; sourceTree = "<group>"; };
 		995194D366FEFCE103CBBAAE /* MobileTabSwipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTabSwipe.swift; sourceTree = "<group>"; };
 		9B55CCF3D8EAB4AC5F798DBC /* MobileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSettingsView.swift; sourceTree = "<group>"; };
@@ -590,6 +593,14 @@
 			path = BrowserKit;
 			sourceTree = "<group>";
 		};
+		E25731425CFA1FE8AA3EB054 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				964480D72B2F65884062A245 /* OrivButtonStyles.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
 		E55A46009DA4F5DFA6B92F12 /* Views */ = {
 			isa = PBXGroup;
 			children = (
@@ -641,6 +652,7 @@
 				21A8868EF770C5958E66724C /* SyncTimingProbe.swift */,
 				942AC4469EC07F35658A8613 /* TabSwitchCover.swift */,
 				F1E6C074563F501BA5AF99E0 /* Theme.swift */,
+				E25731425CFA1FE8AA3EB054 /* Components */,
 				53568E3C1E8477576F08E962 /* Resources */,
 			);
 			path = Shared;
@@ -914,6 +926,7 @@
 				4ADF5C76A706597182E1C5C4 /* MacPrivacyLinkMenu.swift in Sources */,
 				69C564E3660C6E14953AFA24 /* MacWebUIDelegate.swift in Sources */,
 				FA5346ECB8A28BCC21C28CC0 /* NativeSidebarTabs.swift in Sources */,
+				E7617729048671BC722C04E3 /* OrivButtonStyles.swift in Sources */,
 				75B5E2E14E24151D4FEB71A7 /* OrivStrings.swift in Sources */,
 				B6DFC29B8EB588CB7116B6E0 /* PageErrorState.swift in Sources */,
 				25B070B35FD099FDD67B2CE6 /* PageRowContent.swift in Sources */,
@@ -976,6 +989,7 @@
 				0B5F27F565E4F42DDD5926FB /* MobileWebContext.swift in Sources */,
 				84C1C9DDC34F94C3847CD531 /* MobileWebDelegate.swift in Sources */,
 				B8B298A837E3C433E865C676 /* MobileWebView.swift in Sources */,
+				D2D4AE334DE0B1ED75BA157D /* OrivButtonStyles.swift in Sources */,
 				07E201A47EA21356D3102ABA /* OrivMobileApp.swift in Sources */,
 				A5D7D6F875D41BCBD21FBC6E /* OrivStrings.swift in Sources */,
 				6110AB4C540BBF4C7403003E /* PageErrorState.swift in Sources */,

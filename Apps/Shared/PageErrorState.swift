@@ -14,7 +14,7 @@ struct PageErrorState: View {
             Text(message).foregroundStyle(theme.textSecondary)
             Text(OrivStrings.pageErrorRecovery).foregroundStyle(theme.textSecondary)
         } actions: {
-            Button(OrivStrings.tryAgain, action: retry).buttonStyle(.borderedProminent)
+            Button(OrivStrings.tryAgain, action: retry).orivButton(.primary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.canvas)

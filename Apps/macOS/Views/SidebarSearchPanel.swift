@@ -68,9 +68,9 @@ struct SidebarSearchPanel: View {
                     Text(tab.displayTitle).lineLimit(2)
                     Text(tab.hostname).font(.caption).foregroundStyle(theme.secondaryText)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
-            }.buttonStyle(ContentButtonStyle()).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
+            }.orivButton(.quiet).accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
             Button { controller.requestCloseTab(tab.id) } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
-                .buttonStyle(ContentButtonStyle()).accessibilityLabel("Close \(tab.displayTitle)")
+                .orivButton(.quiet).accessibilityLabel("Close \(tab.displayTitle)")
         }
         .background(index == selected ? theme.sidebar.selection : .clear, in: .rect(cornerRadius: OrivRadius.small))
         .id(tab.id)

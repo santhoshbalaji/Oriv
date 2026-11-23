@@ -69,7 +69,7 @@ struct LibraryView: View {
                     if section == .history && count > 0 {
                         Text("Private tabs aren’t included").font(.caption).foregroundStyle(theme.secondaryText)
                         Spacer()
-                        Button(OrivStrings.clearHistoryPrompt, role: .destructive) { confirmClear = true }.orivDestructiveButton(theme)
+                        Button(OrivStrings.clearHistoryPrompt, role: .destructive) { confirmClear = true }.orivButton(.destructive)
                     } else if section == .downloads {
                         Text("Downloads are kept for this session").font(.caption).foregroundStyle(theme.secondaryText)
                         Spacer()
@@ -234,7 +234,7 @@ struct LibraryView: View {
         } label: {
             PageRowContent(title: title, url: url, context: context)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2).contentShape(Rectangle())
-        }.buttonStyle(ContentButtonStyle()).help(url.absoluteString)
+        }.orivButton(.quiet).help(url.absoluteString)
     }
     private func matches(_ title: String, _ url: URL) -> Bool {
         search.isEmpty || title.localizedCaseInsensitiveContains(search) || url.absoluteString.localizedCaseInsensitiveContains(search)

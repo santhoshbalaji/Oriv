@@ -85,7 +85,7 @@ struct StartPageSites: View {
                         .contentShape(.rect(cornerRadius: OrivRadius.medium))
                     }
                     #if os(macOS)
-                    .buttonStyle(ContentButtonStyle())
+                    .orivButton(.quiet)
                     #else
                     .buttonStyle(.plain)
                     #endif

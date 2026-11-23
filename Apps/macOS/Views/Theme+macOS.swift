@@ -32,32 +32,3 @@ struct EditorHeading: View {
         }.padding(.bottom, 6)
     }
 }
-
-/// Quiet content affordance. Native chrome observes the system accessibility settings.
-struct ContentButtonStyle: ButtonStyle {
-    @Environment(\.colorSchemeContrast) private var contrast
-    func makeBody(configuration: Configuration) -> some View {
-        HoverContent(configuration: configuration, contrast: contrast)
-    }
-
-    private struct HoverContent: View {
-        @Environment(\.browserTheme) private var theme
-        let configuration: Configuration
-        let contrast: ColorSchemeContrast
-        @State private var hovered = false
-        var body: some View {
-            configuration.label
-                .background {
-                    RoundedRectangle(cornerRadius: OrivRadius.medium)
-                        .fill(configuration.isPressed ? theme.sidebar.selection : hovered ? theme.sidebar.hover : .clear)
-                }
-                .overlay {
-                    if hovered && contrast == .increased {
-                        RoundedRectangle(cornerRadius: OrivRadius.medium).strokeBorder(theme.separator, lineWidth: 1)
-                    }
-                }
-                .contentShape(RoundedRectangle(cornerRadius: OrivRadius.medium))
-                .onHover { hovered = $0 }
-        }
-    }
-}

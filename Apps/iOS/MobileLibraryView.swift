@@ -62,7 +62,7 @@ struct MobileSavedPages: View {
                 }
                 if controller.session.historyCount > 0 {
                     Button(OrivStrings.clearHistoryPrompt, role: .destructive) { confirmClear = true }
-                        .orivDestructiveButton(theme).listRowBackground(theme.row)
+                        .orivButton(.destructive).listRowBackground(theme.row)
                 }
             } else {
                 let entries = controller.session.bookmarks.filter { matches($0.title, $0.url) }
