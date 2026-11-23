@@ -46,7 +46,7 @@ import XCTest
         for attempt in 0..<2 {
             if attempt == 0 { tab.navigate(to: refused) }
             else { tab.reload() }
-            try await waitForFixtureCondition("refused address error", timeout: 10) { tab.errorMessage != nil }
+            try await waitForFixtureCondition("refused address error", timeout: 10) { tab.errorMessage != nil && !tab.isLoading }
             XCTAssertEqual(tab.url, refused)
             XCTAssertFalse(tab.isLoading)
             XCTAssertNil(tab.httpWarningURL)
