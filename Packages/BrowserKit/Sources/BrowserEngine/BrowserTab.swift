@@ -1053,7 +1053,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if failedAddress == nil, let current = view.url,
            requestedNavigation == nil || current.absoluteString != "about:blank" { url = current }
         if let currentTitle = view.title, !currentTitle.isEmpty { title = currentTitle }
-        isLoading = view.isLoading
+        // WebKit may still report a provisional load while the failed page is shown.
+        // Explicit loads and didStartProvisionalNavigation clear the error before retrying.
+        isLoading = errorMessage == nil && view.isLoading
         progress = view.estimatedProgress
         canGoBack = view.canGoBack
         canGoForward = view.canGoForward
