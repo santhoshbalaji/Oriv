@@ -9,7 +9,7 @@ struct AdBlockingPopover: View {
     private var tab: BrowserTab? { session.selectedTab }
 
     var body: some View {
-        OrivPopover(title: OrivStrings.sitePrivacy, symbol: "shield.lefthalf.filled") {
+        OrivPopover(title: OrivStrings.sitePrivacy, symbol: "shield.lefthalf.filled", maximumHeight: 620) {
             Text("Protection for this profile").font(OrivType.detail).foregroundStyle(theme.textSecondary)
             Picker("Blocking mode", selection: Binding(get: { blocker.mode }, set: { blocker.setMode($0) })) {
                 ForEach(AdBlockingMode.allCases) { Text($0.rawValue).tag($0) }

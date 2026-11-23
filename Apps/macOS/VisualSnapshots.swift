@@ -1610,11 +1610,7 @@ import WebKit
         let liveGlass = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"]?.isEmpty == false || ProcessInfo.processInfo.environment["ORIV_LIVE_SITES"]?.isEmpty == false
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
         if liveGlass { style.insert(.fullSizeContentView) }
-        var windowSize = size
-        if fitHeight {
-            windowSize.height = min(size.height, ceil(hosting.sizeThatFits(in: size).height) + 32)
-        }
-        let window = OffscreenWindow(contentRect: CGRect(origin: .zero, size: windowSize),
+        let window = OffscreenWindow(contentRect: CGRect(origin: .zero, size: size),
                               styleMask: style, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = appearance.colorScheme.map { NSAppearance(named: $0 == .light ? .aqua : .darkAqua)! }
@@ -1628,12 +1624,16 @@ import WebKit
         } else {
             window.contentViewController = hosting
         }
-        window.setContentSize(windowSize)
+        window.setContentSize(size)
         window.setFrameOrigin(liveGlass ? (BackgroundUIMode.isEnabled && size.width == 1800 ? .zero : NSPoint(x: 40, y: 60)) : NSPoint(x: -30_000, y: -30_000))
         BackgroundUIMode.show(window, key: key, activate: key && BackgroundUIMode.foregroundAllowed)
         let cover = covered ? BackgroundUIMode.makeCover(for: window) : nil
         defer { cover?.orderOut(nil); cover?.close(); window.orderOut(nil); window.close() }
         try? await Task.sleep(for: .milliseconds(settle))
+        if fitHeight {
+            let height = min(size.height, ceil(hosting.sizeThatFits(in: size).height) + 32)
+            window.setContentSize(CGSize(width: size.width, height: height))
+        }
         var attempts = 0
         while key && !window.isKeyWindow && !BackgroundUIMode.isEnabled && attempts < 20 {
             attempts += 1

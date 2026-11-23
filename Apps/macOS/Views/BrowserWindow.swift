@@ -842,6 +842,7 @@ private struct BrowserPopover<Content: View>: NSViewRepresentable {
                 // resigns key. The field can start editing again on return.
                 returnResponder = editor?.isFieldEditor == true ? (editor?.delegate as? NSResponder ?? responder) : responder
                 let host = NSHostingController(rootView: root)
+                host.sizingOptions.insert(.preferredContentSize)
                 let popover = NSPopover()
                 popover.behavior = .transient
                 popover.appearance = window.effectiveAppearance
