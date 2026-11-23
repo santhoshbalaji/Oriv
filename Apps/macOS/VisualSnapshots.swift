@@ -55,7 +55,7 @@ import WebKit
         if BackgroundUIMode.isEnabled {
             if environment["ORIV_GLASS_SCENE"] == "sidebar-color" {
                 manifest.limitations.append("The real sidebar and Settings render off-screen. A static gradient models the glass input. WindowServer Liquid Glass and live transitions are outside this capture.")
-            } else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" {
+            } else if ["sidebar-opacity", "sidebar-opacity-pastels"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("The real sidebar and production backing render over a synthetic desktop pattern in off-screen windows. These images demonstrate the backing blend; the WindowServer Liquid Glass compositor is outside this capture.")
             } else if ["sidebar-contrast", "p2", "phase2-contrast"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("All windows stay off every display. Contrast matrix uses the real sidebar with a known white/black/purple glass input and labelled page swatch; the header is a layout spacer. It renders the production contrast backing and controls; reduced/increased variants use the opaque accessibility path. These are synthetic compositing/layout images, not live Liquid Glass acceptance.")
@@ -75,6 +75,8 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "p2" { await renderP2Scenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-color" { await renderSidebarColors(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" { await renderSidebarOpacity(into: directory) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity-pastels" { await renderSidebarOpacity(into: directory, pastels: true) }
+        else if environment["ORIV_GLASS_SCENE"] == "design-system" { await renderDesignSystem(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-width" { await renderSidebarWidthScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
@@ -321,6 +323,19 @@ import WebKit
         guard let view else { return nil }
         if view.identifier?.rawValue == identifier, !view.bounds.isEmpty { return view }
         return view.subviews.lazy.compactMap { snapshotMarker(identifier, in: $0) }.first
+    }
+
+    private static func renderDesignSystem(into directory: URL) async {
+        for (name, appearance) in [("light", BrowserAppearance.light), ("dark", .dark), ("black", .t3Code)] {
+            for variant in ["standard", "reduced", "increased"] {
+                await capture("mac-design-system-\(name)-\(variant)", directory, CGSize(width: 560, height: 660),
+                              key: false, appearance: appearance) {
+                    DesignSystemGallery()
+                        .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
+                        .environment(\.chromeReduceTransparencyOverride, variant == "reduced" || BackgroundUIMode.isEnabled)
+                }
+            }
+        }
     }
 
     private static func renderThemeContrast(into directory: URL) async {
@@ -690,7 +705,7 @@ import WebKit
         }
     }
 
-    private static func renderSidebarOpacity(into directory: URL) async {
+    private static func renderSidebarOpacity(into directory: URL, pastels: Bool = false) async {
         let profiles = BrowserProfiles(rootDirectory: directory.appendingPathComponent("opacity-fixture"), testing: true)
         defer { profiles.shutdown() }
         let controller = profiles.controller
@@ -698,30 +713,35 @@ import WebKit
             _ = controller.session.addTab(url: URL(string: "https://example.test/\(title.replacingOccurrences(of: " ", with: "-"))"),
                                           select: false, load: false)
         }
-        await capture("mac-glass-sidebar-contrast-opacity-settings", directory, CGSize(width: 672, height: 612),
-                      key: false, appearance: .light) {
-            AppearanceSettings(appearance: .constant(.light), controller: controller, initialPane: .appearance)
+        if !pastels {
+            await capture("mac-glass-sidebar-contrast-opacity-settings", directory, CGSize(width: 672, height: 612),
+                          key: false, appearance: .light) {
+                AppearanceSettings(appearance: .constant(.light), controller: controller, initialPane: .appearance)
+            }
         }
         if let first = controller.session.tabs.dropFirst().first { controller.session.togglePinned(first.id) }
         _ = controller.session.addTab(isPrivate: true, select: false, load: false)
-        for appearance in [BrowserAppearance.light, .dark, .t3Code] {
+        for appearance in pastels ? [BrowserAppearance.light, .dark] : [.light, .dark, .t3Code] {
             let mode = appearance == .t3Code ? "t3-code" : appearance.rawValue.lowercased()
-            for (layout, rail) in [("expanded", false), ("rail", true)] {
-                controller.compactSidebar = rail
-                for choice in SidebarGlassOpacity.allCases {
-                    let name = "mac-glass-sidebar-contrast-opacity-\(mode)-\(layout)-\(choice.rawValue.lowercased())"
-                    await capture(name, directory, CGSize(width: 560, height: 560), key: false, settle: 300, appearance: appearance) {
-                        HStack(spacing: 0) {
-                            BrowserSidebar(controller: controller, profiles: profiles)
-                                .padding(.top, 32)
-                                .frame(width: rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
-                                .modifier(MacSidebarGlass())
-                            Color.clear
+            for tint in pastels ? [SidebarColor.rose, .peach, .butter, .mint, .sage, .sky, .lavender, .profile] : [.graphite] {
+                let label = pastels ? "\(mode)-\(tint.rawValue)" : mode
+                for (layout, rail) in pastels ? [("expanded", false)] : [("expanded", false), ("rail", true)] {
+                    controller.compactSidebar = rail
+                    for choice in SidebarGlassOpacity.allCases {
+                        let name = "mac-glass-sidebar-contrast-opacity-\(label)-\(layout)-\(choice.rawValue.lowercased())"
+                        await capture(name, directory, CGSize(width: 560, height: 560), key: false, settle: 300, appearance: appearance) {
+                            HStack(spacing: 0) {
+                                BrowserSidebar(controller: controller, profiles: profiles)
+                                    .padding(.top, 32)
+                                    .frame(width: rail ? MacBrowserLayout.railWidth : MacBrowserLayout.sidebarWidth)
+                                    .modifier(MacSidebarGlass(color: tint, profileColor: .amber))
+                                Color.clear
+                            }
+                            .background { sidebarOpacityBackdrop }
+                            .environment(\.sidebarCaptureBackdrop, .clear)
+                            .environment(\.sidebarCaptureOpacity, choice)
+                            .environment(\.siteIcons, controller.session.siteIcons)
                         }
-                        .background { sidebarOpacityBackdrop }
-                        .environment(\.sidebarCaptureBackdrop, .clear)
-                        .environment(\.sidebarCaptureOpacity, choice)
-                        .environment(\.siteIcons, controller.session.siteIcons)
                     }
                 }
             }

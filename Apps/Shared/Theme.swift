@@ -2,39 +2,178 @@ import BrowserCore
 import BrowserEngine
 import SwiftUI
 
-/// Selective shared metrics. Deliberate platform geometry (including hit targets) stays local.
 enum OrivSpacing {
+    static let xxs: CGFloat = 2
     static let xs: CGFloat = 4
     static let small: CGFloat = 8
     static let medium: CGFloat = 12
     static let large: CGFloat = 16
+    static let larger: CGFloat = 20
     static let xl: CGFloat = 24
     static let xxl: CGFloat = 32
 }
 
 enum OrivRadius {
-    static let compact: CGFloat = 6
-    static let small: CGFloat = 8
-    static let medium: CGFloat = 10
-    static let popover: CGFloat = 12
-    static let large: CGFloat = 14
-    // Capsule shapes use Capsule(), rather than a radius tied to a particular height.
+    static let badge: CGFloat = 6
+    static let control: CGFloat = 8
+    static let tile: CGFloat = 10
+    static let panel: CGFloat = 12
+    static let card: CGFloat = 14
+    static let thumbnail: CGFloat = 18
+    static let capsule = Capsule()
+
+    @available(*, deprecated, renamed: "badge")
+    static var compact: CGFloat { badge }
+    @available(*, deprecated, renamed: "control")
+    static var small: CGFloat { control }
+    @available(*, deprecated, renamed: "tile")
+    static var medium: CGFloat { tile }
+    @available(*, deprecated, renamed: "panel")
+    static var popover: CGFloat { panel }
+    @available(*, deprecated, renamed: "card")
+    static var large: CGFloat { card }
 }
 
-/// Mac's compact scale and iPhone's native, scalable text styles.
 enum OrivType {
     #if os(macOS)
     static let body: Font = .system(size: 13)
     static let detail: Font = .system(size: 12)
     static let caption: Font = .system(size: 11)
     static let title: Font = .system(size: 15, weight: .semibold)
-    static let profile: Font = .system(size: 17, weight: .semibold)
+    static let windowTitle: Font = .system(size: 17, weight: .semibold)
+    static let headline: Font = .system(size: 13, weight: .semibold)
+    static let bodyEmphasized: Font = .system(size: 13, weight: .medium)
+    static let sectionLabel: Font = .system(size: 11, weight: .semibold)
+    static let badge: Font = .system(size: 10, weight: .medium)
     #else
     static let body: Font = .body
     static let detail: Font = .footnote
     static let caption: Font = .caption
     static let title: Font = .headline
+    static let windowTitle: Font = .title3.weight(.semibold)
+    static let headline: Font = .subheadline.weight(.semibold)
+    static let bodyEmphasized: Font = .body.weight(.medium)
+    static let sectionLabel: Font = .footnote.weight(.semibold)
+    static let badge: Font = .caption2.weight(.medium)
     #endif
+
+    @available(*, deprecated, renamed: "windowTitle")
+    static var profile: Font { windowTitle }
+}
+
+enum OrivLayout {
+    static let tileMinimumHeight: CGFloat = 84
+    #if os(macOS)
+    static let sheetPadding = OrivSpacing.xl
+    static let popoverPadding = OrivSpacing.large
+    static let sidebarWidth: CGFloat = 256
+    static let railWidth: CGFloat = 72
+    static let toolbarHeight: CGFloat = 60
+    static let controlHeight: CGFloat = 32
+    static let tabRowHeight: CGFloat = 36
+    static let listRowHeight: CGFloat = 28
+    static let suggestionRowHeight: CGFloat = 38
+    static let rowInset = OrivSpacing.small
+    static let contentMaxWidth: CGFloat = 640
+    #else
+    static let toolbarHeight: CGFloat = 48
+    static let controlHeight: CGFloat = 44
+    static let tabRowHeight: CGFloat = 44
+    static let listRowHeight: CGFloat = 44
+    static let suggestionRowHeight: CGFloat = 52
+    static let rowInset = OrivSpacing.large
+    static let contentMaxWidth: CGFloat = 650
+    #endif
+}
+
+enum OrivMotion {
+    static let quick = Animation.easeOut(duration: 0.10)
+    static let standard = Animation.easeInOut(duration: 0.20)
+    static let navigate = Animation.spring(response: 0.38, dampingFraction: 0.9)
+    static let reduced = Animation.easeInOut(duration: 0.18)
+
+    static func navigation(reduceMotion: Bool) -> Animation { reduceMotion ? reduced : navigate }
+}
+
+enum OrivIcon {
+    static let toolbar: CGFloat = 14
+    static let rail: CGFloat = 16
+    static let footer = rail
+    static let inline: CGFloat = 12
+    static let close = Font.system(size: 11, weight: .semibold)
+    static let bar: CGFloat = 21
+    static let secondaryBar: CGFloat = 20
+    static let barMaximum: CGFloat = 28
+
+    static func barFont(scaledSize: CGFloat) -> Font {
+        .system(size: min(scaledSize, barMaximum), weight: .medium)
+    }
+}
+
+enum OrivTarget {
+    static let macMinimum = CGSize(width: 24, height: 24)
+    static let macToolbar = CGSize(width: 28, height: 28)
+    static let macRail = CGSize(width: 42, height: 36)
+    static let touch = CGSize(width: 44, height: 44)
+    static let touchBar = CGSize(width: 48, height: 48)
+}
+
+enum OrivElevation: ViewModifier {
+    case flat, overlay, drawer
+
+    @ViewBuilder func body(content: Content) -> some View {
+        switch self {
+        case .flat: content
+        case .overlay: content.shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        case .drawer: content.modifier(DrawerShadow())
+        }
+    }
+
+    private struct DrawerShadow: ViewModifier {
+        @Environment(\.layoutDirection) private var direction
+
+        func body(content: Content) -> some View {
+            content.shadow(color: .black.opacity(0.12), radius: 8, x: direction == .leftToRight ? 4 : -4)
+        }
+    }
+}
+
+enum OrivMaterial: ViewModifier {
+    #if os(macOS)
+    case navigation(color: SidebarColor = .graphite, profileColor: ProfileColor? = nil)
+    #endif
+    case control(radius: CGFloat = 24)
+    case overlay(radius: CGFloat = OrivRadius.panel)
+    case sheet
+
+    @ViewBuilder func body(content: Content) -> some View {
+        switch self {
+        #if os(macOS)
+        case let .navigation(color, profileColor):
+            content.modifier(MacSidebarGlass(color: color, profileColor: profileColor))
+        #endif
+        case let .control(radius):
+            content.modifier(BrowserGlass(radius: radius))
+        case let .overlay(radius):
+            content.modifier(OverlaySurface(radius: radius))
+        case .sheet:
+            content
+        }
+    }
+
+    private struct OverlaySurface: ViewModifier {
+        @Environment(\.browserTheme) private var theme
+        @Environment(\.colorSchemeContrast) private var systemContrast
+        @Environment(\.chromeContrastOverride) private var captureContrast
+        let radius: CGFloat
+
+        func body(content: Content) -> some View {
+            let shape = RoundedRectangle(cornerRadius: radius)
+            content.background(theme.surface, in: shape)
+                .overlay { shape.strokeBorder((captureContrast ?? systemContrast) == .increased ? theme.separatorStrong : theme.separator) }
+                .modifier(OrivElevation.overlay)
+        }
+    }
 }
 
 /// Shared by the Mac and iPhone targets. Existing stored appearance names remain valid.
@@ -64,13 +203,14 @@ struct Theme {
     let isT3Code: Bool
     let canvas: Color
     let surface: Color
-    let row: Color
-    let field: Color
+    let surfaceRaised: Color
+    let fill: Color
     let chrome: Color
     var separator: Color
     let text: Color
-    var secondaryText: Color
-    let selection: Color
+    var textSecondary: Color
+    let fillSelected: Color
+    let textTertiary: Color
     let warning: Color
     let sidebar: SidebarPalette
 
@@ -90,8 +230,31 @@ struct Theme {
     var sidebarPrivateAccent: Color { Self.glassPrivate }
     #endif
 
-    var fieldText: Color { secondaryText }
+    var fillHover: Color { sidebar.hover }
+    var separatorStrong: Color { isT3Code ? Self.hex(0x818181) : Self.highContrastSeparator }
+    let danger = adaptive("Danger", light: 0xB3261E, dark: 0xFF9A8F)
+    let success = adaptive("Success", light: 0x1D6B3A, dark: 0x7FD99A)
+    let privateWash = adaptive("PrivateWash", light: 0xF3E9F9, dark: 0x33263D)
+    let iconPlate = Color.white.opacity(0.88)
+
+    @available(*, deprecated, renamed: "surfaceRaised")
+    var row: Color { surfaceRaised }
+    @available(*, deprecated, renamed: "fill")
+    var field: Color { fill }
+    @available(*, deprecated, renamed: "fillSelected")
+    var selection: Color { fillSelected }
+    @available(*, deprecated, renamed: "textSecondary")
+    var secondaryText: Color { textSecondary }
+    @available(*, deprecated, renamed: "textSecondary")
+    var fieldText: Color { textSecondary }
+    @available(*, deprecated, renamed: "canvas")
     var page: Color { canvas }
+    @available(*, deprecated, message: "Use the private color role.")
+    var privateAccent: Color { self.private }
+
+    func onAccent(for resolvedAccent: Color.Resolved) -> Color {
+        Self.luminance(resolvedAccent) < sqrt(1.05 * 0.05) - 0.05 ? .white : .black
+    }
 
     /// Preserve the system hue while meeting the 3:1 requirement on app-drawn selections.
     func markerAccent(on background: Color.Resolved, in environment: EnvironmentValues) -> Color {
@@ -116,11 +279,12 @@ struct Theme {
 
     static let privateLight = hex(0x713692)
     static let privateDark = hex(0xD5AAF8)
-    let privateAccent = adaptive("Private", light: 0x713692, dark: 0xD5AAF8)
+    let `private` = adaptive("Private", light: 0x713692, dark: 0xD5AAF8)
 
     static let t3Code = Theme(isT3Code: true, canvas: hex(0x000000),
-        surface: hex(0x111111), row: hex(0x111111), field: hex(0x1E1E1E), chrome: hex(0x0A0A0A), separator: hex(0x191919),
-        text: hex(0xF5F5F5), secondaryText: hex(0xA3A3A3), selection: hex(0x1C1C1C),
+        surface: hex(0x111111), surfaceRaised: hex(0x111111), fill: hex(0x1E1E1E), chrome: hex(0x0A0A0A), separator: hex(0x191919),
+        text: hex(0xF5F5F5), textSecondary: hex(0xA3A3A3), fillSelected: hex(0x1C1C1C),
+        textTertiary: hex(0x8A8A8A),
         warning: hex(0xD9A04A),
         sidebar: SidebarPalette(backing: hex(0x0A0A0A), field: hex(0x1E1E1E),
                                selection: hex(0x1C1C1C), hover: hex(0x171717)))
@@ -128,13 +292,14 @@ struct Theme {
     static let graphite = Theme(isT3Code: false,
         canvas: adaptive("Canvas", light: 0xFFFFFF, dark: 0x1C1C1E),
         surface: adaptive("Surface", light: 0xF5F5F7, dark: 0x242426),
-        row: adaptive("Row", light: 0xFFFFFF, dark: 0x2E2E30),
-        field: adaptive("Field", light: 0xE6E6EA, dark: 0x323236),
+        surfaceRaised: adaptive("Row", light: 0xFFFFFF, dark: 0x2E2E30),
+        fill: adaptive("Field", light: 0xE6E6EA, dark: 0x323236),
         chrome: adaptive("Chrome", light: 0xF0F0F3, dark: 0x252528),
         separator: adaptive("Separator", light: 0xC9C9CF, dark: 0x48484D),
         text: adaptive("Text", light: 0x1D1D1F, dark: 0xF5F5F7),
-        secondaryText: adaptive("Secondary", light: 0x4E4E54, dark: 0xC2C2C8),
-        selection: adaptive("Selection", light: 0xDEDEE3, dark: 0x3D3D42),
+        textSecondary: adaptive("Secondary", light: 0x4E4E54, dark: 0xC2C2C8),
+        fillSelected: adaptive("Selection", light: 0xDEDEE3, dark: 0x3D3D42),
+        textTertiary: adaptive("Tertiary", light: 0x6A6A70, dark: 0xA1A1A8),
         warning: adaptive("Warning", light: 0x794900, dark: 0xE0AA55),
         sidebar: SidebarPalette(
             backing: adaptive("SidebarBacking", light: 0xF0F0F3, dark: 0x252528),
@@ -145,8 +310,8 @@ struct Theme {
     func respecting(_ contrast: ColorSchemeContrast) -> Theme {
         guard contrast == .increased else { return self }
         var palette = self
-        palette.separator = isT3Code ? Self.hex(0x818181) : Self.highContrastSeparator
-        palette.secondaryText = isT3Code ? Self.hex(0xB8B8B8) : Self.highContrastSecondary
+        palette.separator = separatorStrong
+        palette.textSecondary = isT3Code ? Self.hex(0xB8B8B8) : Self.highContrastSecondary
         return palette
     }
 
@@ -333,7 +498,7 @@ struct SiteIdentity: View {
                 RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
                 // A pale plate keeps black/transparent monochrome marks readable
                 // on dark sidebar material as well as light surfaces.
-                RoundedRectangle(cornerRadius: size * 0.2).fill(Color.white.opacity(0.88)).padding(1)
+                RoundedRectangle(cornerRadius: size * 0.2).fill(theme.iconPlate).padding(1)
                 Image(decorative: image, scale: 2).resizable().scaledToFit().padding(size * 0.12)
             } else if let symbol {
                 RoundedRectangle(cornerRadius: size * (sidebarIcon ? 0.2 : 0.27)).fill(theme.field)

@@ -28,7 +28,7 @@ def hex_tokens(source):
 
 def adaptive_tokens(source):
     return {name: (light.upper(), dark.upper()) for name, _, light, dark in
-            re.findall(r"(\w+)\s*[:=] adaptive\(\"(\w+)\", light: 0x([0-9A-Fa-f]{6}), dark: 0x([0-9A-Fa-f]{6})\)", source)}
+            re.findall(r"`?(\w+)`?\s*[:=] adaptive\(\"(\w+)\", light: 0x([0-9A-Fa-f]{6}), dark: 0x([0-9A-Fa-f]{6})\)", source)}
 
 def split_palette(source, read, mode=0):
     content, sidebar = source.split("sidebar: SidebarPalette(", 1)
@@ -41,18 +41,24 @@ def composite(front, back, opacity):
     return "".join(f"{round(int(front[i:i+2], 16) * opacity + int(back[i:i+2], 16) * (1-opacity)):02X}" for i in (0, 2, 4))
 
 def adaptive_constant(name, mode):
-    return light_or_dark(block(f"let {name} =", "\n"), mode)[name]
+    return light_or_dark(block(f"let {name if name != 'private' else '`private`'} =", "\n"), mode)[name]
 
 palettes = [
     ("Graphite Light", 0, *split_palette(block("static let graphite =", "func respecting"), light_or_dark, 0)),
     ("Graphite Dark", 1, *split_palette(block("static let graphite =", "func respecting"), light_or_dark, 1)),
-    ("T3 Code", 1, *split_palette(block("static let t3Code =", "static let graphite"), lambda source, _: hex_tokens(source))),
+    ("Black", 1, *split_palette(block("static let t3Code =", "static let graphite"), lambda source, _: hex_tokens(source))),
 ]
-# Explicit text roles. Native controls inherit the OS accent, which can vary at runtime.
-text_tokens = {"text", "secondaryText", "fieldText", "warning", "privateAccent"}
-for source in (ROOT / "Apps").rglob("*.swift"):
-    text_tokens.update(token for token in re.findall(r"\bText\([^;{}]*?\.foregroundStyle\(theme\.(\w+)\)", source.read_text()) if not token.startswith("sidebar"))
-
+# Text roles and their intended surfaces. Native controls inherit the OS accent.
+text_tokens = ("text", "textSecondary", "warning", "private", "danger", "success")
+base_surfaces = ("canvas", "surface", "surfaceRaised")
+role_surfaces = {
+    **{role: (*base_surfaces, "chrome", "fill", "fillSelected") for role in text_tokens},
+    "textTertiary": base_surfaces,
+    "private": (*base_surfaces, "chrome", "fill", "fillSelected", "privateWash"),
+    "text": (*base_surfaces, "chrome", "fill", "fillSelected", "privateWash"),
+}
+negative_roles = ("danger", "success", "textTertiary", "privateWash", "onAccent")
+role_negative = next((role for role in negative_roles if f"--negative-{role}-test" in sys.argv), None)
 checks = []  # (theme, token, colour, surface, background, minimum)
 sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
 assert "content.background(backing)" in sidebar_source
@@ -79,45 +85,46 @@ guard_colors = re.search(r'balancedTintGuard = Theme.adaptive\("SidebarTintGuard
 assert set(tints) == {"rose", "peach", "butter", "mint", "sage", "sky", "lavender",
                       "mulberry", "ocean", "fern", "amber", "slate"}
 for appearance, mode, palette, sidebar in palettes:
-    palette["privateAccent"] = adaptive_constant("privateAccent", mode)
+    for role in ("private", "privateWash", "danger", "success"):
+        palette[role] = adaptive_constant(role, mode)
     sidebar_text = {
         "text": palette["text"],
-        "secondaryText": adaptive_constant("glassSecondary", mode),
-        "privateAccent": adaptive_constant("glassPrivate", mode),
+        "textSecondary": adaptive_constant("glassSecondary", mode),
+        "private": adaptive_constant("glassPrivate", mode),
     }
     if negative_test:
-        palette["secondaryText"] = "888888"
+        palette["textSecondary"] = "888888"
     for accessibility in ("standard", "increase contrast"):
         colors = dict(palette)
         if accessibility == "increase contrast":
-            if appearance == "T3 Code":
-                colors["secondaryText"] = re.search(r"palette.secondaryText = isT3Code \? Self.hex\(0x(\w+)\)", text)[1]
-                colors["separator"] = re.search(r"palette.separator = isT3Code \? Self.hex\(0x(\w+)\)", text)[1]
+            if appearance == "Black":
+                colors["textSecondary"] = re.search(r"palette.textSecondary = isT3Code \? Self.hex\(0x(\w+)\)", text)[1]
+                colors["separator"] = re.search(r"separatorStrong: Color \{ isT3Code \? Self.hex\(0x(\w+)\)", text)[1]
             else:
-                colors["secondaryText"] = adaptive_constant("highContrastSecondary", mode)
+                colors["textSecondary"] = adaptive_constant("highContrastSecondary", mode)
                 colors["separator"] = adaptive_constant("highContrastSeparator", mode)
-        colors["fieldText"] = colors["secondaryText"]
-        surfaces = {role: colors[role] for role in ("canvas", "surface", "row", "chrome", "field", "selection")}
-        for token in sorted(text_tokens):
-            for surface, background in surfaces.items():
-                checks.append((appearance + " " + accessibility, token, colors[token], surface, background, 4.5))
+        for token, surfaces in role_surfaces.items():
+            for surface in surfaces:
+                foreground = colors[surface] if token == role_negative else colors[token]
+                background = colors[token] if surface == role_negative else colors[surface]
+                checks.append((appearance + " " + accessibility, token, foreground, surface, background, 4.5))
         if accessibility == "increase contrast":
-            for surface, background in surfaces.items():
-                checks.append((appearance, "strong separator", colors["separator"], surface, background, 3))
+            for surface in role_surfaces["text"]:
+                checks.append((appearance, "strong separator", colors["separator"], surface, colors[surface], 3))
         for page in ("FFFFFF", "000000"):
-            backing = composite(colors["field"], page, opacity)
-            for token in sorted(text_tokens):
+            backing = composite(colors["fill"], page, opacity)
+            for token in text_tokens:
                 checks.append((appearance + " chrome glass", token, colors[token], "backing over #" + page, backing, 4.5))
 
         steps = {"increase contrast": 1.0} if accessibility == "increase contrast" else {
             **sidebar_opacities, "reduce transparency": 1.0}
         backings = {appearance: sidebar["backing"]}
-        if appearance != "T3 Code":
+        if appearance != "Black":
             scheme = "Dark" if mode else "Light"
             backings.update({f"{name.capitalize()} {scheme}": values[mode] for name, values in tints.items()})
         inks = dict(sidebar_text)
         if accessibility == "increase contrast":
-            inks["secondaryText"] = colors["secondaryText"]
+            inks["textSecondary"] = colors["textSecondary"]
         for name, backing in backings.items():
             if name == "Rose Light" and tint_negative:
                 backing = "888888"
@@ -143,14 +150,14 @@ for appearance, mode, palette, sidebar in palettes:
                                 minima[token] = min(minima.get(token, float("inf")), ratio(foreground, background))
                         if accessibility == "increase contrast":
                             sidebar_checks.append((label, "strong boundary", colors["text"], state, background, 3))
-            if appearance != "T3 Code":
+            if appearance != "Black":
                 # The Settings swatch shows a primary-ink checkmark on the opaque backing.
                 sidebar_checks.append((f"{name} sidebar swatch", "checkmark", colors["text"], "swatch", backing, 3))
 
 checks.extend(sidebar_checks)
 worst = min((check for check in sidebar_checks if check[-1] == 4.5), key=lambda check: ratio(check[2], check[4]))
 for name, minima in sorted(sidebar_balanced.items()):
-    values = " / ".join(f"{minima[token]:.2f}" for token in ("text", "secondaryText", "privateAccent"))
+    values = " / ".join(f"{minima[token]:.2f}" for token in ("text", "textSecondary", "private"))
     print(f"{name} Balanced (primary / secondary / private): {values}")
 print(f"Sidebar minimum text contrast: {ratio(worst[2], worst[4]):.2f}:1 ({worst[0]}, {worst[1]} on {worst[3]})")
 print("App-owned colors checked. Native system accent and compositor output depend on runtime settings.")
@@ -180,6 +187,12 @@ for page in sorted(page_colours):
     backing = "".join(f"{round(c * 255):02X}" for c in values)
     checks.append(("Mac filled address capsule", "foreground", foreground, "page #" + page, backing, 4.5))
 
+# A system accent can be any luminance. Check both ends and the crossover.
+assert "luminance(resolvedAccent) < sqrt(1.05 * 0.05) - 0.05" in text
+for accent in sorted(page_colours):
+    ink = "FFFFFF" if luminance(accent) < (1.05 * 0.05) ** 0.5 - 0.05 else "000000"
+    checks.append(("System accent", "onAccent", accent if role_negative == "onAccent" else ink, "accent", accent, 4.5))
+
 failures = 0
 for theme, token, colour, surface, background, minimum in checks:
     value = ratio(colour, background)
@@ -192,6 +205,11 @@ if tint_negative:
     if not caught:
         sys.exit("FAIL negative tint test: low-contrast Rose backing was not caught")
     print(f"Negative tint test passed: caught {failures} low-contrast uses")
+elif role_negative:
+    if not any((role_negative in (token, surface)) and ratio(foreground, background) < minimum
+               for _, token, foreground, surface, background, minimum in checks):
+        sys.exit(f"FAIL negative test: {role_negative} regression was not caught")
+    print(f"Negative {role_negative} test passed")
 elif negative_test or sidebar_negative:
     if not failures:
         print("FAIL negative test: low-contrast foreground was not caught")

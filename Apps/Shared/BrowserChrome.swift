@@ -811,11 +811,13 @@ extension EnvironmentValues {
     }
 }
 
-private struct BrowserGlass: ViewModifier {
+struct BrowserGlass: ViewModifier {
     @Environment(\.browserTheme) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.colorSchemeContrast) private var systemContrast
+    @Environment(\.chromeContrastOverride) private var captureContrast
+    private var contrast: ColorSchemeContrast { captureContrast ?? systemContrast }
     @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
     @Environment(\.chromePageTint) private var pageTint
     var radius: CGFloat
@@ -841,6 +843,8 @@ private struct BrowserGlass: ViewModifier {
 
 private struct ChromeReduceTransparencyKey: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
+    @Entry var chromeContrastOverride: ColorSchemeContrast? = nil
+
     /// Snapshot-only mirror; the real accessibility preference always takes precedence.
     var chromeReduceTransparencyOverride: Bool {
         get { self[ChromeReduceTransparencyKey.self] }
@@ -849,5 +853,5 @@ extension EnvironmentValues {
 }
 
 extension View {
-    func browserGlass(radius: CGFloat = 24) -> some View { modifier(BrowserGlass(radius: radius)) }
+    func browserGlass(radius: CGFloat = 24) -> some View { modifier(OrivMaterial.control(radius: radius)) }
 }

@@ -10,6 +10,7 @@ python3 scripts/check-browser-scope.py
 python3 scripts/check-password-fields.py
 python3 scripts/check-background-ui.py
 python3 scripts/check-contrast.py
+python3 scripts/check-design-tokens.py
 mkdir -p build
 quality_output=$(mktemp -d "$PWD/build/browser-quality.XXXXXX")
 { sw_vers; xcodebuild -version; } | tee "$quality_output/toolchain.log"

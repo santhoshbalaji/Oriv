@@ -177,6 +177,22 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-opacity":
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-synthetic-composite" for name in expected} - evidence
         if missing: problems.append(f"missing sidebar opacity composites: {sorted(missing)}")
+if os.environ.get("ORIV_GLASS_SCENE") == "design-system":
+    expected = {f"mac-design-system-{theme}-{state}" for theme in ("light", "dark", "black")
+                for state in ("standard", "reduced", "increased")}
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = {name + "-opaque-fallback" for name in expected} - evidence
+        if missing: problems.append(f"missing design system evidence: {sorted(missing)}")
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-opacity-pastels":
+    expected = {f"mac-glass-sidebar-contrast-opacity-{theme}-{tint}-expanded-{level}"
+                for theme in ("light", "dark")
+                for tint in ("rose", "peach", "butter", "mint", "sage", "sky", "lavender", "profile")
+                for level in ("balanced", "high", "solid")}
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = {name + "-synthetic-composite" for name in expected} - evidence
+        if missing: problems.append(f"missing pastel opacity composites: {sorted(missing)}")
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-contrast":
     expected = {f"mac-glass-sidebar-contrast-{mode}-{page}-{state}-{variant}"
                 for mode in ("light", "dark") for page in ("white", "black", "purple")
