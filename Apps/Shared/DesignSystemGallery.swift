@@ -93,7 +93,7 @@ struct DesignSystemGallery: View {
             OrivSearchField(text: $query, shortcut: "⇧⌘A", sidebar: true) {
                 TextField("Search tabs", text: $query)
             }
-            OrivSearchField(text: $contentQuery, focused: searchFocused, onClear: { searchFocused = true }) {
+            OrivSearchField(text: $contentQuery, focused: true, onClear: { searchFocused = true }) {
                 TextField("Search bookmarks", text: $contentQuery).focused($searchFocused)
             }
             #endif

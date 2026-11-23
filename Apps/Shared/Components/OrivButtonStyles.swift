@@ -11,10 +11,12 @@ extension View {
     @ViewBuilder
     func orivButton(_ role: OrivButtonRole, busy: Bool = false) -> some View {
         if busy {
-            modifier(OrivButtonAppearance(role: role))
-                .overlay { ProgressView().controlSize(.small).accessibilityHidden(true) }
-                .disabled(true)
-                .accessibilityValue("In progress")
+            HStack(spacing: OrivSpacing.xs) {
+                modifier(OrivButtonAppearance(role: role))
+                    .disabled(true)
+                    .accessibilityValue("In progress")
+                ProgressView().controlSize(.small).accessibilityHidden(true)
+            }
         } else {
             modifier(OrivButtonAppearance(role: role))
         }
