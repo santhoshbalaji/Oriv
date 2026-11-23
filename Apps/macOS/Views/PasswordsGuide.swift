@@ -9,19 +9,27 @@ struct PasswordsGuide: View {
     var showsFillHint = false
 
     var body: some View {
-        if showsFillHint {
-            Text("Use the key or ⌥⇧⌘P to choose an account from Apple Passwords.")
-                .font(.callout).foregroundStyle(theme.text).padding(16)
+        if compact {
+            OrivPopover(title: "Passwords", symbol: "key", width: 340) {
+                if showsFillHint {
+                    Text("Use the key or ⌥⇧⌘P to choose an account from Apple Passwords.")
+                        .font(OrivType.body).foregroundStyle(theme.text)
+                } else {
+                    guide
+                }
+            }
+            .defaultFocus($managePasswordsFocused, !showsFillHint)
+            .browserGeometryMarker("passwordsGuidePanelGeometry")
         } else {
-            guide
+            guide.padding(OrivSpacing.xl)
         }
     }
 
     private var guide: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: OrivSpacing.large) {
             if compact {
                 Text("Right-click or Control-click the login field, then choose AutoFill → Passwords…")
-                    .font(.callout.weight(.medium))
+                    .font(OrivType.body.weight(.medium))
             } else {
                 EditorHeading(title: "Passwords, in the page", subtitle: "Use Apple’s secure AutoFill picker.", symbol: "key")
             }
@@ -30,26 +38,24 @@ struct PasswordsGuide: View {
             instruction("3", title: "Unlock and choose", detail: "Authenticate with macOS, then choose the matching website and account.")
             Divider()
             Text("Private tabs can fill from Passwords. The website receives the credential you choose.")
-                .font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
+                .font(OrivType.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
             if !compact {
                 Text("Passwords stay with Apple Passwords. macOS fills the field. Oriv never sees, stores or sends your saved passwords.")
-                    .font(.callout).foregroundStyle(theme.secondaryText)
+                    .font(OrivType.body).foregroundStyle(theme.secondaryText)
                 Text("Open the AutoFill menu to choose a saved login. Use Apple Passwords to add or update a password.")
-                    .font(.callout).foregroundStyle(theme.secondaryText)
-                Label("Set up on your Mac", systemImage: "gearshape").font(.headline)
+                    .font(OrivType.body).foregroundStyle(theme.secondaryText)
+                Label("Set up on your Mac", systemImage: "gearshape").font(OrivType.headline)
                 Text("In System Settings → General → AutoFill & Passwords, enable AutoFill and select Passwords. Turn on iCloud Passwords & Keychain if you want credentials available on your other Apple devices.")
-                    .font(.callout).foregroundStyle(theme.secondaryText)
+                    .font(OrivType.body).foregroundStyle(theme.secondaryText)
                 Text("The picker may require Touch ID or your Mac login password.")
-                    .font(.caption).foregroundStyle(theme.secondaryText)
+                    .font(OrivType.caption).foregroundStyle(theme.secondaryText)
             }
             if compact {
                 managePasswords.focusable().focused($managePasswordsFocused)
             } else {
                 managePasswords
             }
-        }.padding(compact ? 22 : 28).frame(width: compact ? 340 : nil, alignment: .leading)
-            .defaultFocus($managePasswordsFocused, compact)
-            .browserGeometryMarker("passwordsGuidePanelGeometry", when: compact)
+        }
     }
 
     private var managePasswords: some View {
@@ -58,12 +64,12 @@ struct PasswordsGuide: View {
     }
 
     private func instruction(_ number: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(number).font(.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
+        HStack(alignment: .top, spacing: OrivSpacing.medium) {
+            Text(number).font(OrivType.caption.weight(.semibold)).foregroundStyle(theme.secondaryText)
                 .frame(width: 24, height: 24).background(theme.field, in: .circle)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.callout.weight(.medium))
-                Text(detail).font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: OrivSpacing.xs) {
+                Text(title).font(OrivType.body.weight(.medium))
+                Text(detail).font(OrivType.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
             }
         }
         .accessibilityElement(children: .ignore)

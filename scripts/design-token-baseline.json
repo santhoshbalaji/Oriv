@@ -53,11 +53,6 @@
   "Apps/iOS/MobileWebView.swift": {
     "motion": 1
   },
-  "Apps/macOS/Views/AdBlockingPopover.swift": {
-    "font style": 4,
-    "padding": 1,
-    "spacing": 1
-  },
   "Apps/macOS/Views/AddressField.swift": {
     "raw color": 3
   },
@@ -67,9 +62,8 @@
     "spacing": 1
   },
   "Apps/macOS/Views/BrowserPrivacyViews.swift": {
-    "font style": 8,
-    "padding": 2,
-    "spacing": 2
+    "padding": 1,
+    "spacing": 1
   },
   "Apps/macOS/Views/BrowserSidebar.swift": {
     "font size": 9,
@@ -95,11 +89,6 @@
   },
   "Apps/macOS/Views/NativeSidebarTabs.swift": {
     "raw color": 1
-  },
-  "Apps/macOS/Views/PasswordsGuide.swift": {
-    "font style": 11,
-    "padding": 1,
-    "spacing": 3
   },
   "Apps/macOS/Views/ProfileSidebarPreview.swift": {
     "font size": 2,

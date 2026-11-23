@@ -10,13 +10,11 @@ struct SiteInformationView: View {
     let tab: BrowserTab
     private var rule: SiteRule { session.settings.rule(for: tab.url, isPrivate: tab.isPrivate) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            let connection = ConnectionCue(tab, includeRecording: false)
-            Label(connection.label, systemImage: connection.symbol)
-                .font(.headline).foregroundStyle(connection.color(theme))
-            Text(tab.url.flatMap(SiteOrigin.init)?.displayName ?? "No website open").font(.callout).textSelection(.enabled)
+        let connection = ConnectionCue(tab, includeRecording: false)
+        OrivPopover(title: connection.label, symbol: connection.symbol, titleInk: connection.color(theme), width: 330) {
+            Text(tab.url.flatMap(SiteOrigin.init)?.displayName ?? "No website open").font(OrivType.body).textSelection(.enabled)
             Text(tab.isSecure ? "WebKit reports HTTPS with secure page content. This does not verify the site's identity or claims." : "An encrypted connection with fully secure content has not been confirmed. Check the address before sharing sensitive information.")
-                .font(.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
+                .font(OrivType.caption).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
             if let url = tab.url, SiteOrigin(url) != nil {
                 Divider()
                 permission("Camera", path: \.camera, url: url)
@@ -26,15 +24,15 @@ struct SiteInformationView: View {
                     var updated = rule; updated.allowsAutomaticPopups = $0; session.settings.setRule(updated, for: url, isPrivate: tab.isPrivate)
                 })).tint(theme.accent).focusable()
                 Text("Ask uses WebKit and macOS permission prompts. Changes apply to this exact site and port. Reload for pop-up changes.")
-                    .font(.caption).foregroundStyle(theme.secondaryText)
+                    .font(OrivType.caption).foregroundStyle(theme.secondaryText)
                 if tab.isCapturingCamera || tab.isCapturingMicrophone {
                     Label("This tab is using camera or microphone", systemImage: "record.circle.fill").foregroundStyle(theme.danger)
                     Button("Stop Camera and Microphone") { tab.stopCapture() }.focusable()
                 }
                 Button("Reset Site Permissions") { session.settings.setRule(SiteRule(), for: url, isPrivate: tab.isPrivate); tab.stopCapture() }.focusable()
-                if tab.isPrivate { Text("Private site settings are forgotten when the last private tab closes.").font(.caption).foregroundStyle(theme.secondaryText) }
+                if tab.isPrivate { Text("Private site settings are forgotten when the last private tab closes.").font(OrivType.caption).foregroundStyle(theme.secondaryText) }
             }
-        }.padding(20).frame(width: 330)
+        }
             .defaultFocus($cameraFocused, true)
             .browserGeometryMarker("siteInformationPanelGeometry")
     }
@@ -62,7 +60,7 @@ struct WebsiteDataView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(record.displayName)
-                        Text("\(record.dataTypes.count) storage types").font(.caption).foregroundStyle(theme.secondaryText)
+                        Text("\(record.dataTypes.count) storage types").font(OrivType.caption).foregroundStyle(theme.secondaryText)
                     }
                     Spacer()
                     Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivButton(.destructive)
@@ -70,7 +68,7 @@ struct WebsiteDataView: View {
                 }.padding(.vertical, 4)
             }.overlay { if manager.isWorking { ProgressView() } else if records.isEmpty { BrowserEmptyState(manager.records.isEmpty ? "No website data" : "No results for “\(query)”.") } }
             HStack {
-                Text("\(manager.records.count) websites").font(.caption).foregroundStyle(theme.secondaryText)
+                Text("\(manager.records.count) websites").font(OrivType.caption).foregroundStyle(theme.secondaryText)
                 Spacer()
                 Button("Refresh") { Task { await manager.refresh() } }
                 Button(OrivStrings.removeAll, role: .destructive) { pending = manager.records; confirm = true }.orivButton(.destructive).disabled(manager.records.isEmpty)
@@ -107,7 +105,7 @@ struct ClearBrowsingDataView: View {
             Toggle("Cookies and website data", isOn: $clearSites).tint(theme.accent)
             Toggle("All saved site permissions", isOn: $clearPermissions).tint(theme.accent)
             Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Open tabs, bookmarks and downloaded files remain.")
-                .font(.callout).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
+                .font(OrivType.body).foregroundStyle(theme.secondaryText).fixedSize(horizontal: false, vertical: true)
         } actions: {
             OrivSheetCancel(isDefault: true) { dismiss() }
             Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }
