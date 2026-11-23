@@ -28,8 +28,8 @@
   "Apps/iOS/MobileLibraryView.swift": {
     "font size": 3,
     "font style": 7,
-    "padding": 5,
-    "spacing": 3
+    "padding": 2,
+    "spacing": 2
   },
   "Apps/iOS/MobileSettingsView.swift": {
     "font style": 8,
