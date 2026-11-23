@@ -22,13 +22,14 @@ struct StartPageSites: View {
     @State private var frequent: [HistoryEntry] = []
 
     private var columns: [GridItem] {
+        #if os(macOS)
         if typeSize.isAccessibilitySize {
             return [GridItem(.adaptive(minimum: 240), spacing: OrivSpacing.small)]
         }
-        #if os(macOS)
         return Array(repeating: GridItem(.flexible(), spacing: OrivSpacing.small), count: 4)
         #else
-        return [GridItem(.adaptive(minimum: 100), spacing: OrivSpacing.small)]
+        let count = typeSize.isAccessibilitySize ? 1 : 3
+        return Array(repeating: GridItem(.flexible(minimum: 0), spacing: OrivSpacing.small), count: count)
         #endif
     }
 
@@ -66,7 +67,13 @@ struct StartPageSites: View {
                     Button { open(url) } label: {
                         VStack(spacing: OrivSpacing.xs) {
                             SiteIdentity(url: url, size: 36, cachedOnly: true)
-                            Text(name).font(OrivType.detail).lineLimit(2, reservesSpace: true).multilineTextAlignment(.center)
+                            Text(name).font(OrivType.detail).multilineTextAlignment(.center)
+                                #if os(macOS)
+                                .lineLimit(2, reservesSpace: true)
+                                #else
+                                .modifier(StartTileTitleLines(accessibilitySize: typeSize.isAccessibilitySize))
+                                .fixedSize(horizontal: false, vertical: true)
+                                #endif
                         }
                         .padding(OrivSpacing.small)
                         .frame(maxWidth: .infinity, minHeight: OrivLayout.tileMinimumHeight)
@@ -95,3 +102,17 @@ struct StartPageSites: View {
         #endif
     }
 }
+
+#if os(iOS)
+private struct StartTileTitleLines: ViewModifier {
+    let accessibilitySize: Bool
+
+    func body(content: Content) -> some View {
+        if accessibilitySize {
+            content
+        } else {
+            content.lineLimit(3, reservesSpace: true)
+        }
+    }
+}
+#endif

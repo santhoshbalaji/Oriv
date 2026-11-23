@@ -11,7 +11,6 @@ struct MobileBrowserView: View {
     @Bindable var controller: MobileController
     let profiles: MobileProfiles
     @State private var address = ""
-    @State private var siteToForget: BrowserSite?
     @State private var editingAddress = false
     @State private var addressMatches = AddressSuggestions()
     @State private var nativeFinding = false
@@ -39,8 +38,8 @@ struct MobileBrowserView: View {
         }
     }
     private var solidChrome: Bool { reduceTransparency || contrast == .increased }
-    private var extendsTopColor: Bool { solidChrome || !pageChrome.showsContentUnderChrome }
-    private var displayDomain: String { tab?.url.flatMap(URLDisplay.site) ?? (tab?.isPrivate == true ? OrivStrings.privateSearch : OrivStrings.search) }
+    private var extendsTopColor: Bool { tab?.isPrivate == true || solidChrome || !pageChrome.showsContentUnderChrome }
+    private var displayDomain: String { tab?.url.flatMap(URLDisplay.site) ?? OrivStrings.search }
     private var bottomForeground: Color { .primary }
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     var reduceMotionOverride:Bool? = nil
@@ -144,9 +143,8 @@ struct MobileBrowserView: View {
                 if isLive && gestures.gridProgress == 1 {
                     // The real page remains in its card until its one final
                     // thumbnail is ready. Keep the grid's close affordance visible.
-                    Image(systemName:"xmark").font(.system(size:12,weight:.semibold)).foregroundStyle(.secondary)
-                        .frame(width:22,height:22).modifier(OrivMaterial.control())
-                        .position(x:card.maxX-22,y:card.minY+22)
+                    GridCloseGlyph()
+                        .position(x: card.maxX - OrivTarget.touch.width / 2, y: card.minY + OrivTarget.touch.height / 2)
                         .allowsHitTesting(false).accessibilityHidden(true).zIndex(4)
                 }
             }
@@ -162,9 +160,9 @@ struct MobileBrowserView: View {
         GeometryReader { geometry in
             ZStack {
                 pageChrome.color.opacity(hasLivePage && !editingAddress ? 0 : 1).ignoresSafeArea().allowsHitTesting(false)
-                    .animation(reduceMotion || !pageChrome.animatesColor ? nil : .easeInOut(duration: 0.2), value: pageChrome.color)
+                    .animation(reduceMotion || !pageChrome.animatesColor ? nil : OrivMotion.standard, value: pageChrome.color)
                 if editingAddress {
-                    suggestions.background(theme.canvas).safeAreaPadding(.bottom,bottomOcclusion+barHeight)
+                    theme.canvas.ignoresSafeArea()
                 } else {
                     page(top: max(geometry.safeAreaInsets.top, windowInsets.top), bottom: max(geometry.safeAreaInsets.bottom, windowInsets.bottom) + (nativeFinding ? 0 : barHeight))
                         .opacity(reduceMotion ? 1-min(abs(gestures.translation)/max(geometry.size.width,1),1) : 1)
@@ -187,7 +185,9 @@ struct MobileBrowserView: View {
     }
 
     private var keyboardBar: some View {
-        MobileKeyboardBar(content:{ AnyView(barContent) },contentVersion:barContentVersion,handoff:swipeHandoff,reduceMotion:reduceMotion,
+        MobileKeyboardBar(content:{ AnyView(barContent) },
+            suggestions: editingAddress && addressMatches.query == address && !addressMatches.rows.isEmpty ? AnyView(suggestions) : nil,
+            contentVersion:barContentVersion,handoff:swipeHandoff,reduceMotion:reduceMotion,
             hidden:nativeFinding || (controller.sheet == .tabs && presentation.activeID == nil && gestures.gridProgress == 1),
             interactive:!gestures.finishingSwipe && (gestures.source != nil || (controller.sheet == nil && !gestures.gridClosing && gestures.gridProgress == 0)),
             accessibilityHidden:gestures.gridProgress > 0 || controller.sheet == .tabs || gestures.gridClosing) { height,occlusion in
@@ -227,7 +227,7 @@ struct MobileBrowserView: View {
                 controller.trimBackgroundTabs()
                 if presentation.inserting && gestures.gridProgress == 0 {
                     presentation.insertionProgress = 1
-                    withAnimation(reduceMotion ? .easeInOut(duration:0.18) : .spring(response:0.4,dampingFraction:0.9),completionCriteria:.removed) {
+                    withAnimation(reduceMotion ? OrivMotion.reduced : .spring(response:0.4,dampingFraction:0.9),completionCriteria:.removed) {
                         presentation.insertionProgress = 0
                     } completion: { presentation.inserting = false; consumeFocusRequest() }
                 }
@@ -277,7 +277,6 @@ struct MobileBrowserView: View {
             .alert("Unable to complete action", isPresented: Binding(get: { controller.message != nil }, set: { if !$0 { controller.message = nil } })) {
                 Button("OK") { controller.message = nil }
             } message: { Text(controller.message ?? "") }
-            .forgetSiteAlert($siteToForget, session: controller.session) { controller.message = $0 }
     }
 
     private func sheetChanged(from oldSheet: MobileSheet?, to sheet: MobileSheet?) {
@@ -310,11 +309,11 @@ struct MobileBrowserView: View {
 
     @ViewBuilder private var barContent: some View {
         if editingAddress { addressEditor }
-        else { bottomChrome.animation(reduceMotion ? nil : .easeInOut(duration:0.2),value:pageChrome.isDark) }
+        else { bottomChrome.animation(reduceMotion ? nil : OrivMotion.standard, value: pageChrome.isDark) }
     }
 
     private var bottomChrome: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: OrivSpacing.small) {
             if showsExternalPrivateBar {
                 ExternalPrivateBar(sourceName: nil, profiles: profiles.profiles.filter { $0.archivedAt == nil },
                     selection: Binding(get: { profiles.externalMoveProfileID }, set: { profiles.externalMoveProfileID = $0 }),
@@ -323,35 +322,35 @@ struct MobileBrowserView: View {
             }
             if minimized && !typeSize.isAccessibilitySize {
                 ZStack {
-                    HStack(spacing: 5) {
+                    HStack(spacing: OrivSpacing.xs) {
                         if tab?.isPrivate == true { Image(systemName: "eyeglasses").foregroundStyle(theme.controlPrivate) }
                         if let tab, ConnectionCue(tab) == .notSecure { Image(systemName: "exclamationmark.triangle") }
                         Text(displayDomain).lineLimit(1)
-                    }.font(.caption.weight(.medium)).foregroundStyle(bottomForeground)
-                        .padding(.horizontal, 16).frame(minHeight: 32).modifier(OrivMaterial.control())
+                    }.font(OrivType.caption.weight(.medium)).foregroundStyle(bottomForeground)
+                        .padding(.horizontal, OrivSpacing.large).frame(minHeight: OrivSpacing.xxl).modifier(OrivMaterial.control())
                         .allowsHitTesting(false).accessibilityHidden(true)
                     MobileAddressMenuSource(controller: controller, profiles: profiles, tab: tab, compact: true) { setMinimized(false) }
-                }.frame(height: 44).fixedSize(horizontal: true, vertical: false)
+                }.frame(height: OrivTarget.touch.height).fixedSize(horizontal: true, vertical: false)
                     .background(capsuleGesture)
                     .modifier(MobileCapsuleAccessibility(controller: controller))
             } else {
-                GlassEffectContainer(spacing: 8) {
+                GlassEffectContainer(spacing: OrivSpacing.small) {
                     if typeSize.isAccessibilitySize {
-                        VStack(spacing: 8) {
+                        VStack(spacing: OrivSpacing.small) {
                             addressCapsule
                             HStack { backButton; if tab?.canGoForward == true { forwardButton }; Spacer(); tabsButton }
                         }
                     } else {
-                        HStack(spacing: 8) {
+                        HStack(spacing: OrivSpacing.small) {
                             backButton
                             if tab?.canGoForward == true { forwardButton }
                             addressCapsule
                             tabsButton
                         }
                     }
-                }.padding(.horizontal, typeSize.isAccessibilitySize || tab?.canGoForward == true ? 12 : 24)
+                }.padding(.horizontal, typeSize.isAccessibilitySize || tab?.canGoForward == true ? OrivSpacing.medium : OrivSpacing.xl)
             }
-        }.padding(.top, 8).foregroundStyle(bottomForeground)
+        }.padding(.top, OrivSpacing.small).foregroundStyle(bottomForeground)
             .environment(\.colorScheme, controller.appearance.colorScheme ?? pageSystemScheme)
     }
 
@@ -666,7 +665,7 @@ struct MobileBrowserView: View {
 
     private func topColor(for tab: BrowserTab?) -> ChromeColor {
         let scheme = controller.appearance.colorScheme ?? pageSystemScheme
-        if tab?.isPrivate == true && scheme == .light {
+        if tab?.isPrivate == true {
             return PageChrome.resolveCanvas(theme.privateWash, scheme: scheme)
         }
         return MobileTopChrome.rgb(UIColor(controller.chrome(for: tab).color))
@@ -680,9 +679,9 @@ struct MobileBrowserView: View {
            let next = controller.session.tabs.first(where:{ $0.id == id }) {
             let chrome = controller.chrome(for:next)
             destination = topColor(for: next)
-            destinationOpacity = solidChrome || !chrome.showsContentUnderChrome ? 1 : 0
+            destinationOpacity = next.isPrivate || solidChrome || !chrome.showsContentUnderChrome ? 1 : 0
         }
-        return MobileTopBar(chrome:controller.topChrome,page:editingAddress || !hasLivePage ? canvas : topColor(for: tab),
+        return MobileTopBar(chrome:controller.topChrome,page:tab?.isPrivate == true || (!editingAddress && hasLivePage) ? topColor(for: tab) : canvas,
             canvas:canvas,destination:destination,pageOpacity:editingAddress || extendsTopColor ? 1 : 0,destinationOpacity:destinationOpacity,
             pageID:tab?.id,gridProgress:gestures.gridProgress,swipeProgress:abs(gestures.translation)/max(1,width),
             interactive:gestures.source != nil || gestures.finishingSwipe || gestures.gridClosing || presentation.activeID != nil || editingAddress,
@@ -690,49 +689,60 @@ struct MobileBrowserView: View {
     }
 
     private var addressCapsule: some View {
-            HStack(spacing: 0) {
-                pageMenu.frame(width: 44, height: 48)
-                ZStack {
-                    HStack(spacing: 4) {
-                        if tab?.isPrivate == true {
-                            Image(systemName: "eyeglasses").foregroundStyle(theme.controlPrivate)
-                        }
-                        if let tab, ConnectionCue(tab) == .notSecure {
-                            Image(systemName: "exclamationmark.triangle").font(.system(size: 12))
-                        }
-                        Text(displayDomain).lineLimit(1).truncationMode(.middle)
-                    }.font(.body).foregroundStyle(bottomForeground).allowsHitTesting(false).accessibilityHidden(true)
-                    MobileAddressMenuSource(controller: controller, profiles: profiles, tab: tab) { beginAddressEditing() }
-                }.frame(maxWidth: .infinity).frame(height: 48)
-                Button(tab?.isLoading == true ? "Stop" : "Reload", systemImage: tab?.isLoading == true ? "xmark" : "arrow.clockwise") {
-                    tab?.isLoading == true ? tab?.stop() : tab?.reload()
-                }.labelStyle(.iconOnly).font(.system(size: 20)).frame(width: 44, height: 48).disabled(tab?.url == nil)
-            }
-            .padding(.vertical, typeSize.isAccessibilitySize ? 8 : 0).buttonStyle(.plain).modifier(OrivMaterial.control())
-            .background(capsuleGesture)
-            .modifier(MobileCapsuleAccessibility(controller: controller))
+        HStack(spacing: 0) {
+            pageMenu
+            ZStack {
+                HStack(spacing: OrivSpacing.xs) {
+                    if tab?.isPrivate == true {
+                        Image(systemName: "eyeglasses").foregroundStyle(theme.controlPrivate)
+                    }
+                    if let tab, ConnectionCue(tab) == .notSecure {
+                        Image(systemName: "exclamationmark.triangle").font(OrivType.caption)
+                    }
+                    Text(displayDomain).lineLimit(1).truncationMode(.middle)
+                }.font(OrivType.body).foregroundStyle(bottomForeground)
+                    .allowsHitTesting(false).accessibilityHidden(true)
+                MobileAddressMenuSource(controller: controller, profiles: profiles, tab: tab) { beginAddressEditing() }
+            }.frame(maxWidth: .infinity, minHeight: OrivTarget.touchBar.height)
+            Button {
+                tab?.isLoading == true ? tab?.stop() : tab?.reload()
+            } label: {
+                BarButtonIcon(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise",
+                              secondary: true, width: OrivTarget.touch.width)
+            }.accessibilityLabel(tab?.isLoading == true ? "Stop" : "Reload").disabled(tab?.url == nil)
+        }
+        .padding(.vertical, typeSize.isAccessibilitySize ? OrivSpacing.small : 0)
+        .buttonStyle(.plain).modifier(OrivMaterial.control())
+        .background(capsuleGesture)
+        .modifier(MobileCapsuleAccessibility(controller: controller))
     }
 
     private var addressEditor: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                if tab?.isPrivate == true { Image(systemName: "eyeglasses").font(.system(size: 20)).foregroundStyle(theme.privateAccent).accessibilityLabel("Private") }
-                CappedAddressEditor(text: $address, editing: $editingAddress, submit: submitAddress,
-                    completion: addressMatches.completion, hasSelectedSuggestion: addressMatches.selected != nil && addressMatches.query == address, moveSelection: { addressMatches.move($0) },
+        HStack(spacing: OrivSpacing.small) {
+            HStack(spacing: OrivSpacing.small) {
+                if tab?.isPrivate == true {
+                    Image(systemName: "eyeglasses").font(OrivType.headline)
+                        .foregroundStyle(theme.private).accessibilityLabel("Private")
+                }
+                MobileAddressEditor(text: $address, editing: $editingAddress, submit: submitAddress,
+                    completion: addressMatches.completion, hasSelectedSuggestion: addressMatches.selected != nil && addressMatches.query == address, moveSelection: { addressMatches.move(-$0) },
                     cancel: { editingAddress = false })
-            }.padding(.horizontal, 14).padding(.vertical, 4).modifier(OrivMaterial.control())
-            Button {
-                editingAddress = false; address = tab?.url?.absoluteString ?? ""
-            } label: { Image(systemName: "xmark").font(.system(size: 20)).frame(width: 48, height: 48) }
-                .buttonStyle(.plain).modifier(OrivMaterial.control()).accessibilityLabel("Cancel address editing")
-        }.foregroundStyle(theme.text).padding(12).background(theme.canvas)
+            }.padding(.horizontal, OrivSpacing.large).padding(.vertical, OrivSpacing.xs).modifier(OrivMaterial.control())
+            BarButton {
+                Button {
+                    editingAddress = false; address = tab?.url?.absoluteString ?? ""
+                } label: {
+                    BarButtonIcon(symbol: "xmark", secondary: true)
+                }.accessibilityLabel("Cancel address editing")
+            }
+        }.foregroundStyle(theme.text).padding(OrivSpacing.medium).background(theme.canvas)
             .environment(\.colorScheme, controller.appearance.colorScheme ?? pageSystemScheme)
     }
 
     private func setMinimized(_ value: Bool) {
         guard !typeSize.isAccessibilitySize else { minimized = false; return }
         guard minimized != value else { return }
-        withAnimation(reduceMotion ? .easeInOut(duration:0.18) : .spring(response:0.38,dampingFraction:0.88)) { minimized = value }
+        withAnimation(OrivMotion.navigation(reduceMotion: reduceMotion)) { minimized = value }
     }
     @ViewBuilder private var notices: some View {
         if let notice = profiles.continuity.notice { ContinuityNotice(text: notice) }
@@ -751,8 +761,14 @@ struct MobileBrowserView: View {
         if let tab, tab.httpWarningURL != nil {
             HTTPFallbackView(tab: tab).background(theme.canvas)
         } else if let tab, let error = tab.errorMessage {
-            PageErrorState(message: error, host: tab.url?.host, retry: tab.reload)
-                .safeAreaPadding(.top, top).safeAreaPadding(.bottom, bottom)
+            ScrollView {
+                PageErrorState(message: error, host: tab.url?.host, retry: tab.reload)
+                    .padding(.vertical, OrivSpacing.large)
+            }
+            .defaultScrollAnchor(.center, for: .alignment)
+            .background(theme.canvas)
+            .safeAreaPadding(.top, top).safeAreaPadding(.bottom, bottom)
+            .safeAreaPadding(.leading, windowInsets.left).safeAreaPadding(.trailing, windowInsets.right)
         } else if tab?.url != nil {
             Color.clear.allowsHitTesting(false)
         } else {
@@ -796,43 +812,84 @@ struct MobileBrowserView: View {
     private var otherProfiles: Bool { profiles.profiles.filter { $0.archivedAt == nil }.count > 1 }
     private var home: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: OrivSpacing.xl) {
                 if otherProfiles {
-                    Label(profileName, systemImage: "person.crop.circle").font(.footnote).foregroundStyle(theme.secondaryText)
+                    Label(profileName, systemImage: "person.crop.circle").font(OrivType.detail).foregroundStyle(theme.textSecondary)
                 }
                 if tab?.isPrivate == true {
                     VStack(alignment: .leading, spacing: OrivSpacing.small) {
-                        Label {
-                            Text("Private browsing").foregroundStyle(theme.text)
-                        } icon: {
-                            Image(systemName: "eyeglasses").foregroundStyle(theme.privateAccent)
-                        }.font(.headline)
-                        Text("Private tabs aren’t saved or added to history. Cookies and website data are discarded when the last tab sharing them closes. Websites and your network can still see your activity.").font(.callout).foregroundStyle(theme.secondaryText)
-                    }.padding(.top, 40)
+                        OrivBannerLabel(message: "Private browsing", tone: .privateBrowsing, symbol: "eyeglasses")
+                            .font(OrivType.title).accessibilityAddTraits(.isHeader)
+                        Text("Private tabs aren’t saved or added to history. Cookies and website data are discarded when the last tab sharing them closes. Websites and your network can still see your activity.")
+                            .font(OrivType.body).foregroundStyle(theme.text)
+                    }
+                    .padding(OrivSpacing.large)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(theme.privateWash, in: .rect(cornerRadius: OrivRadius.card))
                 } else {
                     StartPageSites(session: controller.session, emptyMessage: "Bookmarks and frequently visited sites appear here.",
                         open: { controller.open($0) }, showBookmarks: { controller.sheet = .bookmarks },
                         showHistory: { controller.sheet = .history })
                 }
-            }.padding(.horizontal, 20).padding(.vertical, OrivSpacing.xl).frame(maxWidth: 650, alignment: .leading).frame(maxWidth: .infinity)
+            }.padding(.horizontal, OrivSpacing.larger).padding(.vertical, OrivSpacing.xl).frame(maxWidth: OrivLayout.contentMaxWidth, alignment: .leading).frame(maxWidth: .infinity)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     private var suggestions: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(addressMatches.rows.enumerated()), id: \.element.id) { index, match in
-                    if index == 0 || addressMatches.rows[index - 1].source != match.source {
-                        SectionHeader(title: match.source.rawValue)
-                            .padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.small)
-                    }
-                    Button { chooseSuggestion(match) } label: {
-                        AddressSuggestionRow(suggestion: match, query: address, isPrivate: tab?.isPrivate == true)
-                            .padding(.horizontal, 12).frame(minHeight: 52).contentShape(Rectangle())
-                            .modifier(ListSelection(selected: addressMatches.selected == index))
-                    }.buttonStyle(.plain).accessibilityAddTraits(addressMatches.selected == index ? [.isSelected] : [])
+        // Keep ranking and keyboard selection in the shared model's order.
+        // Render that order upward from the field and expose rank to VoiceOver.
+        ScrollViewReader { proxy in
+            ViewThatFits(in: .vertical) {
+                suggestionRows.fixedSize(horizontal: false, vertical: true)
+                ScrollView {
+                    suggestionRows
                 }
-            }.padding(OrivSpacing.small).modifier(OrivMaterial.overlay()).padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
-        }.frame(maxWidth: .infinity, maxHeight: .infinity).scrollDismissesKeyboard(.interactively)
+                .defaultScrollAnchor(.bottom)
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.never)
+                .onChange(of: addressMatches.selected) { _, index in
+                    if let index { proxy.scrollTo(index) }
+                }
+            }
+            .modifier(OrivMaterial.overlay())
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Address suggestions")
+        }
+    }
+
+    private var suggestionRows: some View {
+        let rows = addressMatches.rows
+        let sources: [BrowserSuggestion.Source] = [.search, .history, .bookmark, .tab]
+        return VStack(alignment: .leading, spacing: OrivSpacing.small) {
+            ForEach(sources, id: \.self) { source in
+                let group = rows.enumerated().filter { $0.element.source == source }
+                if let first = group.first {
+                    VStack(alignment: .leading, spacing: OrivSpacing.xs) {
+                        SectionHeader(title: source.rawValue)
+                            .padding(.horizontal, OrivSpacing.medium)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilitySortPriority(1)
+                        ForEach(group.reversed(), id: \.element.id) { index, match in
+                            Button { chooseSuggestion(match) } label: {
+                                AddressSuggestionRow(suggestion: match, query: address, isPrivate: tab?.isPrivate == true)
+                                    .padding(.horizontal, OrivSpacing.medium)
+                                    .padding(.vertical, OrivSpacing.xs)
+                                    .frame(minHeight: OrivLayout.suggestionRowHeight)
+                                    .contentShape(Rectangle())
+                                    .modifier(ListSelection(selected: addressMatches.selected == index))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(addressMatches.selected == index ? [.isSelected] : [])
+                            .accessibilitySortPriority(-Double(index))
+                            .id(index)
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilitySortPriority(-Double(first.offset))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(OrivSpacing.small)
     }
     private func chooseSuggestion(_ match: BrowserSuggestion) {
         editingAddress = false
@@ -840,62 +897,42 @@ struct MobileBrowserView: View {
         else { controller.perform { try controller.session.navigate(match.url.absoluteString) } }
     }
     private var pageMenu: some View {
-            Menu {
-                Section {
-                    Button(controller.session.isBookmarked(tab?.url) ? "Remove Bookmark" : "Add Bookmark", systemImage: controller.session.isBookmarked(tab?.url) ? "bookmark.fill" : "bookmark") { controller.session.toggleBookmark() }.disabled(tab?.url == nil || tab?.isPrivate == true)
-                    if let url = tab?.url {
-                        Button("Copy Link", systemImage: "doc.on.doc") { PrivacyPasteboard.copy(url) }
-                        Button("Copy Original Link", systemImage: "link") { PrivacyPasteboard.copy(url, original: true) }
-                    }
-                    Button("Find on Page", systemImage: "magnifyingglass") { tab?.showFind() }.disabled(tab?.url == nil)
-                    Button("Share", systemImage: "square.and.arrow.up") { controller.sheet = .share }.disabled(tab?.url == nil)
+        Menu {
+            Section {
+                let bookmarked = controller.session.isBookmarked(tab?.url)
+                Button(bookmarked ? "Remove Bookmark" : "Add Bookmark",
+                       systemImage: bookmarked ? "bookmark.fill" : "bookmark") {
+                    controller.session.toggleBookmark()
+                }.disabled(tab?.url == nil || tab?.isPrivate == true)
+                if let url = tab?.url {
+                    Button("Copy Link", systemImage: "doc.on.doc") { PrivacyPasteboard.copy(url) }
+                    Button("Copy Original Link", systemImage: "link") { PrivacyPasteboard.copy(url, original: true) }
                 }
-                if let tab, tab.url != nil {
-                    Section {
-                        ControlGroup {
-                            Button("Zoom In", systemImage: "plus.magnifyingglass") { tab.zoomIn() }
-                            Button("Zoom Out", systemImage: "minus.magnifyingglass") { tab.zoomOut() }
-                        }
-                        // VoiceOver uses the actual native menu title.
-                        Button("Reset Page Zoom (\(Int(tab.pageZoom * 100))%)") { tab.resetZoom() }
-                    }
-                }
+                Button("Share", systemImage: "square.and.arrow.up") { controller.sheet = .share }
+                    .disabled(tab?.url == nil)
+            }
+            if let tab, tab.url != nil {
                 Section {
-                    Button("New Tab", systemImage: "plus") { controller.newTab() }
-                    Button("New Private Tab", systemImage: "eyeglasses") { controller.newTab(isPrivate: true) }
-                    if controller.session.canReopenTab { Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") { controller.session.reopenClosedTab() } }
-                    Button("Tabs (\(controller.session.tabs.count))", systemImage: "square.on.square") { controller.sheet = .tabs }
-                    Button("Bookmarks", systemImage: "bookmark") { controller.sheet = .bookmarks }
-                    Button(controller.downloads.hasActivity ? "Library, Downloads Available" : "Library", systemImage: "book") { controller.sheet = .library }
+                    Button("Find on Page", systemImage: "magnifyingglass") { tab.showFind() }
+                    Menu("Page Zoom (\(Int(tab.pageZoom * 100))%)", systemImage: "textformat.size") {
+                        Button("Zoom In", systemImage: "plus.magnifyingglass") { tab.zoomIn() }
+                        Button("Zoom Out", systemImage: "minus.magnifyingglass") { tab.zoomOut() }
+                        Button("Actual Size") { tab.resetZoom() }
+                    }
+                    Button("Images on This Page", systemImage: "photo") { controller.showPageImages() }
                 }
                 Section {
-                    if let tab {
-                        MobileSendTabMenu(controller: controller, profiles: profiles, tab: tab)
-                        MobileMoveTabMenu(controller: controller, profiles: profiles, tab: tab)
-                    }
-                    Button(OrivStrings.sitePrivacy, systemImage: "shield.lefthalf.filled") { controller.sheet = .site }.disabled(tab?.url == nil)
-                    if let site = controller.session.forgettableSite(for: tab) {
-                        Button("Forget This Site…", systemImage: "trash", role: .destructive) { siteToForget = site }
-                    }
-                    Menu("More Page Actions", systemImage: "ellipsis.circle") {
-                        Menu("Back History", systemImage: "clock.arrow.circlepath") { MobileHistoryMenu(tab: tab, forward: false) }.disabled(tab?.canGoBack != true)
-                        if tab?.canGoForward == true { Menu("Forward History") { MobileHistoryMenu(tab: tab, forward: true) } }
-                        Button("Images on This Page", systemImage: "photo") { controller.showPageImages() }.disabled(tab?.url == nil)
-                    }
-                    if controller.session.isExternalPrivate {
-                        Button("Return to Profile", systemImage: "person.crop.circle") {
-                            if let profile = profiles.profiles.first(where: { $0.id == profiles.lastRegularProfileID }) { profiles.select(profile) }
-                        }
-                    } else if profiles.externalPrivate != nil {
-                        Button("External Private Tabs", systemImage: "eyeglasses") { profiles.showExternalPrivate() }
-                    }
+                    Button(OrivStrings.sitePrivacy, systemImage: "shield.lefthalf.filled") { controller.sheet = .site }
+                    MobileSendTabMenu(controller: controller, profiles: profiles, tab: tab)
+                    MobileMoveTabMenu(controller: controller, profiles: profiles, tab: tab)
                 }
-                Section { Button("Settings", systemImage: "gearshape") { controller.sheet = .settings } }
-            } label: {
-                Label("Page Menu", systemImage: "ellipsis")
-                    .labelStyle(.iconOnly).font(.system(size: 20))
-                    .frame(width: 44, height: 48).contentShape(Rectangle())
-            }.accessibilityIdentifier("browserPageMenu").menuOrder(.fixed).tint(.primary)
+            }
+            Section { Button("Settings", systemImage: "gearshape") { controller.sheet = .settings } }
+        } label: {
+            BarButtonIcon(symbol: "ellipsis", secondary: true, width: OrivTarget.touch.width)
+        }
+        .accessibilityLabel("Page Menu").accessibilityIdentifier("browserPageMenu")
+        .menuOrder(.fixed).tint(.primary)
     }
     private func beginAddressEditing() { minimized = false; address = tab?.url?.absoluteString ?? ""; editingAddress = true }
     private func submitAddress() {
@@ -913,8 +950,8 @@ private struct MobilePageShare: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: [URLCleaner.clean(url)], applicationActivities: nil) }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
-/// Read the capped environment inside the address bar, rather than scaling at the screen root.
-private struct CappedAddressEditor: View {
+/// Scale the editor with the native field’s body text.
+private struct MobileAddressEditor: View {
     @Binding var text: String
     @Binding var editing: Bool
     let submit: () -> Void
@@ -922,7 +959,7 @@ private struct CappedAddressEditor: View {
     var hasSelectedSuggestion = false
     var moveSelection: (Int) -> Void = { _ in }
     var cancel: () -> Void = {}
-    @ScaledMetric(relativeTo: .body) private var height: CGFloat = 44
+    @ScaledMetric(relativeTo: .body) private var height = OrivTarget.touch.height
     var body: some View {
         MobileAddressField(text: $text, editing: $editing, submit: submit, completion: completion, hasSelectedSuggestion: hasSelectedSuggestion, moveSelection: moveSelection, cancel: cancel)
             .frame(height: height)

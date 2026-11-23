@@ -88,6 +88,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             let oldIDs = previous.flatMap { $0.map(\.id) }, newIDs = updated.flatMap { $0.map(\.id) }
             let oldSections = previous.compactMap { $0.first?.isPrivate }
             let newSections = updated.compactMap { $0.first?.isPrivate }
+            let switchedMode = oldSections.count == 1 && newSections.count == 1 && oldSections != newSections
             let removedSections = IndexSet(oldSections.indices.filter { !newSections.contains(oldSections[$0]) })
             let deletions = previous.enumerated().flatMap { section, tabs in
                 tabs.enumerated().compactMap { item, tab in
@@ -100,7 +101,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
             let lastReplacement = oldIDs.count == 1 && newIDs.count == 1 && oldIDs != newIDs
             let canAnimate = collectionView.window != nil && !collectionView.bounds.isEmpty
                 && !collectionView.isHidden && !collectionView.hasUncommittedUpdates
-            if (onlyDeletes || lastReplacement) && canAnimate {
+            if (onlyDeletes || lastReplacement) && canAnimate && !switchedMode {
                 // UIKit can refresh its pre-update counts during layout. Keep
                 // the old data source until the batch actually starts.
                 collectionView.layoutIfNeeded()
@@ -130,18 +131,15 @@ struct MobileTabGrid: UIViewControllerRepresentable {
                 if !changed.isEmpty { collectionView.reconfigureItems(at: changed) }
             } else {
                 sections = updated
-                if canAnimate && !onlyDeletes && !lastReplacement {
+                // A mode switch replaces the displayed privacy section. Reload it
+                // before the grid can reveal a card from the previous section.
+                if canAnimate && !onlyDeletes && !lastReplacement && !switchedMode {
                     UIView.transition(with:collectionView,duration:model.reduceMotion ? 0.18 : 0.25,options:.transitionCrossDissolve) { self.collectionView.reloadData() }
                 } else {
                     collectionView.reloadData()
                 }
                 collectionView.collectionViewLayout.invalidateLayout()
             }
-        }
-        if model.tabs.isEmpty && collectionView.backgroundView == nil {
-            collectionView.backgroundView = UIHostingController(rootView: BrowserEmptyState("No matching tabs")).view
-        } else if !model.tabs.isEmpty && collectionView.backgroundView != nil {
-            collectionView.backgroundView = nil
         }
         synchronizeVisibility()
         if model.presented && !wasPresented { revealSelected(announce:true) }
@@ -208,7 +206,7 @@ struct MobileTabGrid: UIViewControllerRepresentable {
         let columns: CGFloat = model.largeText ? 1 : 2
         let width = floor((collectionView.bounds.width - 32 - (columns - 1) * 16) / columns)
         let caption = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: traitCollection).lineHeight
-        let size = CGSize(width: max(100, width), height: model.largeText ? max(310, 220 + caption * 3 + 8) : width * 1.42 + 26)
+        let size = CGSize(width: max(100, width), height: model.largeText ? max(310, 220 + caption * 3 + 8) : width * 1.42 + ceil(caption * 2) + OrivSpacing.small)
         if layout.itemSize != size {
             layout.itemSize = size; layout.sectionInset = UIEdgeInsets(top: 12, left: 16, bottom: 20, right: 16)
             layout.minimumInteritemSpacing = 16; layout.minimumLineSpacing = 16
@@ -582,7 +580,7 @@ struct MobileGridCard: View {
     let largeText: Bool
     let close: () -> Void
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: OrivSpacing.small) {
             MobileTabThumbnail(tab: tab, presentation: presentation)
                 // The live surface is above this card. Keep its thumbnail as
                 // backing while a newly selected/restored host mounts; activeID
@@ -591,19 +589,40 @@ struct MobileGridCard: View {
                 .modifier(ListSelection(kind: .card, selected: selected, radius: OrivRadius.thumbnail))
                 .overlay(alignment: .topTrailing) {
                     Button(action: close) {
-                        Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary).frame(width: 22, height: 22)
-                            .modifier(OrivMaterial.control()).frame(width: 44, height: 44).contentShape(Rectangle())
+                        GridCloseGlyph()
+                            .frame(width: OrivTarget.touch.width, height: OrivTarget.touch.height)
+                            .contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityLabel("Close \(tab.displayTitle)")
                 }
-            Label {
+            HStack(alignment: .firstTextBaseline, spacing: OrivSpacing.xs) {
+                if tab.isPinned || tab.isPrivate {
+                    Image(systemName: tab.isPinned ? "pin.fill" : "eyeglasses")
+                        .foregroundStyle(tab.isPrivate ? theme.private : theme.textSecondary)
+                } else if let monogram = SiteMonogram.label(for: tab.url?.host())?.first {
+                    Text(String(monogram).uppercased())
+                        .font(OrivType.caption.weight(.semibold)).foregroundStyle(theme.textSecondary)
+                        .padding(OrivSpacing.xxs).background(theme.fill, in: .rect(cornerRadius: OrivRadius.badge))
+                } else {
+                    Image(systemName: "globe").foregroundStyle(theme.textSecondary)
+                }
                 Text(tab.displayTitle).foregroundStyle(theme.text)
-            } icon: {
-                Image(systemName: tab.isPinned ? "pin.fill" : tab.isPrivate ? "eyeglasses" : "globe")
-                    .foregroundStyle(tab.isPrivate ? theme.privateAccent : theme.secondaryText)
-            }.font(.footnote.weight(.medium))
-                .lineLimit(largeText ? 3 : 1).frame(maxWidth: .infinity)
+                    .lineLimit(largeText ? 3 : 2, reservesSpace: true)
+            }
+            .font(OrivType.detail.weight(.medium)).frame(maxWidth: .infinity)
         }
+    }
+}
+
+/// Matches the affordance drawn over a live page during grid settlement.
+struct GridCloseGlyph: View {
+    @Environment(\.browserTheme) private var theme
+    private let diameter: CGFloat = 28
+
+    var body: some View {
+        Image(systemName: "xmark").font(OrivIcon.close)
+            .foregroundStyle(theme.textSecondary)
+            .frame(width: diameter, height: diameter)
+            .modifier(OrivMaterial.control())
     }
 }
 

@@ -46,9 +46,33 @@ Mac: a native toolbar with one address/search field, a vertical tab sidebar, and
 
 The Mac header’s **Browser Actions** ellipsis opens a native SwiftUI pull-down `Menu`. Its 36 × 32 pt target uses the shared toolbar button style. The menu inherits system material, selection, dismissal, keyboard navigation and accessibility. Group Bookmark (with its current state), Copy Link / Copy Original Link and Find first, followed by a zoom section (Zoom In, Zoom Out, Actual Size with the current percentage; a palette hid the reset label in practice), tab actions (including active downloads), and Sync / reading / privacy / Password AutoFill Help. Keep page-dependent and private-tab disabled states. Password help opens a popover from its menu action. Do not reintroduce a full-window tap-catcher or a custom menu panel. The native menu inherits the platform’s accessibility material preferences. Off-screen captures verify toolbar layout only; a menu tracking window must not be opened under the background-only policy.
 
-iPhone: one browser screen with an address control above the page and a single bottom row for Back, Forward, Library, tab count and Page options. Tabs, Library, Site settings and Settings open as sheets. Library groups bookmarks, history and downloads. The page menu names the active profile in its Settings action. Profile names are also visible on the start page and tab list.
+On iPhone, the bottom browser controls contain Back, Forward when available,
+the address capsule, and Show All Tabs. The capsule keeps Page Menu and Reload
+alongside the address in regular and private browsing. Page Menu groups link
+actions, page tools, site actions and Settings. Open Library from Tab actions
+in the grid. Library links to Bookmarks, History, Other devices and Downloads.
 
-The resting iPhone address shows the host; editing exposes the complete URL with native selection and a clear button. Private mode remains visible during address editing. Site settings shows the exact origin, connection state and per-site controls. HTTPS is described as connection encryption, not a guarantee that a site is trustworthy.
+The iPhone tab grid uses a native **Tabs / Private** segmented control and a
+separate profile chip. The chip shows the active profile name and symbol in
+its profile tint. At accessibility text sizes it moves into the top toolbar.
+New Tab follows the selected segment. Done returns to a tab in that mode or
+opens a blank tab when the mode is empty. The grid retains swipe-to-close and
+the browser address capsule retains swipe-up to open the grid.
+
+The resting address shows the host, or **Search** on a blank tab. The editor
+exposes the full URL with native selection and a clear button. Its keyboard
+layout guide anchors the editor and sets the available height for suggestions.
+Suggestions grow upward from the field as a solid panel. The highest-ranked
+result is closest to the field. VoiceOver traversal follows rank within each
+group, and Up Arrow selects from nearest to farthest. Results scroll when they
+reach the top safe area. Private tabs keep a glasses cue and a private-wash
+top band.
+
+Site settings shows the exact origin, connection state, protections and
+permissions. Reload Page applies changes. Reset This Site restores default
+protections and permissions after confirmation. Forget This Site separately
+removes browsing data. Appearance uses a border and checkmark to indicate the
+selected choice, with one column at accessibility text sizes.
 
 ## Shared behavior
 
@@ -170,7 +194,9 @@ the address editor. Keyboard navigation retains the system focus ring.
 
 The Mac start page aligns its 640 pt content column with the address capsule
 and uses a four-column tile grid at standard text sizes. The private start page
-uses the shared private banner and a short explanation on the private surface. iPhone retains adaptive columns. Both use
+uses the shared private banner and a short explanation on the private surface.
+iPhone uses three flexible columns at standard text sizes and one column at
+accessibility text sizes. Both use
 solid tiles and secondary section labels. Mac settings use native grouped
 forms and the system window background. Library counts appear beside their
 section names on the surface, with list content on the canvas. Find in Page

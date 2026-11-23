@@ -49,9 +49,21 @@ import WebKit
     private func sheet(_ name: String, _ controller: MobileController, _ sheet: MobileSheet, bottom: Bool = false, wait: Int = 1300) async throws {
         controller.sheet = sheet
         try await shot(name, wait: wait)
+        if sheet == .tabs, let selected = controller.session.selectedTab, selected.isPrivate {
+            let grid = try XCTUnwrap(window.rootViewController.flatMap(findGrid))
+            let expected = Set(controller.session.tabs.filter(\.isPrivate).map(\.id))
+            let visible = grid.collectionView.visibleCells.compactMap { ($0 as? MobileTabCell)?.representedTabID }
+            XCTAssertFalse(visible.isEmpty)
+            XCTAssertTrue(visible.allSatisfy { expected.contains($0) },
+                          "Private grid must display only private tabs. Model modes: \(grid.model.tabs.map(\.isPrivate)), visible IDs: \(visible)")
+            log.append("\(name) visible private tabs: \(visible.filter { expected.contains($0) }.count)/\(visible.count)")
+        }
         if bottom { scrollPresented(toBottom: true); try await shot(name + "-bottom", wait: 600) }
         controller.sheet = nil
         try await Task.sleep(for: .milliseconds(900))
+    }
+    private func findGrid(_ controller: UIViewController) -> MobileTabGridController? {
+        (controller as? MobileTabGridController) ?? controller.children.lazy.compactMap(findGrid).first
     }
     private func load(_ tab: BrowserTab, card: Int, dark: Bool, scheme: String = "https") async throws {
         tab.stop(); tab.dismissError()
@@ -210,6 +222,12 @@ import WebKit
         }
         let blank = session.addTab()
         try await shot("light-35-ax-start", wait: 1500)
+        controller.addressFocusRequest += 1
+        try await shot("light-36-ax-address-editing", wait: 1400)
+        let largeField = try XCTUnwrap(firstResponder(in: window) as? UITextField)
+        largeField.insertText("ex")
+        try await shot("light-37-ax-address-suggestions", wait: 1400)
+        window.endEditing(true)
         session.closeTab(blank.id)
         window.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
         // External private link with its banner.

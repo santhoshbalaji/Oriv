@@ -7,6 +7,7 @@ struct MobileSettingsView: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.dismiss) private var dismiss
     @Bindable var controller: MobileController
+    @Environment(\.dynamicTypeSize) private var typeSize
     let profiles: MobileProfiles
     private var profileName: String { profiles.profiles.first { $0.id == controller.profileID }?.name ?? "None (Private)" }
     var body: some View {
@@ -14,20 +15,20 @@ struct MobileSettingsView: View {
         Form {
             Section {
                 NavigationLink { MobileProfileChooser(controller: controller, profiles: profiles) } label: {
-                    LabeledContent { Text(profileName).foregroundStyle(theme.secondaryText) } label: { rowLabel("Profile", "person.crop.circle", theme) }
+                    settingsDestination("Profile", symbol: "person.crop.circle", detail: profileName)
                 }
                 NavigationLink { ContinuitySettingsView(continuity: profiles.continuity) } label: { rowLabel(OrivStrings.sync, "laptopcomputer.and.iphone", theme) }
                 NavigationLink { MobileAppearanceSettings(appearance: $controller.appearance, profileName: controller.profileID == nil ? nil : profileName) } label: {
-                    LabeledContent { Text(controller.appearance.displayName).foregroundStyle(theme.secondaryText) } label: { rowLabel("Appearance", "circle.lefthalf.filled", theme) }
+                    settingsDestination("Appearance", symbol: "circle.lefthalf.filled", detail: controller.appearance.displayName)
                 }.accessibilityIdentifier("appearanceSettings")
-            }.listRowBackground(theme.row)
+            }.listRowBackground(theme.surfaceRaised)
             Section {
                 Picker("Search engine", selection: $settings.searchEngine) { ForEach(SearchEngine.allCases) { Text($0.rawValue).tag($0) } }.id(controller.appearance)
                 Toggle(OrivStrings.openLinksPrivately, isOn: Binding(get: { profiles.openExternalLinksPrivately }, set: { profiles.openExternalLinksPrivately = $0 })).tint(theme.accent)
                 Toggle("Restore tabs", isOn: $settings.restoreTabs).tint(theme.accent)
             } header: { Text("Browsing") } footer: {
                 Text("Suggestions stay on this device; searches are sent only when you submit them. Private tabs are never restored.")
-            }.listRowBackground(theme.row)
+            }.listRowBackground(theme.surfaceRaised)
             Section {
                 PrivacySettingsControls(session: controller.session)
                 SettingRow(detail: controller.session.adBlocker.mode == .strict ? AdBlockingMode.strict.detail : nil) {
@@ -41,7 +42,7 @@ struct MobileSettingsView: View {
                     if let error = controller.session.adBlocker.cnamePreparationError { Text(error).foregroundStyle(theme.danger) }
                 }
                 NavigationLink(OrivStrings.websiteData) { MobileWebsiteData(manager: controller.session.websiteData) }
-                NavigationLink("Clear Browsing Data") { MobileClearBrowsingData(session: controller.session) }
+                NavigationLink("Clear browsing data") { MobileClearBrowsingData(session: controller.session) }
                 if !controller.session.adBlocker.regularExceptions.isEmpty {
                     DisclosureGroup("Allowed sites (\(controller.session.adBlocker.regularExceptions.count))") {
                         ForEach(controller.session.adBlocker.regularExceptions.sorted(), id: \.self) { host in
@@ -58,18 +59,30 @@ struct MobileSettingsView: View {
                 }
             } header: { Text("Privacy") } footer: {
                 Text(controller.session.adBlocker.mode.detail + " Reload open pages to apply a change.")
-            }.listRowBackground(theme.row)
+            }.listRowBackground(theme.surfaceRaised)
             Section {
                 Button("Open iOS Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
             } header: { Text("Passwords and permissions") } footer: {
                 Text("Passwords come from iOS AutoFill. Tap the key above the keyboard, then choose the account. iOS fills the field. Oriv never reads, stores or sends your saved passwords. Camera, microphone and location always ask for your permission.")
-            }.listRowBackground(theme.row)
+            }.listRowBackground(theme.surfaceRaised)
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                 LabeledContent("Protection list version", value: AdBlocker.rulesVersion)
-            } header: { Text("About") } footer: { Text("WebKit is supplied by iOS. Install system updates for engine and media fixes.") }.listRowBackground(theme.row)
-        }.orivListStyle(theme).navigationTitle("Settings")
+            } header: { Text("About") } footer: { Text("WebKit is supplied by iOS. Install system updates for engine and media fixes.") }.listRowBackground(theme.surfaceRaised)
+        }.orivListStyle(theme).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+    }
+
+    @ViewBuilder private func settingsDestination(_ title: String, symbol: String, detail: String) -> some View {
+        if typeSize.isAccessibilitySize {
+            SettingRow(detail: detail) { rowLabel(title, symbol, theme) }
+        } else {
+            LabeledContent {
+                Text(detail).foregroundStyle(theme.textSecondary)
+            } label: {
+                rowLabel(title, symbol, theme)
+            }
+        }
     }
 }
 
@@ -80,24 +93,30 @@ struct MobileAppearanceSettings: View {
     let profileName: String?
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text(profileName.map { "For the \($0) profile." } ?? "For this private session.").font(.callout).foregroundStyle(theme.secondaryText)
+            VStack(alignment: .leading, spacing: OrivSpacing.larger) {
+                Text(profileName.map { "For the \($0) profile." } ?? "For this private session.").font(OrivType.body).foregroundStyle(theme.textSecondary)
                 LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 155), spacing: OrivSpacing.large)], spacing: OrivSpacing.large) {
                     ForEach(BrowserAppearance.allCases) { choice in
                         Button { appearance = choice } label: {
                             VStack(alignment: .leading, spacing: OrivSpacing.medium) {
                                 if !typeSize.isAccessibilitySize { AppearancePreview(choice: choice) }
-                                Text(choice.displayName).font(OrivType.body).foregroundStyle(theme.text).fixedSize(horizontal: false, vertical: true)
-                                Label(appearance == choice ? "Selected" : "Use theme", systemImage: appearance == choice ? "checkmark.circle.fill" : "circle")
-                                    .font(OrivType.detail).foregroundStyle(theme.secondaryText)
+                                HStack(alignment: .firstTextBaseline, spacing: OrivSpacing.small) {
+                                    Text(choice.displayName).font(OrivType.body).foregroundStyle(theme.text)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 0)
+                                    if appearance == choice {
+                                        Image(systemName: "checkmark").font(OrivType.detail.weight(.semibold))
+                                            .foregroundStyle(theme.accent).accessibilityHidden(true)
+                                    }
+                                }
                             }.padding(OrivSpacing.large).frame(maxWidth: .infinity, alignment: .leading)
                                 .modifier(Tile(kind: .appearance(theme.surface), selected: appearance == choice))
                         }.buttonStyle(.plain).accessibilityLabel("Use \(choice.displayName) appearance")
                             .accessibilityAddTraits(appearance == choice ? [.isSelected] : [])
                     }
                 }
-                Text(OrivStrings.appearanceSummary).font(.callout).foregroundStyle(theme.secondaryText)
-            }.padding(20)
+                Text(OrivStrings.appearanceSummary).font(OrivType.body).foregroundStyle(theme.textSecondary)
+            }.padding(OrivSpacing.larger)
         }.background(theme.canvas).navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -107,36 +126,79 @@ struct MobileSiteSettings: View {
     @Environment(\.dismiss) private var dismiss
     let session: BrowserSession
     let tab: BrowserTab
+    @State private var resetSite = false
+    @State private var siteToForget: BrowserSite?
+    @State private var forgetError: String?
     private var rule: SiteRule { session.settings.rule(for: tab.url, isPrivate: tab.isPrivate) }
+
     var body: some View {
         Form {
             Section {
-                if tab.isPrivate { Label("Private browsing", systemImage: "eyeglasses").foregroundStyle(theme.privateAccent) }
+                if tab.isPrivate { Label("Private browsing", systemImage: "eyeglasses").foregroundStyle(theme.private) }
                 let connection = ConnectionCue(tab, includeRecording: false)
-                Label(connection.label, systemImage: connection.symbol).foregroundStyle(connection.color(theme))
+                SettingRow(detail: tab.isSecure
+                    ? "HTTPS encrypts this connection."
+                    : "Check the address before sharing sensitive information.") {
+                    Label(connection.label, systemImage: connection.symbol).foregroundStyle(connection.color(theme))
+                }
                 Text(tab.url.flatMap(SiteOrigin.init)?.displayName ?? "No website open").textSelection(.enabled)
-                Text(tab.isSecure ? "HTTPS encrypts this connection. It does not verify the site's identity or claims." : "A fully secure connection has not been confirmed. Check the address before sharing sensitive information.").font(.callout).foregroundStyle(theme.secondaryText)
-            }.listRowBackground(theme.row)
+            }.listRowBackground(theme.surfaceRaised)
             if let url = tab.url {
                 Section("Protection") {
                     PrivacyShieldControls(session: session, tab: tab)
-                    if session.adBlocker.mode == .off { Text("Ad blocking is off in Settings.").foregroundStyle(theme.secondaryText) }
+                }.listRowBackground(theme.surfaceRaised)
+                Section {
                     permission("Camera", path: \.camera, url: url)
                     permission("Microphone", path: \.microphone, url: url)
-                    Toggle("Allow automatic pop-ups", isOn: Binding(get: { rule.allowsAutomaticPopups }, set: { var updated = rule; updated.allowsAutomaticPopups = $0; session.settings.setRule(updated, for: url, isPrivate: tab.isPrivate) })).tint(theme.accent)
-                    Text("Ask uses WebKit and iOS permission prompts. Reload to apply changes to pop-ups and blocking.").font(.caption).foregroundStyle(theme.secondaryText)
+                    Toggle("Allow automatic pop-ups", isOn: Binding(get: { rule.allowsAutomaticPopups }, set: {
+                        var updated = rule
+                        updated.allowsAutomaticPopups = $0
+                        session.settings.setRule(updated, for: url, isPrivate: tab.isPrivate)
+                    })).tint(theme.accent)
                     if tab.isCapturingCamera || tab.isCapturingMicrophone {
-                        Label("Camera or microphone in use", systemImage: "record.circle.fill").foregroundStyle(theme.danger)
-                        Button("Stop Camera and Microphone") { tab.stopCapture() }
+                        SettingRow(detail: "Camera or microphone in use") {
+                            Button("Stop Camera and Microphone") { tab.stopCapture() }
+                                .foregroundStyle(theme.danger)
+                        }
                     }
-                    Button("Reset Site Permissions") { session.settings.setRule(SiteRule(), for: url, isPrivate: tab.isPrivate); tab.stopCapture() }
+                } header: {
+                    Text("Permissions")
+                } footer: {
+                    Text(tab.isPrivate
+                         ? "Private permissions and blocking exceptions expire when the last private tab closes."
+                         : "Ask uses WebKit and iOS permission prompts.")
+                }.listRowBackground(theme.surfaceRaised)
+                Section {
                     Button("Reload Page") { tab.reload(); dismiss() }
-                    if tab.isPrivate { Text("Private permissions and blocking exceptions are forgotten when the last private tab closes.").font(.caption).foregroundStyle(theme.secondaryText) }
-                }.listRowBackground(theme.row)
+                    Button("Reset This Site…", role: .destructive) { resetSite = true }.orivButton(.destructive)
+                    if let site = session.forgettableSite(for: tab) {
+                        Button("Forget This Site…", role: .destructive) { siteToForget = site }.orivButton(.destructive)
+                    }
+                } footer: {
+                    Text("Reload to apply changes to pop-ups and protections. Unsaved form contents may be lost.")
+                }.listRowBackground(theme.surfaceRaised)
             }
-        }.orivListStyle(theme).navigationTitle("Site settings")
+            if let forgetError { Text(forgetError).foregroundStyle(theme.danger) }
+        }.orivListStyle(theme).navigationTitle("Site settings").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("siteSettingsDone") } }
+            .alert("Reset this site?", isPresented: $resetSite, presenting: tab.url) { url in
+                Button("Cancel", role: .cancel) {}
+                Button("Reset Site", role: .destructive) { reset(url) }
+            } message: { _ in
+                Text("Restore default protections and permissions for this site. Browsing data is kept. Reload to apply the changes.")
+            }
+            .forgetSiteAlert($siteToForget, session: session) { forgetError = $0 }
     }
+
+    private func reset(_ url: URL) {
+        session.settings.setRule(SiteRule(), for: url, isPrivate: tab.isPrivate)
+        session.adBlocker.setException(false, for: url, isPrivate: tab.isPrivate)
+        for layer in PrivacyLayer.allCases {
+            session.settings.privacy.setException(false, layer, for: url, isPrivate: tab.isPrivate)
+        }
+        tab.stopCapture()
+    }
+
     private func permission(_ title: String, path: WritableKeyPath<SiteRule, SitePermission>, url: URL) -> some View {
         Picker(title, selection: Binding(get: { rule[keyPath: path] }, set: { var updated = rule; updated[keyPath: path] = $0; session.settings.setRule(updated, for: url, isPrivate: tab.isPrivate); if $0 == .block { tab.stopCapture() } })) {
             ForEach(SitePermission.allCases) { Text($0.rawValue).tag($0) }
@@ -165,13 +227,13 @@ struct MobileClearBrowsingData: View {
                 Toggle("Cached website files", isOn: $cache).tint(theme.accent)
                 Toggle("Cookies and website data", isOn: $sites).tint(theme.accent)
                 Toggle("All saved site permissions", isOn: $permissions).tint(theme.accent)
-            }.listRowBackground(theme.row)
+            }.listRowBackground(theme.surfaceRaised)
             Section {
-                Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Bookmarks, open tabs and files you saved are retained.").font(.callout).foregroundStyle(theme.secondaryText)
+                Text("Website data includes logins and offline work. WebKit applies the time range to stored records, which may contain older content. Bookmarks, open tabs and files you saved are retained.").font(OrivType.body).foregroundStyle(theme.textSecondary)
                 Button(OrivStrings.clearSelectedData, role: .destructive) { confirm = true }.orivButton(.destructive).disabled(!history && !cache && !sites && !permissions)
                 if working { ProgressView("Clearing data…") }
                 if completed { Label("Selected browsing data cleared", systemImage: "checkmark.circle").foregroundStyle(theme.success).accessibilityAddTraits(.updatesFrequently) }
-            }.listRowBackground(theme.row)
+            }.listRowBackground(theme.surfaceRaised)
         }.orivListStyle(theme).navigationTitle("Clear browsing data").disabled(working)
             .confirmationDialog("Clear selected browsing data?", isPresented: $confirm, titleVisibility: .visible) {
                 Button("Clear Data", role: .destructive) {
@@ -197,11 +259,11 @@ struct MobileWebsiteData: View {
     @State private var confirm = false
     var body: some View {
         List {
-            Text("Cookies, caches and offline storage. Removing data can sign you out. Bookmarks are kept separately.").font(.callout).foregroundStyle(theme.secondaryText)
+            Text("Cookies, caches and offline storage. Removing data can sign you out. Bookmarks are kept separately.").font(OrivType.body).foregroundStyle(theme.textSecondary)
             let records = manager.records.filter { query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query) }
             if manager.isWorking { ProgressView() }
-            else if manager.records.isEmpty { BrowserEmptyState("No website data").listRowBackground(theme.row).listRowSeparator(.hidden) }
-            else if records.isEmpty { BrowserEmptyState("No results for “\(query)”.").listRowBackground(theme.row).listRowSeparator(.hidden) }
+            else if manager.records.isEmpty { BrowserEmptyState("No website data").listRowBackground(theme.surfaceRaised).listRowSeparator(.hidden) }
+            else if records.isEmpty { BrowserEmptyState("No results for “\(query)”.").listRowBackground(theme.surfaceRaised).listRowSeparator(.hidden) }
             ForEach(records, id: \.displayName) { record in
                 VStack(alignment: .leading) { Text(record.displayName); Button("Remove…", role: .destructive) { pending = [record]; confirm = true }.orivButton(.destructive) }
             }
@@ -250,7 +312,7 @@ private struct MobileProfileChooser: View {
                 }
             }
             Section {
-                Text("Each profile keeps tabs, history, bookmarks, settings and website logins separate on this device. Profiles are not locked accounts. Touch and hold a profile to manage it.").font(.callout).foregroundStyle(theme.secondaryText)
+                Text("Each profile keeps tabs, history, bookmarks, settings and website logins separate on this device. Profiles are not locked accounts. Touch and hold a profile to manage it.").font(OrivType.body).foregroundStyle(theme.textSecondary)
             }
             if let error { Text(error).foregroundStyle(theme.danger) }
         }.orivListStyle(theme).navigationTitle("Profiles")
