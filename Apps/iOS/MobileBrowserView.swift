@@ -733,12 +733,14 @@ struct MobileBrowserView: View {
     @ViewBuilder private var notices: some View {
         if let notice = profiles.continuity.notice { ContinuityNotice(text: notice) }
         if let notice = controller.session.persistenceNotice {
-            HStack { Text(notice).font(.footnote); Spacer(); if controller.session.canPersist { Button("Dismiss") { controller.session.dismissNotice() } } }
-                .padding(.horizontal, OrivSpacing.large).padding(.vertical, 10).background(theme.surface)
+            OrivBanner(notice, tone: .warning,
+                       dismiss: controller.session.canPersist ? { controller.session.dismissNotice() } : nil)
         }
         if controller.session.canUndoBookmarkRemoval {
-            HStack { Text("Bookmark removed").foregroundStyle(theme.secondaryText); Spacer(); Button("Undo") { controller.session.undoBookmarkRemoval() }; Button("Dismiss", systemImage: "xmark") { controller.session.dismissBookmarkUndo() }.labelStyle(.iconOnly).foregroundStyle(theme.secondaryText) }
-                .font(.footnote).padding(.horizontal, OrivSpacing.large).frame(minHeight: 44).background(theme.surface)
+            OrivBanner(message: "Bookmark removed", dismiss: { controller.session.dismissBookmarkUndo() }) {
+                Button("Undo") { controller.session.undoBookmarkRemoval() }
+                    .frame(minHeight: OrivTarget.touch.height)
+            }
         }
     }
     @ViewBuilder private func page(top: CGFloat, bottom: CGFloat) -> some View {

@@ -58,7 +58,9 @@ struct LibraryView: View {
                 contents.frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 if controller.session.canUndoBookmarkRemoval {
-                    HStack { Text("Bookmark removed"); Spacer(); Button("Undo") { controller.session.undoBookmarkRemoval() } }.padding(.horizontal, OrivSpacing.xl).padding(.vertical, OrivSpacing.small)
+                    OrivBanner(message: "Bookmark removed") {
+                        Button("Undo") { controller.session.undoBookmarkRemoval() }.orivButton(.link)
+                    }
                 }
                 HStack {
                     if section == .history && count > 0 {

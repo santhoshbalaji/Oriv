@@ -63,13 +63,8 @@ struct ExternalPrivateBar: View {
     }
 
     private var title: some View {
-        HStack(spacing: OrivSpacing.small) {
-            Image(systemName: "eyeglasses").accessibilityHidden(true)
-            Text(message).accessibilityIdentifier("externalPrivateNotice")
-        }
-        .foregroundStyle(theme.privateAccent)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .combine)
+        OrivBannerLabel(message: message, tone: .privateBrowsing, symbol: "eyeglasses")
+            .accessibilityIdentifier("externalPrivateNotice")
     }
 
     private var picker: some View {

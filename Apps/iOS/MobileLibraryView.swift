@@ -67,7 +67,9 @@ struct MobileSavedPages: View {
             } else {
                 let entries = controller.session.bookmarks.filter { matches($0.title, $0.url) }
                 if controller.session.canUndoBookmarkRemoval {
-                    HStack { Text("Bookmark removed").foregroundStyle(theme.secondaryText); Spacer(); Button("Undo") { controller.session.undoBookmarkRemoval() } }.listRowBackground(theme.row)
+                    OrivBanner(message: "Bookmark removed") {
+                        Button("Undo") { controller.session.undoBookmarkRemoval() }
+                    }.listRowBackground(theme.surfaceRaised)
                 }
                 if entries.isEmpty { empty(isEmpty: controller.session.bookmarks.isEmpty) }
                 let context = URLDisplay.Context(entries.map { ($0.title, $0.url) })

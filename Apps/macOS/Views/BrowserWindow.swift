@@ -586,29 +586,21 @@ struct BrowserWindow: View {
                         move: { profiles.perform { try profiles.moveExternalTab() } }, dismiss: { profiles.externalBannerVisible = false })
                 }
                 if session.canUndoBookmarkRemoval {
-                    HStack { Text("Bookmark removed").foregroundStyle(theme.secondaryText); Spacer(); Button("Undo") { session.undoBookmarkRemoval() }.buttonStyle(.borderless); Button("Dismiss", systemImage: "xmark") { session.dismissBookmarkUndo() }.labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(theme.secondaryText) }
-                        .font(OrivType.detail).padding(.horizontal, OrivSpacing.large).frame(height: 32).background(theme.surface)
+                    OrivBanner(message: "Bookmark removed", dismiss: { session.dismissBookmarkUndo() }) {
+                        Button("Undo") { session.undoBookmarkRemoval() }.orivButton(.link)
+                    }
                 }
                 if let notice = profiles?.continuity.notice { ContinuityNotice(text: notice) }
                 if let notice = controller.browserNotice {
-                    noticeBar(notice, symbol: "checkmark.circle", isWarning: false) { controller.browserNotice = nil }
+                    OrivBanner(notice, tone: .success, dismiss: { controller.browserNotice = nil })
                 }
                 if let notice = session.persistenceNotice {
-                    noticeBar(notice, symbol: "externaldrive.badge.exclamationmark") {
-                        session.dismissNotice()
-                    }
+                    OrivBanner(notice, tone: .warning, symbol: "externaldrive.badge.exclamationmark",
+                               dismiss: session.canPersist ? { session.dismissNotice() } : nil)
                 }
                 // The private start page explains itself; loaded private pages keep this persistent cue.
                 if tab?.isPrivate == true && !showsExternalPrivateBar && tab?.url != nil {
-                    HStack(spacing: 6) {
-                        Image(systemName: "eyeglasses")
-                        Text("Private browsing")
-                        Spacer()
-                    }
-                    .font(OrivType.caption.weight(.medium)).foregroundStyle(theme.privateAccent)
-                    .padding(.horizontal, OrivSpacing.large).frame(height: 24)
-                    .background(theme.field)
-                    .accessibilityElement(children: .combine)
+                    OrivBanner("Private browsing", tone: .privateBrowsing)
                 }
                 if ui.showFind {
                     HStack {
@@ -686,15 +678,7 @@ struct BrowserWindow: View {
     }
     private func syncAddress() { ui.address = tab?.url?.absoluteString ?? "" }
 
-    private func noticeBar(_ message: String, symbol: String, isWarning: Bool = true, dismiss: @escaping () -> Void) -> some View {
-        HStack {
-            Image(systemName: symbol).foregroundStyle(isWarning ? theme.warning : theme.secondaryText)
-            Text(message).font(OrivType.caption).foregroundStyle(isWarning ? theme.warning : theme.text)
-            Spacer()
-            if !isWarning || session.canPersist { Button("Dismiss", action: dismiss).buttonStyle(.borderless) }
-        }
-        .padding(10).background(theme.surface)
-    }
+
 }
 
 private struct MacAddressBounds: PreferenceKey {

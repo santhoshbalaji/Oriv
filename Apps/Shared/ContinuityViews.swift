@@ -184,14 +184,10 @@ struct SendPageMenu: View {
 }
 
 struct ContinuityNotice: View {
-    @Environment(\.browserTheme) private var theme
     let text: String
+
     var body: some View {
-        Label { Text(text).foregroundStyle(theme.text) } icon: {
-            Image(systemName: "checkmark.circle").foregroundStyle(theme.success)
-        }.font(OrivType.detail)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(OrivSpacing.medium).background(theme.surface)
-            .accessibilityElement(children: .combine).accessibilityAddTraits(.updatesFrequently)
+        OrivBanner(text, tone: .success).accessibilityAddTraits(.updatesFrequently)
     }
 }
 

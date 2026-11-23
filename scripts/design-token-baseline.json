@@ -27,9 +27,9 @@
   },
   "Apps/iOS/MobileBrowserView.swift": {
     "font size": 9,
-    "font style": 8,
+    "font style": 6,
     "motion": 8,
-    "padding": 11,
+    "padding": 10,
     "raw color": 2,
     "spacing": 12
   },
@@ -75,11 +75,11 @@
     "font size": 1,
     "font style": 3,
     "motion": 2,
-    "padding": 10,
+    "padding": 9,
     "radius": 1,
     "raw color": 6,
     "shadow": 1,
-    "spacing": 9
+    "spacing": 8
   },
   "Apps/macOS/Views/LibraryView.swift": {
     "font size": 1,
