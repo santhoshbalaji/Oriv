@@ -185,9 +185,9 @@ struct ProfilesView: View {
     }
     private func profileRow(_ profile: BrowserProfile) -> some View {
         Button { choose(profile) } label: {
-            HStack(spacing: 9) {
+            HStack(spacing: OrivSpacing.small) {
                 Image(systemName: profile.symbol.rawValue).foregroundStyle(profile.color.tint(in: theme)).frame(width: 20)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: OrivSpacing.xs) {
                     Text(profile.name).lineLimit(1)
                     if profile.id == profiles.active.id { Badge(text: "Current profile", padsLabel: false) }
                     else if let count = profiles.loadedController(profile.id)?.downloads.items.filter({ !$0.isFinished }).count, count > 0 {
@@ -195,9 +195,11 @@ struct ProfilesView: View {
                     }
                 }
                 Spacer(minLength: 0)
-            }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(selectedID == profile.id ? theme.accent.opacity(0.12) : .clear, in: .rect(cornerRadius: 8))
-        }.buttonStyle(.plain).accessibilityLabel(profile.name + (profile.id == profiles.active.id ? ", current profile" : ""))
+            }.padding(OrivSpacing.medium).frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(ListSelection(selected: selectedID == profile.id))
+        }.orivButton(.quiet)
+            .accessibilityLabel(profile.name + (profile.id == profiles.active.id ? ", current profile" : ""))
+            .accessibilityAddTraits(selectedID == profile.id ? [.isSelected] : [])
     }
     private func choose(_ profile: BrowserProfile) {
         selectedID = profile.id; creating = false; name = profile.name; color = profile.color; symbol = profile.symbol; message = nil

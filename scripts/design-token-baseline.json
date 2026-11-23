@@ -90,9 +90,9 @@
   "Apps/macOS/Views/ProfileViews.swift": {
     "font size": 3,
     "font style": 8,
-    "padding": 4,
-    "radius": 2,
-    "spacing": 9
+    "padding": 3,
+    "radius": 1,
+    "spacing": 7
   },
   "Apps/macOS/Views/ReaderTextView.swift": {
     "font style": 2,
