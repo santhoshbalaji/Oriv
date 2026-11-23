@@ -36,6 +36,23 @@ import XCTest
         try await waitForFixtureCondition("data navigation or download", timeout: 30, file: file, line: line, ready)
     }
 
+    func testRefusedAddressPreservesRetryDestination() async throws {
+        let session = BrowserSession(dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
+        defer { session.shutdown() }
+        let tab = try XCTUnwrap(session.selectedTab)
+        let detach = try mountWebFixture(tab)
+        defer { detach() }
+        let refused = try XCTUnwrap(URL(string: "http://127.0.0.1:9/unreachable"))
+        for attempt in 0..<2 {
+            if attempt == 0 { tab.navigate(to: refused) }
+            else { tab.reload() }
+            try await waitForFixtureCondition("refused address error", timeout: 10) { tab.errorMessage != nil }
+            XCTAssertEqual(tab.url, refused)
+            XCTAssertFalse(tab.isLoading)
+            XCTAssertNil(tab.httpWarningURL)
+        }
+    }
+
     func testFrequentHomeDestinationsExcludeBookmarksAndPrivateSessions() async throws {
         let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

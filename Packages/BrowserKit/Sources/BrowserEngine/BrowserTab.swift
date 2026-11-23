@@ -24,6 +24,9 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public private(set) var canGoBack = false
     public private(set) var canGoForward = false
     public private(set) var errorMessage: String?
+    private static let refusedAddressMessage = "Oriv couldn't open this address."
+    @ObservationIgnored private var requestedNavigation: (navigation: WKNavigation, url: URL)?
+    @ObservationIgnored private var failedAddress: URL?
     public private(set) var hasLoaded = false
     public private(set) var isRestoringWebView = false {
         didSet { if !isRestoringWebView { notifyDocumentReady() } }
@@ -508,7 +511,8 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         loadAddress(destination, typed: false)
     }
 
-    private func loadAddress(_ destination: URL, typed: Bool, recordHistory: Bool = true) {
+    private func loadAddress(_ destination: URL, typed: Bool, recordHistory: Bool = true,
+                             cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy) {
         guard !isResettingSiteData else { return }
         skipHistoryOnActivation = false
         isReloadingForgottenSite = !recordHistory
@@ -519,24 +523,28 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         pendingCleanedURL = nil
         let previous = record
         contentProcessTerminated = false
-        errorMessage = nil
+        dismissError()
         content = .web
         url = destination
         title = destination.host ?? "Website"
         hasLoaded = true
         isLoading = true
         typedURL = typed && !isPrivate ? destination : nil
-        let navigation = webView.load(URLRequest(url: destination))
+        let navigation = webView.load(URLRequest(url: destination, cachePolicy: cachePolicy))
+        requestedNavigation = navigation.map { ($0, destination) }
         typedNavigation = typedURL == nil ? nil : navigation
+        if navigation == nil {
+            showNavigationError(Self.refusedAddressMessage, destination: destination)
+        }
         if record != previous { onChange?() }
     }
 
-    public func goBack() { httpWarningURL = nil; pendingHTTPUpgrade = nil; errorMessage = nil; backingWebView?.goBack() }
-    public func goForward() { httpWarningURL = nil; pendingHTTPUpgrade = nil; errorMessage = nil; backingWebView?.goForward() }
+    public func goBack() { httpWarningURL = nil; pendingHTTPUpgrade = nil; requestedNavigation = nil; dismissError(); backingWebView?.goBack() }
+    public func goForward() { httpWarningURL = nil; pendingHTTPUpgrade = nil; requestedNavigation = nil; dismissError(); backingWebView?.goForward() }
     public func go(to item: WKBackForwardListItem) {
         guard let view = backingWebView,
               (view.backForwardList.backList + view.backForwardList.forwardList).contains(where: { $0 === item }) else { return }
-        errorMessage = nil; view.go(to: item)
+        requestedNavigation = nil; dismissError(); view.go(to: item)
     }
     #if os(iOS)
     @objc private func pullToRefresh() { reload() }
@@ -548,12 +556,22 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #endif
     }
     public func reload() {
-        errorMessage = nil
+        if let failedAddress {
+            loadAddress(failedAddress, typed: false)
+            return
+        }
+        dismissError()
         if backingWebView?.url != nil { backingWebView?.reload() }
         else if let url { navigate(to: url) }
     }
-    public func stop() { backingWebView?.stopLoading(); isLoading = false; finishScrollRestoration(); endRefreshing() }
-    public func reloadFromOrigin() { errorMessage = nil; backingWebView?.reloadFromOrigin() }
+    public func stop() { requestedNavigation = nil; backingWebView?.stopLoading(); isLoading = false; finishScrollRestoration(); endRefreshing() }
+    public func reloadFromOrigin() {
+        if let failedAddress, backingWebView?.url != nil {
+            loadAddress(failedAddress, typed: false, cachePolicy: .reloadIgnoringLocalCacheData)
+        } else if backingWebView?.reloadFromOrigin() != nil {
+            dismissError()
+        }
+    }
 
     /// A new browsing context discards sessionStorage and WebKit's cached
     /// back/forward documents. The tab's identity, URL and pin stay in place.
@@ -843,7 +861,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         if rule.camera == .block { view.setCameraCaptureState(.none, completionHandler: nil) }
         if rule.microphone == .block { view.setMicrophoneCaptureState(.none, completionHandler: nil) }
     }
-    public func dismissError() { errorMessage = nil }
+    public func dismissError() { errorMessage = nil; failedAddress = nil }
     /// Consent applies only to the exact destination displayed by the prompt.
     public func continueToHTTP(_ destination:URL) {
         guard destination == httpWarningURL else { return }
@@ -983,6 +1001,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         onWebViewDiscarded?()
         onAuthentication = nil
         policyGeneration += 1
+        requestedNavigation = nil
         observations.removeAll()
         #if os(macOS)
         resetAudio()
@@ -1029,7 +1048,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         let previous = record
         // Display the actual document URL even for about/blob pages. Never leave an
         // earlier HTTPS origin in the address bar after the document has changed.
-        if let current = view.url { url = current }
+        // During a refused load WebKit can report the initial blank document.
+        // Keep the address that the user can retry.
+        if failedAddress == nil, let current = view.url,
+           requestedNavigation == nil || current.absoluteString != "about:blank" { url = current }
         if let currentTitle = view.title, !currentTitle.isEmpty { title = currentTitle }
         isLoading = view.isLoading
         progress = view.estimatedProgress
@@ -1128,7 +1150,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #endif
         NotificationCenter.default.post(name: Self.navigationStarted, object: webView)
         documentRevision += 1
-        errorMessage = nil
+        dismissError()
         hasLoaded = true
         findResult = nil
         refresh(from: webView)
@@ -1145,6 +1167,15 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #if os(macOS)
         resetAudio()
         #endif
+        if let request = requestedNavigation, request.navigation === navigation {
+            // WebKit can substitute its initial blank document for a refused
+            // request without delivering a provisional error to the delegate.
+            if webView.url?.absoluteString == "about:blank" {
+                showNavigationError(Self.refusedAddressMessage, destination: request.url)
+                return
+            }
+            requestedNavigation = nil
+        }
         cookieBannerResult = nil
         identifyPaintedDocument(webView)
         #if os(iOS)
@@ -1192,6 +1223,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     }
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard !isClosed, backingWebView === webView else { return }
+        if let request = requestedNavigation, request.navigation === navigation {
+            requestedNavigation = nil
+            if webView.url == nil || webView.url?.absoluteString == "about:blank" {
+                showNavigationError(Self.refusedAddressMessage, destination: request.url)
+                return
+            }
+        }
         isReloadingForgottenSite = false
         restoreScrollPosition(force:true)
         // Empty pages, PDFs and unsupported Paint Timing documents must also
@@ -1209,16 +1247,18 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                                 url: webView.url, isPrivate: isPrivate)
     }
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        handle(error,navigation:navigation)
+        guard !isClosed, backingWebView === webView else { return }
+        handle(error, navigation: navigation, provisional: true)
     }
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard !isClosed, backingWebView === webView else { return }
         let code = (error as NSError).code
         if let visit = activeHistoryVisit, historyNavigation === navigation, code != NSURLErrorCancelled, code != 102 {
             discardHistoryVisit?(visit.id)
             cancelPendingHistory()
             historyDocumentURL = nil
         }
-        handle(error, navigation: navigation)
+        handle(error, navigation: navigation, provisional: false)
     }
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard !isClosed, backingWebView === webView else { return }
@@ -1257,7 +1297,10 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         pendingNavigationMethod = request.httpMethod?.uppercased() ?? "GET"
         pendingNavigationHasBody = request.httpBody != nil || request.httpBodyStream != nil
     }
-    private func handle(_ error: Error,navigation:WKNavigation?) {
+    private func handle(_ error: Error, navigation: WKNavigation?, provisional: Bool) {
+        let request = requestedNavigation
+        if let request, request.navigation !== navigation { return }
+        requestedNavigation = nil
         isRestoringWebView = false; savedScrollOffset = nil; applyingRestoration = false
         endRefreshing()
         let nsError = error as NSError
@@ -1287,11 +1330,24 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             pendingHTTPUpgrade = nil
             httpWarningURL = nil
         }
-        // Cancelled navigation and downloads are not failed page loads.
+        // Stop, superseded loads, external handoffs and downloads are expected.
         guard !(nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled),
-              !(nsError.domain == "WebKitErrorDomain" && nsError.code == 102) else { return }
+              !(nsError.domain == "WebKitErrorDomain" && nsError.code == 102 && request == nil) else { return }
+        let attempted = provisional ? request?.url : nil
+        showNavigationError(error.localizedDescription, destination: attempted)
+    }
+
+    private func showNavigationError(_ message: String, destination: URL?) {
+        requestedNavigation = nil
+        failedAddress = destination
+        if let destination, url != destination {
+            url = destination
+            title = destination.host ?? "Website"
+            onChange?()
+        }
         isLoading = false
-        errorMessage = error.localizedDescription
+        endRefreshing()
+        errorMessage = message
     }
 
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
@@ -1322,8 +1378,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                 } else {
                     request.url = replacement
                 }
+                let replacesRequestedNavigation = requestedNavigation?.url == url
                 decisionHandler(.cancel)
-                webView.load(request)
+                let navigation = webView.load(request)
+                if replacesRequestedNavigation {
+                    requestedNavigation = navigation.map { ($0, replacement) }
+                    if navigation == nil { showNavigationError(Self.refusedAddressMessage, destination: replacement) }
+                }
                 return
             }
             if preferences.preferredHTTPSNavigationPolicy == .errorOnFailure {
@@ -1349,6 +1410,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         #endif
         if ["http", "https", "about", "blob", "data"].contains(scheme) {
             let policy: WKNavigationActionPolicy = navigationAction.shouldPerformDownload ? .download : .allow
+            if policy == .download, mainFrame { requestedNavigation = nil }
             let isMainFrame = navigationAction.targetFrame?.isMainFrame == true
             guard navigationAction.targetFrame?.isMainFrame == true, let adBlocker else {
                 if isMainFrame && policy == .allow { recordAllowedMainFrameNavigation(navigationAction.request) }
@@ -1380,6 +1442,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
                 }
             }
         } else {
+            if mainFrame { requestedNavigation = nil }
             decisionHandler(.cancel)
             if navigationAction.navigationType == .linkActivated, ["mailto", "tel"].contains(scheme) {
                 onExternalURL?(url)
@@ -1393,6 +1456,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             .split(separator: ";", maxSplits: 1).first?.trimmingCharacters(in: .whitespaces).lowercased()
         let downloads = disposition == "attachment" || !navigationResponse.canShowMIMEType
         if navigationResponse.isForMainFrame {
+            if downloads { requestedNavigation = nil }
             historyResponseAllowed = (http?.statusCode ?? 200) < 400 && !downloads
         }
         decisionHandler(downloads ? .download : .allow)
