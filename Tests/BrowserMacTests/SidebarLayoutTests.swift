@@ -141,6 +141,11 @@ import XCTest
             XCTAssertEqual(tiles[offset].minY, tiles[offset + 1].minY)
         }
         XCTAssertLessThan(tiles[0].maxY, tiles[2].minY)
+        let active = try XCTUnwrap(session.selectedTabID)
+        let accent = try frame("sidebarAccent-\(active)", in: window)
+        let favicon = try frame("sidebarFavicon-\(active)", in: window)
+        XCTAssertEqual(favicon.width, OrivLayout.sidebarPinIconSize, accuracy: 1)
+        XCTAssertLessThan(accent.maxX, favicon.minX)
         let surface = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: window))
         let rect = surface.convert(surface.bounds, to: content)
         let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: rect))
@@ -150,6 +155,36 @@ import XCTest
         attachment.name = "mac-sidebar-256-aligned-pins"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testPinnedHoverCloseAndSelectionMarkerMirrorInRTL() async throws {
+        for rtl in [false, true] {
+            let controller = BrowserController(testing: true)
+            defer { controller.shutdown() }
+            let tab = controller.session.addTab(load: false)
+            controller.session.togglePinned(tab.id)
+            let window = makeWindow(controller, rtl: rtl, largestText: false, appearance: .light, key: false)
+            defer { window.close() }
+            let closeName = "sidebarClose-\(tab.id)"
+            let accentName = "sidebarAccent-\(tab.id)"
+            try await eventually("selected pin marker") { self.marker(accentName, in: window) != nil }
+            XCTAssertNil(marker(closeName, in: window))
+            let content = try XCTUnwrap(window.contentView)
+            let list = try XCTUnwrap(descendants(content).compactMap { $0 as? SidebarTabCollection }.first)
+            let data = try XCTUnwrap(list.sidebar)
+            data.setHovered(try XCTUnwrap(data.path(for: tab.id)))
+            try await eventually("pinned close target on hover") { self.marker(closeName, in: window) != nil }
+            let close = try frame(closeName, in: window)
+            let accent = try frame(accentName, in: window)
+            let icon = try frame("sidebarFavicon-\(tab.id)", in: window)
+            XCTAssertEqual(close.width, OrivLayout.sidebarAccessoryWidth, accuracy: 1)
+            XCTAssertEqual(close.height, OrivTarget.macMinimum.height, accuracy: 1)
+            XCTAssertFalse(close.intersects(icon))
+            XCTAssertLessThan(rtl ? close.maxX : accent.maxX, icon.minX)
+            XCTAssertGreaterThan(rtl ? accent.minX : close.minX, icon.maxX)
+            XCTAssertTrue(list.interact(at: NSPoint(x: close.midX, y: close.midY)))
+            XCTAssertFalse(controller.session.tabs.contains { $0.id == tab.id })
+        }
     }
 
     func testAttachedSidebarAndRailAtMinimumAndAfterResize() async throws {

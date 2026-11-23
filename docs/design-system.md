@@ -144,7 +144,9 @@ pause action. VoiceOver announces the title, host, and applicable selected,
 pinned, private, loading and audio states. Its row actions include Close and
 Mute or Unmute. Keyboard users can use ⌘W and ⌃⌘M.
 
-Pins show the site icon and a short site label. A single pin uses the full
+Pins show a favicon above a one-line caption. The active tile has the same
+leading accent marker as a tab row. Hover reveals the trailing close target.
+A single pin uses the full
 width. Below 250 pt the grid uses two columns and up to four tiles. At 250 pt
 and above it uses rows of two or three and up to six tiles. Additional pins
 continue as title-bearing rows in the same section. The rail uses 42 × 36 pt icon
@@ -162,7 +164,7 @@ a download is active.
 | Section height and extra spacing before Tabs and Private | 24 and 4 |
 | Standard row height and between-row gap | 32 and 2 |
 | Close and audio hit target | 24 × 24 each |
-| Pin tile height, icon and gap | 46, 17 and 4 |
+| Pin tile height, icon and gap | 42, 22 and 4 |
 | Expanded footer button band and button size | 36 and 32 × 32 |
 | Rail footer button target | 42 × 36 |
 

@@ -76,9 +76,9 @@ enum OrivLayout {
     static let sidebarProfileIconSize: CGFloat = 22
     static let sidebarSearchHeight: CGFloat = 28
     static let sidebarSectionHeight: CGFloat = 24
-    static let sidebarPinHeight: CGFloat = 46
+    static let sidebarPinHeight: CGFloat = 42
     static let sidebarPinThreeColumnWidth: CGFloat = 250
-    static let sidebarPinIconSize: CGFloat = 17
+    static let sidebarPinIconSize: CGFloat = 22
     static let sidebarFooterHeight: CGFloat = 36
     static let sidebarDownloadBadgeSize: CGFloat = 6
     static let sidebarAccessoryWidth = OrivTarget.macMinimum.width
@@ -268,14 +268,13 @@ struct Theme {
     var sidebarPrivateAccent: Color { Self.glassPrivate }
 
     enum SidebarTone {
-        case selection, hover, search, pin, pinHover
+        case selection, hover, search, pinSelection
 
         // The contrast gate reads these values and composites them over all tint backings.
         private static let selectionTone = (light: 0.42, dark: 0.10)
         private static let hoverTone = (light: 0.045, dark: 0.04)
         private static let searchTone = (light: 0.06, dark: 0.07)
-        private static let pinTone = (light: 0.28, dark: 0.06)
-        private static let pinHoverTone = (light: 0.35, dark: 0.085)
+        private static let pinSelectionTone = (light: 0.16, dark: 0.08)
 
         func fill(in theme: Theme, dark: Bool, opaque: Bool) -> Color {
             let opacity: (light: Double, dark: Double)
@@ -284,11 +283,10 @@ struct Theme {
             case .selection: (opacity, solid) = (Self.selectionTone, theme.sidebar.selection)
             case .hover: (opacity, solid) = (Self.hoverTone, theme.sidebar.hover)
             case .search: (opacity, solid) = (Self.searchTone, theme.sidebar.field)
-            case .pin: (opacity, solid) = (Self.pinTone, theme.sidebar.field)
-            case .pinHover: (opacity, solid) = (Self.pinHoverTone, theme.sidebar.hover)
+            case .pinSelection: (opacity, solid) = (Self.pinSelectionTone, theme.sidebar.selection)
             }
             if opaque || theme.isT3Code { return solid }
-            let white = dark || self == .selection || self == .pin || self == .pinHover
+            let white = dark || self == .selection || self == .pinSelection
             return (white ? Color.white : Color.black).opacity(dark ? opacity.dark : opacity.light)
         }
     }

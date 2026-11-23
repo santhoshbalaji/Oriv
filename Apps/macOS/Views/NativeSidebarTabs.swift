@@ -465,7 +465,8 @@ private struct SidebarSection {
         let grid = sections[path.section].grid
         item.tab = tab
         item.active = activeID == tab.id
-        item.iconOnly = grid || configuration.rail || configuration.peek
+        item.isPinTile = grid
+        item.iconOnly = configuration.rail || configuration.peek
         item.command = { [weak controller = configuration.controller, weak tab] command in
             if let controller, let tab { SidebarTabs.perform(command, tab: tab, controller: controller) }
         }
@@ -831,6 +832,7 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
     private let host = SidebarArtworkHost(rootView: AnyView(EmptyView()))
     var tab: BrowserTab?
     var active = false
+    var isPinTile = false
     var iconOnly = false
     var hovered = false
     var artwork: ((Bool) -> AnyView)?
@@ -879,16 +881,22 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
     func accessory(at point: NSPoint, includesClose: Bool) -> SidebarRowAccessory? {
         guard !iconOnly, let tab else { return nil }
         let rtl = collectionView?.userInterfaceLayoutDirection == .rightToLeft
-        let trailing = (rtl ? point.x - view.bounds.minX : view.bounds.maxX - point.x) - MacBrowserLayout.sidebarRowInset
+        let trailing = rtl ? point.x - view.bounds.minX : view.bounds.maxX - point.x
         let slot = OrivLayout.sidebarAccessoryWidth
-        guard trailing >= 0, abs(point.y - view.bounds.midY) <= OrivTarget.macMinimum.height / 2 else { return nil }
-        if trailing < slot { return includesClose ? .close : nil }
-        if trailing < 2 * slot, tab.mediaSuspended || tab.isAudioMuted || tab.isPlayingAudio { return .audio }
+        if isPinTile {
+            let fromTop = view.bounds.maxY - point.y
+            return includesClose && (0..<slot).contains(trailing) && (0..<OrivTarget.macMinimum.height).contains(fromTop)
+                ? .close : nil
+        }
+        let insetTrailing = trailing - MacBrowserLayout.sidebarRowInset
+        guard insetTrailing >= 0, abs(point.y - view.bounds.midY) <= OrivTarget.macMinimum.height / 2 else { return nil }
+        if insetTrailing < slot { return includesClose ? .close : nil }
+        if insetTrailing < 2 * slot, tab.mediaSuspended || tab.isAudioMuted || tab.isPlayingAudio { return .audio }
         return nil
     }
 
     func performClick(at point: NSPoint) -> Bool {
-        switch accessory(at: point, includesClose: hovered || active || isSelected) {
+        switch accessory(at: point, includesClose: hovered || (!isPinTile && (active || isSelected))) {
         case .close: command?(.close)
         case .audio: command?(tab?.mediaSuspended == true ? .media : .mute)
         case nil: return false

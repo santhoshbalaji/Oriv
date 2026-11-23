@@ -66,11 +66,12 @@ assert "reduceTransparency || captureReduceTransparency || contrast == .increase
 assert ".background(backing.opacity(effectiveOpacity.backingOpacity))" in sidebar_source
 assert ".background(Self.balancedTintGuard.opacity(guardOpacity))" in sidebar_source
 assert ".background { glass }" in sidebar_source
-assert "selected ? .selection : hovered ? (tile ? .pinHover : .hover) : tile ? .pin" in sidebar_source
+assert "if tile && (active || selected) { return .pinSelection }" in sidebar_source
+assert "return hovered ? .hover : nil" in sidebar_source
 assert "tone.fill(in: theme, dark: dark, opaque: opaque)" in sidebar_source
 tonal_opacities = {name: (float(light), float(dark)) for name, light, dark in re.findall(
     r"private static let (\w+)Tone = \(light: ([0-9.]+), dark: ([0-9.]+)\)", text)}
-assert set(tonal_opacities) == {"selection", "hover", "search", "pin", "pinHover"}
+assert set(tonal_opacities) == {"selection", "hover", "search", "pinSelection"}
 sidebar_opacities = {name: float(value) for name, value in re.findall(
     r"case \.(\w+): ([0-9.]+)", sidebar_source.split("enum SidebarGlassOpacity:", 1)[1].split("struct MacSidebarGlass:", 1)[0])}
 assert 0 < sidebar_opacities["balanced"] < sidebar_opacities["high"] < sidebar_opacities["solid"] == 1
@@ -156,13 +157,16 @@ for appearance, mode, palette, sidebar in palettes:
                     panel = composite(backing, glass, 0 if sidebar_negative else backing_opacity)
                     opaque = appearance == "Black" or step in ("increase contrast", "reduce transparency")
                     solids = {"selection": sidebar["selection"], "hover": sidebar["hover"],
-                              "search": sidebar["field"], "pin": sidebar["field"], "pinHover": sidebar["hover"]}
+                              "search": sidebar["field"], "pinSelection": sidebar["selection"]}
                     states = {"panel / rail footer": panel, "private badge": colors["surface"]}
                     for state, solid in solids.items():
-                        tonal_ink = "FFFFFF" if mode or state in ("selection", "pin", "pinHover") else "000000"
+                        tonal_ink = "FFFFFF" if mode or state in ("selection", "pinSelection") else "000000"
                         states[state] = solid if opaque else composite(tonal_ink, panel, tonal_opacities[state][mode])
                     states["selected row accessory"] = (sidebar["hover"] if opaque else
                         composite("FFFFFF" if mode else "000000", states["selection"], tonal_opacities["hover"][mode]))
+                    for state in ("hover", "pinSelection"):
+                        states[f"{state} pin accessory"] = (sidebar["hover"] if opaque else
+                            composite("FFFFFF" if mode else "000000", states[state], tonal_opacities["hover"][mode]))
                     label = f"{name} sidebar, glass input #{material}, {step}"
                     for state, background in states.items():
                         for token, foreground in inks.items():

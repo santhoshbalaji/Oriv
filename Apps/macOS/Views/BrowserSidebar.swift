@@ -497,6 +497,7 @@ struct SidebarToneSurface: ViewModifier {
     @Environment(\.sidebarContrast) private var contrast
     let tone: Theme.SidebarTone?
     var radius = OrivRadius.control
+    var drawsRim = true
 
     func body(content: Content) -> some View {
         let opaque = reduceTransparency || captureTransparency || contrast == .increased || theme.isT3Code
@@ -506,8 +507,10 @@ struct SidebarToneSurface: ViewModifier {
             if let tone {
                 shape.fill(tone.fill(in: theme, dark: dark, opaque: opaque))
                     .overlay {
-                        shape.strokeBorder(theme.sidebarRim(dark: dark, opaque: opaque),
-                                           lineWidth: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                        if drawsRim {
+                            shape.strokeBorder(theme.sidebarRim(dark: dark, opaque: opaque),
+                                               lineWidth: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                        }
                     }
             }
         }
@@ -559,10 +562,6 @@ struct SidebarTabArtwork: View {
     private let id: UUID
     private var title: String { tab?.displayTitle ?? record?.title ?? "" }
     private var url: URL? { tab?.url ?? record?.url }
-    private var pinLabel: String {
-        guard let site = SiteMonogram.label(for: url?.host()) else { return title }
-        return title.caseInsensitiveCompare(site) == .orderedSame ? title : site.capitalized
-    }
     private var isPrivate: Bool { tab?.isPrivate ?? previewIsPrivate }
     let selected: Bool
     let active: Bool
@@ -620,10 +619,10 @@ struct SidebarTabArtwork: View {
                     }
                 if peek { Text(title).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
             } else if tile {
-                VStack(spacing: OrivSpacing.xs) {
+                VStack(spacing: OrivSpacing.xxs) {
                     favicon
-                    Text(pinLabel)
-                        .font(active ? OrivType.sectionLabel : OrivType.caption)
+                    Text(title)
+                        .font(OrivType.caption)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -654,19 +653,35 @@ struct SidebarTabArtwork: View {
         .padding(.horizontal, rail ? 0 : MacBrowserLayout.sidebarRowInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(theme.text)
-        .modifier(SidebarToneSurface(tone: selected ? .selection : hovered ? (tile ? .pinHover : .hover) : tile ? .pin : nil, radius: radius))
+        .modifier(SidebarToneSurface(tone: tone, radius: radius, drawsRim: !tile))
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .leading) {
-            if active && !tile { SelectionMarker(height: OrivIcon.toolbar, background: theme.sidebar.selection).browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil).padding(.leading, OrivSpacing.xs) }
+            if active {
+                SelectionMarker(height: OrivIcon.toolbar, background: theme.sidebar.selection)
+                    .browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil)
+                    .padding(.leading, OrivSpacing.xs)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if tile && hovered {
+                accessory("xmark", kind: .close)
+                    .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
+            }
         }
         .overlay {
-            if selected && contrast == .increased {
+            if (selected || (tile && active)) && contrast == .increased {
                 RoundedRectangle(cornerRadius: radius).strokeBorder(theme.text, lineWidth: OrivOutline.focus)
             }
         }
     }
 
     private var radius: CGFloat { rail || tile ? OrivRadius.tile : OrivRadius.control }
+
+    private var tone: Theme.SidebarTone? {
+        if tile && (active || selected) { return .pinSelection }
+        if selected { return .selection }
+        return hovered ? .hover : nil
+    }
 
     private func accessory(_ symbol: String?, kind: SidebarRowAccessory) -> some View {
         ZStack {
@@ -676,7 +691,7 @@ struct SidebarTabArtwork: View {
             }
         }
         .frame(width: OrivLayout.sidebarAccessoryWidth, height: OrivTarget.macMinimum.height)
-        .modifier(SidebarToneSurface(tone: hoveredAccessory == kind ? .hover : nil))
+        .modifier(SidebarToneSurface(tone: hoveredAccessory == kind ? .hover : nil, drawsRim: !tile))
     }
 
     private func badge(_ symbol: String) -> some View {

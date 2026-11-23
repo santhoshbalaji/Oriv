@@ -61,11 +61,11 @@ The backing follows the active profile in the expanded sidebar and 72 pt rail.
 under the sidebar backing. The layer is white at 42% for Graphite Light and 45%
 for light tints. It is black at 54% for Graphite Dark, 60% for dark tints, and
 36% for Black. High also uses a 38% black guard in Dark. Selected rows, hover,
-search and pins add translucent tonal fills over the backing. Black uses solid
+search and selected pins add translucent tonal fills over the backing. Black uses solid
 control fills.
 Reduce Transparency and Increase Contrast use the opaque backing. Increase
 Contrast also strengthens secondary text, the panel edge and the selected row’s
-outline. The active tab row uses the 3 pt system-accent marker. Websites and the
+outline. The active tab uses the 3 pt system-accent marker in both rows and tiles. Websites and the
 page-derived toolbar keep their own colors.
 
 Black uses the near-black `#0A0A0A` backing and disables the swatches. Settings
