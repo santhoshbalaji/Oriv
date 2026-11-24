@@ -95,10 +95,15 @@ Release acceptance still includes real-device reachability, VoiceOver and Full K
 fallback and the separate glasses/text cue for private browsing. The Mac sidebar draws site artwork at 19 pt in rows, 20 pt in pinned tiles and 22 pt in the rail.
 Uncached regular sites use a local monogram. Private tabs use a glasses glyph
 when a favicon is unavailable. The rail places one glasses badge inside a
-private tab’s cached favicon. Decode-time alpha and dominant glyph luminance analysis
-adds a contrasting light or dark plate only when a transparent mark would vanish
-against its panel or selection. Other lists and iPhone retain their existing
-icon presentation and shared cache.
+private tab’s cached favicon. The decode actor measures alpha coverage,
+edge opacity, average and peak luminance, and chroma from a 32 × 32 sRGB sample.
+Full-bleed artwork gets a hairline only when its edge blends into the backing.
+Transparent monochrome marks use the row's primary ink. Coloured glyphs remain
+bare when they meet 3:1 against the panel or active pill and otherwise get a
+light or dark hue-matched cushion. The decoded icon stores its analysis and a
+bounded cache of treatments keyed by resolved backing. Rows, pins, the rail and
+search all use the same policy. Other lists and iPhone retain their existing
+icon presentation.
 
 Address results use shared `AddressSuggestionRow` content and native field
 editors. Group up to seven local matches under Switch to Tab, Bookmarks and
@@ -182,21 +187,19 @@ available. Hover reveals a Close action in the trailing top corner and a
 full-title tooltip. VoiceOver reads the title, pinned state and position.
 Search results present pins as titled rows.
 
-The active tab uses G1, a neutral native Liquid Glass capsule in rows, pinned
-tiles, the rail and tab search. A light or dark inset guard keeps the title and
-accessories readable over the material. Titles use semibold system type, site
-favicons keep their artwork, and private tabs keep their purple glasses. Hover
-uses a neutral fill. Reduce Transparency and Increase Contrast use the opaque
-S2 tinted pill with contrast-bounded accent ink. Increase Contrast adds a 2 pt
-outline. Moving profile previews use a static rendering of the capsule.
+The active tab uses the Chromatic Glass pill in rows, pinned tiles, the rail
+and tab search. It layers a hue-tinted fill, top specular rim and soft glow over
+the sidebar or search backing. Light uses deep matching ink, Dark uses bright
+ink and Black uses a restrained slate pill. Hover uses a neutral fill. Solid,
+Reduce Transparency and Increase Contrast use an opaque active pill. Increase
+Contrast gives the pill a 2 pt boundary.
 
-The active tab keeps its capsule when arrow navigation moves the keyboard
-highlight. The collection draws a separate, opaque 2 pt ring inset from the
-highlighted row or tile edge. Rail search uses the same focus ink. The contrast
-gate checks selected text at 4.5:1 and the focus ring at 3:1 against the
-endpoints of the native material, the S2 fallback and unselected sidebar
-surfaces. Tile order, insertion markers and the Close corner mirror in
-right-to-left layouts.
+The active tab keeps its pill when arrow navigation moves the keyboard highlight.
+The collection draws a separate, opaque 2 pt ring inset from the highlighted
+row or tile edge. Rail search uses the same focus ink. The contrast gate checks
+active text at 4.5:1 and the focus ring and favicon cushion at 3:1 across the
+glass levels and accessibility fallbacks. Tile order, insertion markers, the
+Close corner and the satin bloom follow the layout direction.
 
 Pin/unpin commands use the existing `TabRecord.isPinned` model and version-3
 session snapshot. Mac private pins live in memory for the lifetime of their

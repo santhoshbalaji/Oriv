@@ -19,6 +19,7 @@ RULES = {
     "padding": r"\.padding\((?:\.[a-zA-Z]+,\s*|\[[^\]]*\],\s*)?\d[\d.]*\)",
     "spacing": r"spacing:\s*\d",
     "raw color": r"(?<![\w.])(?:Color|NSColor|UIColor)\.(?!self\b)\w+"
+                 r"|\bTheme\.hex\(0x[0-9a-fA-F]+"
                  r"|\bColor\((?:\.sRGB(?:Linear)?,\s*)?(?:red|white|hue):"
                  r"|\.foregroundStyle\(\.(?:secondary|tertiary|primary|quaternary|red|green|orange|yellow|blue|purple|white|black|tint)\b",
     "focus state": r"\.focusEffectDisabled\(\)|\.focusRingType\s*=\s*\.none"

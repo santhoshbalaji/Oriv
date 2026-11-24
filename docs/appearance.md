@@ -13,7 +13,7 @@ An explicit choice syncs for the same profile when Sync is available and enabled
 | Page and canvas | `#FFFFFF` | `#1C1C1E` | `#000000` |
 | Grouped surface and start-page tiles | `#F5F5F7` | `#242426` | `#111111` |
 | Grouped row | `#FFFFFF` | `#2E2E30` | `#111111` |
-| Chrome and sidebar backing | `#F0F0F3` | `#252528` | `#0A0A0A` |
+| Window chrome | `#F0F0F3` | `#252528` | `#0A0A0A` |
 | Field | `#E6E6EA` | `#323236` | `#1E1E1E` |
 | Selection | `#DEDEE3` | `#3D3D42` | `#1C1C1C` |
 | Sidebar hover | `#E7E7EB` | `#303034` | `#171717` |
@@ -39,47 +39,48 @@ this Mac. An unset or unrecognized value uses Graphite. Standalone private windo
 and private windows opened by external links also use Graphite. A private tab
 inside a profile uses that profile’s backing and keeps its glasses and private labels.
 
-| Backing | Light | Dark |
+| Sidebar color | Light panel, top → bottom | Dark panel, top → bottom |
 | --- | --- | --- |
-| Graphite | `#F0F0F3` | `#252528` |
-| Profile color · Mulberry | `#F1DBEE` | `#45243F` |
-| Profile color · Ocean | `#CFEAF8` | `#1C344D` |
-| Profile color · Fern | `#D7EED5` | `#233A25` |
-| Profile color · Amber | `#FAE7CC` | `#493223` |
-| Profile color · Slate | `#DFE7F2` | `#2A3544` |
-| Rose | `#F6DCE5` | `#492736` |
-| Peach | `#F8E1D4` | `#4C2E27` |
-| Butter | `#F7EDC5` | `#42351D` |
-| Mint | `#D8EFE3` | `#173B30` |
-| Sage | `#DDE8CD` | `#303A24` |
-| Sky | `#D6E9F8` | `#21364A` |
-| Lavender | `#E6DDF7` | `#39284D` |
+| Graphite | `#F2F4FA` → `#E6EAF3` | `#2A2F3D` → `#1E222E` |
+| Profile color · Mulberry | `#F6DFF3` → `#EBCBE9` | `#603259` → `#42213E` |
+| Profile color · Ocean | `#D4EEFD` → `#BDDEF7` | `#284D74` → `#1A344E` |
+| Profile color · Fern | `#DCF3DA` → `#C7E7C5` | `#315137` → `#223B26` |
+| Profile color · Amber | `#FDEBD1` → `#F5DCB8` | `#634325` → `#47301E` |
+| Profile color · Slate | `#E3EBF6` → `#CCD9EA` | `#3B4B61` → `#283647` |
+| Rose | `#FFE3EF` → `#FCCBDD` | `#693150` → `#4D223B` |
+| Peach | `#FFE7DA` → `#FAD4C0` | `#683B2D` → `#482B22` |
+| Butter | `#FFF3CA` → `#F9E6AC` | `#59451F` → `#3D3118` |
+| Mint | `#D8F5E8` → `#C1ECDA` | `#235345` → `#163C31` |
+| Sage | `#E2EED2` → `#CFE2BA` | `#445333` → `#2C3A22` |
+| Sky | `#DCF1FF` → `#C4E5FF` | `#28527D` → `#1B3857` |
+| Lavender | `#ECE3FF` → `#DACBFF` | `#4F3878` → `#392759` |
 
-The backing follows the active profile in the expanded sidebar and 72 pt rail.
-**Glass opacity** under **All profiles** offers **Balanced** (43%, default),
-**High** (74%), and **Solid** (100%). Balanced uses a neutral contrast layer
-under the sidebar backing. The layer is white at 42% for Graphite Light and 45%
-for light tints. It is black at 54% for Graphite Dark, 60% for dark tints, and
-36% for Black. High also uses a 38% black guard in Dark. Selected rows, hover,
-search and selected pins add translucent tonal fills over the backing. Black uses solid
-control fills.
-Reduce Transparency and Increase Contrast use the opaque backing. Increase
-Contrast also strengthens secondary text, the panel edge and the selected row’s
-outline. The active tab uses the 3 pt system-accent marker in both rows and tiles. Websites and the
-page-derived toolbar keep their own colors.
+Chromatic Glass adds a satin gradient and a soft bloom at the top leading
+corner of the sidebar. Graphite stays cool and uses a cobalt selection. Each
+pastel pairs a light selection with deep matching ink in Light appearance
+and a deeper glass pill with bright ink in Dark appearance. The active tab,
+including a pinned tab or rail tile, has a bright top rim and a soft glow.
 
-Black uses the near-black `#0A0A0A` backing and disables the swatches. Settings
-shows “Sidebar color is available in System, Light and Dark.” The saved choice
+**Glass opacity** under **All profiles** offers **Balanced** (62% Light,
+72% Dark), **High** (86%), and **Solid** (100%). A hue-matched layer controls
+contrast over the glass. Dark uses a stronger guard and quieter sheen
+to keep tab text readable over bright material. Solid, Reduce Transparency
+and Increase Contrast use the opaque gradient and active fill. Increase
+Contrast strengthens secondary ink, the panel edge and the active outline.
+The separate inset focus ring follows keyboard navigation.
+
+Black uses a near-black `#0A0A0A` panel and a restrained slate selection.
+Its Balanced and High backing opacities are 86% and 94%. Settings shows
+“Sidebar color is available in System, Light and Dark.” The saved swatch
 applies again when the profile returns to one of those appearances.
 
-The contrast gate checks primary, secondary and private ink over every backing,
-opacity and sidebar state. It composites the glass input, tinted backing and
-control fill for each sample. The Mac appearance
-preference can sync through Sync. The separate sidebar color preference is
-device-local. Drag the panel edge to adjust its width. New windows use the
-last width saved on this Mac. A private tab displays a purple **Private** pill
-in the Mac address capsule. See [design system](design-system.md).
-
+The contrast gate checks text, focus rings and favicon cushions across all
+13 sidebar colors in Light and Dark, all glass levels and the opaque
+accessibility variants. The Mac appearance preference can sync through Sync.
+The separate sidebar color preference is device-local. Drag the panel edge to
+adjust its width. New windows use the last width saved on this Mac. A private
+tab displays a purple **Private** pill in the Mac address capsule.
+See [design system](design-system.md).
 
 iPhone controls use interactive system glass. Reduce Transparency and Increase
 Contrast replace it with an opaque field and border. The private address capsule
