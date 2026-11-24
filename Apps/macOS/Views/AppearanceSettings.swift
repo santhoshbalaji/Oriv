@@ -55,6 +55,7 @@ struct ProfileSettings: View {
 }
 
 struct AppearanceSettings: View {
+    @Environment(\.colorScheme) private var sidebarSwatchScheme
     @Environment(\.colorSchemeContrast) private var systemContrast
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
     @Environment(\.chromeContrastOverride) private var captureContrast
@@ -269,7 +270,7 @@ struct AppearanceSettings: View {
         } label: {
             VStack(spacing: OrivSpacing.xs) {
                 Rectangle().fill(.clear).frame(height: OrivTarget.macMinimum.height)
-                    .modifier(Tile(kind: .swatch(choice.backing(in: .graphite, profileColor: profileColor)), selected: selected))
+                    .modifier(Tile(kind: .swatch(choice.swatch(profile: profileColor, dark: sidebarSwatchScheme == .dark)), selected: selected))
                     .opacity(appearance == .t3Code ? 0.45 : 1)
                     .overlay {
                         if selected {

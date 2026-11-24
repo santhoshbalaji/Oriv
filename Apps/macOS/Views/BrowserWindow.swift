@@ -306,7 +306,7 @@ struct BrowserWindow: View {
         }
         .overlay(alignment: .topLeading) {
             if controller.tabSearchPanel {
-                SidebarSearchPanel(controller: controller, dismiss: { controller.dismissTabSearch() })
+                SidebarSearchPanel(controller: controller, profileColor: controller.sidebarProfileColor(in: profiles), dismiss: { controller.dismissTabSearch() })
                     .frame(width: min(360, windowWidth - 16), height: min(420, (windowContext.window?.contentView?.bounds.height ?? 600) - 32))
                     .padding(.leading, min(MacBrowserLayout.railWidth + 8, max(8, windowWidth - 376))).padding(.top, 76)
             }
@@ -350,11 +350,10 @@ struct BrowserWindow: View {
                                           : (fullscreen ? OrivSpacing.xs : MacBrowserLayout.sidebarToggleTopInset))
                 .opacity(windowActive ? 1 : 0.75)
         }
+        .modifier(OrivMaterial.navigation(color: controller.sidebarColor,
+                                          profileColor: controller.sidebarProfileColor(in: profiles)))
         .background {
-            Color.clear.modifier(OrivMaterial.navigation(color: controller.sidebarColor,
-                                                 profileColor: controller.sidebarProfileColor(in: profiles)))
-                .accessibilityHidden(true)
-                .browserGeometryMarker("sidebarSurfaceGeometry")
+            Color.clear.accessibilityHidden(true).browserGeometryMarker("sidebarSurfaceGeometry")
         }
         .overlay(alignment: .trailing) {
             if !railHeader {

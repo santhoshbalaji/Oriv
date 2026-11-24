@@ -1,3 +1,4 @@
+import BrowserCore
 import BrowserEngine
 import SwiftUI
 
@@ -5,11 +6,14 @@ struct SidebarSearchPanel: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.self) private var environment
     @Bindable var controller: BrowserController
+    let profileColor: ProfileColor?
     let dismiss: () -> Void
     @State private var highlighted: UUID?
     @FocusState private var focused: Bool
 
     var body: some View {
+        let style = SidebarChromaticStyle(color: controller.sidebarColor, profile: profileColor,
+                                          environment: environment, overlay: true)
         let request = controller.tabSearchRequest
         let results = controller.tabSearchResults(request)
         let selected = results.first(where: { $0.id == highlighted }) ?? results.first
@@ -34,7 +38,7 @@ struct SidebarSearchPanel: View {
                     ScrollView {
                         LazyVStack(spacing: OrivSpacing.xs) {
                             ForEach(results) { tab in
-                                resultRow(tab, selected: tab.id == selected?.id, request: request)
+                                resultRow(tab, selected: tab.id == selected?.id, request: request, style: style)
                                     .id(tab.id)
                             }
                         }
@@ -47,21 +51,21 @@ struct SidebarSearchPanel: View {
         }
         .padding(OrivSpacing.large)
         .foregroundStyle(theme.text)
+        .environment(\.sidebarChromaticStyle, style)
         .modifier(OrivMaterial.overlay())
         .background(SidebarHitTarget(kind: .searchPanel))
         .task { focused = true }
         .onChange(of: request) { _, _ in highlighted = nil }
     }
 
-    private func resultRow(_ tab: BrowserTab, selected: Bool, request: ProfileScoped<SidebarTabQuery>) -> some View {
+    private func resultRow(_ tab: BrowserTab, selected: Bool, request: ProfileScoped<SidebarTabQuery>, style: SidebarChromaticStyle) -> some View {
         let active = tab.id == controller.session.selectedTabID
         let radius = OrivLayout.sidebarSelectionRadius
-        let ink = active && environment.sidebarUsesTintedSelection ? Theme.SidebarSelection.ink(in: theme, dark: environment.colorScheme == .dark,
-                                                      environment: environment) : nil
+        let ink = active ? style.ink : nil
         return Button { activate(tab.id, request: request) } label: {
             HStack(spacing: OrivSpacing.small) {
                 SiteIdentity(url: tab.url, size: OrivIcon.footer, isPrivate: tab.isPrivate,
-                             isSelected: active, sidebarIcon: true, sidebarSelectedInk: ink)
+                             isSelected: active, sidebarIcon: true, showsSidebarPrivateBadge: true, sidebarSelectedInk: ink)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: OrivSpacing.xxs) {
                     Text(tab.displayTitle).font(active ? OrivType.headline : OrivType.body).lineLimit(1)

@@ -490,15 +490,14 @@ struct SidebarSectionHeading: View {
 struct SidebarToneSurface: ViewModifier {
     @Environment(\.browserTheme) private var theme
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.chromeReduceTransparencyOverride) private var captureTransparency
+    @Environment(\.self) private var environment
     @Environment(\.sidebarContrast) private var contrast
     let tone: Theme.SidebarTone?
     var radius = OrivRadius.control
     var drawsRim = true
 
     func body(content: Content) -> some View {
-        let opaque = reduceTransparency || captureTransparency || contrast == .increased || theme.isT3Code
+        let opaque = environment.sidebarChromaticStyle?.opaque ?? environment.sidebarNeedsOpaqueChrome
         let dark = scheme == .dark
         let shape = RoundedRectangle(cornerRadius: radius)
         content.background {
@@ -516,69 +515,29 @@ struct SidebarToneSurface: ViewModifier {
 }
 
 struct SidebarSelectionSurface: ViewModifier {
-    @Environment(\.self) private var environment
     let active: Bool
     let radius: CGFloat
-    var isPreview = false
+    @Environment(\.self) private var environment
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius)
         content.background {
             if active {
-                if environment.sidebarUsesTintedSelection {
-                    let increased = environment.sidebarContrast == .increased
-                    shape.fill(Theme.SidebarSelection.selectedSolid)
-                        .overlay {
-                            shape.strokeBorder(Theme.SidebarSelection.rim(in: environment.browserTheme,
-                                                                          dark: environment.colorScheme == .dark,
-                                                                          increased: increased),
-                                               lineWidth: increased ? OrivOutline.focus : OrivOutline.hairline)
-                        }
+                let style = environment.sidebarStyle
+                let shape = RoundedRectangle(cornerRadius: radius)
+                if style.opaque {
+                    shape.fill(style.fill).overlay {
+                        shape.strokeBorder(style.increased ? style.ink : style.rimBottom,
+                                           lineWidth: style.increased ? OrivOutline.focus : OrivOutline.hairline)
+                    }
                 } else {
-                    SidebarSelectionGlass(shape: shape, isPreview: isPreview)
+                    style.selectionGlow(shape.fill(style.fill).overlay {
+                        shape.strokeBorder(
+                            LinearGradient(colors: [style.rimTop, style.rimBottom], startPoint: .top, endPoint: .bottom),
+                            lineWidth: SidebarChromaticStyle.selectionRim)
+                    })
                 }
             }
         }
-    }
-}
-
-private struct SidebarSelectionGlass: View {
-    @Environment(\.colorScheme) private var scheme
-    #if DEBUG
-    @Environment(\.sidebarCaptureBackdrop) private var captureBackdrop
-    #endif
-    let shape: RoundedRectangle
-    let isPreview: Bool
-
-    // Bound the glass to a readable luminance even over pure black or white.
-    // The one-point inset leaves the optical edge visible outside the focus ring.
-    private static let selectionGlassGuard = Theme.adaptive("SelectionGlassGuard", light: 0xFFFFFF, dark: 0x181A20)
-    private static let selectionGlassGuardOpacity = (light: 0.76, dark: 0.95)
-
-    private var usesStaticGlass: Bool {
-        #if DEBUG
-        if captureBackdrop != nil { return true }
-        #endif
-        // The moving profile preview is transient and can be drawn without sampling glass.
-        return isPreview
-    }
-
-    var body: some View {
-        let dark = scheme == .dark
-        let guardFill = shape.inset(by: 1).fill(Self.selectionGlassGuard.opacity(
-            dark ? Self.selectionGlassGuardOpacity.dark : Self.selectionGlassGuardOpacity.light))
-        Group {
-            if usesStaticGlass {
-                guardFill.background {
-                    shape.fill(Theme.SidebarSelection.glassFallback(dark: dark))
-                        .overlay { shape.strokeBorder(.white.opacity(dark ? 0.28 : 0.85), lineWidth: OrivOutline.hairline) }
-                }
-            } else {
-                guardFill.glassEffect(.regular, in: shape)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 
@@ -596,6 +555,7 @@ struct SidebarToneButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
+                .environment(\.sidebarRowHovered, !active && hovered)
                 .modifier(SidebarToneSurface(tone: active ? nil : configuration.isPressed ? .selection : hovered ? .hover : nil))
                 .onHover { hovered = $0 }
         }
@@ -603,14 +563,13 @@ struct SidebarToneButtonStyle: ButtonStyle {
 }
 
 struct SidebarFocusRing: ViewModifier {
-    @Environment(\.browserTheme) private var theme
     var visible: Bool
 
     func body(content: Content) -> some View {
         content.focusEffectDisabled().overlay {
             if visible {
                 RoundedRectangle(cornerRadius: OrivRadius.control)
-                    .strokeBorder(theme.accent, lineWidth: OrivOutline.focus)
+                    .strokeBorder(Theme.sidebarKeyboardFocus, lineWidth: OrivOutline.focus)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
@@ -679,13 +638,11 @@ struct SidebarTabArtwork: View {
         return tab.isPlayingAudio ? "speaker.wave.2.fill" : nil
     }
 
-    private var selectedInk: Color? {
-        guard active, environment.sidebarUsesTintedSelection else { return nil }
-        return Theme.SidebarSelection.ink(in: theme, dark: environment.colorScheme == .dark, environment: environment)
-    }
-
     var body: some View {
-        let selectedInk = self.selectedInk
+        let style = environment.sidebarStyle
+        let selectedInk = active ? style.ink : nil
+        let secondaryInk = style.black || style.increased
+            ? theme.sidebarSecondaryText(contrast) : SidebarChromaticStyle.secondaryInk
         return HStack(spacing: OrivSpacing.small) {
             if rail {
                 favicon(selectedInk: selectedInk).frame(width: 42, height: 36)
@@ -708,31 +665,32 @@ struct SidebarTabArtwork: View {
                     if let subtitle {
                         Text(subtitle)
                             .font(textSize.isAccessibilitySize ? OrivType.windowTitle : OrivType.caption)
-                            .foregroundStyle(selectedInk ?? theme.sidebarSecondaryText(contrast))
+                            .foregroundStyle(selectedInk ?? secondaryInk)
                             .lineLimit(1).truncationMode(.middle)
                             .browserGeometryMarker("sidebarHost-\(id)", when: previewIcons == nil)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 0) {
                     if tab != nil {
-                        accessory(mediaSymbol, kind: .audio, ink: selectedInk)
+                        accessory(mediaSymbol, kind: .audio, ink: selectedInk ?? secondaryInk)
                             .browserGeometryMarker("sidebarMedia-\(id)", when: mediaSymbol != nil)
                     }
-                    accessory(hovered || selected || active ? "xmark" : nil, kind: .close, ink: selectedInk)
+                    accessory(hovered || selected || active ? "xmark" : nil, kind: .close, ink: selectedInk ?? secondaryInk)
                         .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
                 }
             }
         }
         .padding(.horizontal, rail ? 0 : MacBrowserLayout.sidebarRowInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .foregroundStyle(selectedInk ?? theme.text)
+        .foregroundStyle(selectedInk ?? (style.black ? theme.text : SidebarChromaticStyle.primaryInk))
         .modifier(SidebarToneSurface(tone: !active && hovered ? .hover : nil, radius: radius))
-        .modifier(SidebarSelectionSurface(active: active, radius: radius, isPreview: tab == nil))
+        .modifier(SidebarSelectionSurface(active: active, radius: radius))
+        .environment(\.sidebarChromaticStyle, style)
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .topTrailing) {
             if tile && hovered {
                 Image(systemName: "xmark").font(OrivIcon.close)
-                    .foregroundStyle(selectedInk ?? theme.sidebarSecondaryText(contrast))
+                    .foregroundStyle(selectedInk ?? secondaryInk)
                     .padding(.trailing, OrivSpacing.xxs)
                     .frame(width: OrivLayout.sidebarPinCloseWidth, height: OrivLayout.sidebarPinCloseHeight, alignment: .trailing)
                     .modifier(SidebarToneSurface(tone: hoveredAccessory == .close ? .hover : nil, drawsRim: false))
@@ -751,11 +709,11 @@ struct SidebarTabArtwork: View {
         return active ? OrivLayout.sidebarSelectionRadius : OrivRadius.control
     }
 
-    private func accessory(_ symbol: String?, kind: SidebarRowAccessory, ink: Color?) -> some View {
+    private func accessory(_ symbol: String?, kind: SidebarRowAccessory, ink: Color) -> some View {
         ZStack {
             if let symbol {
                 Image(systemName: symbol).font(kind == .close ? OrivIcon.close : OrivType.caption)
-                    .foregroundStyle(ink ?? theme.sidebarSecondaryText(contrast))
+                    .foregroundStyle(ink)
             }
         }
         .frame(width: OrivLayout.sidebarAccessoryWidth, height: OrivTarget.macMinimum.height)
@@ -774,6 +732,7 @@ struct SidebarTabArtwork: View {
         return ZStack {
             SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true,
                          showsSidebarPrivateBadge: rail || tile, previewIcons: previewIcons, sidebarSelectedInk: selectedInk)
+                .environment(\.sidebarRowHovered, hovered && !active)
                 .browserGeometryMarker("sidebarFavicon-\(id)", when: previewIcons == nil)
             if loading {
                 Circle().trim(from: 0, to: 0.75).stroke(theme.accent, lineWidth: 2)
@@ -816,7 +775,7 @@ extension EnvironmentValues {
 #endif
 
 extension EnvironmentValues {
-    var sidebarUsesTintedSelection: Bool {
+    var sidebarNeedsOpaqueChrome: Bool {
         accessibilityReduceTransparency || chromeReduceTransparencyOverride || sidebarContrast == .increased
     }
 
@@ -851,45 +810,10 @@ enum SidebarColor: String, CaseIterable {
         profileColor == nil || isT3Code ? .graphite : self
     }
 
-    func backing(in theme: Theme, profileColor: ProfileColor?) -> Color {
-        switch effective(profileColor: profileColor, isT3Code: theme.isT3Code) {
-        case .graphite: theme.sidebar.backing
-        case .profile: profileColor?.sidebarBacking ?? theme.sidebar.backing
-        case .rose: Self.roseBacking
-        case .peach: Self.peachBacking
-        case .butter: Self.butterBacking
-        case .mint: Self.mintBacking
-        case .sage: Self.sageBacking
-        case .sky: Self.skyBacking
-        case .lavender: Self.lavenderBacking
-        }
+    func swatch(profile: ProfileColor, dark: Bool) -> Color {
+        let tokens = Theme.SidebarChromaticTokens.resolve(self, profile: profile, dark: dark, black: false)
+        return Theme.hex(tokens.top)
     }
-
-    private static let roseBacking = Theme.adaptive("SidebarRose", light: 0xF6DCE5, dark: 0x492736)
-    private static let peachBacking = Theme.adaptive("SidebarPeach", light: 0xF8E1D4, dark: 0x4C2E27)
-    private static let butterBacking = Theme.adaptive("SidebarButter", light: 0xF7EDC5, dark: 0x42351D)
-    private static let mintBacking = Theme.adaptive("SidebarMint", light: 0xD8EFE3, dark: 0x173B30)
-    private static let sageBacking = Theme.adaptive("SidebarSage", light: 0xDDE8CD, dark: 0x303A24)
-    private static let skyBacking = Theme.adaptive("SidebarSky", light: 0xD6E9F8, dark: 0x21364A)
-    private static let lavenderBacking = Theme.adaptive("SidebarLavender", light: 0xE6DDF7, dark: 0x39284D)
-}
-
-private extension ProfileColor {
-    var sidebarBacking: Color {
-        switch self {
-        case .mulberry: Self.mulberryBacking
-        case .ocean: Self.oceanBacking
-        case .fern: Self.fernBacking
-        case .amber: Self.amberBacking
-        case .slate: Self.slateBacking
-        }
-    }
-
-    private static let mulberryBacking = Theme.adaptive("SidebarMulberry", light: 0xF1DBEE, dark: 0x45243F)
-    private static let oceanBacking = Theme.adaptive("SidebarOcean", light: 0xCFEAF8, dark: 0x1C344D)
-    private static let fernBacking = Theme.adaptive("SidebarFern", light: 0xD7EED5, dark: 0x233A25)
-    private static let amberBacking = Theme.adaptive("SidebarAmber", light: 0xFAE7CC, dark: 0x493223)
-    private static let slateBacking = Theme.adaptive("SidebarSlate", light: 0xDFE7F2, dark: 0x2A3544)
 }
 
 enum SidebarGlassOpacity: String, CaseIterable {
@@ -898,40 +822,19 @@ enum SidebarGlassOpacity: String, CaseIterable {
     case solid = "Solid"
 
     static let preferenceKey = "SidebarGlassOpacity"
-
-    var backingOpacity: Double {
-        switch self {
-        case .balanced: 0.43
-        case .high: 0.74
-        case .solid: 1.0
-        }
-    }
 }
 
-/// A single system glass surface, never one effect per tab. A contrast backing
-/// above the glass bounds even its brightest/darkest sampled pixels, so theme
-/// text cannot become white-on-light-grey when the page and system differ.
-/// check-contrast.py reads these constants to test the composited backgrounds.
 struct MacSidebarGlass: ViewModifier {
     var color: SidebarColor = .graphite
     var profileColor: ProfileColor? = nil
 
-    // A neutral guard bounds the luma of the exposed glass. Dark profile
-    // colors need more protection against bright page input than Black.
-    private static let balancedTintGuard = Theme.adaptive("SidebarTintGuard", light: 0xFFFFFF, dark: 0x000000)
-    private static let balancedLightGuard = 0.42
-    private static let balancedLightTintGuard = 0.45
-    private static let balancedDarkGuard = 0.54
-    private static let balancedDarkTintGuard = 0.60
-    private static let balancedBlackGuard = 0.36
-    private static let highDarkGuard = 0.38
-
-    @Environment(\.colorScheme) private var colorScheme
-
+    @Environment(\.self) private var environment
     @AppStorage(SidebarGlassOpacity.preferenceKey) private var opacity: SidebarGlassOpacity = .balanced
     #if DEBUG
     @Environment(\.sidebarCaptureOpacity) private var captureOpacity
+    @Environment(\.sidebarCaptureBackdrop) private var captureBackdrop
     #endif
+
     private var effectiveOpacity: SidebarGlassOpacity {
         #if DEBUG
         captureOpacity ?? opacity
@@ -939,44 +842,42 @@ struct MacSidebarGlass: ViewModifier {
         opacity
         #endif
     }
-    @Environment(\.browserTheme) private var theme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
-    @Environment(\.sidebarContrast) private var contrast
-    #if DEBUG
-    @Environment(\.sidebarCaptureBackdrop) private var captureBackdrop
-    #endif
-    func body(content: Content) -> some View {
-        let backing = color.backing(in: theme, profileColor: profileColor)
-        if reduceTransparency || captureReduceTransparency || contrast == .increased || effectiveOpacity == .solid {
-            edge(content.background(backing))
-        } else {
-            let tinted = color.effective(profileColor: profileColor, isT3Code: theme.isT3Code) != .graphite
-            let guardOpacity = effectiveOpacity == .balanced
-                ? balancedGuard(tinted: tinted)
-                : (colorScheme == .dark && !theme.isT3Code ? Self.highDarkGuard : 0)
-            edge(content
-                .background(backing.opacity(effectiveOpacity.backingOpacity))
-                .background(Self.balancedTintGuard.opacity(guardOpacity))
-                .background { glass })
-        }
-    }
-    private func balancedGuard(tinted: Bool) -> Double {
-        if theme.isT3Code { return Self.balancedBlackGuard }
-        if colorScheme == .dark { return tinted ? Self.balancedDarkTintGuard : Self.balancedDarkGuard }
-        return tinted ? Self.balancedLightTintGuard : Self.balancedLightGuard
-    }
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: OrivRadius.card, style: .continuous) }
 
-    private func edge<Surface: View>(_ content: Surface) -> some View {
-        content.clipShape(shape)
+    func body(content: Content) -> some View {
+        let style = SidebarChromaticStyle(color: color, profile: profileColor, level: effectiveOpacity,
+                                          environment: environment)
+        content.environment(\.sidebarChromaticStyle, style)
+            .background {
+                ZStack {
+                    if !style.opaque {
+                        glass
+                        Theme.hex(style.tokens.guardColor).opacity(style.guardOpacity)
+                    }
+                    LinearGradient(colors: [Theme.hex(style.tokens.top), Theme.hex(style.tokens.bottom)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .opacity(style.opaque ? 1 : style.backingOpacity)
+                    if !style.opaque && !style.black {
+                        let bloom = Theme.hex(style.tokens.bloom)
+                        RadialGradient(colors: [bloom.opacity(style.bloomOpacity), bloom.opacity(0)],
+                                       center: .topLeading, startRadius: SidebarChromaticStyle.bloomStart,
+                                       endRadius: SidebarChromaticStyle.bloomEnd)
+                        LinearGradient(colors: [style.sheen, .clear],
+                                       startPoint: .top, endPoint: SidebarChromaticStyle.sheenEnd)
+                    }
+                }
+                .allowsHitTesting(false).accessibilityHidden(true)
+            }
+            .clipShape(shape)
             .overlay {
-                shape.strokeBorder(contrast == .increased ? theme.text : theme.separator,
-                                   lineWidth: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                let theme = environment.browserTheme
+                shape.strokeBorder(style.increased ? theme.text : theme.separator,
+                                   lineWidth: style.increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                    .allowsHitTesting(false).accessibilityHidden(true)
             }
     }
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: OrivRadius.card, style: .continuous) }
+
     @ViewBuilder private var glass: some View {
         #if DEBUG
         if let captureBackdrop {

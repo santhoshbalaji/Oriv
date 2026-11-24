@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import ImageIO
 import Observation
+import os
 import UniformTypeIdentifiers
 import WebKit
 
@@ -10,47 +11,140 @@ import WebKit
 public struct SiteIcon: @unchecked Sendable {
     public let image: CGImage
     public let png: Data
-    public let hasTransparency: Bool
-    public let glyphLuminance: Double
+    public let analysis: FaviconAnalysis
+    private let treatments = OSAllocatedUnfairLock(initialState: [FaviconBacking: FaviconTreatment]())
 
-    /// Nil preserves the site's artwork; true/false requests a light/dark plate.
-    public func lightPlate(onDark: Bool, selected: Bool) -> Bool? {
-        guard hasTransparency else { return nil }
-        let background = onDark ? (selected ? 0.057 : 0.021) : (selected ? 0.647 : 0.839)
-        let contrast = (max(glyphLuminance, background) + 0.05) / (min(glyphLuminance, background) + 0.05)
-        return contrast < 3 ? glyphLuminance < 0.45 : nil
+    public func treatment(on backing: FaviconBacking) -> FaviconTreatment {
+        treatments.withLock { cache in
+            if let treatment = cache[backing] { return treatment }
+            let treatment = analysis.treatment(on: backing)
+            if cache.count == 8 { cache.removeAll(keepingCapacity: true) }
+            cache[backing] = treatment
+            return treatment
+        }
     }
 
-    /// Bounded decode-time analysis, never pixel work in a scrolling row.
     fileprivate init?(image: CGImage, png: Data) {
-        self.image = image; self.png = png
+        guard let analysis = FaviconAnalysis(image: image) else { return nil }
+        self.image = image
+        self.png = png
+        self.analysis = analysis
+    }
+}
+
+public enum FaviconTreatment: Equatable, Sendable {
+    case fullBleed(hairline: Bool), bare, ink, cushion(light: Bool)
+}
+
+/// Luminance bounds include the possible output of translucent sidebar material.
+public struct FaviconBacking: Hashable, Sendable {
+    let lower: Double
+    let upper: Double
+    let lightCushion: Double
+    let darkCushion: Double
+
+    public init(luminance: ClosedRange<Double>, lightCushion: Double, darkCushion: Double) {
+        lower = luminance.lowerBound
+        upper = luminance.upperBound
+        self.lightCushion = lightCushion
+        self.darkCushion = darkCushion
+    }
+}
+
+public struct FaviconAnalysis: Sendable {
+    public enum Kind: Sendable { case fullBleed, transparentGlyph }
+
+    public let kind: Kind
+    public let alphaCoverage: Double
+    public let edgeOpacity: Double
+    public let avgLuminance: Double
+    public let peakLuminance: Double
+    public let avgChroma: Double
+    public let edgeLuminance: Double
+
+    private static func contrast(_ a: Double, _ b: Double) -> Double {
+        (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
+    fileprivate func treatment(on backing: FaviconBacking) -> FaviconTreatment {
+        func contrastAcrossBacking(_ ink: Double) -> Double {
+            let closest = min(backing.upper, max(backing.lower, ink))
+            return Self.contrast(ink, closest)
+        }
+        if kind == .fullBleed {
+            return .fullBleed(hairline: contrastAcrossBacking(edgeLuminance) < 1.35)
+        }
+        // Transparent monochrome icons follow the ink of the row or active pill.
+        if avgChroma < 0.08 { return .ink }
+        if max(contrastAcrossBacking(avgLuminance), contrastAcrossBacking(peakLuminance) * 0.85) >= 3 {
+            return .bare
+        }
+        func effectiveContrast(_ surface: Double) -> Double {
+            max(Self.contrast(avgLuminance, surface), Self.contrast(peakLuminance, surface) * 0.85)
+        }
+        return .cushion(light: effectiveContrast(backing.lightCushion) >= effectiveContrast(backing.darkCushion))
+    }
+
+    /// Bounded, sRGB decode-time analysis on the cache actor.
+    fileprivate init?(image: CGImage) {
         let side = 32
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
         let rendered = pixels.withUnsafeMutableBytes { bytes -> Bool in
-            guard let context = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8,
-                bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side)); return true
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8,
+                    bytesPerRow: side * 4, space: space,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+            else { return false }
+            let scale = Double(side) / Double(max(image.width, image.height))
+            let width = Double(image.width) * scale, height = Double(image.height) * scale
+            context.draw(image, in: CGRect(x: (Double(side) - width) / 2, y: (Double(side) - height) / 2,
+                                           width: width, height: height))
+            return true
         }
-        var visible = false, transparent = 0, histogram = [Double](repeating: 0, count: 16)
-        var totals = [Double](repeating: 0, count: 16)
-        if rendered {
-            for offset in stride(from: 0, to: pixels.count, by: 4) {
-                let alpha = Double(pixels[offset + 3]) / 255
-                if alpha > 0 { visible = true }
-                if alpha < 0.98 { transparent += 1 }
-                guard alpha > 0.25 else { continue }
-                let rgb = (0..<3).map { min(1, Double(pixels[offset + $0]) / 255 / alpha) }
-                let linear = rgb.map { $0 <= 0.04045 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
-                let value = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
-                let bin = min(15, Int(value * 16))
-                histogram[bin] += alpha; totals[bin] += value * alpha
+        guard rendered else { return nil }
+
+        func linear(_ value: Double) -> Double {
+            value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        var covered = 0, edgeCount = 0, opaqueEdgeCount = 0
+        var totalAlpha = 0.0, luminanceSum = 0.0, chromaSum = 0.0, edgeLuminanceSum = 0.0
+        var histogram = [Double](repeating: 0, count: 64)
+        for index in 0..<(side * side) {
+            let x = index % side, y = index / side
+            let dx = min(x, side - 1 - x), dy = min(y, side - 1 - y)
+            let edge = min(dx, dy) < 2 && max(dx, dy) >= 4
+            if edge { edgeCount += 1 }
+            let offset = index * 4
+            let alpha = Double(pixels[offset + 3]) / 255
+            if alpha > 0.25 { covered += 1 }
+            guard alpha > 0 else { continue }
+            let red = min(1, Double(pixels[offset]) / 255 / alpha)
+            let green = min(1, Double(pixels[offset + 1]) / 255 / alpha)
+            let blue = min(1, Double(pixels[offset + 2]) / 255 / alpha)
+            let luminance = 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+            luminanceSum += luminance * alpha
+            chromaSum += (max(red, green, blue) - min(red, green, blue)) * alpha
+            totalAlpha += alpha
+            histogram[Int((luminance * Double(histogram.count - 1)).rounded())] += alpha
+            if edge && alpha > 0.80 {
+                opaqueEdgeCount += 1
+                edgeLuminanceSum += luminance
             }
         }
-        guard visible else { return nil }
-        hasTransparency = transparent > side * side / 8
-        let dominant = histogram.indices.max { histogram[$0] < histogram[$1] } ?? 0
-        glyphLuminance = histogram[dominant] > 0 ? totals[dominant] / histogram[dominant] : 0.5
+        guard totalAlpha > 0 else { return nil }
+
+        alphaCoverage = Double(covered) / Double(side * side)
+        edgeOpacity = Double(opaqueEdgeCount) / Double(edgeCount)
+        kind = alphaCoverage >= 0.72 && edgeOpacity >= 0.60 ? .fullBleed : .transparentGlyph
+        avgLuminance = luminanceSum / totalAlpha
+        avgChroma = chromaSum / totalAlpha
+        edgeLuminance = opaqueEdgeCount == 0 ? avgLuminance : edgeLuminanceSum / Double(opaqueEdgeCount)
+        var cumulativeAlpha = 0.0
+        let peak = histogram.firstIndex {
+            cumulativeAlpha += $0
+            return cumulativeAlpha >= totalAlpha * 0.9
+        } ?? histogram.count - 1
+        peakLuminance = Double(peak) / Double(histogram.count - 1)
     }
 }
 

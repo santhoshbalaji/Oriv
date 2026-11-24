@@ -16,20 +16,28 @@ import XCTest
     func testStoredSidebarGlassLevelsKeepTheirLabelsAndBackingOrder() {
         let levels = ["Balanced", "High", "Solid"].compactMap(SidebarGlassOpacity.init(rawValue:))
         XCTAssertEqual(levels, [.balanced, .high, .solid])
-        XCTAssertEqual(levels.map(\.backingOpacity), [0.43, 0.74, 1.0])
+        for scheme in [ColorScheme.light, .dark] {
+            var environment = EnvironmentValues()
+            environment.colorScheme = scheme
+            let styles = levels.map { SidebarChromaticStyle(level: $0, environment: environment) }
+            XCTAssertEqual(styles.map(\.backingOpacity), [scheme == .dark ? 0.72 : 0.62, 0.86, 1])
+            XCTAssertEqual(styles.map(\.opaque), [false, false, true])
+        }
     }
 
-    func testSelectionDefaultsToGlassAndUsesTintedPillForAccessibility() {
+    func testChromaticSelectionUsesOpaquePillForAccessibility() {
         var environment = EnvironmentValues()
         environment.sidebarCaptureContrast = .standard
-        XCTAssertFalse(environment.sidebarUsesTintedSelection)
+        XCTAssertFalse(SidebarChromaticStyle(environment: environment).opaque)
 
         environment.chromeReduceTransparencyOverride = true
-        XCTAssertTrue(environment.sidebarUsesTintedSelection)
+        XCTAssertTrue(SidebarChromaticStyle(environment: environment).opaque)
 
         environment.chromeReduceTransparencyOverride = false
         environment.sidebarCaptureContrast = .increased
-        XCTAssertTrue(environment.sidebarUsesTintedSelection)
+        let style = SidebarChromaticStyle(environment: environment)
+        XCTAssertTrue(style.opaque)
+        XCTAssertTrue(style.increased)
     }
 
     func testSidebarColorReadsOnlyRecognizedPreferences() {
@@ -266,30 +274,44 @@ import XCTest
     func testLiveShortcutRailPersistsAcrossRelaunchWithAnimation() async throws { try await checkRestoredRail(reduceMotion: false) }
     func testLiveShortcutRailPersistsAcrossRelaunchWithReduceMotion() async throws { try await checkRestoredRail(reduceMotion: true) }
 
-    func testFaviconPlatesFollowDominantGlyphLuminanceAndPreserveArtwork() async throws {
+    func testDecodedFaviconAdaptsToPanelAndActiveBacking() async throws {
         let cache = SiteIconDiskCache(directory: nil)
-        for white in [false, true] {
+        func backing(_ range: ClosedRange<Double>) -> FaviconBacking {
+            FaviconBacking(luminance: range, lightCushion: 0.95, darkCushion: 0.01)
+        }
+        let dark = backing(0.02...0.12)
+        let light = backing(0.65...0.90)
+        let nearBlue = backing(0.05...0.16)
+        func glyph(_ color: NSColor) async throws -> SiteIcon {
             let image = NSImage(size: NSSize(width: 32, height: 32), flipped: false) { _ in
-                (white ? NSColor.white : .black).setFill()
+                color.setFill()
                 NSBezierPath(ovalIn: NSRect(x: 6, y: 6, width: 20, height: 20)).fill()
                 return true
             }
             let decoded = await cache.decode(try XCTUnwrap(image.tiffRepresentation))
-            let icon = try XCTUnwrap(decoded)
-            XCTAssertTrue(icon.hasTransparency)
-            XCTAssertEqual(icon.lightPlate(onDark: !white, selected: false), !white)
-            XCTAssertNil(icon.lightPlate(onDark: white, selected: true))
+            return try XCTUnwrap(decoded)
         }
+        for color in [NSColor.black, .white] {
+            let icon = try await glyph(color)
+            XCTAssertEqual(icon.analysis.kind, .transparentGlyph)
+            XCTAssertEqual(icon.treatment(on: dark), .ink)
+            XCTAssertEqual(icon.treatment(on: light), .ink)
+        }
+        let blue = try await glyph(NSColor(srgbRed: 0.1, green: 0.32, blue: 0.80, alpha: 1))
+        XCTAssertEqual(blue.treatment(on: nearBlue), .cushion(light: true))
+        XCTAssertEqual(blue.treatment(on: light), .bare)
+        XCTAssertEqual(blue.treatment(on: nearBlue), .cushion(light: true))
+
         let opaque = NSImage(size: NSSize(width: 32, height: 32), flipped: false) { rect in
-            NSColor.systemBlue.setFill(); NSBezierPath(rect: rect).fill()
+            NSColor.black.setFill(); NSBezierPath(rect: rect).fill()
             NSColor.white.setFill(); NSBezierPath(ovalIn: rect.insetBy(dx: 8, dy: 8)).fill()
             return true
         }
         let decoded = await cache.decode(try XCTUnwrap(opaque.tiffRepresentation))
         let icon = try XCTUnwrap(decoded)
-        XCTAssertFalse(icon.hasTransparency)
-        XCTAssertNil(icon.lightPlate(onDark: true, selected: true))
-        XCTAssertNil(icon.lightPlate(onDark: false, selected: false))
+        XCTAssertEqual(icon.analysis.kind, .fullBleed)
+        XCTAssertEqual(icon.treatment(on: light), .fullBleed(hairline: false))
+        XCTAssertEqual(icon.treatment(on: backing(0.01...0.05)), .fullBleed(hairline: true))
     }
 
     func testRestoredPageReceivesInitialFocusInsteadOfChrome() async throws {

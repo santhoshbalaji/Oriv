@@ -53,7 +53,7 @@ import WebKit
         }
         BackgroundUIMode.installAtLaunch()
         if BackgroundUIMode.isEnabled {
-            if environment["ORIV_GLASS_SCENE"] == "sidebar-color" {
+            if ["sidebar-color", "sidebar-chromatic"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("The real sidebar and Settings render off-screen. A static gradient models the glass input. WindowServer Liquid Glass and live transitions are outside this capture.")
             } else if ["sidebar-opacity", "sidebar-opacity-pastels"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("The real sidebar and production backing render over a synthetic desktop pattern in off-screen windows. These images demonstrate the backing blend; the WindowServer Liquid Glass compositor is outside this capture.")
@@ -74,6 +74,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "phase2-contrast" { await renderThemeContrast(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "p3-rtl" { await renderRightToLeft(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "p2" { await renderP2Scenes(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "sidebar-chromatic" { await renderChromaticSidebar(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-color" { await renderSidebarColors(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity" { await renderSidebarOpacity(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-opacity-pastels" { await renderSidebarOpacity(into: directory, pastels: true) }
@@ -676,6 +677,109 @@ import WebKit
                         .environment(\.chromeReduceTransparencyOverride, variant == "reduced")
                         .environment(\.sidebarCaptureContrast, variant == "increased" ? .increased : .standard)
                 }
+            }
+        }
+    }
+
+    private static func renderChromaticSidebar(into directory: URL) async {
+        let root = directory.appendingPathComponent("chromatic-fixture")
+        let titles = ["Scenic Atlas", "GitHub", "Vercel", "Maps", "Design System Notes",
+                      "GitHub · oriv-browser", "Vercel Deployments", "Ambient Focus Radio", "SwiftUI Layout Guide"]
+        let hosts = ["atlas", "github", "vercel", "maps", "design", "code", "deploy", "radio", "swiftui"]
+        let records = zip(titles, hosts).enumerated().map { index, entry in
+            TabRecord(title: entry.0, url: URL(string: "https://\(entry.1).example"), isPinned: index < 4)
+        }
+        let profileDirectory = BrowserProfile.personal.directory(in: root)
+        do {
+            try SessionFileStore(fileURL: profileDirectory.appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: records, selectedTabID: records[4].id), discardPrevious: true)
+        } catch { manifest.failures.append("Chromatic sidebar fixture: \(error)"); return }
+
+        let disk = SiteIconDiskCache(directory: profileDirectory.appendingPathComponent("Favicons"))
+        let art: [(Int, Color?, Color, String)] = [
+            (0, .blue, .mint, "mountain.2.fill"), (1, nil, Color(white: 0.1), "chevron.left.forwardslash.chevron.right"),
+            (2, nil, .white, "triangle.fill"), (4, .indigo, .pink, "square.grid.2x2.fill"),
+            (5, nil, Color(white: 0.1), "chevron.left.forwardslash.chevron.right"),
+            (6, nil, .white, "triangle.fill"), (7, nil, Color(.sRGB, red: 0.38, green: 0.45, blue: 0.78), "waveform")
+        ]
+        for (index, backing, ink, symbol) in art {
+            let renderer = ImageRenderer(content: ZStack {
+                if let backing { RoundedRectangle(cornerRadius: 5).fill(backing) }
+                Image(systemName: symbol).font(.system(size: 20, weight: .bold)).foregroundStyle(ink)
+            }.frame(width: 32, height: 32))
+            renderer.scale = 2
+            guard let image = renderer.cgImage,
+                  let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
+                  let icon = await disk.decode(png), let url = records[index].url,
+                  let key = SiteIconStore.key(url, isPrivate: false) else {
+                manifest.failures.append("Chromatic icon fixture failed at \(index)")
+                return
+            }
+            await disk.write(icon, key: key)
+        }
+
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let controller = profiles.controller
+        let privateTab = controller.session.addTab(isPrivate: true, select: false, load: false)
+        privateTab.webView.loadHTMLString("<title>Private Research</title>", baseURL: nil)
+        _ = try? profiles.create(name: "Work", color: .fern, symbol: .work)
+        _ = try? profiles.create(name: "Study", color: .mulberry, symbol: .study)
+
+        for appearance in [BrowserAppearance.light, .dark, .t3Code] {
+            for color in appearance == .t3Code ? [.graphite] : [SidebarColor.graphite, .sky, .rose, .lavender] {
+                await scene(appearance, color, suffix: "std")
+            }
+        }
+        for appearance in [BrowserAppearance.light, .dark] {
+            await scene(appearance, .sky, suffix: "rt", reduced: true)
+            await scene(appearance, .sky, suffix: "ic", increased: true)
+            await scene(appearance, .sky, suffix: "pin", selected: records[1].id)
+        }
+        await scene(.dark, .sky, suffix: "high", level: .high)
+        await scene(.dark, .sky, suffix: "solid", level: .solid)
+        await scene(.dark, .rose, suffix: "private", selected: privateTab.id)
+        await scene(.dark, .sky, suffix: "rail", selected: records[1].id, rail: true)
+        await scene(.dark, .rose, suffix: "rtl", selected: records[1].id, rtl: true)
+
+        func scene(_ appearance: BrowserAppearance, _ color: SidebarColor, suffix: String,
+                   reduced: Bool = false, increased: Bool = false, level: SidebarGlassOpacity = .balanced,
+                   selected: UUID? = nil, rail: Bool = false, rtl: Bool = false) async {
+            controller.appearance = appearance
+            controller.sidebarColor = color
+            controller.compactSidebar = rail
+            let selection = selected ?? records[4].id
+            if selection != controller.session.selectedTabID {
+                controller.session.selectTab(selection)
+            }
+            let list = SidebarListHandle()
+            let mode = appearance == .t3Code ? "black" : appearance.rawValue.lowercased()
+            let width: CGFloat = rail ? MacBrowserLayout.railWidth : 256
+            await capture("mac-glass-sidebar-contrast-chromatic-\(mode)-\(color.rawValue)-\(suffix)", directory, CGSize(width: width, height: 580),
+                          key: false, settle: 200, appearance: appearance, prepare: { window in
+                guard !rail, let collection = list.collection,
+                      let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                          context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 125)
+                else { return }
+                list.focus(records[6].id)
+                collection.updateFocusInput(for: event)
+            }) {
+                BrowserSidebar(controller: controller, profiles: profiles, tabList: list)
+                    .padding(.top, 22)
+                    .modifier(MacSidebarGlass(color: color, profileColor: profiles.active.color))
+                    .background {
+                        LinearGradient(colors: appearance == .light ? [Color(white: 0.86), Color(white: 0.94)]
+                                       : [Color(.sRGB, red: 0.20, green: 0.23, blue: 0.32), Color(white: 0.12)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                    }
+                    .environment(\.siteIcons, controller.session.siteIcons)
+                    .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
+                    .environment(\.sidebarCaptureBackdrop, .clear)
+                    .environment(\.sidebarCaptureOpacity, level)
+                    .environment(\.sidebarCaptureContrast, increased ? .increased : .standard)
+                    .environment(\.chromeReduceTransparencyOverride, reduced)
+                    .environment(\.sidebarCaptureState, SidebarCaptureState(hover: records[5].id, audio: records[7].id))
             }
         }
     }

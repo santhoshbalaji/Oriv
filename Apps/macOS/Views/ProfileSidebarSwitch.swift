@@ -165,6 +165,8 @@ class ProfileSidebarScrollView: NSScrollView {
         let direction: LayoutDirection
         let typeSize: DynamicTypeSize
         let customTheme: Bool
+        let glassLevel: SidebarGlassOpacity
+        let opaqueChrome: Bool
 
         @MainActor init(_ anchor: ProfileSidebarAnchor.Anchor) {
             let environment = anchor.environment
@@ -176,6 +178,8 @@ class ProfileSidebarScrollView: NSScrollView {
             direction = environment.layoutDirection
             typeSize = environment.dynamicTypeSize
             customTheme = environment.browserTheme.isT3Code
+            glassLevel = environment.sidebarChromaticStyle?.level ?? .balanced
+            opaqueChrome = environment.sidebarNeedsOpaqueChrome
         }
     }
 
@@ -184,6 +188,7 @@ class ProfileSidebarScrollView: NSScrollView {
         let preview: ProfileSidebarPreview
         let query: String
         let appearance: BrowserAppearance
+        let color: SidebarColor
         let image: CGImage?
     }
     @ObservationIgnored private var mountInterval: OSSignpostIntervalState?
@@ -461,9 +466,10 @@ class ProfileSidebarScrollView: NSScrollView {
                 let controller = profiles.loadedController(profile.id)
                 let preview = profiles.preview(for: profile)
                 let appearance = controller?.appearance ?? .system
+                let color = controller?.sidebarColor ?? .graphite
                 let query = current ? controller?.tabSearch ?? "" : ""
                 if let cached = previous[profile.id], cached.profile == profile,
-                   cached.query == query, cached.appearance == appearance,
+                   cached.query == query, cached.appearance == appearance, cached.color == color,
                    cached.preview.matches(preview) {
                     return (profile.id, cached)
                 }
@@ -473,12 +479,14 @@ class ProfileSidebarScrollView: NSScrollView {
                     environment.colorScheme = appearance.colorScheme ?? anchor.window?.effectiveAppearance
                         .bestMatch(from: [.aqua, .darkAqua]).map { $0 == .darkAqua ? .dark : .light } ?? geometry.scheme
                 }
+                environment.sidebarChromaticStyle = SidebarChromaticStyle(color: color, profile: profile.color,
+                    level: geometry.glassLevel, environment: environment)
                 let artwork = ProfileSidebarPreviewArtwork(profile: profile, preview: preview,
                     size: geometry.size, query: query, profileTrailingInset: geometry.inset)
                 let renderer = ImageRenderer(content: artwork.environment(\.self, environment))
                 renderer.scale = geometry.scale
                 return (profile.id, CachedArtwork(profile: profile, preview: preview, query: query,
-                    appearance: appearance, image: renderer.cgImage))
+                    appearance: appearance, color: color, image: renderer.cgImage))
             })
         } onChange: { [weak self] in
             Task { @MainActor in
