@@ -1,4 +1,5 @@
 import AppKit
+import BrowserCore
 import BrowserEngine
 import SwiftUI
 import XCTest
@@ -48,6 +49,10 @@ import XCTest
     private func click(_ name: String, in window: NSWindow) throws {
         let target = try XCTUnwrap(marker(name, in: window), name)
         let point = target.convert(NSPoint(x: target.bounds.midX, y: target.bounds.midY), to: nil)
+        try click(point, in: window)
+    }
+
+    private func click(_ point: NSPoint, in window: NSWindow) throws {
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             NSApp.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
@@ -380,6 +385,60 @@ import XCTest
         XCTAssertEqual(list.prepareForDragOperation(info), accepted)
         XCTAssertEqual(list.performDragOperation(info), accepted)
         XCTAssertNil(list.insertionMarkerFrame)
+    }
+
+    func testAddressCapsulePaddingSelectsFullURLAndSiteInfoKeepsItsAction() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let tab = try XCTUnwrap(c.session.selectedTab)
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:18768/full/address?q=focus#section"))
+        tab.webView.loadHTMLString("<body>Address fixture</body>", baseURL: url)
+        try await wait("Address fixture did not load") { tab.url == url && !tab.webView.isLoading }
+        let w = host(c); defer { w.close() }
+        var field: FocusAwareAddressField? {
+            w.contentView.flatMap { views($0).compactMap { $0 as? FocusAwareAddressField }.first }
+        }
+        try await wait("Address capsule did not mount") { field != nil && self.marker("browserSiteInformationGeometry", in: w) != nil }
+        let address = try XCTUnwrap(field)
+        let capsule = try XCTUnwrap(marker("browserAddressGeometry", in: w))
+        for fraction in [0.03, 0.78] {
+            w.makeFirstResponder(nil)
+            func clickPoint() -> NSPoint {
+                capsule.convert(NSPoint(x: capsule.bounds.width * fraction, y: capsule.bounds.midY), to: nil)
+            }
+            try await wait("Compact address layout did not restore the padding at \(fraction)") {
+                w.contentView?.layoutSubtreeIfNeeded()
+                return address.currentEditor() == nil && address.stringValue == URLDisplay.site(url)
+                    && !address.convert(address.bounds, to: nil).contains(clickPoint())
+            }
+            try click(clickPoint(), in: w)
+            let selection = NSRange(location: 0, length: url.absoluteString.utf16.count)
+            try await wait("Capsule click did not select the URL at \(fraction)") {
+                address.currentEditor()?.string == url.absoluteString && address.currentEditor()?.selectedRange == selection
+            }
+        }
+        w.makeFirstResponder(nil)
+        let focusRequest = c.addressFocusRequest
+        let reload = XCTNSNotificationExpectation(name: BrowserTab.navigationStarted, object: tab.webView)
+        try click("browserReloadGeometry", in: w)
+        await fulfillment(of: [reload], timeout: 5)
+        XCTAssertEqual(c.addressFocusRequest, focusRequest)
+        XCTAssertNil(address.currentEditor())
+
+        try click("browserSiteInformationGeometry", in: w)
+        try await wait("Site info did not open") { c.profileUI.showSiteInfo }
+        XCTAssertNil(address.currentEditor())
+
+        _ = c.session.addTab(isPrivate: true, load: false)
+        try await wait("Private pill did not mount") {
+            self.marker("privateAddressPillGeometry", in: w) != nil && !c.profileUI.showSiteInfo
+        }
+        w.makeFirstResponder(nil)
+        let privateFocusRequest = c.addressFocusRequest
+        try click("privateAddressPillGeometry", in: w)
+        XCTAssertEqual(c.addressFocusRequest, privateFocusRequest, "The Private badge keeps its own hit region")
+        XCTAssertNil(address.currentEditor())
+        try click("browserAddressSearchIconGeometry", in: w)
+        try await wait("The search icon did not focus the address field") { address.currentEditor() != nil }
     }
 
     func testNarrowOverlayKeepsNativeLightsAboveInsetSurface() async throws {

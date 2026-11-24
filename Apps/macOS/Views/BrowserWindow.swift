@@ -509,6 +509,8 @@ struct BrowserWindow: View {
                     } else {
                         Image(systemName: "magnifyingglass").font(OrivType.detail)
                             .foregroundStyle(chromeForeground).accessibilityHidden(true)
+                            .allowsHitTesting(false)
+                            .browserGeometryMarker("browserAddressSearchIconGeometry")
                     }
                     AddressField(text: $ui.address, isEditing: $addressFocused,
                                  placeholder: tab?.isPrivate == true ? OrivStrings.privateSearch : OrivStrings.addressPlaceholder,
@@ -526,6 +528,9 @@ struct BrowserWindow: View {
                 .padding(.leading, tab?.isPrivate == true ? OrivSpacing.small : addressEndInset)
                 .padding(.trailing, addressEndInset)
                 .frame(height: OrivLayout.controlHeight).frame(minWidth: 230, idealWidth: addressWidth, maxWidth: addressWidth)
+                .background {
+                    AddressCapsuleHitArea { controller.focusAddress() }
+                }
                 .overlay(alignment: .trailing) {
                     HStack(spacing: OrivSpacing.xs) {
                         if tab?.url != nil {
@@ -541,6 +546,7 @@ struct BrowserWindow: View {
                             .buttonStyle(ToolbarButtonStyle())
                             .accessibilityLabel(tab?.isLoading == true ? "Stop loading" : "Reload page")
                             .help(tab?.isLoading == true ? "Stop loading" : "Reload (⌘R)")
+                            .browserGeometryMarker("browserReloadGeometry")
                         }
                     }.padding(.trailing, OrivSpacing.xs)
                 }

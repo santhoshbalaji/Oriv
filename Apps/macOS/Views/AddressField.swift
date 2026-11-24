@@ -2,6 +2,28 @@ import AppKit
 import BrowserCore
 import SwiftUI
 
+/// The capsule's background receives clicks that miss its field and controls.
+struct AddressCapsuleHitArea: NSViewRepresentable {
+    let focus: () -> Void
+
+    func makeNSView(context: Context) -> HitView { HitView() }
+    func updateNSView(_ view: HitView, context: Context) { view.focus = focus }
+
+    final class HitView: NSView {
+        var focus: (() -> Void)?
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func accessibilityIsIgnored() -> Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let local = convert(point, from: superview)
+            let radius = bounds.height / 2
+            return NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).contains(local)
+                ? super.hitTest(point) : nil
+        }
+        override func mouseDown(with event: NSEvent) { focus?() }
+    }
+}
+
 /// An AppKit field provides reliable menu-driven focus and selection inside NSToolbar.
 struct AddressField: NSViewRepresentable {
     @Environment(\.browserTheme) private var theme
