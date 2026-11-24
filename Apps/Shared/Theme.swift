@@ -275,6 +275,10 @@ struct Theme {
     static let sidebarKeyboardFocus = adaptive("SidebarKeyboardFocus", light: 0x14212F, dark: 0xFFFFFF)
 
     enum SidebarSelection {
+        #if DEBUG
+        static func glassFallback(dark: Bool) -> Color { Color(white: dark ? 0.52 : 0.70) }
+        #endif
+
         private static let selectedInk = adaptive("SidebarSelectedInk", light: 0x154776, dark: 0xBBD8FF)
         private static let selectedSolid = adaptive("SidebarSelectedSolid", light: 0xCDDEF4, dark: 0x25466A)
         private static let selectedOpacity = (light: 0.16, dark: 0.30)

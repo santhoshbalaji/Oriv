@@ -520,26 +520,109 @@ struct SidebarSelectionSurface: ViewModifier {
     @Environment(\.sidebarContrast) private var contrast
     let active: Bool
     let radius: CGFloat
+    #if DEBUG
+    var glassStyle: SidebarSelectionStyle = .tintedPill
+    #endif
 
     func body(content: Content) -> some View {
         content.background {
             if active {
-                let dark = scheme == .dark
-                let increased = contrast == .increased
-                let opaque = reduceTransparency || captureTransparency || increased || theme.isT3Code
-                let shape = RoundedRectangle(cornerRadius: radius)
-                shape.fill(Theme.SidebarSelection.fill(in: theme, dark: dark, opaque: opaque, environment: environment))
-                    .background {
-                        if !opaque { shape.fill(Theme.SidebarSelection.backing(dark: dark)) }
-                    }
-                    .overlay {
-                        shape.strokeBorder(Theme.SidebarSelection.rim(in: theme, dark: dark, increased: increased),
-                                           lineWidth: increased ? OrivOutline.focus : OrivOutline.hairline)
-                    }
+                #if DEBUG
+                if glassStyle != .tintedPill {
+                    SidebarSelectionGlass(style: glassStyle, radius: radius)
+                } else {
+                    tintedPill
+                }
+                #else
+                tintedPill
+                #endif
             }
         }
     }
+
+    private var tintedPill: some View {
+        let dark = scheme == .dark
+        let increased = contrast == .increased
+        let opaque = reduceTransparency || captureTransparency || increased || theme.isT3Code
+        let shape = RoundedRectangle(cornerRadius: radius)
+        return shape.fill(Theme.SidebarSelection.fill(in: theme, dark: dark, opaque: opaque, environment: environment))
+            .background {
+                if !opaque { shape.fill(Theme.SidebarSelection.backing(dark: dark)) }
+            }
+            .overlay {
+                shape.strokeBorder(Theme.SidebarSelection.rim(in: theme, dark: dark, increased: increased),
+                                   lineWidth: increased ? OrivOutline.focus : OrivOutline.hairline)
+            }
+    }
 }
+
+#if DEBUG
+enum SidebarSelectionStyle: String {
+    case tintedPill = "G0"
+    case clearGlass = "G1"
+    case tintedGlass = "G2"
+    case accentEdge = "G3"
+
+    static let launchStyle: Self = {
+        let value = ProcessInfo.processInfo.environment["ORIV_SIDEBAR_SELECTION_STYLE"]
+            ?? UserDefaults.standard.string(forKey: "OrivSidebarSelectionStyle")
+        return value.flatMap(Self.init(rawValue:)) ?? .tintedPill
+    }()
+
+    func effective(in environment: EnvironmentValues) -> Self {
+        if environment.accessibilityReduceTransparency || environment.chromeReduceTransparencyOverride
+            || environment.sidebarContrast == .increased { return .tintedPill }
+        return self
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var sidebarSelectionStyle: SidebarSelectionStyle = .launchStyle
+}
+
+private struct SidebarSelectionGlass: View {
+    @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.sidebarCaptureBackdrop) private var captureBackdrop
+    let style: SidebarSelectionStyle
+    let radius: CGFloat
+
+    // Bound the glass to a readable luminance even over pure black or white.
+    // The one-point inset leaves the optical edge visible outside the focus ring.
+    private static let selectionGlassGuard = Theme.adaptive("SelectionGlassGuard", light: 0xFFFFFF, dark: 0x181A20)
+    private static let selectionGlassGuardOpacity = (light: 0.76, dark: 0.95)
+    private var dark: Bool { scheme == .dark }
+    private var tint: Color? { style == .tintedGlass ? theme.accent.opacity(0.32) : nil }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: radius)
+        let guardFill = shape.inset(by: 1).fill(Self.selectionGlassGuard.opacity(
+            dark ? Self.selectionGlassGuardOpacity.dark : Self.selectionGlassGuardOpacity.light))
+        Group {
+            if captureBackdrop != nil {
+                // A static stand-in for evidence from app-owned off-screen windows.
+                guardFill.background {
+                    shape.fill(Theme.SidebarSelection.glassFallback(dark: dark))
+                        .overlay { shape.fill(tint ?? .clear) }
+                        .overlay { shape.strokeBorder(.white.opacity(dark ? 0.28 : 0.85), lineWidth: 0.5) }
+                }
+            } else {
+                guardFill.glassEffect(.regular.tint(tint), in: shape)
+            }
+        }
+        .overlay {
+            if style == .accentEdge {
+                shape.strokeBorder(
+                    LinearGradient(colors: [theme.accent.opacity(0.85), theme.accent.opacity(0.35)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+#endif
 
 struct SidebarToneButtonStyle: ButtonStyle {
     var active = false
@@ -638,9 +721,32 @@ struct SidebarTabArtwork: View {
         return tab.isPlayingAudio ? "speaker.wave.2.fill" : nil
     }
 
+    private var selectionSurface: SidebarSelectionSurface {
+        #if DEBUG
+        SidebarSelectionSurface(active: active, radius: radius, glassStyle: selectionStyle)
+        #else
+        SidebarSelectionSurface(active: active, radius: radius)
+        #endif
+    }
+
+    #if DEBUG
+    private var selectionStyle: SidebarSelectionStyle {
+        // Profile swipe previews stay cheap while both profiles are visible.
+        guard active, tab != nil else { return .tintedPill }
+        return environment.sidebarSelectionStyle.effective(in: environment)
+    }
+    #endif
+
+    private var selectedInk: Color? {
+        guard active else { return nil }
+        #if DEBUG
+        if selectionStyle == .clearGlass || selectionStyle == .accentEdge { return nil }
+        #endif
+        return Theme.SidebarSelection.ink(in: theme, dark: environment.colorScheme == .dark, environment: environment)
+    }
+
     var body: some View {
-        let selectedInk = active ? Theme.SidebarSelection.ink(in: theme, dark: environment.colorScheme == .dark,
-                                                             environment: environment) : nil
+        let selectedInk = self.selectedInk
         return HStack(spacing: OrivSpacing.small) {
             if rail {
                 favicon(selectedInk: selectedInk).frame(width: 42, height: 36)
@@ -679,7 +785,7 @@ struct SidebarTabArtwork: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(selectedInk ?? theme.text)
         .modifier(SidebarToneSurface(tone: !active && hovered ? .hover : nil, radius: radius))
-        .modifier(SidebarSelectionSurface(active: active, radius: radius))
+        .modifier(selectionSurface)
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .topTrailing) {
             if tile && hovered {

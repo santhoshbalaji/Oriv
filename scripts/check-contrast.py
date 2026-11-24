@@ -249,6 +249,39 @@ print(f"Sidebar minimum text contrast: {ratio(worst[2], worst[4]):.2f}:1 ({worst
 for step, minima in selection_levels.items():
     print(f"{step.capitalize()} S2 minimum (selected text / focus ring): "
           f"{minima['selected text']:.2f}:1 / {minima['focus ring']:.2f}:1")
+
+# Debug selection glass guards text and the inset keyboard ring from the full
+# range of material output. Check both linear and encoded sRGB composition.
+glass_guards = adaptive_tokens(sidebar_source.replace("Theme.adaptive(", "adaptive("))["selectionGlassGuard"]
+glass_opacities = tuple(float(value) for value in re.search(
+    r"selectionGlassGuardOpacity = \(light: ([0-9.]+), dark: ([0-9.]+)\)", sidebar_source).groups())
+glass_minima = {"text": float("inf"), "focus ring": float("inf")}
+for appearance, mode, palette, _ in palettes:
+    guard_color = glass_guards[mode]
+    guard_opacity = glass_opacities[mode]
+    # This endpoint also bounds the system accent tint and optical highlights.
+    extreme = "FFFFFF" if mode else "000000"
+    fill = composite(guard_color, extreme, guard_opacity)
+    linear_fill = luminance(guard_color) * guard_opacity + luminance(extreme) * (1 - guard_opacity)
+    for role, ink in (
+        ("text", palette["text"]),
+        ("text", adaptive_constant("glassSecondary", mode)),
+        ("text", adaptive_constant("selectedInk", mode)),
+        ("focus ring", adaptive_constant("sidebarKeyboardFocus", mode)),
+    ):
+        # Accessory hover can add one neutral wash on top of the selection.
+        opacity = tonal_opacities["hover"][mode] if role == "text" else 0
+        background = composite(extreme, fill, opacity)
+        linear_background = luminance(extreme) * opacity + linear_fill * (1 - opacity)
+        foreground = luminance(ink)
+        linear_ratio = (max(foreground, linear_background) + 0.05) / (min(foreground, linear_background) + 0.05)
+        value = min(ratio(ink, background), linear_ratio)
+        minimum = 4.5 if role == "text" else 3
+        if value < minimum:
+            sys.exit(f"FAIL {appearance} debug selection glass: {role} {value:.2f}:1 (needs {minimum}:1)")
+        glass_minima[role] = min(glass_minima[role], value)
+print(f"Debug glass minimum (selected text / focus ring): {glass_minima['text']:.2f}:1 / {glass_minima['focus ring']:.2f}:1")
+
 # Settings owns the foreground and the opaque card. The full-opacity AppKit
 # material is the gutter input. Sample its possible output, including both
 # luminance endpoints. The native toolbar uses system ink.
