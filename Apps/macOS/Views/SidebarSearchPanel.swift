@@ -5,6 +5,7 @@ import SwiftUI
 struct SidebarSearchPanel: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.self) private var environment
+    @AppStorage(SidebarGlassOpacity.preferenceKey) private var glassLevel: SidebarGlassOpacity = .balanced
     @Bindable var controller: BrowserController
     let profileColor: ProfileColor?
     let dismiss: () -> Void
@@ -12,7 +13,7 @@ struct SidebarSearchPanel: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        let style = SidebarChromaticStyle(color: controller.sidebarColor, profile: profileColor,
+        let style = SidebarChromaticStyle(color: controller.sidebarColor, profile: profileColor, level: glassLevel,
                                           environment: environment, overlay: true)
         let request = controller.tabSearchRequest
         let results = controller.tabSearchResults(request)
