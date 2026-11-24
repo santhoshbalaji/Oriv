@@ -140,7 +140,8 @@ def check_chromatic(label, level, mode, black, tokens, panel, palette, sidebar):
     primary = palette["text"] if black else adaptive_constant("primaryInk", mode)
     secondary = palette["textSecondary"] if opaque and level == "increase contrast" else adaptive_constant("secondaryInk", mode)
     private = adaptive_constant("glassPrivate", mode)
-    for state, background in (("panel", panel), ("hover", hover),
+    pressed = sidebar["selection"] if opaque or black else composite("FFFFFF", panel, tonal_opacities["selection"][mode])
+    for state, background in (("panel", panel), ("hover", hover), ("pressed", pressed),
                               ("search field", sidebar["field"] if opaque or black else
                                composite(tonal_ink, panel, tonal_opacities["search"][mode]))):
         for role, ink in (("primary", primary), ("secondary", secondary), ("private", private),

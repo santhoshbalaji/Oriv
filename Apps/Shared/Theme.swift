@@ -369,7 +369,7 @@ struct Theme {
         case selection, hover, search
 
         // The contrast gate reads these values and composites them over all tint backings.
-        private static let selectionTone = (light: 0.42, dark: 0.10)
+        private static let selectionTone = (light: 0.42, dark: 0.06)
         private static let hoverTone = (light: 0.05, dark: 0.045)
         private static let searchTone = (light: 0.06, dark: 0.06)
 
