@@ -381,13 +381,13 @@ import XCTest
             let file = output.appendingPathComponent(UUID().uuidString)
             list.dragFramePacingTestOutput = file
             let destination = try itemFrame(peers[4].id, in: list)
-            try exerciseDrag(source.id, in: list, cancel: true) {
+            try await exerciseDrag(source.id, in: list, cancel: true) {
                 let frame = try self.itemFrame(peers[4].id, in: list)
                 return NSPoint(x: frame.midX, y: frame.maxY - 2)
             }
             XCTAssertEqual(try itemFrame(peers[4].id, in: list), destination)
             XCTAssertEqual(c.session.orderedTabs.count, 6)
-            try exerciseDrag(source.id, in: list, cancel: false) {
+            try await exerciseDrag(source.id, in: list, cancel: false) {
                 let frame = try self.itemFrame(peers[4].id, in: list)
                 return NSPoint(x: frame.midX, y: frame.maxY - 2)
             }
@@ -414,8 +414,13 @@ import XCTest
     func testFramePacingReportsCancellationAndDropFromEverySidebarSectionAndTheRail() async throws {
         struct Report: Decodable {
             struct Stats: Decodable { let count: Int }
+            struct Work: Decodable {
+                let phase: String
+                let durationMS: Double
+            }
             let total: Stats
             let phases: [String: Stats]
+            let mainThreadWork: [String: [Work]]
         }
         let restoreDefaults = setFramePacingPreference(true)
         defer { restoreDefaults() }
@@ -437,7 +442,7 @@ import XCTest
             list.dragFramePacingTestOutput = file
             let target = IndexPath(item: 0, section: pinned ? 1 : 0)
             for cancel in [true, false] {
-                try exerciseDrag(source.id, in: list, cancel: cancel) {
+                try await exerciseDrag(source.id, in: list, cancel: cancel) {
                     let header = try XCTUnwrap(list.layoutAttributesForSupplementaryElement(
                         ofKind: NSCollectionView.elementKindSectionHeader, at: target))
                     return NSPoint(x: header.frame.midX, y: header.frame.midY)
@@ -449,9 +454,21 @@ import XCTest
                 (try? String(contentsOf: file, encoding: .utf8))?.split(separator: "\n").count == 2
             }
             let lines = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
-            for line in lines {
+            let attachment = XCTAttachment(data: Data(lines.joined(separator: "\n").utf8), uniformTypeIdentifier: "public.plain-text")
+            attachment.name = "sidebar-drag-pacing-rail-\(rail)-pinned-\(pinned)-private-\(isPrivate)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            for (index, line) in lines.enumerated() {
                 let report = try JSONDecoder().decode(Report.self, from: Data(line.utf8))
                 XCTAssertEqual(report.total.count, report.phases.values.reduce(0) { $0 + $1.count })
+                XCTAssertEqual(report.mainThreadWork["dragBegin"]?.count, 1)
+                XCTAssertEqual(report.mainThreadWork["dragSetup"]?.count, 1)
+                if index == 1 {
+                    let commit = try XCTUnwrap(report.mainThreadWork["dropCommit"]?.first)
+                    XCTAssertEqual(commit.phase, "publish")
+                    XCTAssertEqual(report.mainThreadWork["dropRelease"]?.count, 1)
+                    XCTAssertGreaterThanOrEqual(commit.durationMS, 0)
+                }
             }
         }
     }
@@ -470,7 +487,7 @@ import XCTest
     }
 
     private func exerciseDrag(_ id: UUID, in list: SidebarTabCollection, cancel: Bool,
-                              at point: () throws -> NSPoint) throws {
+                              at point: () throws -> NSPoint) async throws {
         let data = try XCTUnwrap(list.sidebar)
         let source = try XCTUnwrap(data.path(for: id))
         let info = try makeDrag(id, in: list)
@@ -501,6 +518,7 @@ import XCTest
             XCTAssertTrue(list.prepareForDragOperation(info))
             XCTAssertTrue(list.performDragOperation(info))
             list.concludeDragOperation(info)
+            try await wait("Drop did not publish") { data.controller?.sidebar.dragging == false }
         }
         XCTAssertFalse(data.controller?.sidebar.dragging == true)
         XCTAssertNil(list.insertionMarkerFrame)
@@ -570,7 +588,7 @@ import XCTest
         XCTAssertTrue(list.prepareForDragOperation(intoPins))
         XCTAssertTrue(intoPins.animatesToDestination)
         XCTAssertTrue(list.performDragOperation(intoPins))
-        let landingFrame = try itemFrame(candidate.id, in: list)
+        let landingFrame = try XCTUnwrap(list.insertionMarkerFrame)
         let landing = try XCTUnwrap(intoPins.draggingItem)
         XCTAssertEqual(landing.draggingFrame, landingFrame)
         let contents = try XCTUnwrap(landing.imageComponentsProvider?().first?.contents)
@@ -579,6 +597,7 @@ import XCTest
         let bitmap = NSBitmapImageRep(cgImage: contents as! CGImage)
         XCTAssertGreaterThan(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0, 0)
         list.concludeDragOperation(intoPins)
+        try await wait("Drop did not publish") { !c.sidebar.dragging }
         XCTAssertEqual(list.layoutAttributesForItem(at: try XCTUnwrap(data.path(for: candidate.id)))?.alpha, 1)
         XCTAssertNil(sourceItem.view.layer?.animation(forKey: "sidebarLanding"))
         data.endDrag()
@@ -614,16 +633,232 @@ import XCTest
         try capture("07-unpin-landed")
     }
 
-    func testSidebarReflowRetargetCarriesVelocityThroughReversal() {
+    func testSidebarDragFrameSequences() async throws {
+        struct Item: Encodable {
+            let id: UUID
+            let frame: CGRect
+            let target: CGRect
+            let alpha: Float
+            let hasPresentation: Bool
+        }
+        struct Frame: Encodable {
+            let timestamp: Double
+            let stage: String
+            let items: [Item]
+            let preview: CGRect?
+            let pointer: CGPoint?
+            let gap: CGRect?
+            let landing: CGRect?
+            let scroll: CGFloat
+        }
+        enum Scenario: String, CaseIterable {
+            case reorderTabs, pin, unpinLastPin, reorderPins, rail, edgeScrollCancel
+        }
+        let screen = try XCTUnwrap(NSScreen.main)
+        for scenario in Scenario.allCases {
+            let c = BrowserController(testing: true)
+            defer { c.shutdown() }
+            c.compactSidebar = scenario == .rail
+            let source = try XCTUnwrap(c.session.selectedTab)
+            let peers = (0..<(scenario == .edgeScrollCancel ? 33 : 5)).map { _ in c.session.addTab(select: false, load: false) }
+            if scenario == .unpinLastPin || scenario == .reorderPins { c.session.togglePinned(source.id) }
+            if scenario == .pin || scenario == .reorderPins { peers.prefix(3).forEach { c.session.togglePinned($0.id) } }
+            let window = host(c, reduceMotion: false)
+            defer { window.close() }
+            try await wait("Frame sequence fixture did not mount") {
+                self.collection(in: window)?.sidebar?.path(for: peers[4].id) != nil
+            }
+            let list = try XCTUnwrap(collection(in: window))
+            let data = try XCTUnwrap(list.sidebar)
+            let path = try XCTUnwrap(data.path(for: source.id))
+            let info = try makeDrag(source.id, in: list)
+            let preview = try XCTUnwrap(info.draggingItem)
+            let original = preview.draggingFrame
+            let originalOrder = c.session.orderedTabs.map(\.id)
+            let originalPin = source.isPinned
+            let first = try itemFrame(peers[0].id, in: list)
+            let last = try itemFrame(peers[scenario == .reorderPins || scenario == .pin ? 2 : 4].id, in: list)
+            let renderCount = list.dragImageRenderCount
+            var samples: [Frame] = []
+            var stage = "before"
+            var gap: CGRect?
+            var frozenRelayouts = 0
+            let frameClock = SidebarDragTestDisplayLink()
+            let displayLink = screen.displayLink(target: frameClock, selector: #selector(SidebarDragTestDisplayLink.tick(_:)))
+            defer {
+                displayLink.invalidate()
+                data.endDrag()
+            }
+
+            func move(to point: CGPoint, entering: Bool = false, accepted: Bool = true) {
+                let oldPointer = list.convert(info.draggingLocation, from: nil)
+                preview.draggingFrame = preview.draggingFrame.offsetBy(dx: point.x - oldPointer.x, dy: point.y - oldPointer.y)
+                let before = preview.draggingFrame
+                info.move(to: point)
+                let operation = entering ? list.draggingEntered(info) : list.draggingUpdated(info)
+                XCTAssertEqual(operation, accepted ? .move : [], scenario.rawValue)
+                if !accepted { XCTAssertEqual(preview.draggingFrame.size, before.size) }
+                XCTAssertEqual(preview.draggingFrame.midX, before.midX, accuracy: 0.01, scenario.rawValue)
+                XCTAssertEqual(preview.draggingFrame.midY, before.midY, accuracy: 0.01, scenario.rawValue)
+                if accepted { list.layoutSubtreeIfNeeded() }
+            }
+
+            info.move(to: CGPoint(x: original.midX, y: original.midY))
+            frameClock.onFrame = { timestamp, elapsed in
+                if stage == "before", elapsed >= 0.035 {
+                    stage = "tracking"
+                    data.beginDrag(at: path)
+                    let target: CGPoint
+                    switch scenario {
+                    case .pin: target = CGPoint(x: first.minX + 2, y: first.midY)
+                    case .reorderPins: target = CGPoint(x: first.maxX - 2, y: first.midY)
+                    case .edgeScrollCancel: target = CGPoint(x: list.bounds.midX, y: list.visibleRect.maxY - 2)
+                    default: target = CGPoint(x: first.midX, y: first.maxY - 2)
+                    }
+                    move(to: target, entering: true)
+                }
+                if stage == "tracking", elapsed >= 0.075, scenario != .edgeScrollCancel {
+                    stage = "retargeted"
+                    let target = scenario == .pin || scenario == .reorderPins
+                        ? CGPoint(x: last.maxX - 2, y: last.midY)
+                        : CGPoint(x: last.midX, y: last.maxY - 2)
+                    if scenario == .pin {
+                        move(to: CGPoint(x: -1, y: first.midY), accepted: false)
+                    }
+                    move(to: target)
+                }
+                if elapsed >= 0.24, stage == "retargeted" {
+                    stage = "settling"
+                    XCTAssertTrue(list.prepareForDragOperation(info), scenario.rawValue)
+                    gap = list.insertionMarkerFrame
+                    XCTAssertTrue(list.performDragOperation(info), scenario.rawValue)
+                    XCTAssertEqual(preview.draggingFrame, gap, scenario.rawValue)
+                    frozenRelayouts = list.dragRelayoutCount
+                }
+                if elapsed >= 0.39, stage == "settling" {
+                    stage = "handoff"
+                    XCTAssertEqual(source.isPinned, originalPin)
+                    XCTAssertEqual(c.session.orderedTabs.map(\.id), originalOrder)
+                    XCTAssertEqual(list.dragRelayoutCount, frozenRelayouts)
+                    list.concludeDragOperation(info)
+                    XCTAssertEqual(list.dragLandingFrame, gap)
+                }
+                if elapsed >= 0.30, scenario == .edgeScrollCancel, stage == "tracking" {
+                    stage = "cancelled"
+                    list.draggingExited(info)
+                    data.endDrag()
+                }
+                if stage == "handoff", !c.sidebar.dragging { stage = "landed" }
+                let items = list.visibleItems().compactMap { item -> Item? in
+                    guard let id = item.view.identifier?.rawValue.split(separator: "-", maxSplits: 1).last.flatMap({ UUID(uuidString: String($0)) }),
+                          let layer = item.view.layer else { return nil }
+                    let presentation = layer.presentation()
+                    return Item(id: id, frame: presentation?.frame ?? layer.frame, target: layer.frame,
+                                alpha: presentation?.opacity ?? layer.opacity, hasPresentation: presentation != nil)
+                }
+                let image = ["tracking", "retargeted", "settling"].contains(stage) ? preview.draggingFrame : nil
+                let pointer = image == nil ? nil : list.convert(info.draggingLocation, from: nil)
+                samples.append(Frame(timestamp: timestamp, stage: stage, items: items, preview: image, pointer: pointer,
+                                     gap: list.insertionMarkerFrame, landing: list.dragLandingFrame,
+                                     scroll: list.visibleRect.minY))
+            }
+            displayLink.add(to: .main, forMode: .common)
+            try await wait("Display link did not complete \(scenario.rawValue)") { frameClock.elapsed >= 0.66 }
+            displayLink.invalidate()
+
+            let attachment = try XCTAttachment(data: JSONEncoder().encode(samples), uniformTypeIdentifier: "public.json")
+            attachment.name = "sidebar-drag-frames-\(scenario.rawValue)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            let tracking = samples.filter { ["tracking", "retargeted", "settling"].contains($0.stage) }
+            XCTAssertGreaterThan(tracking.count, 12, scenario.rawValue)
+            XCTAssertTrue(tracking.dropFirst(2).contains { $0.items.contains(where: \.hasPresentation) }, scenario.rawValue)
+            for frame in tracking.dropFirst(2) {
+                for item in frame.items {
+                    XCTAssertEqual(item.alpha, item.id == source.id ? 0 : 1, accuracy: 0.02, scenario.rawValue)
+                }
+            }
+
+            // Check the actual samples for each target on both axes. Allow a
+            // pixel of rounding and the maximum slope of the monotone cubic.
+            var distances: [UUID: (target: CGRect, x: CGFloat, y: CGFloat)] = [:]
+            var observedMotion = false
+            for (before, after) in zip(samples, samples.dropFirst()) {
+                let previous = Dictionary(uniqueKeysWithValues: before.items.map { ($0.id, $0) })
+                let dt = after.timestamp - before.timestamp
+                for item in after.items where item.id != source.id {
+                    guard let old = previous[item.id], old.alpha > 0.99, item.alpha > 0.99 else { continue }
+                    let previousDistance = distances[item.id]
+                    let sameTarget = old.target == item.target
+                    let x = abs(item.target.midX - old.frame.midX)
+                    let y = abs(item.target.midY - old.frame.midY)
+                    let dx = sameTarget && previousDistance?.target == item.target ? (previousDistance?.x ?? x) : x
+                    let dy = sameTarget && previousDistance?.target == item.target ? (previousDistance?.y ?? y) : y
+                    distances[item.id] = (item.target, dx, dy)
+                    let step = min(1, 3 * (dt + 1 / Double(screen.maximumFramesPerSecond)) / SidebarReflowMotion.duration)
+                    XCTAssertLessThanOrEqual(abs(item.frame.midX - old.frame.midX), dx * step + 1.5, scenario.rawValue)
+                    XCTAssertLessThanOrEqual(abs(item.frame.midY - old.frame.midY), dy * step + 1.5, scenario.rawValue)
+                    if sameTarget {
+                        XCTAssertLessThanOrEqual(abs(item.target.midX - item.frame.midX), x + 1.5, scenario.rawValue)
+                        XCTAssertLessThanOrEqual(abs(item.target.midY - item.frame.midY), y + 1.5, scenario.rawValue)
+                    }
+                    observedMotion = observedMotion || (item.frame != item.target && abs(item.frame.midY - item.target.midY) > 1)
+                        || abs(item.frame.midX - item.target.midX) > 1
+                }
+            }
+            XCTAssertTrue(observedMotion, "No in-flight presentation motion in \(scenario.rawValue)")
+            for frame in tracking where frame.stage != "settling" && scenario != .edgeScrollCancel {
+                let image = try XCTUnwrap(frame.preview)
+                let pointer = try XCTUnwrap(frame.pointer)
+                XCTAssertEqual(image.midX, pointer.x, accuracy: 0.01, scenario.rawValue)
+                XCTAssertEqual(image.midY, pointer.y, accuracy: 0.01, scenario.rawValue)
+            }
+            let previewSizes = [original.size] + tracking.compactMap { $0.preview?.size }
+            let morphs = zip(previewSizes, previewSizes.dropFirst()).filter { $0 != $1 }.count
+            XCTAssertEqual(morphs, scenario == .pin || scenario == .unpinLastPin ? 1 : 0, scenario.rawValue)
+            XCTAssertEqual(list.dragImageRenderCount, renderCount, "The drag must use both prewarmed images")
+            XCTAssertNil(list.insertionMarkerFrame)
+            XCTAssertFalse(c.sidebar.dragging)
+            if scenario == .edgeScrollCancel {
+                XCTAssertGreaterThan(samples.last?.scroll ?? 0, 14)
+                XCTAssertEqual(c.session.orderedTabs.map(\.id), originalOrder)
+                XCTAssertEqual(try itemFrame(source.id, in: list), original)
+            } else {
+                let landing = try XCTUnwrap(gap)
+                XCTAssertEqual(try itemFrame(source.id, in: list), landing, "The final item must stay where the image landed")
+                XCTAssertEqual(list.dragRelayoutCount, frozenRelayouts, "Model publication must not replay the gap")
+                let landed = samples.filter { $0.stage == "landed" }.compactMap { frame in frame.items.first { $0.id == source.id } }
+                XCTAssertGreaterThan(landed.count, 2)
+                // The first display callback after publication can still observe
+                // the previous CA transaction, which contains the landing image.
+                for item in landed.dropFirst() {
+                    XCTAssertEqual(item.alpha, 1, accuracy: 0.02, scenario.rawValue)
+                    XCTAssertEqual(item.frame.midY, item.target.midY, accuracy: 0.5)
+                    XCTAssertEqual(item.frame.midX, item.target.midX, accuracy: 0.5)
+                }
+            }
+        }
+    }
+
+    func testSidebarReflowRetargetStartsAtCurrentPositionAndDoesNotOvershoot() {
         let initial = SidebarReflowMotion(start: .zero, end: CGPoint(x: 49, y: 36), velocity: .zero, begin: 1)
         let crossing = initial.sample(at: 1.05)
         let reverse = SidebarReflowMotion(start: crossing.position, end: .zero, velocity: crossing.velocity, begin: 1.05)
         XCTAssertEqual(reverse.sample(at: 1.05).position, crossing.position)
-        XCTAssertEqual(reverse.sample(at: 1.05).velocity, crossing.velocity)
-        XCTAssertGreaterThan(reverse.sample(at: 1.06).position.x, crossing.position.x)
+        XCTAssertEqual(reverse.sample(at: 1.05).velocity, .zero)
+        XCTAssertLessThan(reverse.sample(at: 1.06).position.x, crossing.position.x)
         XCTAssertLessThan(reverse.sample(at: 1.15).position.x, crossing.position.x)
         XCTAssertEqual(reverse.sample(at: 1.25).position, .zero)
         XCTAssertEqual(reverse.sample(at: 1.25).velocity, .zero)
+        let closeTarget = CGPoint(x: crossing.position.x + 1, y: crossing.position.y)
+        let nearby = SidebarReflowMotion(start: crossing.position, end: closeTarget, velocity: crossing.velocity, begin: 1.05)
+        var previous = crossing.position.x
+        for frame in 1...18 {
+            let x = nearby.sample(at: 1.05 + Double(frame) / 120).position.x
+            XCTAssertGreaterThanOrEqual(x, previous)
+            XCTAssertLessThanOrEqual(x, closeTarget.x)
+            previous = x
+        }
     }
 
     func testTabDragStartMoveAndEdgeScrollWithOneHundredTabs() async throws {
@@ -754,7 +989,7 @@ import XCTest
             XCTAssertFalse(info.animatesToDestination)
             XCTAssertTrue(list.performDragOperation(info))
             list.concludeDragOperation(info)
-            data.endDrag()
+            try await wait("Drop did not publish") { !c.sidebar.dragging }
             XCTAssertEqual(c.session.orderedTabs.map(\.id), [first.id, source.id, second.id])
             XCTAssertTrue(firstItem === list.item(at: try XCTUnwrap(data.path(for: first.id))))
             XCTAssertNil(firstItem.view.layer?.animation(forKey: "sidebarReflow"))
@@ -764,10 +999,14 @@ import XCTest
     private func makeDrag(_ id: UUID, in list: SidebarTabCollection) throws -> DragFixture {
         let data = try XCTUnwrap(list.sidebar)
         let source = try XCTUnwrap(data.path(for: id))
+        list.warmDragImages(at: source)
         let writer = try XCTUnwrap(data.collectionView(list, pasteboardWriterForItemAt: source))
         let info = DragFixture(source: list)
         let item = NSDraggingItem(pasteboardWriter: writer)
         item.draggingFrame = try itemFrame(id, in: list)
+        if let components = list.item(at: source)?.draggingImageComponents {
+            item.imageComponentsProvider = { components }
+        }
         info.draggingItem = item
         XCTAssertTrue(info.draggingPasteboard.writeObjects([writer]))
         return info
@@ -800,6 +1039,10 @@ import XCTest
         XCTAssertEqual(list.insertionMarkerFrame != nil, accepted)
         XCTAssertEqual(list.prepareForDragOperation(info), accepted)
         XCTAssertEqual(list.performDragOperation(info), accepted)
+        if accepted {
+            list.concludeDragOperation(info)
+            try await wait("Drop did not publish") { data.controller?.sidebar.dragging == false }
+        }
         XCTAssertNil(list.insertionMarkerFrame)
     }
 
@@ -970,6 +1213,18 @@ import XCTest
     }
 }
 
+
+@MainActor private final class SidebarDragTestDisplayLink: NSObject {
+    private var start: CFTimeInterval?
+    private(set) var elapsed: CFTimeInterval = 0
+    var onFrame: ((CFTimeInterval, CFTimeInterval) -> Void)?
+
+    @objc func tick(_ link: CADisplayLink) {
+        if start == nil { start = link.timestamp }
+        elapsed = link.timestamp - (start ?? link.timestamp)
+        onFrame?(link.timestamp, elapsed)
+    }
+}
 
 @MainActor private final class DragFixture: NSObject, NSDraggingInfo {
     let source: SidebarTabCollection

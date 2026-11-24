@@ -61,7 +61,7 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
     }
     func pointer(_ inside: Bool, moved: Bool = false, drag: Bool = false) {
         pointerInside = inside
-        dwell?.cancel(); dwell = nil
+        cancelPendingPeek()
         if inside {
             leave?.cancel(); leave = nil
             guard rail, !webpageFullscreen, drag || (hoverEnabled && !voiceOver) else { return }
@@ -72,6 +72,10 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
                 self.peeking = true; self.dwell = nil
             }
         } else { releaseIfNeeded() }
+    }
+    func cancelPendingPeek() {
+        dwell?.cancel()
+        dwell = nil
     }
     private func releaseIfNeeded() {
         leave?.cancel(); leave = nil
@@ -85,7 +89,8 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
         }
     }
     func dismissPeek() {
-        dwell?.cancel(); dwell = nil; leave?.cancel(); leave = nil; peeking = false
+        cancelPendingPeek()
+        leave?.cancel(); leave = nil; peeking = false
     }
     func dismissOverlay() { dismissPeek(); narrowOverlay = false }
     func fullscreen(_ value: Bool) {
@@ -214,8 +219,10 @@ struct SidebarWindowEvents: NSViewRepresentable {
                     self.dismiss?(); return nil
                 }
                 if event.type == .leftMouseDown {
-                    if !controller.tabSearchPanel,
-                       self.tabList?.collection?.interact(at: event.locationInWindow) == true { return nil }
+                    if !controller.tabSearchPanel, let list = self.tabList?.collection {
+                        if list.interact(at: event.locationInWindow) { return nil }
+                        list.warmDragImages(atWindowPoint: event.locationInWindow)
+                    }
                     if controller.tabSearchPanel, let content = self.window?.contentView {
                         let insidePanel = self.target(at: event.locationInWindow, in: content) { $0 == .searchPanel } != nil
                         if !insidePanel { self.dismiss?() }

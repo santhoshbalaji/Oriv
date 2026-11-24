@@ -163,8 +163,20 @@ under the current user's home directory. The record contains the interval
 count, p50, p95 and maximum in milliseconds for the drag and each sampled
 phase. Each hitch includes its phase and the expected interval. A hitch is
 an interval greater than 1.5 times the preceding callback's expected frame
-duration. The log contains timing and drag phases only. Delivery gaps are
-a main-run-loop pacing signal. WindowServer render time requires separate measurement.
+duration. Compare each hitch with the `mainThreadWork` entries for that drag.
+Each entry has its phase, the next interval's frame number, its start offset in
+milliseconds from recorder creation, and its main-thread duration. The
+`dragBegin` offset can be slightly negative because recording starts inside it.
+
+- `dragBegin` covers drag registration and taking the cached preview pair.
+- `dragSetup` covers source concealment and any empty drop heading.
+- `previewSwap` covers installing the cached row or tile image.
+- `dropRelease` covers accepting the drop and giving AppKit the landing frame.
+- `dropCommit` covers publishing the move and reconciling the collection after
+  the landing handoff.
+
+The log contains timing and drag phases only. Delivery gaps measure
+main-run-loop pacing. WindowServer render time requires separate measurement.
 
 ### Live sidebar drag trace
 
@@ -187,13 +199,20 @@ Compare dropped frames and hitch duration near each gesture at the display's
 actual refresh rate.
 
 Filter the signpost instrument to subsystem `Oriv` and category
-`SidebarDrag`. `DragImage` measures the source capture and preparation of
-the alternate row or tile image. `DragStart`
+`SidebarDrag`. `DragImage` measures preview rendering, normally before the drag.
+`DragStart`
 and `DragSetup` identify the native session start and preparation of any empty
 target. `DraggingUpdated` measures pointer validation and routing.
 `DragRelayout` measures the applied gap and temporary section changes.
-`DropCommit` measures the model move and destination handoff. Compare these
+`DropCommit` measures the model move after the destination handoff. Compare these
 intervals with the Hitches, Core Animation Commits and Frame Lifetimes tracks.
+
+The off-screen frame-sequence test attaches per-display-link JSON samples with
+item presentation frames and opacity, projected targets, scroll position and the
+simulated dragging item's frame. It covers both reorder formats, both pin
+crossings, the rail, edge scroll, cancellation and the drop handoff. The native
+drag image is owned by AppKit, so its screen compositing and physical pointer
+tracking remain manual checks.
 
 The off-screen 100-tab drag probe measures callback and layout CPU at 60 and
 120 Hz input cadences. A separate test asserts that equivalent slots schedule

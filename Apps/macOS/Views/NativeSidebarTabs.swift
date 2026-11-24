@@ -157,7 +157,6 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
     private var contentSize = NSSize.zero
     var preview: Gap?
     var hidesSource = false
-    var landing: IndexPath?
     var gapFrame: NSRect? { projectedGap.map { projected[$0.section].frame(at: $0.slot) } }
     func previewSize(section: Int) -> NSSize? {
         guard base.indices.contains(section) else { return nil }
@@ -181,11 +180,15 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
         func makeGeometry(_ geometry: inout [SectionGeometry], source: IndexPath?, gap: Gap?) -> CGFloat {
             geometry.removeAll(keepingCapacity: true)
             var y: CGFloat = 0
+            var hasVisibleSection = false
             for (index, group) in sections.enumerated() {
-                let header = NSRect(x: 0, y: y, width: width, height: group.headerHeight)
+                let count = group.tabs.count - (source?.section == index ? 1 : 0) + (gap?.section == index ? 1 : 0)
+                let headerHeight = gap == nil ? group.headerHeight :
+                    data.projectedHeaderHeight(for: group, count: count, hasVisibleSection: hasVisibleSection)
+                if count > 0 { hasVisibleSection = true }
+                let header = NSRect(x: 0, y: y, width: width, height: headerHeight)
                 y += header.height
                 let top = y
-                let count = group.tabs.count - (source?.section == index ? 1 : 0) + (gap?.section == index ? 1 : 0)
                 let columns = group.grid ? pinGrid.columns : 1
                 let height = group.grid ? OrivLayout.sidebarPinHeight : rowHeight
                 let spacing = group.grid ? OrivLayout.sidebarPinGap : rowSpacing
@@ -259,7 +262,7 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
             let slot = peer + (projectedGap?.section == path.section && peer >= (projectedGap?.slot ?? peer + 1) ? 1 : 0)
             attributes.frame = projected[path.section].frame(at: slot)
         }
-        if path == hiddenSource || path == landing { attributes.alpha = 0 }
+        if path == hiddenSource { attributes.alpha = 0 }
         return attributes
     }
 
@@ -358,10 +361,8 @@ private struct SidebarSection {
     var normalPinCount = 0
     var separator = false
     var pinTarget: SidebarDropTarget? = nil
-    var retainedHeaderHeight: CGFloat? = nil
 
     var headerHeight: CGFloat {
-        if let retainedHeaderHeight { return retainedHeaderHeight }
         if separator { return 25 }
         switch heading {
         case "Pinned", "Pin tab": return OrivLayout.sidebarSectionHeight
@@ -383,8 +384,8 @@ private struct SidebarSection {
     private(set) var hovered: IndexPath?
     private var hoveredAccessory: SidebarRowAccessory?
     private var drag: SidebarTabTransfer?
-    private var dragCommitted = false
-    private weak var dragImageSource: SidebarCollectionItem?
+    private var pendingDrop: SidebarTabLayout.Drop?
+    private var dropHandoff: Task<Void, Never>?
     private var validatedPasteboard: (sequence: Int, version: Int, matches: Bool)?
     private var paths: [UUID: IndexPath] = [:]
     private var deferredIconURLs: Set<URL> = []
@@ -401,18 +402,17 @@ private struct SidebarSection {
 
     private enum DragUpdate {
         case sections
-        case move(UUID, hideLanding: Bool)
+        case move(UUID)
     }
 
-    private func makeSections(_ configuration: NativeSidebarTabs) -> [SidebarSection] {
+    private func makeSections(_ configuration: NativeSidebarTabs, publishingDrop: Bool) -> [SidebarSection] {
         let pinned = configuration.tabs.filter(\.isPinned)
         let regular = configuration.tabs.filter { !$0.isPinned && !$0.isPrivate }
         let privateTabs = configuration.tabs.filter { $0.isPrivate && !$0.isPinned }
-        let pinDrag = dragCommitted ? nil : dragPath.flatMap(tab(at:))
+        let pinDrag = publishingDrop ? nil : dragPath.flatMap(tab(at:))
         let pinning = pinDrag?.isPinned == false
         let unpinningRegular = pinDrag?.isPinned == true && pinDrag?.isPrivate == false
         let unpinningPrivate = pinDrag?.isPinned == true && pinDrag?.isPrivate == true
-        let retainSections = dragCommitted ? sections : []
         let icons = configuration.rail || configuration.peek
         let privateHeading = configuration.controller.profile == nil ? nil : "Private"
         var hasVisibleSection = false
@@ -424,27 +424,39 @@ private struct SidebarSection {
         // The native drag session holds the original index path. Empty
         // sections take no space until they become drop targets.
         return groups.map { kind, tabs, title, emptyTitle, wantsEmptyTarget in
-            let retained = retainSections.first { $0.kind == kind }
-            guard !tabs.isEmpty || wantsEmptyTarget || retained?.pinTarget != nil else {
+            let grid = kind == .pinned && !icons && !configuration.searching
+            guard !tabs.isEmpty || wantsEmptyTarget else {
                 if kind == .regular && configuration.tabs.isEmpty {
                     return SidebarSection(kind: .empty, tabs: [], heading: configuration.searching ? "No matching tabs" : "No tabs")
                 }
-                return SidebarSection(kind: kind, tabs: [])
+                return SidebarSection(kind: kind, tabs: [], grid: grid)
             }
             let heading: String?
             if tabs.isEmpty {
-                heading = retained != nil ? retained?.heading : emptyTitle
+                heading = emptyTitle
             } else {
                 heading = icons ? nil : title
             }
-            let separator = retained?.separator ?? (icons && (hasVisibleSection || heading != nil))
+            let separator = icons && (hasVisibleSection || heading != nil)
             hasVisibleSection = true
             return SidebarSection(kind: kind, tabs: tabs, heading: heading,
-                                  count: icons ? 0 : tabs.count, grid: kind == .pinned && !icons && !configuration.searching,
+                                  count: icons ? 0 : tabs.count, grid: grid,
                                   normalPinCount: kind == .pinned ? tabs.prefix { !$0.isPrivate }.count : 0,
-                                  separator: separator, pinTarget: .pinned(kind == .pinned, isPrivate: kind == .privateTabs),
-                                  retainedHeaderHeight: retained?.headerHeight)
+                                  separator: separator, pinTarget: .pinned(kind == .pinned, isPrivate: kind == .privateTabs))
         }
+    }
+
+    fileprivate func projectedHeaderHeight(for group: SidebarSection, count: Int, hasVisibleSection: Bool) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let heading: String?
+        switch group.kind {
+        case .pinned: heading = "Pinned"
+        case .regular: heading = "Tabs"
+        case .privateTabs: heading = controller?.profile == nil ? nil : "Private"
+        case .empty: heading = nil
+        }
+        return SidebarSection(kind: group.kind, tabs: [], heading: isIconLayout ? nil : heading,
+                              separator: isIconLayout && hasVisibleSection).headerHeight
     }
 
     func update(_ value: NativeSidebarTabs, environment: EnvironmentValues) {
@@ -461,7 +473,8 @@ private struct SidebarSection {
         let oldShown = selectedID
         let ownsFocus = list.window?.firstResponder === list
         let oldSections = sections
-        let newSections = makeSections(value)
+        let publishingDrop = if case .move = dragUpdate { true } else { false }
+        let newSections = makeSections(value, publishingDrop: publishingDrop)
         let oldKinds = oldSections.map(\.kind)
         let newKinds = newSections.map(\.kind)
         let changesLayout = old?.rail != value.rail || old?.peek != value.peek || old?.searching != value.searching ||
@@ -499,7 +512,7 @@ private struct SidebarSection {
             } else {
                 applySections()
             }
-        case .move(let id, let hideLanding):
+        case .move(let id):
             let from = paths[id]
             let to = newSections.enumerated().lazy.compactMap { index, group in
                 group.tabs.firstIndex { $0.id == id }.map { IndexPath(item: $0, section: index) }
@@ -508,13 +521,12 @@ private struct SidebarSection {
                 applySections()
                 list.clearDragPreviewForContentChange()
                 layout?.hidesSource = false
-                layout?.landing = hideLanding ? to : nil
                 layout?.invalidateLayout()
             }
 
             if let from, let to, from != to {
                 // The visible siblings are already in their projected positions.
-                // Commit them in place while AppKit moves the drag image to the gap.
+                // Keep the same collection items when publishing the landed move.
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0
                     list.performBatchUpdates {
@@ -532,7 +544,7 @@ private struct SidebarSection {
             if changesContent { list.reloadData() }
             if needsLayout {
                 layout?.invalidateLayout()
-                if drag != nil && !dragCommitted { list.refreshDragDestination() }
+                if drag != nil && pendingDrop == nil { list.refreshDragDestination() }
             }
         }
 
@@ -557,13 +569,16 @@ private struct SidebarSection {
     }
 
     func detach() {
+        dropHandoff?.cancel()
+        dropHandoff = nil
+        if let pendingDrop, let drag, let controller {
+            _ = applyModelDrop(pendingDrop, drag: drag, controller: controller)
+        }
+        pendingDrop = nil
         list?.finishDragPresentation()
         deferredIconURLs.removeAll()
         if drag != nil {
             drag = nil
-            dragCommitted = false
-            dragImageSource?.clearDragImage()
-            dragImageSource = nil
             configuration?.controller.sidebar.dragging = false
             configuration?.controller.sidebar.pointer(false, drag: false)
         }
@@ -760,9 +775,9 @@ private struct SidebarSection {
         }
     }
 
-    fileprivate func preview(for section: Int, size: NSSize, scale: CGFloat) -> NSDraggingImageComponent? {
-        guard sections.indices.contains(section), let configuration, let source = dragPath, let tab = tab(at: source) else { return nil }
-        let artwork = artwork(for: tab, in: configuration, grid: sections[section].grid, hovered: false, accessory: nil)
+    fileprivate func preview(for tab: BrowserTab, grid: Bool, size: NSSize, scale: CGFloat) -> NSDraggingImageComponent? {
+        guard let configuration else { return nil }
+        let artwork = artwork(for: tab, in: configuration, grid: grid, hovered: false, accessory: nil)
         let renderer = ImageRenderer(content: artwork(selectedID == tab.id, true).frame(width: size.width, height: size.height))
         renderer.scale = scale
         guard let image = renderer.cgImage else { return nil }
@@ -861,42 +876,50 @@ private struct SidebarSection {
     func beginDrag(at path: IndexPath) {
         os_signpost(.begin, log: sidebarDragLog, name: "DragStart")
         defer { os_signpost(.end, log: sidebarDragLog, name: "DragStart") }
-        guard let tab = tab(at: path), let controller else { return }
+        guard drag == nil, let tab = tab(at: path), let controller else { return }
+        let started = CACurrentMediaTime()
         validatedPasteboard = nil
         drag = SidebarTabTransfer(id: tab.id, owner: controller.sidebarDragID)
-        dragImageSource = list?.item(at: path) as? SidebarCollectionItem
-        list?.beginDragPresentation()
+        list?.beginDragPresentation(at: path, started: started)
         // Leave AppKit's source index path untouched while it takes the image.
         Task { [weak self] in self?.activateDrag() }
     }
 
     fileprivate func activateDrag() {
         guard drag != nil, let controller, !controller.sidebar.dragging else { return }
+        let started = CACurrentMediaTime()
+        defer { list?.recordDragWork("dragSetup", started: started) }
         os_signpost(.begin, log: sidebarDragLog, name: "DragSetup")
         defer { os_signpost(.end, log: sidebarDragLog, name: "DragSetup") }
         controller.sidebarTooltip.dismiss()
         setHovered(nil)
         list?.hideDragSource(at: dragPath)
-        applyDragState(true)
-        list?.layoutSubtreeIfNeeded()
-        list?.warmDragPreview()
+        controller.sidebar.dragging = true
+        setDragPointer(true)
+        if let path = dragPath, let tab = tab(at: path),
+           sections[tab.isPinned ? (tab.isPrivate ? 2 : 1) : 0].tabs.isEmpty,
+           let configuration {
+            update(configuration, environment: environment, dragUpdate: .sections)
+        }
     }
 
     func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession,
                         endedAt screenPoint: NSPoint, dragOperation operation: NSDragOperation) {
         // A successful destination concludes after AppKit's image lands.
-        if operation != .move || !dragCommitted { endDrag() }
+        if pendingDrop == nil { endDrag() }
     }
 
     func endDrag() {
-        guard drag != nil else { return }
-        list?.finishDragPresentation()
-        drag = nil
-        dragCommitted = false
-        dragImageSource?.clearDragImage()
-        dragImageSource = nil
-        applyDragState(false)
-        list?.layoutSubtreeIfNeeded()
+        guard drag != nil, pendingDrop == nil else { return }
+        list?.animateDropSections {
+            list?.finishDragPresentation()
+            drag = nil
+            applyDragState(false)
+        }
+        notifyDragFinished()
+    }
+
+    private func notifyDragFinished() {
         (list?.enclosingScrollView as? SidebarTabScrollView)?.profiles?.sidebarSwitch.sidebarDragFinished()
         let urls = deferredIconURLs
         deferredIconURLs.removeAll()
@@ -915,7 +938,7 @@ private struct SidebarSection {
     }
 
     fileprivate func acceptsDrag(_ info: NSDraggingInfo, readPasteboard: Bool = false) -> Bool {
-        guard let list, let controller, let drag, !dragCommitted, controller.session.isProfileActive,
+        guard let list, let controller, let drag, pendingDrop == nil, controller.session.isProfileActive,
               info.draggingSource as? NSCollectionView === list,
               info.draggingSourceOperationMask.contains(.move), drag.owner == controller.sidebarDragID else { return false }
         let pasteboard = info.draggingPasteboard
@@ -929,18 +952,65 @@ private struct SidebarSection {
         return matches
     }
 
-    fileprivate func commit(_ drop: SidebarTabLayout.Drop, animated: Bool) -> IndexPath? {
-        guard let drag, let source = dragPath, var value = configuration else { return nil }
-        let controller = value.controller
-        let staysInPlace = source.section == drop.gap.section && source.item == drop.gap.slot
-        guard staysInPlace || SidebarTabs.drop([drag], on: drop.target, controller: controller) else { return nil }
+    fileprivate func acceptDrop(_ drop: SidebarTabLayout.Drop) -> Bool {
+        guard let drag, let source = dragPath, let controller else { return false }
+        guard staysInPlace(drop, source: source) || SidebarTabs.canDrop(drag, on: drop.target, controller: controller) else { return false }
+        pendingDrop = drop
+        // Preserve the release geometry if a rail dwell was about to reveal titles.
+        controller.sidebar.cancelPendingPeek()
+        return true
+    }
 
-        dragCommitted = true
-        value.tabs = value.searchRequest.map(controller.tabSearchResults) ?? controller.session.orderedTabs
-        value.duplicateTitles = SidebarTabs.duplicateTitles(in: value.tabs)
-        update(value, environment: environment, dragUpdate: .move(drag.id, hideLanding: animated))
-        list?.layoutSubtreeIfNeeded()
-        return path(for: drag.id)
+    private func staysInPlace(_ drop: SidebarTabLayout.Drop, source: IndexPath) -> Bool {
+        source.section == drop.gap.section && source.item == drop.gap.slot
+    }
+
+    private func applyModelDrop(_ drop: SidebarTabLayout.Drop, drag: SidebarTabTransfer, controller: BrowserController) -> Bool {
+        guard let source = dragPath else { return false }
+        return staysInPlace(drop, source: source) || SidebarTabs.drop([drag], on: drop.target, controller: controller)
+    }
+
+    fileprivate func concludeDrop() {
+        guard pendingDrop != nil, dropHandoff == nil else { return }
+        list?.holdLandingImage()
+        // AppKit is still showing its image in concludeDragOperation. Keep an
+        // identical local image while it removes that image and returns to the
+        // run loop. Publish the model after the visual handoff.
+        dropHandoff = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+            self?.publishDrop()
+        }
+    }
+
+    private func publishDrop() {
+        guard let drop = pendingDrop, let drag, var value = configuration, let list else { return }
+        list.markDropPublication()
+        let started = CACurrentMediaTime()
+        os_signpost(.begin, log: sidebarDragLog, name: "DropCommit")
+        defer { os_signpost(.end, log: sidebarDragLog, name: "DropCommit") }
+        let accepted = applyModelDrop(drop, drag: drag, controller: value.controller)
+        dropHandoff = nil
+
+        if accepted {
+            value.tabs = value.searchRequest.map(value.controller.tabSearchResults) ?? value.controller.session.orderedTabs
+            value.duplicateTitles = SidebarTabs.duplicateTitles(in: value.tabs)
+            list.animateDropSections {
+                update(value, environment: environment, dragUpdate: .move(drag.id))
+            }
+            // The other rows already have the final geometry. Uncover the
+            // landing once the moved item and its artwork have been laid out.
+            self.drag = nil
+            pendingDrop = nil
+            value.controller.sidebar.dragging = false
+            setDragPointer(false)
+            list.recordDragWork("dropCommit", started: started)
+            list.finishDragPresentation()
+            notifyDragFinished()
+        } else {
+            pendingDrop = nil
+            list.recordDragWork("dropCommit", started: started)
+            endDrag()
+        }
     }
 
 }
@@ -960,11 +1030,16 @@ final class SidebarTabCollection: NSCollectionView {
     }()
     private var edgeScroll: Timer?
     private var dragLocation: NSPoint?
+    private weak var trackingDrag: (any NSDraggingInfo)?
     private var lastScrollTick: TimeInterval?
     private var requestedDrop: SidebarTabLayout.Drop?
     private var sourcePreview: NSDraggingImageComponent?
     private var alternatePreview: NSDraggingImageComponent?
+    private var sourceUsesGrid = false
     private var showingAlternatePreview = false
+    private weak var warmedItem: SidebarCollectionItem?
+    private var previewWarmup: Task<Void, Never>?
+    private var landingImage: SidebarDragLandingView?
     private var dragLayout: SidebarTabLayout? { collectionViewLayout as? SidebarTabLayout }
     var insertionMarkerFrame: NSRect? { insertionMarker.superview == nil ? nil : insertionMarker.frame }
     #if DEBUG
@@ -973,6 +1048,7 @@ final class SidebarTabCollection: NSCollectionView {
     private(set) var dragImageRenderCount = 0
     private var framePacing: SidebarDragFramePacing?
     var dragFramePacingTestOutput: URL?
+    var dragLandingFrame: CGRect? { landingImage?.layer?.presentation()?.frame ?? landingImage?.frame }
 
     fileprivate func didRefreshDragArtwork() {
         if sidebar?.isDragging == true { dragArtworkRefreshCount += 1 }
@@ -992,13 +1068,18 @@ final class SidebarTabCollection: NSCollectionView {
         showInsertionMarker(nil)
     }
 
-    fileprivate func beginDragPresentation() {
+    fileprivate func beginDragPresentation(at path: IndexPath, started: CFTimeInterval) {
         #if DEBUG
         if sidebar?.controller?.testing == false || dragFramePacingTestOutput != nil {
             framePacing = SidebarDragFramePacing.start(in: self, output: dragFramePacingTestOutput)
         }
         #endif
-        if let path = sidebar?.dragPath { sourcePreview = item(at: path)?.draggingImageComponents.first }
+        previewWarmup?.cancel()
+        warmDragImages(at: path)
+        sourcePreview = warmedItem?.dragImages?.source
+        alternatePreview = warmedItem?.dragImages?.alternate
+        sourceUsesGrid = sidebar?.sections[path.section].grid == true
+        recordDragWork("dragBegin", started: started)
     }
 
     fileprivate func hideDragSource(at path: IndexPath?) {
@@ -1011,52 +1092,101 @@ final class SidebarTabCollection: NSCollectionView {
         }
     }
 
-    fileprivate func warmDragPreview() {
-        guard let sidebar, let path = sidebar.dragPath, sidebar.sections.indices.contains(path.section),
-              let section = sidebar.sections.firstIndex(where: {
-                  $0.pinTarget != nil && $0.grid != sidebar.sections[path.section].grid
-              }) else { return }
-        _ = alternateImage(for: section)
-    }
+    func warmDragImages(at path: IndexPath) {
+        guard let sidebar, let tab = sidebar.tab(at: path),
+              let item = item(at: path) as? SidebarCollectionItem, item.tab === tab,
+              let layout = dragLayout, let size = layout.previewSize(section: path.section), size.width > 0, size.height > 0 else { return }
+        let scale = window?.backingScaleFactor ?? 2
+        let grid = sidebar.sections[path.section].grid
+        let alternateSize = sidebar.isIconLayout || sidebar.isSearching ? nil : layout.previewSize(section: grid ? 1 : 0)
+        if let cached = item.dragImages, cached.size == size, cached.alternateSize == alternateSize, cached.scale == scale { return }
 
-    private func alternateImage(for section: Int) -> NSDraggingImageComponent? {
-        guard let size = dragLayout?.previewSize(section: section), size.width > 0, size.height > 0 else { return nil }
-        if let alternatePreview, alternatePreview.frame.size == size { return alternatePreview }
         os_signpost(.begin, log: sidebarDragLog, name: "DragImage")
         defer { os_signpost(.end, log: sidebarDragLog, name: "DragImage") }
         #if DEBUG
         dragImageRenderCount += 1
         #endif
-        alternatePreview = sidebar?.preview(for: section, size: size, scale: window?.backingScaleFactor ?? 2)
-        return alternatePreview
+        guard let source = sidebar.preview(for: tab, grid: grid, size: size, scale: scale) else { return }
+        let alternate = alternateSize.flatMap { sidebar.preview(for: tab, grid: !grid, size: $0, scale: scale) }
+        warmedItem?.dragImages = nil
+        item.dragImages = SidebarDragImages(size: size, alternateSize: alternateSize, scale: scale,
+                                           source: source, alternate: alternate)
+        warmedItem = item
+    }
+
+    private func warmHoveredDragImages(at path: IndexPath?) {
+        previewWarmup?.cancel()
+        guard let path, let id = sidebar?.tab(at: path)?.id else { return }
+        previewWarmup = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(40)) } catch { return }
+            guard let self, sidebar?.isDragging == false, let current = sidebar?.path(for: id) else { return }
+            warmDragImages(at: current)
+        }
+    }
+
+    func warmDragImages(atWindowPoint point: NSPoint) {
+        guard sidebar?.isDragging == false else { return }
+        let local = convert(point, from: nil)
+        if visibleRect.contains(local), let path = indexPathForItem(at: local) { warmDragImages(at: path) }
     }
 
     private func updateDragImage(_ sender: NSDraggingInfo, for drop: SidebarTabLayout.Drop?) {
         guard let sidebar, let source = sidebar.dragPath else { return }
         let section = drop?.gap.section ?? source.section
-        guard sidebar.sections.indices.contains(section), sidebar.sections.indices.contains(source.section) else { return }
-        let alternate = sidebar.sections[section].grid != sidebar.sections[source.section].grid
-        let size = dragLayout?.previewSize(section: section)
-        guard alternate != showingAlternatePreview || (alternate && alternatePreview?.frame.size != size),
-              let component = alternate ? alternateImage(for: section) : sourcePreview else { return }
+        guard sidebar.sections.indices.contains(section) else { return }
+        let alternate = sidebar.sections[section].grid != sourceUsesGrid
+        guard alternate != showingAlternatePreview, let component = alternate ? alternatePreview : sourcePreview else { return }
+        let started = CACurrentMediaTime()
+        defer { recordDragWork("previewSwap", started: started) }
         sender.enumerateDraggingItems(options: [], for: self, classes: [NSPasteboardItem.self], searchOptions: [:]) { item, _, _ in
             let frame = item.draggingFrame
             let size = component.frame.size
-            // Preserve the center of the native image through a format change.
-            item.setDraggingFrame(NSRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2,
-                                         width: size.width, height: size.height), contents: component.contents)
+            item.draggingFrame = NSRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2,
+                                        width: size.width, height: size.height)
+            item.imageComponentsProvider = { [component] }
             self.showingAlternatePreview = alternate
         }
+    }
+
+    private var currentPreview: NSDraggingImageComponent? { showingAlternatePreview ? alternatePreview : sourcePreview }
+
+    private func landingFrame(in gap: NSRect) -> NSRect {
+        let size = currentPreview?.frame.size ?? gap.size
+        return NSRect(x: gap.midX - size.width / 2, y: gap.midY - size.height / 2, width: size.width, height: size.height)
+    }
+
+    fileprivate func holdLandingImage() {
+        guard let gap = dragLayout?.gapFrame, let image = currentPreview?.contents else { return }
+        let view = SidebarDragLandingView(frame: landingFrame(in: gap))
+        view.wantsLayer = true
+        view.layerContentsRedrawPolicy = .never
+        view.layer?.contents = image
+        addSubview(view, positioned: .above, relativeTo: nil)
+        landingImage = view
+        showInsertionMarker(nil)
+    }
+
+    fileprivate func markDropPublication() {
+        #if DEBUG
+        framePacing?.phase = "publish"
+        #endif
+    }
+
+    fileprivate func recordDragWork(_ name: String, started: CFTimeInterval) {
+        #if DEBUG
+        framePacing?.recordWork(name, started: started)
+        #endif
     }
 
     fileprivate func finishDragPresentation() {
         stopEdgeScrolling()
         dragLocation = nil
-        if let layout = dragLayout {
-            let concealed = layout.landing ?? (layout.hidesSource ? sidebar?.dragPath : nil)
-            layout.landing = nil
+        trackingDrag = nil
+        landingImage?.removeFromSuperview()
+        landingImage = nil
+        if let layout = dragLayout, layout.hidesSource {
             layout.hidesSource = false
-            if let concealed {
+            if let concealed = sidebar?.dragPath {
                 let context = NSCollectionViewLayoutInvalidationContext()
                 context.invalidateItems(at: [concealed])
                 layout.invalidateLayout(with: context)
@@ -1143,8 +1273,9 @@ final class SidebarTabCollection: NSCollectionView {
         func capture(_ view: NSView, tab: UUID? = nil) {
             guard let view = view as? SidebarReflowView, let layer = view.layer, !view.isHidden, view.alphaValue > 0 else { return }
             let current = view.reflow?.sample(at: layer.convertTime(time, from: nil))
+            let presented = current == nil ? nil : layer.presentation()?.position
             positions.append(Position(view: view, tab: tab, frame: view.frame,
-                                      position: current?.position ?? layer.position,
+                                      position: presented ?? current?.position ?? layer.position,
                                       velocity: current?.velocity ?? .zero))
         }
         for case let item as SidebarCollectionItem in visibleItems() {
@@ -1221,6 +1352,7 @@ final class SidebarTabCollection: NSCollectionView {
         }
         let drop = drop(at: dragLocation)
         requestDrop(drop)
+        if let trackingDrag, let drop { updateDragImage(trackingDrag, for: drop) }
         #if DEBUG
         updateFramePhase(for: drop, scrolling: true)
         #endif
@@ -1248,6 +1380,7 @@ final class SidebarTabCollection: NSCollectionView {
             return []
         }
         let point = sender.draggingLocation
+        trackingDrag = sender
         dragLocation = point
         updateEdgeScrolling(at: point)
         let drop = drop(at: point)
@@ -1255,13 +1388,15 @@ final class SidebarTabCollection: NSCollectionView {
         #if DEBUG
         updateFramePhase(for: drop)
         #endif
+        guard let drop else { return [] }
         updateDragImage(sender, for: drop)
-        return drop == nil ? [] : .move
+        return .move
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         if let sender, sidebar?.acceptsDrag(sender) == true { updateDragImage(sender, for: nil) }
         sidebar?.setDragPointer(false)
+        trackingDrag = nil
         dragLocation = nil
         stopEdgeScrolling()
         requestDrop(nil)
@@ -1281,30 +1416,20 @@ final class SidebarTabCollection: NSCollectionView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        os_signpost(.begin, log: sidebarDragLog, name: "DropCommit")
-        defer { os_signpost(.end, log: sidebarDragLog, name: "DropCommit") }
-        guard sidebar?.acceptsDrag(sender, readPasteboard: true) == true, let layout = dragLayout,
-              let drop = drop(at: sender.draggingLocation) else { return false }
-        let animated = sender.animatesToDestination
-        let positions = animated ? visiblePositions() : []
-        #if DEBUG
-        framePacing?.phase = "commit"
-        #endif
-        var committedPath: IndexPath?
-        withoutImplicitDragAnimation {
-            committedPath = sidebar?.commit(drop, animated: animated)
-            if committedPath != nil { animatePositions(from: positions) }
-        }
-        guard let path = committedPath else { return false }
+        let started = CACurrentMediaTime()
+        guard let sidebar, sidebar.acceptsDrag(sender, readPasteboard: true),
+              let drop = requestedDrop, sidebar.acceptDrop(drop) else { return false }
         stopEdgeScrolling()
-        if animated, let destination = layout.layoutAttributesForItem(at: path)?.frame {
+        dragLocation = nil
+        trackingDrag = nil
+        if sender.animatesToDestination, let gap = dragLayout?.gapFrame {
             sender.draggingFormation = .none
+            let destination = landingFrame(in: gap)
             sender.enumerateDraggingItems(options: [], for: self, classes: [NSPasteboardItem.self], searchOptions: [:]) { item, _, _ in
-                let size = item.draggingFrame.size
-                item.draggingFrame.origin = NSPoint(x: destination.midX - size.width / 2, y: destination.midY - size.height / 2)
+                item.draggingFrame = destination
             }
         }
-        dragLocation = nil
+        recordDragWork("dropRelease", started: started)
         #if DEBUG
         framePacing?.phase = "settling"
         #endif
@@ -1312,7 +1437,7 @@ final class SidebarTabCollection: NSCollectionView {
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-        sidebar?.endDrag()
+        sidebar?.concludeDrop()
     }
 
     #if DEBUG
@@ -1452,11 +1577,12 @@ final class SidebarTabCollection: NSCollectionView {
         let point = convert(event.locationInWindow, from: nil)
         let path = indexPathForItem(at: point)
         let item = path.flatMap { self.item(at: $0) as? SidebarCollectionItem }
+        if sidebar?.hovered != path { warmHoveredDragImages(at: path) }
         sidebar?.setHovered(path, accessory: item.flatMap { $0.accessory(at: $0.view.convert(point, from: self), includesClose: true) })
-
     }
 
     override func mouseExited(with event: NSEvent) {
+        warmHoveredDragImages(at: nil)
         guard sidebar?.isDragging != true else { return }
         sidebar?.controller?.sidebar.pointer(false)
         sidebar?.setHovered(nil)
@@ -1499,8 +1625,8 @@ private final class SidebarArtworkHost: NSHostingView<AnyView> {
     override func accessibilityIsIgnored() -> Bool { true }
 }
 
-/// A short cubic trajectory ends at rest and carries its instantaneous
-/// velocity into a new target, including reversals in the tile grid.
+/// A monotone cubic starts at the presented position and ends at rest.
+/// Carry as much incoming velocity as the new target permits.
 struct SidebarReflowMotion {
     let start: CGPoint
     let end: CGPoint
@@ -1513,6 +1639,8 @@ struct SidebarReflowMotion {
         let remaining = 1 - t
         func axis(_ start: CGFloat, _ end: CGFloat, _ velocity: CGFloat) -> (CGFloat, CGFloat) {
             let distance = end - start
+            let limit = 3 * distance / Self.duration
+            let velocity = min(max(velocity, min(0, limit)), max(0, limit))
             let position = start + distance * (t * t * (3 - 2 * t)) +
                 velocity * (Self.duration * t * remaining * remaining)
             let speed = distance * (6 * t * remaining / Self.duration) +
@@ -1555,6 +1683,19 @@ private class SidebarReflowView: NSView {
     }
 }
 
+private struct SidebarDragImages {
+    let size: NSSize
+    let alternateSize: NSSize?
+    let scale: CGFloat
+    let source: NSDraggingImageComponent
+    let alternate: NSDraggingImageComponent?
+}
+
+private final class SidebarDragLandingView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func accessibilityIsIgnored() -> Bool { true }
+}
+
 private final class SidebarCollectionItem: NSCollectionViewItem {
     static let identifier = NSUserInterfaceItemIdentifier("Sidebar tab")
     private let host = SidebarArtworkHost(rootView: AnyView(EmptyView()))
@@ -1567,7 +1708,7 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
     var artwork: ((Bool) -> AnyView)?
     var command: ((SidebarTabCommand) -> Void)?
     var open: (() -> Void)?
-    private var dragImage: NSDraggingImageComponent?
+    var dragImages: SidebarDragImages?
 
     override func loadView() {
         let row = SidebarAccessibleRow()
@@ -1586,29 +1727,15 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
     }
 
     override var draggingImageComponents: [NSDraggingImageComponent] {
-        if let dragImage { return [dragImage] }
-        guard let component = captureDragImage(of: view) else { return super.draggingImageComponents }
-        dragImage = component
-        return [component]
+        if dragImages == nil, let list = collectionView as? SidebarTabCollection, let path = list.indexPath(for: self) {
+            list.warmDragImages(at: path)
+        }
+        return dragImages.map { [$0.source] } ?? super.draggingImageComponents
     }
-
-    private func captureDragImage(of view: NSView) -> NSDraggingImageComponent? {
-        os_signpost(.begin, log: sidebarDragLog, name: "DragImage")
-        defer { os_signpost(.end, log: sidebarDragLog, name: "DragImage") }
-        guard !view.bounds.isEmpty, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        guard let image = bitmap.cgImage else { return nil }
-        let component = NSDraggingImageComponent(key: .icon)
-        component.frame = NSRect(origin: .zero, size: view.bounds.size)
-        component.contents = image
-        return component
-    }
-
-    func clearDragImage() { dragImage = nil }
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        clearDragImage()
+        dragImages = nil
         (view as? SidebarReflowView)?.clearReflow()
     }
 
@@ -1622,6 +1749,7 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
 
     func refresh() {
         guard let tab, let artwork else { return }
+        dragImages = nil
         #if DEBUG
         view.identifier = NSUserInterfaceItemIdentifier("sidebarItem-\(tab.id)")
         (collectionView as? SidebarTabCollection)?.didRefreshDragArtwork()
@@ -1819,20 +1947,30 @@ private final class SidebarCollectionHeader: SidebarReflowView, NSCollectionView
         let phase: String
     }
 
+    private struct Work: Encodable, Sendable {
+        let phase: String
+        let frame: Int
+        let offsetMS: Double
+        let durationMS: Double
+    }
+
     private struct Report: Encodable {
         let startedAt: Date
         let total: Stats
         let phases: [String: Stats]
         let hitches: [Hitch]
+        let mainThreadWork: [String: [Work]]
     }
 
     private static let enabledByEnvironment = ProcessInfo.processInfo.environment["ORIV_SIDEBAR_DRAG_FRAMES"] == "1"
     private static let writer = DispatchQueue(label: "Oriv.SidebarDragFrames", qos: .utility)
     private let startedAt = Date()
+    private let startTime = CACurrentMediaTime()
     private let output: URL
     private var link: CADisplayLink?
     private var previous: (timestamp: CFTimeInterval, expected: CFTimeInterval)?
     private var intervals: [Interval] = []
+    private var work: [String: [Work]] = [:]
     var phase = "setup"
 
     private init(output: URL) {
@@ -1859,12 +1997,19 @@ private final class SidebarCollectionHeader: SidebarReflowView, NSCollectionView
         previous = (timestamp, link.targetTimestamp - timestamp)
     }
 
+    func recordWork(_ name: String, started: CFTimeInterval) {
+        let sample = Work(phase: phase, frame: intervals.count + 1,
+                          offsetMS: (started - startTime) * 1_000, durationMS: (CACurrentMediaTime() - started) * 1_000)
+        work[name, default: []].append(sample)
+    }
+
     func finish() {
         link?.invalidate()
         link = nil
         let intervals = intervals
         let startedAt = startedAt
         let file = output
+        let work = work
         Self.writer.async {
             let hitches = intervals.enumerated().compactMap { index, sample -> Hitch? in
                 guard sample.milliseconds > 1.5 * sample.expectedMilliseconds else { return nil }
@@ -1873,7 +2018,7 @@ private final class SidebarCollectionHeader: SidebarReflowView, NSCollectionView
             }
             let report = Report(startedAt: startedAt, total: Stats(intervals),
                                 phases: Dictionary(grouping: intervals, by: \.phase).mapValues(Stats.init),
-                                hitches: hitches)
+                                hitches: hitches, mainThreadWork: work)
             do {
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 var line = try JSONEncoder().encode(report)
