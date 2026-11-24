@@ -461,13 +461,14 @@ struct BrowserWindow: View {
 
     private var addressCapsule: some View {
         @Bindable var ui = self.ui
+        let placeholder = tab?.isPrivate == true ? OrivStrings.privateSearch : OrivStrings.addressPlaceholder
         let palette = MacAddressPalette(color: pageChrome.color, dark: pageChrome.isDark,
                                         focused: addressFocused, environment: environment)
         return HStack(spacing: OrivSpacing.xs) {
             addressLeadingControls
             AddressField(text: $ui.address, isEditing: $addressFocused,
-                         placeholder: tab?.isPrivate == true ? OrivStrings.privateSearch : OrivStrings.addressPlaceholder,
-                         displayText: compactAddress, foreground: chromeForeground, placeholderInk: palette.placeholder,
+                         placeholder: placeholder, displayText: compactAddress,
+                         foreground: chromeForeground, showsNativePlaceholder: false,
                          focusRequest: controller.activeAddressFocusRequest,
                          profileEpoch: controller.sidebarDragID, focusStillValid: { controller.session.isProfileActive }, submit: {
                 if ui.addressMatches.query == ui.address, let index = ui.addressMatches.selected, suggestions.indices.contains(index) {
@@ -482,6 +483,15 @@ struct BrowserWindow: View {
                 .frame(idealWidth: compactAddressWidth, maxWidth: compactAddressWidth ?? .infinity)
                 .frame(maxWidth: .infinity)
                 .frame(height: OrivLayout.controlHeight - OrivSpacing.small)
+                .overlay(alignment: .leading) {
+                    if ui.address.isEmpty && (addressFocused || compactAddress == nil) {
+                        Text(placeholder).font(OrivType.body).foregroundStyle(palette.placeholder)
+                            .lineLimit(1).truncationMode(.tail)
+                            .browserGeometryMarker("browserAddressPlaceholderGeometry")
+                            .padding(.leading, OrivSpacing.xxs)
+                            .allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
                 .layoutPriority(-1)
             addressTrailingControls
         }

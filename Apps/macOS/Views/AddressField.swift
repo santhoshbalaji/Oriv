@@ -34,7 +34,7 @@ struct AddressField: NSViewRepresentable {
     var placeholder = OrivStrings.addressPlaceholder
     var displayText: String? = nil
     var foreground: Color? = nil
-    var placeholderInk: Color? = nil
+    var showsNativePlaceholder = true
     let focusRequest: Int
     var profileEpoch: UUID? = nil
     var focusStillValid: () -> Bool = { true }
@@ -54,7 +54,7 @@ struct AddressField: NSViewRepresentable {
         field.isBezeled = false
         field.drawsBackground = false
         field.font = Self.font
-        field.placeholderString = placeholder
+        field.placeholderString = showsNativePlaceholder ? placeholder : nil
         field.lineBreakMode = .byTruncatingMiddle
         field.maximumNumberOfLines = 1
         field.usesSingleLineMode = true
@@ -74,10 +74,8 @@ struct AddressField: NSViewRepresentable {
         context.coordinator.parent = self
         field.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
         field.textColor = foreground.map(NSColor.init) ?? (theme.isT3Code ? NSColor(theme.text) : .labelColor)
-        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .font: Self.font,
-            .foregroundColor: placeholderInk.map(NSColor.init) ?? (theme.isT3Code ? NSColor(theme.fieldText) : NSColor.placeholderTextColor)
-        ])
+        field.placeholderString = showsNativePlaceholder ? placeholder : nil
+        field.setAccessibilityPlaceholderValue(placeholder)
         (field as? FocusAwareAddressField)?.editingText = text
         let editor = field.currentEditor() as? NSTextView
         field.alignment = editor != nil || displayText == nil ? .natural : .center

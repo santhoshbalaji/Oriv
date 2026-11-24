@@ -643,8 +643,33 @@ import XCTest
             try capture("editing-suggestions-zoom")
 
             _ = c.session.addTab(isPrivate: true, load: false)
-            try await wait("Private address did not mount") { self.marker("privateAddressPillGeometry", in: w) != nil }
+            try await wait("Private address did not mount") {
+                self.marker("privateAddressPillGeometry", in: w) != nil &&
+                    self.marker("browserAddressPlaceholderGeometry", in: w) != nil
+            }
             XCTAssertEqual(try frame("privateAddressPillGeometry").midY, capsule.midY, accuracy: 1)
+            let content = try XCTUnwrap(w.contentView)
+            let hint = content.convert(try frame("browserAddressPlaceholderGeometry"), from: nil)
+            let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: hint))
+            content.cacheDisplay(in: hint, to: bitmap)
+            func luminance(_ color: NSColor) -> Double {
+                guard let color = color.usingColorSpace(.sRGB) else { return 0 }
+                func linear(_ x: Double) -> Double { x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4) }
+                return 0.2126 * linear(color.redComponent) + 0.7152 * linear(color.greenComponent) +
+                    0.0722 * linear(color.blueComponent)
+            }
+            let back = luminance(try XCTUnwrap(bitmap.colorAt(x: 0, y: 0)))
+            var contrast = 1.0
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    if let color = bitmap.colorAt(x: x, y: y) {
+                        let ink = luminance(color)
+                        contrast = max(contrast, (max(back, ink) + 0.05) / (min(back, ink) + 0.05))
+                    }
+                }
+            }
+            XCTAssertGreaterThanOrEqual(contrast, 4.5, "Rendered placeholder contrast in \(appearance.rawValue)")
+            print("ADDRESS_PLACEHOLDER appearance=\(appearance.rawValue) contrast=\(contrast)")
             try capture("private-empty")
         }
     }
