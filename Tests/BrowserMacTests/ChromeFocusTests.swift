@@ -322,12 +322,15 @@ import XCTest
                     return NSPoint(x: header.frame.midX, y: header.frame.midY)
                 }
                 XCTAssertEqual(tab.isPinned, pinning)
-                try await wait("Completed drag did not collapse its empty section") { list.numberOfSections == 1 }
+                let emptySection = pinning ? 1 : 0
+                XCTAssertEqual(list.numberOfItems(inSection: emptySection), 0)
+                XCTAssertNil(list.layoutAttributesForSupplementaryElement(
+                    ofKind: NSCollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: emptySection)))
             }
 
             let other = c.session.addTab(select: false, load: false)
             c.session.togglePinned(other.id)
-            try await wait("Single pin did not mount") { list.sidebar?.path(for: other.id)?.section == 0 && list.numberOfSections == 2 }
+            try await wait("Single pin did not mount") { list.sidebar?.path(for: other.id)?.section == 0 }
             try await drag(tab.id, in: list) {
                 let pin = try self.itemFrame(other.id, in: list)
                 return NSPoint(x: pin.minX + pin.width / 4, y: pin.minY + pin.height / 4)
@@ -359,6 +362,148 @@ import XCTest
             return NSPoint(x: header.frame.midX, y: header.frame.midY)
         }
         XCTAssertFalse(privateTab.isPinned)
+    }
+
+    func testSixTabDragCancelsAndDropsWithAndWithoutPins() async throws {
+        let restoreDefaults = setFramePacingPreference(false)
+        defer { restoreDefaults() }
+        let enabledByEnvironment = ProcessInfo.processInfo.environment["ORIV_SIDEBAR_DRAG_FRAMES"] == "1"
+        let output = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: output) }
+        for withPins in [false, true] {
+            let c = BrowserController(testing: true); defer { c.shutdown() }
+            let source = try XCTUnwrap(c.session.selectedTab)
+            let peers = (0..<5).map { _ in c.session.addTab(select: false, load: false) }
+            if withPins { c.session.togglePinned(peers[0].id) }
+            let w = host(c, reduceMotion: false); defer { w.close() }
+            try await wait("Six-tab drag fixture did not mount") { self.collection(in: w)?.sidebar?.path(for: peers[4].id) != nil }
+            let list = try XCTUnwrap(collection(in: w))
+            let file = output.appendingPathComponent(UUID().uuidString)
+            list.dragFramePacingTestOutput = file
+            let destination = try itemFrame(peers[4].id, in: list)
+            try exerciseDrag(source.id, in: list, cancel: true) {
+                let frame = try self.itemFrame(peers[4].id, in: list)
+                return NSPoint(x: frame.midX, y: frame.maxY - 2)
+            }
+            XCTAssertEqual(try itemFrame(peers[4].id, in: list), destination)
+            XCTAssertEqual(c.session.orderedTabs.count, 6)
+            try exerciseDrag(source.id, in: list, cancel: false) {
+                let frame = try self.itemFrame(peers[4].id, in: list)
+                return NSPoint(x: frame.midX, y: frame.maxY - 2)
+            }
+            XCTAssertEqual(c.session.orderedTabs.last?.id, source.id)
+            if enabledByEnvironment {
+                try await wait("Frame pacing did not record both six-tab drags") {
+                    (try? String(contentsOf: file, encoding: .utf8))?.split(separator: "\n").count == 2
+                }
+            } else {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+            }
+        }
+    }
+
+    private func setFramePacingPreference(_ enabled: Bool) -> () -> Void {
+        let defaults = UserDefaults.standard
+        let domain = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        var updated = domain
+        updated["SidebarDragFramePacing"] = enabled
+        defaults.setVolatileDomain(updated, forName: UserDefaults.argumentDomain)
+        return { defaults.setVolatileDomain(domain, forName: UserDefaults.argumentDomain) }
+    }
+
+    func testFramePacingReportsCancellationAndDropFromEverySidebarSectionAndTheRail() async throws {
+        struct Report: Decodable {
+            struct Stats: Decodable { let count: Int }
+            let total: Stats
+            let phases: [String: Stats]
+        }
+        let restoreDefaults = setFramePacingPreference(true)
+        defer { restoreDefaults() }
+
+        let output = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: output) }
+        for (rail, pinned, isPrivate) in [(false, false, false), (false, true, false), (false, false, true), (true, false, false)] {
+            let c = BrowserController(profile: isPrivate ? nil : .personal, testing: true)
+            defer { c.shutdown() }
+            c.compactSidebar = rail
+            let source = try XCTUnwrap(c.session.selectedTab)
+            if pinned { c.session.togglePinned(source.id) }
+            XCTAssertEqual(c.session.orderedTabs.map(\.id), [source.id])
+            XCTAssertEqual(source.isPrivate, isPrivate)
+            let w = host(c, reduceMotion: false); defer { w.close() }
+            try await wait("Single-tab sidebar did not mount") { self.collection(in: w)?.sidebar?.path(for: source.id) != nil }
+            let list = try XCTUnwrap(collection(in: w))
+            let file = output.appendingPathComponent(UUID().uuidString)
+            list.dragFramePacingTestOutput = file
+            let target = IndexPath(item: 0, section: pinned ? 1 : 0)
+            for cancel in [true, false] {
+                try exerciseDrag(source.id, in: list, cancel: cancel) {
+                    let header = try XCTUnwrap(list.layoutAttributesForSupplementaryElement(
+                        ofKind: NSCollectionView.elementKindSectionHeader, at: target))
+                    return NSPoint(x: header.frame.midX, y: header.frame.midY)
+                }
+                XCTAssertEqual(source.isPinned, cancel ? pinned : !pinned)
+                XCTAssertEqual(source.isPrivate, isPrivate)
+            }
+            try await wait("Frame pacing did not write both JSON lines") {
+                (try? String(contentsOf: file, encoding: .utf8))?.split(separator: "\n").count == 2
+            }
+            let lines = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
+            for line in lines {
+                let report = try JSONDecoder().decode(Report.self, from: Data(line.utf8))
+                XCTAssertEqual(report.total.count, report.phases.values.reduce(0) { $0 + $1.count })
+            }
+        }
+    }
+
+    func testSidebarRejectsStaleCollectionIndexPaths() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let w = host(c); defer { w.close() }
+        try await wait("Sidebar did not mount") { self.collection(in: w)?.sidebar != nil }
+        let list = try XCTUnwrap(collection(in: w))
+        let data = try XCTUnwrap(list.sidebar)
+        let obsolete = IndexPath(item: 0, section: list.numberOfSections)
+        XCTAssertEqual(data.collectionView(list, numberOfItemsInSection: obsolete.section), 0)
+        XCTAssertNil(list.collectionViewLayout?.layoutAttributesForItem(at: obsolete))
+        XCTAssertNil(list.collectionViewLayout?.layoutAttributesForSupplementaryView(
+            ofKind: NSCollectionView.elementKindSectionHeader, at: obsolete))
+    }
+
+    private func exerciseDrag(_ id: UUID, in list: SidebarTabCollection, cancel: Bool,
+                              at point: () throws -> NSPoint) throws {
+        let data = try XCTUnwrap(list.sidebar)
+        let source = try XCTUnwrap(data.path(for: id))
+        let info = try makeDrag(id, in: list)
+        data.beginDrag(at: source)
+        defer { data.endDrag() }
+        // AppKit can enter the destination before the queued activation runs.
+        list.layoutSubtreeIfNeeded()
+        info.move(to: NSPoint(x: list.bounds.midX, y: -1))
+        XCTAssertEqual(list.draggingEntered(info), [])
+        XCTAssertTrue(data.controller?.sidebar.dragging == true)
+        XCTAssertEqual(data.path(for: id), source, "AppKit retains the source index path when the drop headings appear")
+        info.move(to: try point())
+        XCTAssertEqual(list.draggingUpdated(info), .move)
+        list.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(list.insertionMarkerFrame)
+        let layout = try XCTUnwrap(list.collectionViewLayout)
+        for attributes in layout.layoutAttributesForElements(in: NSRect(origin: .zero, size: layout.collectionViewContentSize)) {
+            let path = try XCTUnwrap(attributes.indexPath)
+            XCTAssertTrue((0..<list.numberOfSections).contains(path.section))
+            if attributes.representedElementCategory == .item, (0..<list.numberOfSections).contains(path.section) {
+                XCTAssertTrue((0..<list.numberOfItems(inSection: path.section)).contains(path.item))
+            }
+        }
+        if cancel {
+            list.draggingExited(info)
+            data.endDrag()
+        } else {
+            XCTAssertTrue(list.prepareForDragOperation(info))
+            XCTAssertTrue(list.performDragOperation(info))
+            list.concludeDragOperation(info)
+        }
+        XCTAssertFalse(data.controller?.sidebar.dragging == true)
+        XCTAssertNil(list.insertionMarkerFrame)
     }
 
     func testDragReflowsBothWaysAndRestoresLayoutOnCancellation() async throws {

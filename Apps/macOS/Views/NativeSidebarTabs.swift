@@ -153,11 +153,12 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
     private var projected: [SectionGeometry] = []
     private var source: IndexPath?
     private var hiddenSource: IndexPath?
+    private var projectedGap: Gap?
     private var contentSize = NSSize.zero
     var preview: Gap?
     var hidesSource = false
     var landing: IndexPath?
-    var gapFrame: NSRect? { preview.flatMap { projected.indices.contains($0.section) ? projected[$0.section].frame(at: $0.slot) : nil } }
+    var gapFrame: NSRect? { projectedGap.map { projected[$0.section].frame(at: $0.slot) } }
     func previewSize(section: Int) -> NSSize? {
         guard base.indices.contains(section) else { return nil }
         return NSSize(width: base[section].width, height: base[section].height)
@@ -176,7 +177,6 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
         let rtl = list.userInterfaceLayoutDirection == .rightToLeft
         let sections = data.sections
         hiddenSource = hidesSource ? data.dragPath : nil
-        source = preview == nil ? nil : hiddenSource
 
         func makeGeometry(_ geometry: inout [SectionGeometry], source: IndexPath?, gap: Gap?) -> CGFloat {
             geometry.removeAll(keepingCapacity: true)
@@ -201,9 +201,15 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
 
         let baseHeight = makeGeometry(&base, source: nil, gap: nil)
         let height: CGFloat
-        if let preview, let source {
+        if let preview, let source = hiddenSource, base.indices.contains(source.section), base.indices.contains(preview.section),
+           (0..<base[source.section].count).contains(source.item),
+           preview.slot >= 0, preview.slot <= base[preview.section].count - (source.section == preview.section ? 1 : 0) {
+            self.source = source
+            projectedGap = preview
             height = makeGeometry(&projected, source: source, gap: preview)
         } else {
+            source = nil
+            projectedGap = nil
             projected.removeAll(keepingCapacity: true)
             height = baseHeight
         }
@@ -225,8 +231,8 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
                 result.append(header)
             }
             for slot in group.visibleSlots(in: rect) where group.frame(at: slot).intersects(rect) {
-                if preview?.section == section && preview?.slot == slot { continue }
-                let peer = slot - (preview?.section == section && slot > (preview?.slot ?? slot) ? 1 : 0)
+                if projectedGap?.section == section && projectedGap?.slot == slot { continue }
+                let peer = slot - (projectedGap?.section == section && slot > (projectedGap?.slot ?? slot) ? 1 : 0)
                 let item = peer + (source?.section == section && peer >= (source?.item ?? peer + 1) ? 1 : 0)
                 if let attributes = layoutAttributesForItem(at: IndexPath(item: item, section: section)) {
                     result.append(attributes)
@@ -240,13 +246,17 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
     }
 
     override func layoutAttributesForItem(at path: IndexPath) -> NSCollectionViewLayoutAttributes? {
-        guard base.indices.contains(path.section), (0..<base[path.section].count).contains(path.item) else { return nil }
+        // During a batch move AppKit can query the new geometry against its
+        // previous counts. Only emit attributes valid in both snapshots.
+        guard path.count == 2, base.indices.contains(path.section), (0..<base[path.section].count).contains(path.item),
+              let collectionView, path.section < collectionView.numberOfSections,
+              path.item < collectionView.numberOfItems(inSection: path.section) else { return nil }
         let attributes = NSCollectionViewLayoutAttributes(forItemWith: path)
         if path == source || projected.isEmpty {
             attributes.frame = base[path.section].frame(at: path.item)
         } else {
             let peer = path.item - (source?.section == path.section && path.item > (source?.item ?? path.item) ? 1 : 0)
-            let slot = peer + (preview?.section == path.section && peer >= (preview?.slot ?? peer + 1) ? 1 : 0)
+            let slot = peer + (projectedGap?.section == path.section && peer >= (projectedGap?.slot ?? peer + 1) ? 1 : 0)
             attributes.frame = projected[path.section].frame(at: slot)
         }
         if path == hiddenSource || path == landing { attributes.alpha = 0 }
@@ -256,7 +266,9 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
     override func layoutAttributesForSupplementaryView(ofKind kind: String,
                                                         at path: IndexPath) -> NSCollectionViewLayoutAttributes? {
         let geometry = projected.isEmpty ? base : projected
-        guard geometry.indices.contains(path.section), !geometry[path.section].header.isEmpty else { return nil }
+        guard kind == NSCollectionView.elementKindSectionHeader, path.count == 2, path.item == 0,
+              geometry.indices.contains(path.section), !geometry[path.section].header.isEmpty,
+              let collectionView, path.section < collectionView.numberOfSections else { return nil }
         let attributes = NSCollectionViewLayoutAttributes(forSupplementaryViewOfKind: kind, with: path)
         attributes.frame = geometry[path.section].header
         return attributes
@@ -266,14 +278,15 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
     // halves of adjacent cells map to one gap, which avoids redundant reflow.
     func drop(at point: NSPoint, retaining current: Drop? = nil) -> Drop? {
         guard let data = (collectionView as? SidebarTabCollection)?.sidebar,
-              point.x >= 0, point.x < contentSize.width, point.y >= 0, !base.isEmpty else { return nil }
-        let index = base.firstIndex { point.y < $0.end } ?? base.count - 1
+              point.x >= 0, point.x < contentSize.width, point.y >= 0,
+              let index = base.firstIndex(where: { point.y < $0.end }) ??
+                base.lastIndex(where: { $0.count > 0 || !$0.header.isEmpty }) else { return nil }
         // Opening a new pinned row can put the visible gap over the old Tabs
         // heading. Keep that gap valid until the pointer actually leaves it.
-        if let current, current.gap == preview, current.gap.section != index, gapFrame?.contains(point) == true {
+        if let current, current.gap == projectedGap, current.gap.section != index, gapFrame?.contains(point) == true {
             return current
         }
-        guard data.sections.indices.contains(index) else { return nil }
+        guard data.sections.indices.contains(index), data.sections[index].tabs.count == base[index].count else { return nil }
         let geometry = base[index]
         let section = data.sections[index]
         let source = data.dragPath
@@ -402,32 +415,36 @@ private struct SidebarSection {
         let retainSections = dragCommitted ? sections : []
         let icons = configuration.rail || configuration.peek
         let privateHeading = configuration.controller.profile == nil ? nil : "Private"
+        var hasVisibleSection = false
         let groups: [(SidebarSection.Kind, [BrowserTab], String?, String, Bool)] = [
             (.pinned, pinned, "Pinned", "Pin tab", pinning),
             (.regular, regular, "Tabs", "Unpin tab", unpinningRegular),
             (.privateTabs, privateTabs, privateHeading, "Unpin tab", unpinningPrivate)
         ]
-        var result: [SidebarSection] = []
-        for (kind, tabs, title, emptyTitle, wantsEmptyTarget) in groups {
+        // The native drag session holds the original index path. Empty
+        // sections take no space until they become drop targets.
+        return groups.map { kind, tabs, title, emptyTitle, wantsEmptyTarget in
             let retained = retainSections.first { $0.kind == kind }
-            guard !tabs.isEmpty || wantsEmptyTarget || retained != nil else { continue }
+            guard !tabs.isEmpty || wantsEmptyTarget || retained?.pinTarget != nil else {
+                if kind == .regular && configuration.tabs.isEmpty {
+                    return SidebarSection(kind: .empty, tabs: [], heading: configuration.searching ? "No matching tabs" : "No tabs")
+                }
+                return SidebarSection(kind: kind, tabs: [])
+            }
             let heading: String?
             if tabs.isEmpty {
                 heading = retained != nil ? retained?.heading : emptyTitle
             } else {
                 heading = icons ? nil : title
             }
-            result.append(SidebarSection(kind: kind, tabs: tabs, heading: heading,
-                                         count: icons ? 0 : tabs.count, grid: kind == .pinned && !icons && !configuration.searching,
-                                         normalPinCount: kind == .pinned ? tabs.prefix { !$0.isPrivate }.count : 0,
-                                         separator: retained?.separator ?? (icons && (!result.isEmpty || heading != nil)),
-                                         pinTarget: .pinned(kind == .pinned, isPrivate: kind == .privateTabs),
-                                         retainedHeaderHeight: retained?.headerHeight))
+            let separator = retained?.separator ?? (icons && (hasVisibleSection || heading != nil))
+            hasVisibleSection = true
+            return SidebarSection(kind: kind, tabs: tabs, heading: heading,
+                                  count: icons ? 0 : tabs.count, grid: kind == .pinned && !icons && !configuration.searching,
+                                  normalPinCount: kind == .pinned ? tabs.prefix { !$0.isPrivate }.count : 0,
+                                  separator: separator, pinTarget: .pinned(kind == .pinned, isPrivate: kind == .privateTabs),
+                                  retainedHeaderHeight: retained?.headerHeight)
         }
-        if result.isEmpty {
-            result.append(SidebarSection(kind: .empty, tabs: [], heading: configuration.searching ? "No matching tabs" : "No tabs"))
-        }
-        return result
     }
 
     func update(_ value: NativeSidebarTabs, environment: EnvironmentValues) {
@@ -471,32 +488,13 @@ private struct SidebarSection {
             }
         }
 
-        // Insert or remove only an empty drop section. At commit the section
-        // indices stay stable, so AppKit can transfer the one live item.
         switch dragUpdate {
-        case .sections:
+        case .sections where !changesContent:
             if needsLayout {
                 list.animateDropSections {
-                    @MainActor func applySectionChange() {
-                        applySections()
-                        list.clearDragPreviewForContentChange()
-                        layout?.invalidateLayout()
-                    }
-
-                    let inserted = IndexSet(newKinds.indices.filter { !oldKinds.contains(newKinds[$0]) })
-                    let removed = IndexSet(oldKinds.indices.filter { !newKinds.contains(oldKinds[$0]) })
-                    if inserted.isEmpty && removed.isEmpty {
-                        applySectionChange()
-                    } else {
-                        NSAnimationContext.runAnimationGroup { context in
-                            context.duration = 0
-                            list.performBatchUpdates {
-                                applySectionChange()
-                                if !inserted.isEmpty { list.insertSections(inserted) }
-                                if !removed.isEmpty { list.deleteSections(removed) }
-                            }
-                        }
-                    }
+                    applySections()
+                    list.clearDragPreviewForContentChange()
+                    layout?.invalidateLayout()
                 }
             } else {
                 applySections()
@@ -688,7 +686,9 @@ private struct SidebarSection {
     }
 
     func numberOfSections(in collectionView: NSCollectionView) -> Int { sections.count }
-    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int { sections[section].tabs.count }
+    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
+        sections.indices.contains(section) ? sections[section].tabs.count : 0
+    }
 
     func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         let item = collectionView.makeItem(withIdentifier: SidebarCollectionItem.identifier, for: indexPath) as! SidebarCollectionItem
@@ -761,7 +761,7 @@ private struct SidebarSection {
     }
 
     fileprivate func preview(for section: Int, size: NSSize, scale: CGFloat) -> NSDraggingImageComponent? {
-        guard let configuration, let source = dragPath, let tab = tab(at: source) else { return nil }
+        guard sections.indices.contains(section), let configuration, let source = dragPath, let tab = tab(at: source) else { return nil }
         let artwork = artwork(for: tab, in: configuration, grid: sections[section].grid, hovered: false, accessory: nil)
         let renderer = ImageRenderer(content: artwork(selectedID == tab.id, true).frame(width: size.width, height: size.height))
         renderer.scale = scale
@@ -972,6 +972,7 @@ final class SidebarTabCollection: NSCollectionView {
     private(set) var dragArtworkRefreshCount = 0
     private(set) var dragImageRenderCount = 0
     private var framePacing: SidebarDragFramePacing?
+    var dragFramePacingTestOutput: URL?
 
     fileprivate func didRefreshDragArtwork() {
         if sidebar?.isDragging == true { dragArtworkRefreshCount += 1 }
@@ -993,7 +994,9 @@ final class SidebarTabCollection: NSCollectionView {
 
     fileprivate func beginDragPresentation() {
         #if DEBUG
-        framePacing = SidebarDragFramePacing.start(in: self)
+        if sidebar?.controller?.testing == false || dragFramePacingTestOutput != nil {
+            framePacing = SidebarDragFramePacing.start(in: self, output: dragFramePacingTestOutput)
+        }
         #endif
         if let path = sidebar?.dragPath { sourcePreview = item(at: path)?.draggingImageComponents.first }
     }
@@ -1010,7 +1013,9 @@ final class SidebarTabCollection: NSCollectionView {
 
     fileprivate func warmDragPreview() {
         guard let sidebar, let path = sidebar.dragPath, sidebar.sections.indices.contains(path.section),
-              let section = sidebar.sections.firstIndex(where: { $0.grid != sidebar.sections[path.section].grid }) else { return }
+              let section = sidebar.sections.firstIndex(where: {
+                  $0.pinTarget != nil && $0.grid != sidebar.sections[path.section].grid
+              }) else { return }
         _ = alternateImage(for: section)
     }
 
@@ -1029,6 +1034,7 @@ final class SidebarTabCollection: NSCollectionView {
     private func updateDragImage(_ sender: NSDraggingInfo, for drop: SidebarTabLayout.Drop?) {
         guard let sidebar, let source = sidebar.dragPath else { return }
         let section = drop?.gap.section ?? source.section
+        guard sidebar.sections.indices.contains(section), sidebar.sections.indices.contains(source.section) else { return }
         let alternate = sidebar.sections[section].grid != sidebar.sections[source.section].grid
         let size = dragLayout?.previewSize(section: section)
         guard alternate != showingAlternatePreview || (alternate && alternatePreview?.frame.size != size),
@@ -1312,7 +1318,8 @@ final class SidebarTabCollection: NSCollectionView {
     #if DEBUG
     private func updateFramePhase(for drop: SidebarTabLayout.Drop?, scrolling: Bool = false) {
         guard let framePacing, let sidebar, let source = sidebar.dragPath else { return }
-        guard let drop else { framePacing.phase = "outside"; return }
+        guard let drop, sidebar.sections.indices.contains(source.section),
+              sidebar.sections.indices.contains(drop.gap.section) else { framePacing.phase = "outside"; return }
         let startsPinned = sidebar.sections[source.section].kind == .pinned
         let endsPinned = sidebar.sections[drop.gap.section].kind == .pinned
         let phase = startsPinned ? (endsPinned ? "reorder-pins" : "unpin") : (endsPinned ? "pin" : "reorder-tabs")
@@ -1822,14 +1829,20 @@ private final class SidebarCollectionHeader: SidebarReflowView, NSCollectionView
     private static let enabledByEnvironment = ProcessInfo.processInfo.environment["ORIV_SIDEBAR_DRAG_FRAMES"] == "1"
     private static let writer = DispatchQueue(label: "Oriv.SidebarDragFrames", qos: .utility)
     private let startedAt = Date()
+    private let output: URL
     private var link: CADisplayLink?
     private var previous: (timestamp: CFTimeInterval, expected: CFTimeInterval)?
     private var intervals: [Interval] = []
     var phase = "setup"
 
-    static func start(in view: NSView) -> SidebarDragFramePacing? {
+    private init(output: URL) {
+        self.output = output
+    }
+
+    static func start(in view: NSView, output: URL? = nil) -> SidebarDragFramePacing? {
         guard enabledByEnvironment || UserDefaults.standard.bool(forKey: "SidebarDragFramePacing") else { return nil }
-        let recorder = SidebarDragFramePacing()
+        let file = output ?? URL.applicationSupportDirectory.appendingPathComponent("Oriv/sidebar-drag-frames.jsonl")
+        let recorder = SidebarDragFramePacing(output: file)
         let link = view.displayLink(target: recorder, selector: #selector(record(_:)))
         recorder.link = link
         link.add(to: .main, forMode: .common)
@@ -1851,6 +1864,7 @@ private final class SidebarCollectionHeader: SidebarReflowView, NSCollectionView
         link = nil
         let intervals = intervals
         let startedAt = startedAt
+        let file = output
         Self.writer.async {
             let hitches = intervals.enumerated().compactMap { index, sample -> Hitch? in
                 guard sample.milliseconds > 1.5 * sample.expectedMilliseconds else { return nil }
@@ -1861,10 +1875,6 @@ private final class SidebarCollectionHeader: SidebarReflowView, NSCollectionView
                                 phases: Dictionary(grouping: intervals, by: \.phase).mapValues(Stats.init),
                                 hitches: hitches)
             do {
-                let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                                            appropriateFor: nil, create: true)
-                let file = directory.appendingPathComponent("Oriv", isDirectory: true)
-                    .appendingPathComponent("sidebar-drag-frames.jsonl")
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 var line = try JSONEncoder().encode(report)
                 line.append(0x0a)
