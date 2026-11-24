@@ -154,6 +154,19 @@ class ProfileSidebarScrollView: NSScrollView {
     @ObservationIgnored private var artworkNeedsRefresh = true
     @ObservationIgnored private var artworkGeometry: ArtworkGeometry?
     @ObservationIgnored private var artworkCache: [UUID: CachedArtwork] = [:]
+    @ObservationIgnored private var nativeList: NativeListArtwork?
+    @ObservationIgnored private weak var nativeScroll: SidebarTabScrollView?
+    @ObservationIgnored private var lastListViewport = NSRect.zero
+    @ObservationIgnored private var lastViewportChange: TimeInterval = 0
+
+    private struct NativeListArtwork {
+        let profile: UUID
+        let query: String
+        let geometry: ArtworkGeometry
+        let viewport: NSRect
+        let frame: NSRect
+        let image: CGImage
+    }
     @ObservationIgnored private(set) var fallbackClearCount = 0
 
     private struct ArtworkGeometry: Equatable {
@@ -234,6 +247,17 @@ class ProfileSidebarScrollView: NSScrollView {
         case .editing: editingRegion = view
         case .titlebarControl: titlebarControl = view
         }
+    }
+
+    func listViewportChanged(_ scroll: SidebarTabScrollView) {
+        guard anchor?.list?.collection?.enclosingScrollView === scroll,
+              nativeScroll !== scroll || lastListViewport != scroll.contentView.bounds else { return }
+        nativeScroll = scroll
+        lastListViewport = scroll.contentView.bounds
+        lastViewportChange = ProcessInfo.processInfo.systemUptime
+        nativeList = nil
+        artworkNeedsRefresh = true
+        scheduleArtwork()
     }
 
     func anchorLaidOut(_ view: ProfileSidebarAnchor.Anchor) {
@@ -380,8 +404,8 @@ class ProfileSidebarScrollView: NSScrollView {
             }
             return true
         case .settle(let step):
-            if let step, let target = step > 0 ? next : previous, let overlay {
-                if gestureArtworkCompatible, !overlay.hasImage(step: step) {
+            if let step, let target = step > 0 ? next : previous {
+                if let overlay, gestureArtworkCompatible, !overlay.hasImage(step: step) {
                     overlay.setImage(cachedNeighborImage(target), step: step)
                 }
                 commit(target, step: step, profiles: profiles)
@@ -404,21 +428,24 @@ class ProfileSidebarScrollView: NSScrollView {
         }
         if overlay != nil { clear() }
         guard let host, host.window === anchor.window, anchor.bounds.width > 0, anchor.bounds.height > 0 else { return nil }
+        let geometry = ArtworkGeometry(anchor)
+        let profile = profiles.active.id
+        let query = anchor.controller?.tabSearch ?? ""
+        let cached = artworkGeometry == geometry && artworkCache[profile]?.query == query ? artworkCache[profile]?.image : nil
+        var native = nativeList.flatMap { image in
+            image.profile == profile && image.query == query && image.geometry == geometry &&
+                image.viewport == anchor.list?.collection?.enclosingScrollView?.contentView.bounds ? image : nil
+        }
+        // A gesture can arrive before the first idle render (for example,
+        // immediately after the window mounts). Preserve the live rows then.
+        if cached == nil, native == nil { native = captureNativeList(profiles: profiles, anchor: anchor, geometry: geometry) }
+        guard cached != nil || native != nil else { return nil }
         let frame = anchor.convert(anchor.bounds, to: host)
         let effect = ProfileSidebarOverlay(frame: frame, rtl: anchor.environment.layoutDirection == .rightToLeft,
                                            reduceMotion: anchor.environment.browserReduceMotion)
-        effect.baseProfile = profiles.active.id
-        let cached = artworkGeometry == ArtworkGeometry(anchor) ? artworkCache[profiles.active.id] : nil
-        if let cached, cached.query == anchor.controller?.tabSearch { effect.setImage(cached.image, step: 0) }
-        if let list = anchor.list?.collection, list.sidebar?.controller === profiles.controller,
-           let scroll = list.enclosingScrollView {
-            let rect = scroll.bounds
-            if !rect.isEmpty, let bitmap = scroll.bitmapImageRepForCachingDisplay(in: rect) {
-                scroll.cacheDisplay(in: rect, to: bitmap)
-                let listFrame = scroll.convert(rect, to: anchor).offsetBy(dx: -anchor.bounds.minX, dy: -anchor.bounds.minY)
-                effect.setListImage(bitmap.cgImage, frame: listFrame)
-            }
-        }
+        effect.baseProfile = profile
+        effect.setImage(cached, step: 0)
+        if let native { effect.setListImage(native.image, frame: native.frame) }
         host.addSubview(effect)
         overlay = effect
         isCovering = true
@@ -448,6 +475,11 @@ class ProfileSidebarScrollView: NSScrollView {
             guard !Task.isCancelled, self.overlay == nil, !self.selectionPending, self.swipe.axis != .undecided,
                   let anchor = self.anchor, let profiles = self.host?.profiles,
                   anchor.window != nil, !anchor.bounds.isEmpty else { return }
+            guard ProcessInfo.processInfo.systemUptime - self.lastViewportChange >= 0.06,
+                  !profiles.controller.sidebar.dragging else {
+                self.scheduleArtwork()
+                return
+            }
             self.warmArtwork(profiles: profiles, anchor: anchor)
         }
     }
@@ -491,10 +523,28 @@ class ProfileSidebarScrollView: NSScrollView {
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
+                self.nativeList = nil
                 self.artworkNeedsRefresh = true
                 self.scheduleArtwork()
             }
         }
+
+        // The native list can include scrolling and focus states absent from the
+        // model preview. Capture it at rest, outside the input event.
+        nativeList = captureNativeList(profiles: profiles, anchor: anchor, geometry: geometry)
+    }
+
+    private func captureNativeList(profiles: BrowserProfiles, anchor: ProfileSidebarAnchor.Anchor,
+                                   geometry: ArtworkGeometry) -> NativeListArtwork? {
+        guard let list = anchor.list?.collection, list.sidebar?.controller === profiles.controller,
+              let scroll = list.enclosingScrollView, !scroll.bounds.isEmpty,
+              let bitmap = scroll.bitmapImageRepForCachingDisplay(in: scroll.bounds) else { return nil }
+        scroll.cacheDisplay(in: scroll.bounds, to: bitmap)
+        guard let image = bitmap.cgImage else { return nil }
+        let frame = scroll.convert(scroll.bounds, to: anchor)
+            .offsetBy(dx: -anchor.bounds.minX, dy: -anchor.bounds.minY)
+        return NativeListArtwork(profile: profiles.active.id, query: profiles.controller.tabSearch,
+            geometry: geometry, viewport: scroll.contentView.bounds, frame: frame, image: image)
     }
 
     private func commit(_ target: BrowserProfile, step: Int, profiles: BrowserProfiles) {
@@ -553,6 +603,7 @@ class ProfileSidebarScrollView: NSScrollView {
     }
 
     private func rebindSidebar(from source: BrowserController, to target: BrowserController) {
+        nativeList = nil
         if let width = host?.window?.contentView?.bounds.width { target.sidebar.resize(availableWidth: width) }
         if target.sidebar.rail || target.sidebar.peeking {
             waitingForProfile = nil

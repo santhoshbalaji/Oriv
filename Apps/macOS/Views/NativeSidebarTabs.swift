@@ -19,8 +19,8 @@ struct NativeSidebarTabs: NSViewRepresentable {
     let controller: BrowserController
     var profiles: BrowserProfiles? = nil
     let handle: SidebarListHandle
-    let tabs: [BrowserTab]
-    let duplicateTitles: Set<String>
+    var tabs: [BrowserTab]
+    var duplicateTitles: Set<String>
     let rail: Bool
     let peek: Bool
     let expandedWidth: CGFloat
@@ -97,17 +97,25 @@ struct NativeSidebarTabs: NSViewRepresentable {
 
 /// Virtualized tab rows and fixed-size pinned favicon tiles.
 private final class SidebarTabLayout: NSCollectionViewLayout {
+    struct Drop: Equatable {
+        let target: SidebarDropTarget
+        let section: Int
+        let slot: Int
+    }
+
     private var items: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var headers: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
-    private var sectionEnds: [CGFloat] = []
+    private var hitItems: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
+    private var hitHeaders: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
+    private var hitSectionEnds: [CGFloat] = []
     private var pinColumns = 1
     private var contentSize = NSSize.zero
+    var preview: Drop?
+    var landing: UUID?
+    private(set) var gap: NSRect?
 
     override func prepare() {
         super.prepare()
-        items.removeAll(keepingCapacity: true)
-        headers.removeAll(keepingCapacity: true)
-        sectionEnds.removeAll(keepingCapacity: true)
         guard let list = collectionView as? SidebarTabCollection, let data = list.sidebar else { return }
         let width = list.enclosingScrollView?.contentView.bounds.width ?? list.bounds.width
         let icons = data.isIconLayout
@@ -117,42 +125,74 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
         let spacing = icons ? OrivSpacing.small : OrivSpacing.xxs
         let gridGap = OrivLayout.sidebarPinGap
         let pinGrid = SidebarTabs.PinGrid(availableWidth: rowWidth)
+        let rtl = list.userInterfaceLayoutDirection == .rightToLeft
         pinColumns = pinGrid.columns
-        var y: CGFloat = 0
-        for (section, group) in data.sections.enumerated() {
-            if group.headerHeight > 0 {
-                let path = IndexPath(item: 0, section: section)
-                let header = NSCollectionViewLayoutAttributes(forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader,
-                                                               with: path)
-                header.frame = NSRect(x: 0, y: y, width: width, height: group.headerHeight)
-                headers[path] = header
-                y += group.headerHeight
-            }
-            if group.grid {
-                for index in group.tabs.indices {
-                    let path = IndexPath(item: index, section: section)
-                    let item = NSCollectionViewLayoutAttributes(forItemWith: path)
-                    let x = CGFloat(index % pinGrid.columns) * (pinGrid.tileWidth + gridGap)
-                    let origin = list.userInterfaceLayoutDirection == .rightToLeft ? width - x - pinGrid.tileWidth : x
-                    item.frame = NSRect(x: origin, y: y, width: pinGrid.tileWidth, height: OrivLayout.sidebarPinHeight)
-                    items[path] = item
-                    if (index + 1).isMultiple(of: pinGrid.columns) || index == group.tabs.count - 1 {
-                        y += OrivLayout.sidebarPinHeight + gridGap
+        gap = nil
+
+        func makeFrames(source: IndexPath?, drop: Drop?) -> CGFloat {
+            items.removeAll(keepingCapacity: true)
+            headers.removeAll(keepingCapacity: true)
+            if drop == nil { hitSectionEnds.removeAll(keepingCapacity: true) }
+            var y: CGFloat = 0
+            for (section, group) in data.sections.enumerated() {
+                if group.headerHeight > 0 {
+                    let path = IndexPath(item: 0, section: section)
+                    let header = NSCollectionViewLayoutAttributes(forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader,
+                                                                   with: path)
+                    header.frame = NSRect(x: 0, y: y, width: width, height: group.headerHeight)
+                    headers[path] = header
+                    y += group.headerHeight
+                }
+
+                let removed = source?.section == section ? source?.item : nil
+                let inserted = drop?.section == section ? drop?.slot : nil
+                let count = group.tabs.count - (removed == nil ? 0 : 1) + (inserted == nil ? 0 : 1)
+                for slot in 0..<count {
+                    let frame: NSRect
+                    if group.grid {
+                        let x = CGFloat(slot % pinGrid.columns) * (pinGrid.tileWidth + gridGap)
+                        let origin = rtl ? width - x - pinGrid.tileWidth : x
+                        frame = NSRect(x: origin, y: y, width: pinGrid.tileWidth, height: OrivLayout.sidebarPinHeight)
+                        if (slot + 1).isMultiple(of: pinGrid.columns) || slot == count - 1 {
+                            y += OrivLayout.sidebarPinHeight + gridGap
+                        }
+                    } else {
+                        frame = NSRect(x: edge, y: y, width: rowWidth, height: rowHeight)
+                        y += rowHeight + spacing
+                    }
+                    if slot == inserted {
+                        gap = frame
+                    } else {
+                        let peer = slot - (inserted.map { slot > $0 } == true ? 1 : 0)
+                        let index = peer + (removed.map { peer >= $0 } == true ? 1 : 0)
+                        let path = IndexPath(item: index, section: section)
+                        let item = NSCollectionViewLayoutAttributes(forItemWith: path)
+                        item.frame = frame
+                        if group.tabs[index].id == landing { item.alpha = 0 }
+                        items[path] = item
                     }
                 }
-            } else {
-                for index in group.tabs.indices {
-                    let path = IndexPath(item: index, section: section)
-                    let item = NSCollectionViewLayoutAttributes(forItemWith: path)
-                    item.frame = NSRect(x: edge, y: y, width: rowWidth, height: rowHeight)
-                    items[path] = item
-                    y += rowHeight + spacing
-                }
-                if icons && !group.tabs.isEmpty { y -= spacing }
+                if icons && !group.grid && count > 0 { y -= spacing }
+                if drop == nil { hitSectionEnds.append(y) }
             }
-            sectionEnds.append(y)
+            return y + (icons ? 0 : 9)
         }
-        contentSize = NSSize(width: width, height: y + (icons ? 0 : 9))
+
+        let baseHeight = makeFrames(source: nil, drop: nil)
+        var height = baseHeight
+        if let preview, let source = data.dragPath, let original = items[source] {
+            hitItems = items
+            hitHeaders = headers
+            height = makeFrames(source: source, drop: preview)
+            let hidden = NSCollectionViewLayoutAttributes(forItemWith: source)
+            hidden.frame = original.frame
+            hidden.alpha = 0
+            items[source] = hidden
+        } else {
+            hitItems.removeAll()
+            hitHeaders.removeAll()
+        }
+        contentSize = NSSize(width: width, height: height)
     }
 
     override var collectionViewContentSize: NSSize { contentSize }
@@ -164,22 +204,31 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
     override func layoutAttributesForSupplementaryView(ofKind elementKind: String,
                                                         at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? { headers[indexPath] }
 
-    func drop(at point: NSPoint) -> (target: SidebarDropTarget, marker: NSRect)? {
+    // Resolve the pointer against the unshifted positions so animating a
+    // neighbor past the pointer cannot cause the insertion slot to oscillate.
+    func drop(at point: NSPoint) -> Drop? {
         guard let list = collectionView as? SidebarTabCollection, let data = list.sidebar,
               point.x >= 0, point.x < contentSize.width, point.y >= 0,
-              let index = sectionEnds.firstIndex(where: { point.y < $0 }),
-              data.sections.indices.contains(index) else { return nil }
+              !hitSectionEnds.isEmpty else { return nil }
+        let index = hitSectionEnds.firstIndex(where: { point.y < $0 }) ?? hitSectionEnds.count - 1
+        guard data.sections.indices.contains(index) else { return nil }
+        let routingItems = hitItems.isEmpty ? items : hitItems
+        let routingHeaders = hitItems.isEmpty ? headers : hitHeaders
         let section = data.sections[index]
         let firstPath = IndexPath(item: 0, section: index)
-        let thickness = OrivOutline.focus
-        if let header = headers[firstPath]?.frame, header.contains(point) {
-            return section.pinTarget.map { target in
-                let inset = data.isIconLayout ? MacBrowserLayout.railInset : 0
-                let marker = NSRect(x: inset, y: header.maxY - thickness, width: header.width - 2 * inset, height: thickness)
-                return (target, marker)
-            }
+        let source = data.dragPath
+        let sourceTab = source.flatMap(data.tab(at:))
+        if let header = routingHeaders[firstPath]?.frame, header.contains(point) {
+            guard let target = section.pinTarget,
+                  case let .pinned(pinned, _) = target else { return nil }
+            let isPrivate = sourceTab?.isPrivate == true
+            let end = section.tabs.lastIndex { $0.isPrivate == isPrivate }.map { $0 + 1 }
+            let slot = end ?? (pinned && !isPrivate ? 0 : section.tabs.count)
+            let adjusted = slot - (source?.section == index && (source?.item ?? slot) < slot ? 1 : 0)
+            return Drop(target: .pinned(pinned, isPrivate: pinned ? isPrivate : section.kind == .privateTabs),
+                        section: index, slot: adjusted)
         }
-        guard let first = items[firstPath]?.frame else { return nil }
+        guard let first = routingItems[firstPath]?.frame else { return nil }
         let rtl = list.userInterfaceLayoutDirection == .rightToLeft
         let gap = OrivLayout.sidebarPinGap
         let item: Int
@@ -193,19 +242,14 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
             item = min(Int((point.y - first.minY) / (first.height + spacing)), section.tabs.count - 1)
         }
         let path = IndexPath(item: item, section: index)
-        guard let tab = data.tab(at: path), let frame = items[path]?.frame else { return nil }
+        guard let tab = data.tab(at: path), let frame = routingItems[path]?.frame else { return nil }
+        guard sourceTab == nil || sourceTab?.isPrivate == tab.isPrivate else { return nil }
         let after = section.grid ? (rtl ? point.x <= frame.midX : point.x >= frame.midX) : point.y >= frame.midY
-        let marker: NSRect
-        if section.grid {
-            let x = after != rtl ? frame.maxX + gap / 2 : frame.minX - gap / 2
-            marker = NSRect(x: max(0, min(x - thickness / 2, contentSize.width - thickness)),
-                            y: frame.minY, width: thickness, height: frame.height)
-        } else {
-            marker = NSRect(x: frame.minX, y: (after ? frame.maxY : frame.minY) - thickness / 2,
-                            width: frame.width, height: thickness)
-        }
-        return (.between(tab.id, after: after), marker)
+        let boundary = item + (after ? 1 : 0)
+        let slot = boundary - (source?.section == index && (source?.item ?? boundary) < boundary ? 1 : 0)
+        return Drop(target: .between(tab.id, after: after), section: index, slot: slot)
     }
+
 }
 
 private final class SidebarTabClipView: NSClipView {
@@ -223,6 +267,11 @@ final class SidebarTabScrollView: ProfileSidebarScrollView {
     override var hasVerticalScroller: Bool {
         get { super.hasVerticalScroller }
         set { super.hasVerticalScroller = newValue && !usesIconLayout }
+    }
+
+    override func reflectScrolledClipView(_ clipView: NSClipView) {
+        super.reflectScrolledClipView(clipView)
+        profiles?.sidebarSwitch.listViewportChanged(self)
     }
 
     override func tile() {
@@ -269,6 +318,11 @@ private struct SidebarSection {
     private(set) var hovered: IndexPath?
     private var hoveredAccessory: SidebarRowAccessory?
     private var drag: SidebarTabTransfer?
+    private var dragCommitted = false
+    private var validatedPasteboard: (sequence: Int, version: Int, matches: Bool)?
+    private var paths: [UUID: IndexPath] = [:]
+    fileprivate var dragPath: IndexPath? { drag.flatMap { paths[$0.id] } }
+    fileprivate var reduceMotion: Bool { environment.browserReduceMotion }
     var controller: BrowserController? { configuration?.controller }
     var isRail: Bool { configuration?.rail == true }
     var isSearching: Bool { configuration?.searching == true }
@@ -282,17 +336,17 @@ private struct SidebarSection {
         let pinned = configuration.tabs.filter(\.isPinned)
         let regular = configuration.tabs.filter { !$0.isPinned && !$0.isPrivate }
         let privateTabs = configuration.tabs.filter { $0.isPrivate && !$0.isPinned }
-        let pinDrag = drag.flatMap { item in configuration.tabs.first(where: { $0.id == item.id }) }
+        let pinDrag = (dragCommitted ? nil : drag).flatMap { item in configuration.tabs.first(where: { $0.id == item.id }) }
         let pinning = pinDrag?.isPinned == false
         let unpinningRegular = pinDrag?.isPinned == true && pinDrag?.isPrivate == false
         let unpinningPrivate = pinDrag?.isPinned == true && pinDrag?.isPrivate == true
         var result: [SidebarSection] = []
         if configuration.rail || configuration.peek {
             for group in [
-                SidebarSection(kind: .pinned, tabs: pinned, heading: pinning ? "Pin tab" : nil,
-                               pinTarget: .pinned(true, isPrivate: pinDrag?.isPrivate == true)),
-                SidebarSection(kind: .regular, tabs: regular, heading: unpinningRegular ? "Unpin tab" : nil, pinTarget: .pinned(false)),
-                SidebarSection(kind: .privateTabs, tabs: privateTabs, heading: unpinningPrivate ? "Unpin tab" : nil,
+                SidebarSection(kind: .pinned, tabs: pinned, heading: pinning && pinned.isEmpty ? "Pin tab" : nil,
+                               pinTarget: .pinned(true)),
+                SidebarSection(kind: .regular, tabs: regular, heading: unpinningRegular && regular.isEmpty ? "Unpin tab" : nil, pinTarget: .pinned(false)),
+                SidebarSection(kind: .privateTabs, tabs: privateTabs, heading: unpinningPrivate && privateTabs.isEmpty ? "Unpin tab" : nil,
                                pinTarget: .pinned(false, isPrivate: true))
             ] where !group.tabs.isEmpty || group.heading != nil {
                 var group = group
@@ -302,16 +356,16 @@ private struct SidebarSection {
             }
         } else {
             if !pinned.isEmpty || pinning {
-                result.append(SidebarSection(kind: .pinned, tabs: pinned, heading: pinning ? "Pin tab" : "Pinned",
+                result.append(SidebarSection(kind: .pinned, tabs: pinned, heading: pinned.isEmpty ? "Pin tab" : "Pinned",
                                              count: pinned.count, grid: !configuration.searching,
-                                             pinTarget: .pinned(true, isPrivate: pinDrag?.isPrivate == true)))
+                                             pinTarget: .pinned(true)))
             }
             if !regular.isEmpty || unpinningRegular {
-                result.append(SidebarSection(kind: .regular, tabs: regular, heading: unpinningRegular ? "Unpin tab" : "Tabs",
+                result.append(SidebarSection(kind: .regular, tabs: regular, heading: regular.isEmpty ? "Unpin tab" : "Tabs",
                                              count: regular.count, pinTarget: .pinned(false)))
             }
             if !privateTabs.isEmpty || unpinningPrivate {
-                let heading = unpinningPrivate ? "Unpin tab" : (configuration.controller.profile == nil ? nil : "Private")
+                let heading = privateTabs.isEmpty ? "Unpin tab" : (configuration.controller.profile == nil ? nil : "Private")
                 result.append(SidebarSection(kind: .privateTabs, tabs: privateTabs, heading: heading,
                                              count: privateTabs.count, pinTarget: .pinned(false, isPrivate: true)))
             }
@@ -341,15 +395,22 @@ private struct SidebarSection {
         configuration = value
         self.environment = environment
         sections = newSections
+        if changesContent {
+            paths.removeAll(keepingCapacity: true)
+            for (section, group) in sections.enumerated() {
+                for (index, tab) in group.tabs.enumerated() { paths[tab.id] = IndexPath(item: index, section: section) }
+            }
+        }
         activeID = newActive
 
+        let needsLayout = changesLayout || changesContent || old?.expandedWidth != value.expandedWidth ||
+            oldSize != environment.dynamicTypeSize || directionChanged
+        if needsLayout { list.clearDragPreviewForContentChange() }
         if changesLayout || changesContent {
             setHovered(nil)
             list.reloadData()
         }
-        if changesLayout || changesContent || old?.expandedWidth != value.expandedWidth || oldSize != environment.dynamicTypeSize || directionChanged {
-            list.collectionViewLayout?.invalidateLayout()
-        }
+        if needsLayout { list.collectionViewLayout?.invalidateLayout() }
         if changesActive || profileChanged {
             select(newActive, reveal: true)
         } else if changesLayout || changesContent {
@@ -357,7 +418,7 @@ private struct SidebarSection {
             // has already received arrow keys. Carry the highlight through the
             // layout change by ID, even if pinned tiles move to different paths.
             let highlight = ownsFocus || !changesLayout ? oldShown.flatMap { path(for: $0) != nil ? $0 : nil } : nil
-            select(highlight ?? newActive, reveal: changesLayout)
+            select(highlight ?? newActive, reveal: changesLayout && drag == nil)
         }
         for item in list.visibleItems() {
             if let item = item as? SidebarCollectionItem, let path = list.indexPath(for: item) { configure(item, at: path) }
@@ -370,9 +431,10 @@ private struct SidebarSection {
     }
 
     func detach() {
-        list?.showInsertionMarker(nil)
+        list?.finishDragPresentation()
         if drag != nil {
             drag = nil
+            dragCommitted = false
             configuration?.controller.sidebar.dragging = false
             configuration?.controller.sidebar.pointer(false, drag: false)
         }
@@ -381,16 +443,16 @@ private struct SidebarSection {
     private func applyDragState(_ active: Bool) {
         guard let value = configuration else { return }
         value.controller.sidebar.dragging = active
-        value.controller.sidebar.pointer(active, drag: active)
+        setDragPointer(active)
         update(value, environment: environment)
     }
 
-    func path(for id: UUID) -> IndexPath? {
-        for (section, group) in sections.enumerated() {
-            if let item = group.tabs.firstIndex(where: { $0.id == id }) { return IndexPath(item: item, section: section) }
-        }
-        return nil
+    fileprivate func setDragPointer(_ inside: Bool) {
+        guard let sidebar = controller?.sidebar, sidebar.pointerInside != inside || inside && sidebar.rail else { return }
+        sidebar.pointer(inside, drag: inside)
     }
+
+    func path(for id: UUID) -> IndexPath? { paths[id] }
 
     func tab(at path: IndexPath) -> BrowserTab? {
         guard sections.indices.contains(path.section), sections[path.section].tabs.indices.contains(path.item) else { return nil }
@@ -609,12 +671,14 @@ private struct SidebarSection {
 
     func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession,
                         willBeginAt screenPoint: NSPoint, forItemsAt paths: Set<IndexPath>) {
+        session.animatesToStartingPositionsOnCancelOrFail = true
         if let path = paths.first { beginDrag(at: path) }
     }
 
     func beginDrag(at path: IndexPath) {
         guard let tab = tab(at: path), let controller else { return }
         controller.sidebarTooltip.dismiss()
+        validatedPasteboard = nil
         drag = SidebarTabTransfer(id: tab.id, owner: controller.sidebarDragID)
         // Start after AppKit has taken its drag image from the originating cell.
         Task { [weak self] in if self?.drag != nil { self?.applyDragState(true) } }
@@ -627,8 +691,9 @@ private struct SidebarSection {
 
     func endDrag() {
         guard drag != nil else { return }
-        list?.showInsertionMarker(nil)
+        list?.finishDragPresentation()
         drag = nil
+        dragCommitted = false
         applyDragState(false)
     }
 
@@ -636,17 +701,46 @@ private struct SidebarSection {
         (list?.collectionViewLayout as? SidebarTabLayout)?.drop(at: point)?.target
     }
 
-    fileprivate func validatedDrop(_ info: NSDraggingInfo) -> (SidebarTabTransfer, SidebarDropTarget, NSRect)? {
-        guard let list, let controller, info.draggingSource as? NSCollectionView === list,
-              info.draggingSourceOperationMask.contains(.move),
-              let bytes = info.draggingPasteboard.data(forType: Self.pasteboardType),
-              let item = try? JSONDecoder().decode(SidebarTabTransfer.self, from: bytes),
-              let layout = list.collectionViewLayout as? SidebarTabLayout else { return nil }
-        list.layoutSubtreeIfNeeded()
-        guard let (target, marker) = layout.drop(at: list.convert(info.draggingLocation, from: nil)),
-              SidebarTabs.canDrop(item, on: target, controller: controller) else { return nil }
-        return (item, target, marker)
+    fileprivate func acceptsDrag(_ info: NSDraggingInfo) -> Bool {
+        guard let list, let controller, let drag, !dragCommitted, controller.session.isProfileActive,
+              info.draggingSource as? NSCollectionView === list,
+              info.draggingSourceOperationMask.contains(.move), drag.owner == controller.sidebarDragID else { return false }
+        let pasteboard = info.draggingPasteboard
+        let sequence = info.draggingSequenceNumber
+        let version = pasteboard.changeCount
+        if let cached = validatedPasteboard, cached.sequence == sequence, cached.version == version { return cached.matches }
+        let item = pasteboard.data(forType: Self.pasteboardType).flatMap { try? JSONDecoder().decode(SidebarTabTransfer.self, from: $0) }
+        let matches = item?.id == drag.id && item?.owner == drag.owner
+        validatedPasteboard = (sequence, version, matches)
+        return matches
     }
+
+    fileprivate func drop(at point: NSPoint) -> SidebarTabLayout.Drop? {
+        guard let list, let source = dragPath.flatMap(tab(at:)),
+              let drop = (list.collectionViewLayout as? SidebarTabLayout)?.drop(at: point) else { return nil }
+        if case .pinned(_, let isPrivate) = drop.target, isPrivate != source.isPrivate { return nil }
+        return drop
+    }
+
+    fileprivate func commit(_ target: SidebarDropTarget, landingIn layout: SidebarTabLayout, animated: Bool) -> IndexPath? {
+        guard let drag, var value = configuration else { return nil }
+        let controller = value.controller
+        let landsInPlace: Bool
+        if case .between(let receiver, _) = target { landsInPlace = receiver == drag.id }
+        else { landsInPlace = false }
+        guard landsInPlace || SidebarTabs.drop([drag], on: target, controller: controller) else { return nil }
+
+        dragCommitted = true
+        layout.landing = animated ? drag.id : nil
+        list?.clearDragPreviewForContentChange()
+        value.tabs = value.searchRequest.map(controller.tabSearchResults) ?? controller.session.orderedTabs
+        value.duplicateTitles = SidebarTabs.duplicateTitles(in: value.tabs)
+        update(value, environment: environment)
+        layout.invalidateLayout()
+        list?.layoutSubtreeIfNeeded()
+        return path(for: drag.id)
+    }
+
 }
 
 final class SidebarTabCollection: NSCollectionView {
@@ -657,39 +751,163 @@ final class SidebarTabCollection: NSCollectionView {
     var showsKeyboardFocus: Bool { ownsFocus && keyboardNavigation }
     private var pointerTracking: NSTrackingArea?
     private let insertionMarker = SidebarInsertionMarker()
+    private var edgeScroll: Timer?
+    private var dragLocation: NSPoint?
+    private var lastScrollTick: TimeInterval?
+    private var dragLayout: SidebarTabLayout? { collectionViewLayout as? SidebarTabLayout }
     var insertionMarkerFrame: NSRect? { insertionMarker.superview == nil ? nil : insertionMarker.frame }
 
-    func showInsertionMarker(_ frame: NSRect?) {
+    private func showInsertionMarker(_ frame: NSRect?) {
         guard let frame else { insertionMarker.removeFromSuperview(); return }
         insertionMarker.frame = frame
         if insertionMarker.superview == nil { addSubview(insertionMarker, positioned: .above, relativeTo: nil) }
     }
 
-    // A section heading can have no item, and a grid gap has no AppKit
-    // insertion index. Resolve this local pasteboard type at the pointer.
-    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        draggingUpdated(sender)
+    fileprivate func clearDragPreviewForContentChange() {
+        dragLayout?.preview = nil
+        showInsertionMarker(nil)
     }
 
+    fileprivate func finishDragPresentation() {
+        stopEdgeScroll()
+        dragLocation = nil
+        if let layout = dragLayout, layout.landing != nil {
+            layout.landing = nil
+            layout.invalidateLayout()
+        }
+        presentDrop(nil)
+    }
+
+    private func presentDrop(_ drop: SidebarTabLayout.Drop?) {
+        guard let layout = dragLayout, layout.preview != drop else { return }
+        let animate = sidebar?.reduceMotion == false
+        let oldPositions = animate ? cellPositions() : [:]
+        layout.preview = drop
+        layout.invalidateLayout()
+        layoutSubtreeIfNeeded()
+        showInsertionMarker(layout.gap)
+        if animate { animateCells(from: oldPositions) }
+    }
+
+    private func cellPositions() -> [UUID: (NSPoint, CGPoint?)] {
+        Dictionary(uniqueKeysWithValues: visibleItems().compactMap { item in
+            (item as? SidebarCollectionItem)?.tab.map { tab in
+                let layer = item.view.layer
+                let from = layer?.presentation()?.position ?? layer?.position
+                return (tab.id, (item.view.frame.origin, from))
+            }
+        })
+    }
+
+    private func animateCells(from oldPositions: [UUID: (NSPoint, CGPoint?)]) {
+        for case let item as SidebarCollectionItem in visibleItems() {
+            guard let id = item.tab?.id, let (origin, position) = oldPositions[id],
+                  origin != item.view.frame.origin else { continue }
+            item.animateReflow(from: position, origin: origin, flipped: item.view.superview?.isFlipped == true)
+        }
+    }
+
+    // A native drag can stop delivering updates while the pointer is held
+    // still at an edge. Scroll during AppKit's tracking loop as well.
+    private func updateEdgeScroll() {
+        guard let dragLocation, enclosingScrollView != nil,
+              edgeVelocity(at: convert(dragLocation, from: nil).y) != 0 else {
+            stopEdgeScroll()
+            return
+        }
+        guard edgeScroll == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scrollDuringDrag() }
+        }
+        lastScrollTick = ProcessInfo.processInfo.systemUptime
+        RunLoop.main.add(timer, forMode: .common)
+        RunLoop.main.add(timer, forMode: .eventTracking)
+        edgeScroll = timer
+    }
+
+    private func stopEdgeScroll() {
+        edgeScroll?.invalidate()
+        edgeScroll = nil
+        lastScrollTick = nil
+    }
+
+    private func edgeVelocity(at y: CGFloat) -> CGFloat {
+        let band = min(OrivTarget.macRail.height, visibleRect.height / 3)
+        guard band > 0, y >= visibleRect.minY, y <= visibleRect.maxY else { return 0 }
+        let top = max(0, 1 - (y - visibleRect.minY) / band)
+        let bottom = max(0, 1 - (visibleRect.maxY - y) / band)
+        return 580 * (bottom * bottom - top * top)
+    }
+
+    private func scrollDuringDrag() {
+        guard let dragLocation, sidebar?.dragPath != nil, let scroll = enclosingScrollView else {
+            stopEdgeScroll()
+            return
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        let elapsed = min(1.0 / 30, now - (lastScrollTick ?? now))
+        lastScrollTick = now
+        let clip = scroll.contentView
+        let local = convert(dragLocation, from: nil)
+        let velocity = edgeVelocity(at: local.y)
+        let origin = clip.constrainBoundsRect(clip.bounds.offsetBy(dx: 0, dy: velocity * elapsed)).origin
+        guard origin != clip.bounds.origin else { return }
+        clip.scroll(to: origin)
+        scroll.reflectScrolledClipView(clip)
+        presentDrop(sidebar?.drop(at: convert(dragLocation, from: nil)))
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation { draggingUpdated(sender) }
+
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        let drop = sidebar?.validatedDrop(sender)
-        showInsertionMarker(drop?.2)
+        guard sidebar?.acceptsDrag(sender) == true else { finishDragPresentation(); return [] }
+        let point = sender.draggingLocation
+        if dragLocation == nil { sidebar?.setDragPointer(true) }
+        let drop = sidebar?.drop(at: convert(point, from: nil))
+        presentDrop(drop)
+        dragLocation = point
+        updateEdgeScroll()
         return drop == nil ? [] : .move
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        showInsertionMarker(nil)
+        sidebar?.setDragPointer(false)
+        finishDragPresentation()
         super.draggingExited(sender)
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        sidebar?.validatedDrop(sender) != nil
+        guard sidebar?.acceptsDrag(sender) == true,
+              let drop = sidebar?.drop(at: convert(sender.draggingLocation, from: nil)) else { return false }
+        presentDrop(drop)
+        sender.animatesToDestination = sidebar?.reduceMotion == false
+        return true
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        showInsertionMarker(nil)
-        guard let (item, target, _) = sidebar?.validatedDrop(sender), let controller = sidebar?.controller else { return false }
-        return SidebarTabs.drop([item], on: target, controller: controller)
+        guard sidebar?.acceptsDrag(sender) == true, let layout = dragLayout,
+              let drop = sidebar?.drop(at: convert(sender.draggingLocation, from: nil)) else { return false }
+        presentDrop(drop)
+        let animated = sender.animatesToDestination
+        let positions = animated ? cellPositions() : [:]
+        guard let path = sidebar?.commit(drop.target, landingIn: layout, animated: animated) else { return false }
+        if animated, let destination = layout.layoutAttributesForItem(at: path)?.frame,
+           destination.intersects(visibleRect) {
+            animateCells(from: positions)
+            sender.draggingFormation = .none
+            sender.enumerateDraggingItems(options: [], for: self, classes: [NSPasteboardItem.self], searchOptions: [:]) { item, _, _ in
+                let size = item.draggingFrame.size
+                item.draggingFrame = NSRect(x: destination.midX - size.width / 2, y: destination.midY - size.height / 2,
+                                           width: size.width, height: size.height)
+            }
+        }
+        stopEdgeScroll()
+        return true
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        finishDragPresentation()
+        super.concludeDragOperation(sender)
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -848,8 +1066,12 @@ private final class SidebarInsertionMarker: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityIsIgnored() -> Bool { true }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(Theme.graphite.accent).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: OrivOutline.hairline, yRadius: OrivOutline.hairline).fill()
+        NSColor(Theme.sidebarKeyboardFocus).setStroke()
+        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2),
+                                   xRadius: OrivRadius.control, yRadius: OrivRadius.control)
+        outline.lineWidth = OrivOutline.focus
+        outline.setLineDash([4, 4], count: 2, phase: 0)
+        outline.stroke()
     }
 }
 
@@ -885,6 +1107,32 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
             host.bottomAnchor.constraint(equalTo: row.bottomAnchor)
         ])
         view = row
+    }
+
+    override var draggingImageComponents: [NSDraggingImageComponent] {
+        guard !view.bounds.isEmpty, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            return super.draggingImageComponents
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let component = NSDraggingImageComponent(key: .icon)
+        component.frame = NSRect(origin: .zero, size: view.bounds.size)
+        component.contents = bitmap.cgImage
+        return [component]
+    }
+
+    func animateReflow(from oldPosition: CGPoint?, origin: NSPoint, flipped: Bool) {
+        view.wantsLayer = true
+        guard let layer = view.layer else { return }
+        let position = layer.position
+        let animation = CASpringAnimation(keyPath: "position")
+        animation.fromValue = oldPosition ?? CGPoint(x: position.x + origin.x - view.frame.minX,
+                                                     y: position.y + (origin.y - view.frame.minY) * (flipped ? -1 : 1))
+        animation.toValue = position
+        animation.mass = 1
+        animation.stiffness = 470
+        animation.damping = 43
+        animation.duration = animation.settlingDuration
+        layer.add(animation, forKey: "sidebarReflow")
     }
 
     override var isSelected: Bool {

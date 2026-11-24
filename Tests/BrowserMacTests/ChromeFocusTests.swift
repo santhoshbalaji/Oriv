@@ -10,14 +10,14 @@ import XCTest
     private func marker(_ name: String, in window: NSWindow) -> NSView? {
         window.contentView.flatMap { views($0).first { $0.identifier?.rawValue == name } }
     }
-    private func host(_ controller: BrowserController, appearance: BrowserAppearance = .light, rtl: Bool = false) -> NSWindow {
+    private func host(_ controller: BrowserController, appearance: BrowserAppearance = .light, rtl: Bool = false, reduceMotion: Bool = true) -> NSWindow {
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = NSHostingController(rootView: BrowserWindow(controller: controller)
             .browserAppearance(appearance).environment(\.chromeReduceTransparencyOverride, true)
             .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
-            .environment(\.sidebarCaptureReduceMotion, true))
+            .environment(\.sidebarCaptureReduceMotion, reduceMotion))
         window.setContentSize(NSSize(width: 1000, height: 760))
         BackgroundUIMode.show(window)
         return window
@@ -356,6 +356,156 @@ import XCTest
         XCTAssertFalse(privateTab.isPinned)
     }
 
+    func testDragReflowsBothWaysAndRestoresLayoutOnCancellation() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let candidate = try XCTUnwrap(c.session.selectedTab)
+        let pins = (0..<4).map { _ in c.session.addTab(select: false, load: false) }
+        for pin in pins { c.session.togglePinned(pin.id) }
+        let peer = c.session.addTab(select: false, load: false)
+        let window = host(c, reduceMotion: false); defer { window.close() }
+        try await wait("Drag fixture did not lay out") { self.collection(in: window)?.sidebar?.path(for: peer.id) != nil }
+        let list = try XCTUnwrap(collection(in: window))
+        let data = try XCTUnwrap(list.sidebar)
+        let pin = pins[0]
+
+        func capture(_ name: String) throws {
+            let bitmap = try XCTUnwrap(list.bitmapImageRepForCachingDisplay(in: list.visibleRect))
+            list.cacheDisplay(in: list.visibleRect, to: bitmap)
+            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "sidebar-drag-" + name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        try capture("01-before-pin")
+        let pinFrame = try itemFrame(pin.id, in: list)
+        let source = try XCTUnwrap(data.path(for: candidate.id))
+        let artwork = try XCTUnwrap(list.item(at: source)).draggingImageComponents.first
+        XCTAssertEqual(artwork?.frame.size, try itemFrame(candidate.id, in: list).size)
+        let intoPins = try makeDrag(candidate.id, in: list)
+        data.beginDrag(at: source)
+        defer { data.endDrag() }
+        try await wait("Pin drag did not begin") { c.sidebar.dragging }
+        intoPins.move(to: NSPoint(x: pinFrame.minX + 4, y: pinFrame.midY))
+        XCTAssertEqual(list.draggingUpdated(intoPins), .move)
+        XCTAssertGreaterThan(try itemFrame(pin.id, in: list).minX, pinFrame.minX)
+        XCTAssertEqual(list.insertionMarkerFrame, pinFrame)
+        XCTAssertFalse(candidate.isPinned)
+        try capture("02-pin-gap")
+        try await Task.sleep(for: .milliseconds(100))
+        try capture("03-pin-reflow")
+        XCTAssertTrue(list.prepareForDragOperation(intoPins))
+        XCTAssertTrue(intoPins.animatesToDestination)
+        XCTAssertTrue(list.performDragOperation(intoPins))
+        list.concludeDragOperation(intoPins)
+        data.endDrag()
+        try await wait("Pinned position did not mount") { data.path(for: candidate.id)?.section == 0 }
+        XCTAssertTrue(candidate.isPinned)
+        try capture("04-pin-landed")
+
+        let row = try itemFrame(peer.id, in: list)
+        let fromPins = try makeDrag(candidate.id, in: list)
+        data.beginDrag(at: try XCTUnwrap(data.path(for: candidate.id)))
+        try await wait("Unpin drag did not begin") { c.sidebar.dragging }
+        fromPins.move(to: NSPoint(x: row.midX, y: row.minY + 4))
+        XCTAssertEqual(list.draggingUpdated(fromPins), .move)
+        XCTAssertNotEqual(try itemFrame(peer.id, in: list), row)
+        XCTAssertNotNil(list.insertionMarkerFrame)
+        try capture("05-unpin-reflow")
+        data.endDrag() // Same cleanup as AppKit ending the session after Escape.
+        XCTAssertNil(list.insertionMarkerFrame)
+        XCTAssertEqual(try itemFrame(peer.id, in: list), row)
+        XCTAssertTrue(candidate.isPinned)
+        try capture("06-cancel-return")
+
+        try await drag(candidate.id, in: list) { NSPoint(x: row.midX, y: row.minY + 4) }
+        try await wait("Unpinned position did not mount") { data.path(for: candidate.id)?.section == 1 }
+        XCTAssertFalse(candidate.isPinned)
+        try capture("07-unpin-landed")
+    }
+
+    func testTabDragStartMoveAndEdgeScrollWithOneHundredTabs() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let candidate = try XCTUnwrap(c.session.selectedTab)
+        for index in 0..<99 {
+            let other = c.session.addTab(select: false, load: false)
+            if index < 4 { c.session.togglePinned(other.id) }
+        }
+        let window = host(c, reduceMotion: false); defer { window.close() }
+        try await wait("100-tab drag fixture did not lay out") {
+            self.collection(in: window)?.sidebar?.path(for: candidate.id) != nil
+        }
+        let list = try XCTUnwrap(collection(in: window))
+        let data = try XCTUnwrap(list.sidebar)
+        let source = try XCTUnwrap(data.path(for: candidate.id))
+        let firstPin = try XCTUnwrap(c.session.orderedTabs.first)
+        let pin = try itemFrame(firstPin.id, in: list)
+        let row = try itemFrame(candidate.id, in: list)
+        let targets = [NSPoint(x: pin.minX + 4, y: pin.midY), NSPoint(x: row.midX, y: row.maxY + row.height)]
+        var starts: [Double] = []
+        var moves: [Int: [Double]] = [:]
+        let clock = ContinuousClock()
+        for trial in 0..<24 {
+            let info = try makeDrag(candidate.id, in: list)
+            let start = ProcessInfo.processInfo.systemUptime
+            let sourceItem = try XCTUnwrap(list.item(at: source))
+            _ = sourceItem.draggingImageComponents
+            data.beginDrag(at: source)
+            starts.append((ProcessInfo.processInfo.systemUptime - start) * 1_000)
+            defer { data.endDrag() }
+            try await wait("Timing drag did not begin") { c.sidebar.dragging }
+            let hz = trial.isMultiple(of: 2) ? 120 : 60
+            let interval = Duration.seconds(1 / Double(hz))
+            var next = clock.now
+            for target in Array(repeating: targets, count: 3).joined() {
+                info.move(to: target)
+                let move = ProcessInfo.processInfo.systemUptime
+                XCTAssertEqual(list.draggingUpdated(info), .move)
+                list.layoutSubtreeIfNeeded()
+                moves[hz, default: []].append((ProcessInfo.processInfo.systemUptime - move) * 1_000)
+                next += interval
+                try await clock.sleep(until: next)
+            }
+        }
+
+        let info = try makeDrag(candidate.id, in: list)
+        data.beginDrag(at: source)
+        defer { data.endDrag() }
+        try await wait("Auto-scroll drag did not begin") { c.sidebar.dragging }
+        let top = list.visibleRect.minY
+        info.move(to: NSPoint(x: list.bounds.midX, y: list.visibleRect.maxY - 2))
+        XCTAssertEqual(list.draggingUpdated(info), .move)
+        try await wait("Stationary pointer did not scroll the collection") { list.visibleRect.minY > top + 14 }
+        list.draggingExited(info)
+        let stopped = list.visibleRect.minY
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(list.visibleRect.minY, stopped, accuracy: 1)
+        XCTAssertNil(list.insertionMarkerFrame)
+
+        func p95(_ values: [Double]) -> Double { values.sorted()[Int(ceil(Double(values.count) * 0.95)) - 1] }
+        let move60 = try XCTUnwrap(moves[60])
+        let move120 = try XCTUnwrap(moves[120])
+        for (label, values) in [("start", starts), ("move60", move60), ("move120", move120)] {
+            let p50 = values.sorted()[values.count / 2]
+            print("TAB_DRAG \(label) n=\(values.count) p50_ms=\(p50) p95_ms=\(p95(values)) max_ms=\(values.max() ?? 0) offscreen=true")
+        }
+        if !["CI", "GITHUB_ACTIONS"].contains(where: { ProcessInfo.processInfo.environment[$0] == "true" }) {
+            XCTAssertLessThanOrEqual(p95(starts), 5)
+            XCTAssertLessThanOrEqual(p95(move60), 16.67)
+            XCTAssertLessThanOrEqual(p95(move120), 8.33)
+        }
+    }
+
+    private func makeDrag(_ id: UUID, in list: SidebarTabCollection) throws -> DragFixture {
+        let data = try XCTUnwrap(list.sidebar)
+        let source = try XCTUnwrap(data.path(for: id))
+        let writer = try XCTUnwrap(data.collectionView(list, pasteboardWriterForItemAt: source))
+        let info = DragFixture(source: list)
+        XCTAssertTrue(info.draggingPasteboard.writeObjects([writer]))
+        return info
+    }
+
     private func itemFrame(_ id: UUID, in list: SidebarTabCollection) throws -> NSRect {
         let path = try XCTUnwrap(list.sidebar?.path(for: id))
         return try XCTUnwrap(list.layoutAttributesForItem(at: path)).frame
@@ -365,9 +515,7 @@ import XCTest
                       at point: () throws -> NSPoint) async throws {
         let data = try XCTUnwrap(list.sidebar)
         let source = try XCTUnwrap(data.path(for: id))
-        let writer = try XCTUnwrap(data.collectionView(list, pasteboardWriterForItemAt: source))
-        let info = DragFixture(source: list)
-        XCTAssertTrue(info.draggingPasteboard.writeObjects([writer]))
+        let info = try makeDrag(id, in: list)
         if let owner {
             let payload = try JSONEncoder().encode(SidebarTabTransfer(id: id, owner: owner))
             XCTAssertTrue(info.draggingPasteboard.setData(payload, forType: SidebarCollectionData.pasteboardType))

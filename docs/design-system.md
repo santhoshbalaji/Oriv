@@ -125,12 +125,13 @@ retains an independent width. The 50 pt browser toolbar aligns with the native
 traffic lights. ⌥⌘S toggles the rail. At narrow window sizes explicit expansion
 overlays the page.
 
-The sidebar and rail share one full-height `MacSidebarGlass` surface. The
-traffic lights and expanded toggle align at the toolbar midpoint. The
-8 pt gutter shows the window’s sidebar material, with a theme chrome fill in
-Black, accessibility fallbacks and fullscreen. This backdrop follows panel
-width even when the sidebar overlays the page. The toolbar retains its own
-page-derived tint. Per-profile
+The sidebar and rail share one edge-to-edge `MacSidebarGlass` surface.
+The expanded sidebar aligns its traffic lights and toggle with the 50 pt
+content-toolbar midpoint. The rail moves its toggle below the traffic lights.
+Internal content keeps its row and footer insets. The page starts at the
+sidebar’s trailing edge except when an expanded sidebar overlays the page.
+The sidebar uses regular system Liquid Glass in its custom flush layout.
+The toolbar retains its own page-derived tint. Per-profile
 **Sidebar color** offers Graphite, Profile color and seven pastels. Black keeps
 its near-black backing while retaining the saved color choice. The Mac-wide
 **Glass opacity** applies a contrast guard below the selected backing. White
@@ -156,8 +157,8 @@ a download is active.
 
 | Mac sidebar token | Points |
 | --- | ---: |
-| Toolbar height and expanded titlebar spacer | 50 and 38 |
-| Panel, content and row horizontal inset | 8 |
+| Toolbar height and expanded titlebar spacer | 50 and 46 |
+| Content and row horizontal inset | 8 |
 | Expanded toggle and profile picker height | 30 and 32 |
 | Profile symbol frame | 22 |
 | Search height and horizontal padding | 28 and 8 |
@@ -188,7 +189,7 @@ full-title tooltip. VoiceOver reads the title, pinned state and position.
 Search results present pins as titled rows.
 
 The active tab uses the Chromatic Glass pill in rows, pinned tiles, the rail
-and tab search. It layers a hue-tinted fill, top specular rim and soft glow over
+and tab search. It layers a light hue wash, soft rim and small pin glow over
 the sidebar or search backing. Light uses deep matching ink, Dark uses bright
 ink and Black uses a restrained slate pill. Hover uses a neutral fill. Solid,
 Reduce Transparency and Increase Contrast use an opaque active pill. Increase
@@ -199,12 +200,15 @@ The collection draws a separate, opaque 2 pt ring inset from the highlighted
 row or tile edge. Rail search uses the same focus ink. The contrast gate checks
 active text at 4.5:1 and the focus ring and favicon cushion at 3:1 across the
 glass levels and accessibility fallbacks. Tile order, insertion markers, the
-Close corner and the satin bloom follow the layout direction.
+Close corner and the subtle leading tint follow the layout direction.
 
 Pin/unpin commands use the existing `TabRecord.isPinned` model and version-3
 session snapshot. Mac private pins live in memory for the lifetime of their
 tabs. Dragging onto Pinned pins a tab, and dropping onto its Tabs or Private
-section unpins it. Insertion markers show the destination when reordering.
+section unpins it. Rows and tiles reflow around an outlined insertion gap
+before the model changes. The native drag image settles into the committed
+slot or returns to its source on Escape. Edge scrolling continues while the
+pointer is held near the top or bottom, and a drag can spring-open the rail.
 Drags are scoped to the controller and privacy group. Move Up, Move Down,
 Unpin Tab and Close Tab are available from the context menu. Bulk close
 preserves pins and the other privacy group. Pins keep their existing
@@ -226,13 +230,15 @@ At narrow expanded widths, Share remains available in Browser Actions and New Ta
 remains in the sidebar. The address capsule keeps a 230 pt minimum and centers
 on the page viewport. Active downloads also have a sidebar badge.
 
-Sidebar controls use the shared tonal surface and focus-outline tokens. The
-3 pt selection marker sits inside the outline. The address capsule keeps a
-230 pt minimum and shows a compact **Private** pill with purple glasses when
-the selected tab is private. The page-derived color band keeps its monochrome
-navigation controls. Browser Actions retains its 36 × 32 pt target. Suggestions
-float in a solid 12 pt panel. Restored pages receive initial native web-content
-focus, and empty tabs focus the address editor.
+The 32 pt address capsule uses 24 pt inline targets and 4 pt end insets.
+Site information, the Private badge, zoom and Reload share the editor’s
+vertical center. Site Privacy, Share, Passwords and Browser Actions use
+the same 28 pt toolbar targets. The compact field displays the host with
+middle truncation. Focusing any open area of the capsule selects the full
+address in the native field editor. Editing uses a distinct backing and
+focus ring. Suggestions match the capsule’s width and appear 2 pt below
+it. Restored pages receive initial native web-content focus, and empty tabs
+focus the address editor.
 
 The Mac start page aligns its 640 pt content column with the address capsule
 and uses a four-column tile grid at standard text sizes with up to eight bookmarks. The private start page

@@ -212,6 +212,7 @@ final class ProfileSwipeTests: XCTestCase {
         var measured: Double?
         profiles.sidebarSwitch.selectTurnMeasured = { measured = $0 }
         var drag: [Double] = []
+        var dragMoves: [Double] = []
         var revisit: [Double] = []
         var tabTurns: [Double] = []
         let session = profiles.controller.session
@@ -263,6 +264,10 @@ final class ProfileSwipeTests: XCTestCase {
                 let start = ProcessInfo.processInfo.systemUptime
                 XCTAssertTrue(route(track))
                 drag.append((ProcessInfo.processInfo.systemUptime - start) * 1_000)
+                let move = try wheel(.changed, x: step < 0 ? -4 : 4, time: 1.03)
+                let moved = ProcessInfo.processInfo.systemUptime
+                XCTAssertTrue(route(move))
+                dragMoves.append((ProcessInfo.processInfo.systemUptime - moved) * 1_000)
                 XCTAssertTrue(route(try wheel(.ended, time: 1.04)))
             }
             try await eventually("switch turn recorded") { measured != nil && profiles.active.id == destination }
@@ -273,11 +278,14 @@ final class ProfileSwipeTests: XCTestCase {
         func percentile(_ samples: [Double], _ fraction: Double) -> Double {
             samples.sorted()[Int(ceil(Double(samples.count) * fraction)) - 1]
         }
-        for (name, samples) in [("selectTurn", revisit), ("dragStart", drag), ("tabTurn", tabTurns),
+        for (name, samples) in [("selectTurn", revisit), ("dragStart", drag), ("dragMove", dragMoves), ("tabTurn", tabTurns),
                                 ("legacyPersistence", legacyPersistence), ("enqueuedPersistence", enqueuedPersistence)] {
             print("PROFILE_BUDGET \(name) n=\(samples.count) p50=\(percentile(samples, 0.5)) p95=\(percentile(samples, 0.95)) max=\(samples.max() ?? 0)")
         }
         XCTAssertLessThanOrEqual(percentile(revisit, 0.95), 40)
+        if !["CI", "GITHUB_ACTIONS"].contains(where: { ProcessInfo.processInfo.environment[$0] == "true" }) {
+            XCTAssertLessThanOrEqual(percentile(drag, 0.95), 5)
+        }
         XCTAssertLessThanOrEqual(percentile(revisit, 0.95), 3 * percentile(tabTurns, 0.95))
     }
 
