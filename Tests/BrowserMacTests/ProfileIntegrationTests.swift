@@ -88,22 +88,37 @@ import SwiftUI
 
     func testWebsiteCookiesAndDataClearingStayInTheirNamedPersistentStore() async throws {
         let a = UUID(), b = UUID()
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [
+            .domain: "profiles.example.test", .path: "/", .name: "login", .value: "synthetic-A",
+            .expires: Date.now.addingTimeInterval(3600)
+        ]))
         do {
             let first = WKWebsiteDataStore(forIdentifier: a), second = WKWebsiteDataStore(forIdentifier: b)
             XCTAssertEqual(first.identifier, a); XCTAssertEqual(second.identifier, b)
-            let cookie = try XCTUnwrap(HTTPCookie(properties: [.domain: "profiles.example.test", .path: "/", .name: "login", .value: "synthetic-A"]))
+            XCTAssertTrue(first.isPersistent && second.isPersistent)
             await first.httpCookieStore.setCookie(cookie)
             let isolated = await second.httpCookieStore.allCookies()
             XCTAssertTrue(isolated.isEmpty)
             let reopened = WKWebsiteDataStore(forIdentifier: a)
             let retained = await reopened.httpCookieStore.allCookies()
             XCTAssertEqual(retained.first?.value, "synthetic-A")
+            await second.httpCookieStore.setCookie(cookie)
+            let beforeClearing = await second.httpCookieStore.allCookies()
+            XCTAssertEqual(beforeClearing.count, 1)
             await WebsiteDataManager(store: second).clear(since: .distantPast, cacheOnly: false)
+            let cleared = await second.httpCookieStore.allCookies()
+            XCTAssertTrue(cleared.isEmpty)
             let untouched = await first.httpCookieStore.allCookies()
-            XCTAssertEqual(untouched.count, 1)
+            XCTAssertEqual(untouched.map(\.value), ["synthetic-A"])
         }
-        try await WKWebsiteDataStore.remove(forIdentifier: a)
-        try await WKWebsiteDataStore.remove(forIdentifier: b)
+        // No WebViews use these stores, and the test's store references have
+        // gone out of scope before removing the named directories.
+        for id in [a, b] {
+            do { try await SessionFactory.removeNamedWebsiteDataStore(id) }
+            catch { XCTFail("Could not remove test website data store \(id): \(error)") }
+        }
+        let remaining = await WKWebsiteDataStore.allDataStoreIdentifiers
+        XCTAssertFalse(remaining.contains(a) || remaining.contains(b))
     }
     func testPreferencesAndPermissionsDoNotInheritAnotherProfile() throws {
         let bundle = "OrivProfileTest-\(UUID())"

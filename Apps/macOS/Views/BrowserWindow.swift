@@ -417,7 +417,10 @@ struct BrowserWindow: View {
         .accessibilityIdentifier("sidebarToggle")
         .browserGeometryMarker("sidebarToggleGeometry")
         .browserGeometryMarker("sidebarToggleKeyboardFocus", when: sidebarHeaderToggleFocused)
-        .onKeyPress(.downArrow) { sidebarTabs.focus(); return .handled }
+        .onKeyPress(.downArrow) {
+            sidebarTabs.focus(session.selectedTabID)
+            return .handled
+        }
         .accessibilitySortPriority(2)
         .foregroundStyle(theme.text)
     }

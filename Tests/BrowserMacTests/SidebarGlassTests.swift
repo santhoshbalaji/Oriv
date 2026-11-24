@@ -532,7 +532,8 @@ import XCTest
         let c = BrowserController(testing: true); defer { c.shutdown() }
         for _ in 1..<60 { _ = c.session.addTab(select: false, load: false) }
         let tabs = c.session.orderedTabs
-        let w = window(c, size: size, displayScale: displayScale); defer { w.close() }
+        let w = window(c, size: size, displayScale: displayScale)
+        defer { w.contentViewController = nil; w.close() }
         print("SIDEBAR_FOCUS_ENV size=\(size) displayScale=\(String(describing: displayScale)) backingScale=\(w.backingScaleFactor) preferredScrollerStyle=\(NSScroller.preferredScrollerStyle.rawValue) CI=\(ProcessInfo.processInfo.environment["CI", default: ""])")
         try await waitUntil("Initial address field did not acquire its editor") {
             w.contentView.map { self.views($0).contains { ($0 as? FocusAwareAddressField)?.currentEditor() != nil } } == true
@@ -540,7 +541,9 @@ import XCTest
         c.searchTabs()
         try await waitUntil("Search field did not acquire its editor") {
             w.firstResponder is NSTextView && w.contentView.map {
-                !self.views($0).contains { ($0 as? FocusAwareAddressField)?.currentEditor() != nil }
+                let all = self.views($0)
+                return !all.contains { ($0 as? FocusAwareAddressField)?.currentEditor() != nil } &&
+                    all.contains { ($0 as? SidebarTabCollection)?.sidebar?.isSearching == true }
             } == true
         }
         func key(_ code: UInt16, _ text: String) throws {
@@ -558,18 +561,19 @@ import XCTest
                 self.hasVisibleKeyboardFocus(tabs[index].id, in: w)
             }
         }
-        try await settle()
+        try await waitUntil("Rebuilding the list after search lost the last highlighted row") {
+            let list = w.firstResponder as? SidebarTabCollection
+            return list?.sidebar?.isSearching == false && self.hasVisibleKeyboardFocus(tabs[59].id, in: w)
+        }
         XCTAssertEqual(c.session.selectedTabID, tabs.first?.id)
         try key(36, "\r")
-        XCTAssertEqual(c.session.selectedTabID, tabs.last?.id)
-        let toggle = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
-            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
-            characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1))
-        XCTAssertTrue(w.performKeyEquivalent(with: toggle))
-        try await waitUntil("Sidebar did not collapse to rail") { c.compactSidebar }
-        XCTAssertTrue(c.compactSidebar)
-        try await waitUntil("Collapse did not hand focus to the surviving toggle") {
-            w.contentView.map { self.views($0).contains { $0.identifier?.rawValue == "sidebarToggleKeyboardFocus" } } == true
+        try await waitUntil("Return did not activate the highlighted row") { c.session.selectedTabID == tabs[59].id }
+        try toggleSidebar(in: w)
+        try await waitUntil("Collapse did not lay out the rail and focus the surviving toggle") {
+            guard let content = w.contentView else { return false }
+            let all = self.views(content)
+            return all.contains { $0.identifier?.rawValue == "sidebarToggleKeyboardFocus" } &&
+                all.contains { ($0 as? SidebarTabCollection)?.sidebar?.isRail == true }
         }
         try key(125, "\u{f701}") // Toggle -> selected rail tab.
         try await waitUntil("Toggle did not hand focus to the selected rail row") { self.hasVisibleKeyboardFocus(tabs[59].id, in: w) }

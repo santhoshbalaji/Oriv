@@ -75,9 +75,7 @@ import WebKit
                                          bundleID: String, testing: Bool) async throws {
         guard let suite = profile.defaultsName(bundleID: bundleID) else { throw ProfileError.protectedProfile }
         if !testing {
-            if await WKWebsiteDataStore.allDataStoreIdentifiers.contains(profile.id) {
-                try await WKWebsiteDataStore.remove(forIdentifier: profile.id)
-            }
+            try await removeNamedWebsiteDataStore(profile.id)
             #if os(iOS)
             try removeDirectory(downloadStagingDirectory(for: profile.id))
             #endif
@@ -86,6 +84,24 @@ import WebKit
         if !testing || rootOverride != nil {
             try removeDirectory(profile.directory(in: rootOverride ?? storageRoot))
         }
+    }
+
+    static func removeNamedWebsiteDataStore(_ id: UUID) async throws {
+        guard await WKWebsiteDataStore.allDataStoreIdentifiers.contains(id) else { return }
+        for delay in [50, 150, 300, 500] {
+            try Task.checkCancellation()
+            do {
+                try await WKWebsiteDataStore.remove(forIdentifier: id)
+                return
+            } catch let error as NSError where error.domain == "WKWebSiteDataStore" &&
+                error.code == WKError.Code.unknown.rawValue &&
+                error.localizedDescription == "Failed to delete files on disk" {
+                // A recently used store can still be settling on disk after
+                // its views are released. Allow a bounded retry of this error.
+                try await Task.sleep(for: .milliseconds(delay))
+            }
+        }
+        try await WKWebsiteDataStore.remove(forIdentifier: id)
     }
 
     private static func removeDirectory(_ url: URL) throws {

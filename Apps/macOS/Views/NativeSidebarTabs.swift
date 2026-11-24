@@ -244,6 +244,7 @@ private struct SidebarSection {
     private var drag: SidebarTabTransfer?
     var controller: BrowserController? { configuration?.controller }
     var isRail: Bool { configuration?.rail == true }
+    var isSearching: Bool { configuration?.searching == true }
     var isIconLayout: Bool { isRail || configuration?.peek == true }
     var rowHeight: CGFloat {
         if isIconLayout { return OrivTarget.macRail.height }
@@ -291,6 +292,7 @@ private struct SidebarSection {
         let oldSize = self.environment.dynamicTypeSize
         let directionChanged = self.environment.layoutDirection != environment.layoutDirection
         let oldShown = selectedID
+        let ownsFocus = list.window?.firstResponder === list
         let newSections = makeSections(value)
         let changesLayout = old?.rail != value.rail || old?.peek != value.peek || old?.searching != value.searching ||
             sections.map(\.headerHeight) != newSections.map(\.headerHeight)
@@ -311,10 +313,14 @@ private struct SidebarSection {
         if changesLayout || changesContent || old?.expandedWidth != value.expandedWidth || oldSize != environment.dynamicTypeSize || directionChanged {
             list.collectionViewLayout?.invalidateLayout()
         }
-        if changesLayout || changesActive || profileChanged {
+        if changesActive || profileChanged {
             select(newActive, reveal: true)
-        } else if changesContent {
-            select(oldShown.flatMap { path(for: $0) != nil ? $0 : nil } ?? newActive, reveal: false)
+        } else if changesLayout || changesContent {
+            // The search field can finish releasing focus after the collection
+            // has already received arrow keys. Carry the highlight through the
+            // layout change by ID, even if pinned tiles move to different paths.
+            let highlight = ownsFocus || !changesLayout ? oldShown.flatMap { path(for: $0) != nil ? $0 : nil } : nil
+            select(highlight ?? newActive, reveal: changesLayout)
         }
         for item in list.visibleItems() {
             if let item = item as? SidebarCollectionItem, let path = list.indexPath(for: item) { configure(item, at: path) }
