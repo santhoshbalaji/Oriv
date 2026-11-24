@@ -20,7 +20,9 @@ import XCTest
             var environment = EnvironmentValues()
             environment.colorScheme = scheme
             let styles = levels.map { SidebarChromaticStyle(level: $0, environment: environment) }
-            XCTAssertEqual(styles.map(\.backingOpacity), [scheme == .dark ? 0.72 : 0.62, 0.86, 1])
+            XCTAssertEqual(styles.map(\.backingOpacity), [0.65, 0.86, 1])
+            XCTAssertEqual(styles.first?.guardOpacity, 0.65)
+            XCTAssertEqual(styles.map(\.selectionOpacity), [0.43, 0.43, 1])
             XCTAssertEqual(styles.map(\.opaque), [false, false, true])
         }
     }
