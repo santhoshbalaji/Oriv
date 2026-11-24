@@ -146,6 +146,42 @@ remain foreground acceptance checks. The native AX-tree test explicitly skips
 when SwiftUI exposes no descendants in an off-screen accessory window; model
 labels and native key-event tests continue to run.
 
+### Live sidebar drag trace
+
+With permission for foreground QA, start the reviewed debug bundle at
+`build/DevDerivedData/Build/Products/Debug/Oriv-Dev.app` with synthetic test
+tabs. From the checkout, attach Instruments to the already running QA process.
+
+```sh
+oriv_qa_pid=$(pgrep -fx "$PWD/build/DevDerivedData/Build/Products/Debug/Oriv-Dev.app/Contents/MacOS/Oriv-Dev")
+xcrun xctrace record --template 'Animation Hitches' --instrument 'os_signpost' \
+  --attach "$oriv_qa_pid" --time-limit 60s \
+  --output "build/sidebar-drag-$(date +%Y%m%d-%H%M%S).trace"
+```
+
+If the bundle was launched from a different path, use the PID of that QA
+process. While recording, drag a row to Pinned and a pin back to Tabs. Reorder
+inside both sections and in the collapsed rail, cross a grid row boundary,
+hold at the scroll edges, and cancel with Escape. Repeat with Reduce Motion.
+Compare dropped frames and hitch duration near each gesture at the display's
+actual refresh rate.
+
+Filter the signpost instrument to subsystem `Oriv` and category
+`SidebarDrag`. `DragImage` measures the source capture and any cross-format
+destination capture at release. `DragStart`
+and `DragSetup` identify the native session start and preparation of any empty
+target. `DraggingUpdated` measures pointer validation and routing.
+`DragRelayout` measures the applied gap and temporary section changes.
+`DropCommit` measures the model move and destination handoff. Compare these
+intervals with the Hitches, Core Animation Commits and Frame Lifetimes tracks.
+
+The off-screen 100-tab drag probe measures callback and layout CPU at 60 and
+120 Hz input cadences. A separate test asserts that equivalent slots schedule
+zero additional relayouts as a guard against layout-attribute allocation churn,
+and that neighboring views survive the committed move. For live heap evidence,
+use the Allocations template with the same gestures and inspect allocation
+stacks inside `DraggingUpdated` and `DragRelayout`.
+
 Run `ORIV_BACKGROUND_UI=1 ORIV_GLASS_SCENE=sidebar-v3 ./scripts/capture-mac-visuals.sh --glass build/sidebar-v3`
 for full browser window layouts in Light, Dark, Black, Sky and Rose, including
 the rail, 220 and 360 pt widths, private states, Increase Contrast and RTL.

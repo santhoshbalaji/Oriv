@@ -333,6 +333,11 @@ import XCTest
                 return NSPoint(x: pin.minX + pin.width / 4, y: pin.minY + pin.height / 4)
             }
             XCTAssertEqual(c.session.orderedTabs.filter(\.isPinned).map(\.id), [tab.id, other.id])
+            try await drag(tab.id, in: list) {
+                let pin = try self.itemFrame(other.id, in: list)
+                return rail ? NSPoint(x: pin.midX, y: pin.midY + 4) : NSPoint(x: pin.midX + 4, y: pin.midY)
+            }
+            XCTAssertEqual(c.session.orderedTabs.filter(\.isPinned).map(\.id), [other.id, tab.id])
         }
     }
 
@@ -359,6 +364,7 @@ import XCTest
     func testDragReflowsBothWaysAndRestoresLayoutOnCancellation() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let candidate = try XCTUnwrap(c.session.selectedTab)
+        c.sidebar.setExpandedWidth(220)
         let pins = (0..<4).map { _ in c.session.addTab(select: false, load: false) }
         for pin in pins { c.session.togglePinned(pin.id) }
         let peer = c.session.addTab(select: false, load: false)
@@ -381,14 +387,29 @@ import XCTest
         try capture("01-before-pin")
         let pinFrame = try itemFrame(pin.id, in: list)
         let source = try XCTUnwrap(data.path(for: candidate.id))
-        let artwork = try XCTUnwrap(list.item(at: source)).draggingImageComponents.first
-        XCTAssertEqual(artwork?.frame.size, try itemFrame(candidate.id, in: list).size)
+        let sourceItem = try XCTUnwrap(list.item(at: source))
+        let artwork = try XCTUnwrap(sourceItem.draggingImageComponents.first)
+        XCTAssertEqual(artwork.frame.size, try itemFrame(candidate.id, in: list).size)
+        XCTAssertTrue(artwork === sourceItem.draggingImageComponents.first)
+        let peerPinItem = try XCTUnwrap(list.item(at: XCTUnwrap(data.path(for: pin.id))))
         let intoPins = try makeDrag(candidate.id, in: list)
         data.beginDrag(at: source)
         defer { data.endDrag() }
         try await wait("Pin drag did not begin") { c.sidebar.dragging }
+        let lastPin = try itemFrame(pins[3].id, in: list)
+        intoPins.move(to: NSPoint(x: lastPin.maxX - 2, y: lastPin.midY))
+        XCTAssertEqual(list.draggingEntered(intoPins), .move)
+        list.layoutSubtreeIfNeeded()
+        let wrappedGap = try XCTUnwrap(list.insertionMarkerFrame)
+        XCTAssertGreaterThan(wrappedGap.minY, lastPin.maxY)
+        intoPins.move(to: NSPoint(x: wrappedGap.midX, y: wrappedGap.midY))
+        XCTAssertEqual(list.draggingUpdated(intoPins), .move)
+        list.layoutSubtreeIfNeeded()
+        XCTAssertEqual(list.insertionMarkerFrame, wrappedGap)
+
         intoPins.move(to: NSPoint(x: pinFrame.minX + 4, y: pinFrame.midY))
         XCTAssertEqual(list.draggingUpdated(intoPins), .move)
+        list.layoutSubtreeIfNeeded()
         XCTAssertGreaterThan(try itemFrame(pin.id, in: list).minX, pinFrame.minX)
         XCTAssertEqual(list.insertionMarkerFrame, pinFrame)
         XCTAssertFalse(candidate.isPinned)
@@ -398,10 +419,19 @@ import XCTest
         XCTAssertTrue(list.prepareForDragOperation(intoPins))
         XCTAssertTrue(intoPins.animatesToDestination)
         XCTAssertTrue(list.performDragOperation(intoPins))
+        let landingFrame = try itemFrame(candidate.id, in: list)
+        let landing = try XCTUnwrap(intoPins.draggingItem)
+        XCTAssertEqual(landing.draggingFrame, landingFrame)
+        let contents = try XCTUnwrap(landing.imageComponentsProvider?().first?.contents)
+        let bitmap = NSBitmapImageRep(cgImage: contents as! CGImage)
+        XCTAssertGreaterThan(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0, 0)
         list.concludeDragOperation(intoPins)
+        XCTAssertEqual(list.layoutAttributesForItem(at: try XCTUnwrap(data.path(for: candidate.id)))?.alpha, 1)
         data.endDrag()
         try await wait("Pinned position did not mount") { data.path(for: candidate.id)?.section == 0 }
         XCTAssertTrue(candidate.isPinned)
+        XCTAssertTrue(sourceItem === list.item(at: try XCTUnwrap(data.path(for: candidate.id))))
+        XCTAssertTrue(peerPinItem === list.item(at: try XCTUnwrap(data.path(for: pin.id))))
         try capture("04-pin-landed")
 
         let row = try itemFrame(peer.id, in: list)
@@ -409,7 +439,8 @@ import XCTest
         data.beginDrag(at: try XCTUnwrap(data.path(for: candidate.id)))
         try await wait("Unpin drag did not begin") { c.sidebar.dragging }
         fromPins.move(to: NSPoint(x: row.midX, y: row.minY + 4))
-        XCTAssertEqual(list.draggingUpdated(fromPins), .move)
+        XCTAssertEqual(list.draggingEntered(fromPins), .move)
+        list.layoutSubtreeIfNeeded()
         XCTAssertNotEqual(try itemFrame(peer.id, in: list), row)
         XCTAssertNotNil(list.insertionMarkerFrame)
         try capture("05-unpin-reflow")
@@ -445,6 +476,7 @@ import XCTest
         let targets = [NSPoint(x: pin.minX + 4, y: pin.midY), NSPoint(x: row.midX, y: row.maxY + row.height)]
         var starts: [Double] = []
         var moves: [Int: [Double]] = [:]
+        var updates: [Double] = []
         let clock = ContinuousClock()
         for trial in 0..<24 {
             let info = try makeDrag(candidate.id, in: list)
@@ -455,6 +487,8 @@ import XCTest
             starts.append((ProcessInfo.processInfo.systemUptime - start) * 1_000)
             defer { data.endDrag() }
             try await wait("Timing drag did not begin") { c.sidebar.dragging }
+            info.move(to: NSPoint(x: list.bounds.midX, y: -1))
+            XCTAssertEqual(list.draggingEntered(info), [])
             let hz = trial.isMultiple(of: 2) ? 120 : 60
             let interval = Duration.seconds(1 / Double(hz))
             var next = clock.now
@@ -462,6 +496,7 @@ import XCTest
                 info.move(to: target)
                 let move = ProcessInfo.processInfo.systemUptime
                 XCTAssertEqual(list.draggingUpdated(info), .move)
+                updates.append((ProcessInfo.processInfo.systemUptime - move) * 1_000)
                 list.layoutSubtreeIfNeeded()
                 moves[hz, default: []].append((ProcessInfo.processInfo.systemUptime - move) * 1_000)
                 next += interval
@@ -475,9 +510,10 @@ import XCTest
         try await wait("Auto-scroll drag did not begin") { c.sidebar.dragging }
         let top = list.visibleRect.minY
         info.move(to: NSPoint(x: list.bounds.midX, y: list.visibleRect.maxY - 2))
-        XCTAssertEqual(list.draggingUpdated(info), .move)
+        XCTAssertEqual(list.draggingEntered(info), .move)
         try await wait("Stationary pointer did not scroll the collection") { list.visibleRect.minY > top + 14 }
         list.draggingExited(info)
+        list.layoutSubtreeIfNeeded()
         let stopped = list.visibleRect.minY
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(list.visibleRect.minY, stopped, accuracy: 1)
@@ -486,14 +522,68 @@ import XCTest
         func p95(_ values: [Double]) -> Double { values.sorted()[Int(ceil(Double(values.count) * 0.95)) - 1] }
         let move60 = try XCTUnwrap(moves[60])
         let move120 = try XCTUnwrap(moves[120])
-        for (label, values) in [("start", starts), ("move60", move60), ("move120", move120)] {
+        for (label, values) in [("start", starts), ("update", updates), ("move60", move60), ("move120", move120)] {
             let p50 = values.sorted()[values.count / 2]
             print("TAB_DRAG \(label) n=\(values.count) p50_ms=\(p50) p95_ms=\(p95(values)) max_ms=\(values.max() ?? 0) offscreen=true")
         }
         if !["CI", "GITHUB_ACTIONS"].contains(where: { ProcessInfo.processInfo.environment[$0] == "true" }) {
             XCTAssertLessThanOrEqual(p95(starts), 5)
+            XCTAssertLessThanOrEqual(p95(updates), 0.5)
             XCTAssertLessThanOrEqual(p95(move60), 16.67)
             XCTAssertLessThanOrEqual(p95(move120), 8.33)
+        }
+    }
+
+    func testUnchangedGapSkipsRelayoutAndReorderPreservesArtworkInExpandedAndRail() async throws {
+        for rail in [false, true] {
+            let c = BrowserController(testing: true); defer { c.shutdown() }
+            c.compactSidebar = rail
+            let source = try XCTUnwrap(c.session.selectedTab)
+            let first = c.session.addTab(select: false, load: false)
+            let second = c.session.addTab(select: false, load: false)
+            let w = host(c, reduceMotion: true); defer { w.close() }
+            try await wait("Drag fixture did not mount") { self.collection(in: w)?.sidebar?.path(for: second.id) != nil }
+            let list = try XCTUnwrap(collection(in: w))
+            let data = try XCTUnwrap(list.sidebar)
+            let info = try makeDrag(source.id, in: list)
+            data.beginDrag(at: try XCTUnwrap(data.path(for: source.id)))
+            defer { data.endDrag() }
+            try await wait("Drag tracking did not begin") { c.sidebar.dragging }
+
+            let firstPath = try XCTUnwrap(data.path(for: first.id))
+            let firstItem = try XCTUnwrap(list.item(at: firstPath))
+            let above = try itemFrame(first.id, in: list)
+            let below = try itemFrame(second.id, in: list)
+            let afterFirst = NSPoint(x: above.midX, y: above.midY + 2)
+            let beforeSecond = NSPoint(x: below.midX, y: below.midY - 2)
+            let beforeFirst = NSPoint(x: above.midX, y: above.midY - 2)
+
+            let initialCount = list.dragRelayoutCount
+            info.move(to: beforeFirst)
+            XCTAssertEqual(list.draggingEntered(info), .move)
+            info.move(to: afterFirst)
+            XCTAssertEqual(list.draggingUpdated(info), .move)
+            XCTAssertEqual(list.dragRelayoutCount, initialCount, "Pointer callbacks must not force layout")
+            list.layoutSubtreeIfNeeded()
+            XCTAssertEqual(list.dragRelayoutCount, initialCount + 1, "Apply only the latest request per layout pass")
+            let gap = try XCTUnwrap(list.insertionMarkerFrame)
+
+            for index in 0..<1_024 {
+                info.move(to: index.isMultiple(of: 2) ? beforeSecond : afterFirst)
+                XCTAssertEqual(list.draggingUpdated(info), .move)
+                list.layoutSubtreeIfNeeded()
+            }
+            XCTAssertEqual(list.dragRelayoutCount, initialCount + 1, "Equivalent slots must not allocate new layout attributes")
+            XCTAssertEqual(list.insertionMarkerFrame, gap)
+            XCTAssertEqual(c.session.orderedTabs.map(\.id), [source.id, first.id, second.id])
+            XCTAssertTrue(list.prepareForDragOperation(info))
+            XCTAssertFalse(info.animatesToDestination)
+            XCTAssertTrue(list.performDragOperation(info))
+            list.concludeDragOperation(info)
+            data.endDrag()
+            XCTAssertEqual(c.session.orderedTabs.map(\.id), [first.id, source.id, second.id])
+            XCTAssertTrue(firstItem === list.item(at: try XCTUnwrap(data.path(for: first.id))))
+            XCTAssertNil(firstItem.view.layer?.animation(forKey: "sidebarReflow"))
         }
     }
 
@@ -502,6 +592,9 @@ import XCTest
         let source = try XCTUnwrap(data.path(for: id))
         let writer = try XCTUnwrap(data.collectionView(list, pasteboardWriterForItemAt: source))
         let info = DragFixture(source: list)
+        let item = NSDraggingItem(pasteboardWriter: writer)
+        item.draggingFrame = try itemFrame(id, in: list)
+        info.draggingItem = item
         XCTAssertTrue(info.draggingPasteboard.writeObjects([writer]))
         return info
     }
@@ -529,6 +622,7 @@ import XCTest
         XCTAssertEqual(list.draggingEntered(info), [])
         info.move(to: try point())
         XCTAssertEqual(list.draggingUpdated(info), accepted ? .move : [])
+        list.layoutSubtreeIfNeeded()
         XCTAssertEqual(list.insertionMarkerFrame != nil, accepted)
         XCTAssertEqual(list.prepareForDragOperation(info), accepted)
         XCTAssertEqual(list.performDragOperation(info), accepted)
@@ -707,6 +801,7 @@ import XCTest
     let source: SidebarTabCollection
     let draggingPasteboard = NSPasteboard.withUniqueName()
     var draggingLocation = NSPoint.zero
+    var draggingItem: NSDraggingItem?
     var draggingDestinationWindow: NSWindow? { source.window }
     let draggingSourceOperationMask = NSDragOperation.move
     var draggingSource: Any? { source }
@@ -725,6 +820,10 @@ import XCTest
     func slideDraggedImage(to screenPoint: NSPoint) {}
     func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?,
                                 classes classArray: [AnyClass], searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
-                                using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
+                                using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {
+        guard let draggingItem else { return }
+        var stop = ObjCBool(false)
+        block(draggingItem, 0, &stop)
+    }
     func resetSpringLoading() {}
 }
