@@ -517,6 +517,7 @@ struct SidebarToneSurface: ViewModifier {
 struct SidebarSelectionSurface: ViewModifier {
     let active: Bool
     let radius: CGFloat
+    var drawsGlow = true
     @Environment(\.self) private var environment
 
     func body(content: Content) -> some View {
@@ -530,11 +531,12 @@ struct SidebarSelectionSurface: ViewModifier {
                                            lineWidth: style.increased ? OrivOutline.focus : OrivOutline.hairline)
                     }
                 } else {
-                    style.selectionGlow(shape.fill(style.fill).overlay {
+                    let fill = shape.fill(style.fill).overlay {
                         shape.strokeBorder(
                             LinearGradient(colors: [style.rimTop, style.rimBottom], startPoint: .top, endPoint: .bottom),
                             lineWidth: SidebarChromaticStyle.selectionRim)
-                    })
+                    }
+                    if drawsGlow { style.selectionGlow(fill) } else { fill }
                 }
             }
         }
@@ -600,6 +602,7 @@ struct SidebarTabArtwork: View {
     var hoveredAccessory: SidebarRowAccessory?
     let subtitle: String?
     var previewIcons: [String: SiteIcon]? = nil
+    var drawsSelectionGlow = true
     #if DEBUG
     @Environment(\.sidebarCaptureState) private var captureState
     #endif
@@ -684,7 +687,7 @@ struct SidebarTabArtwork: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(selectedInk ?? (style.black ? theme.text : SidebarChromaticStyle.primaryInk))
         .modifier(SidebarToneSurface(tone: !active && hovered ? .hover : nil, radius: radius))
-        .modifier(SidebarSelectionSurface(active: active, radius: radius))
+        .modifier(SidebarSelectionSurface(active: active, radius: radius, drawsGlow: drawsSelectionGlow))
         .environment(\.sidebarChromaticStyle, style)
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .topTrailing) {

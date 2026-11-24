@@ -260,6 +260,8 @@ class ProfileSidebarScrollView: NSScrollView {
         scheduleArtwork()
     }
 
+    func sidebarDragFinished() { scheduleArtwork() }
+
     func anchorLaidOut(_ view: ProfileSidebarAnchor.Anchor) {
         scheduleArtwork()
         guard view === anchor, view.bounds.width > 0, let waitingForProfile,
@@ -463,7 +465,8 @@ class ProfileSidebarScrollView: NSScrollView {
     }
 
     private func scheduleArtwork() {
-        guard let anchor, !anchor.bounds.isEmpty, anchor.window != nil else { return }
+        guard let anchor, !anchor.bounds.isEmpty, anchor.window != nil,
+              anchor.controller?.sidebar.dragging != true else { return }
         let geometry = ArtworkGeometry(anchor)
         if artworkGeometry != geometry { artworkNeedsRefresh = true }
         guard artworkNeedsRefresh, artworkTask == nil, overlay == nil,
@@ -475,8 +478,8 @@ class ProfileSidebarScrollView: NSScrollView {
             guard !Task.isCancelled, self.overlay == nil, !self.selectionPending, self.swipe.axis != .undecided,
                   let anchor = self.anchor, let profiles = self.host?.profiles,
                   anchor.window != nil, !anchor.bounds.isEmpty else { return }
-            guard ProcessInfo.processInfo.systemUptime - self.lastViewportChange >= 0.06,
-                  !profiles.controller.sidebar.dragging else {
+            guard !profiles.controller.sidebar.dragging else { return }
+            guard ProcessInfo.processInfo.systemUptime - self.lastViewportChange >= 0.06 else {
                 self.scheduleArtwork()
                 return
             }

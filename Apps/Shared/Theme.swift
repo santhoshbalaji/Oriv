@@ -758,6 +758,12 @@ struct AppearancePreview: View {
 }
 
 /// Site-owned favicons, with a local monogram while unavailable.
+#if os(macOS)
+extension EnvironmentValues {
+    @Entry var sidebarDefersIconHydration: ((URL) -> Bool)? = nil
+}
+#endif
+
 struct SiteIdentity: View {
     @Environment(\.siteIcons) private var icons
     @Environment(\.browserTheme) private var theme
@@ -875,6 +881,9 @@ struct SiteIdentity: View {
             // regular rows may hydrate their own profile's disk cache only.
             if let url, previewIcons == nil {
                 if sidebarIcon || cachedOnly {
+                    #if os(macOS)
+                    if sidebarIcon && !isPrivate && environment.sidebarDefersIconHydration?(url) == true { return }
+                    #endif
                     if !isPrivate { await icons?.loadCached(url) }
                 } else { await icons?.load(url, isPrivate: isPrivate) }
             }

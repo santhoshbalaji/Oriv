@@ -146,6 +146,26 @@ remain foreground acceptance checks. The native AX-tree test explicitly skips
 when SwiftUI exposes no descendants in an off-screen accessory window; model
 labels and native key-event tests continue to run.
 
+### Sidebar drag frame pacing
+
+The Debug app can measure display-link delivery during a manual drag. Set
+`ORIV_SIDEBAR_DRAG_FRAMES=1` in the app's launch environment, or set the Debug
+app's `SidebarDragFramePacing` user default to true. For an owner-run test from
+the checkout, launch the rebuilt bundle with the environment variable.
+
+```sh
+ORIV_SIDEBAR_DRAG_FRAMES=1 build/DevDerivedData/Build/Products/Debug/Oriv-Dev.app/Contents/MacOS/Oriv-Dev
+```
+
+Each ended drag appends one JSON record to
+`Library/Containers/local.personalbrowser.qa/Data/Library/Application Support/Oriv/sidebar-drag-frames.jsonl`
+under the current user's home directory. The record contains the interval
+count, p50, p95 and maximum in milliseconds for the drag and each sampled
+phase. Each hitch includes its phase and the expected interval. A hitch is
+an interval greater than 1.5 times the preceding callback's expected frame
+duration. The log contains timing and drag phases only. Delivery gaps are
+a main-run-loop pacing signal. WindowServer render time requires separate measurement.
+
 ### Live sidebar drag trace
 
 With permission for foreground QA, start the reviewed debug bundle at
@@ -167,8 +187,8 @@ Compare dropped frames and hitch duration near each gesture at the display's
 actual refresh rate.
 
 Filter the signpost instrument to subsystem `Oriv` and category
-`SidebarDrag`. `DragImage` measures the source capture and any cross-format
-destination capture at release. `DragStart`
+`SidebarDrag`. `DragImage` measures the source capture and preparation of
+the alternate row or tile image. `DragStart`
 and `DragSetup` identify the native session start and preparation of any empty
 target. `DraggingUpdated` measures pointer validation and routing.
 `DragRelayout` measures the applied gap and temporary section changes.

@@ -401,6 +401,10 @@ import XCTest
         XCTAssertEqual(list.draggingEntered(intoPins), .move)
         list.layoutSubtreeIfNeeded()
         let wrappedGap = try XCTUnwrap(list.insertionMarkerFrame)
+        let preview = try XCTUnwrap(intoPins.draggingItem)
+        XCTAssertEqual(preview.draggingFrame.size, lastPin.size)
+        let previewImage = try XCTUnwrap(preview.imageComponentsProvider?().first?.contents) as! CGImage
+        let renderCount = list.dragImageRenderCount
         XCTAssertGreaterThan(wrappedGap.minY, lastPin.maxY)
         intoPins.move(to: NSPoint(x: wrappedGap.midX, y: wrappedGap.midY))
         XCTAssertEqual(list.draggingUpdated(intoPins), .move)
@@ -412,6 +416,8 @@ import XCTest
         list.layoutSubtreeIfNeeded()
         XCTAssertGreaterThan(try itemFrame(pin.id, in: list).minX, pinFrame.minX)
         XCTAssertEqual(list.insertionMarkerFrame, pinFrame)
+        let reflow = try XCTUnwrap(peerPinItem.view.layer?.animation(forKey: "sidebarReflow") as? CAKeyframeAnimation)
+        XCTAssertTrue(reflow.isAdditive)
         XCTAssertFalse(candidate.isPinned)
         try capture("02-pin-gap")
         try await Task.sleep(for: .milliseconds(100))
@@ -423,10 +429,13 @@ import XCTest
         let landing = try XCTUnwrap(intoPins.draggingItem)
         XCTAssertEqual(landing.draggingFrame, landingFrame)
         let contents = try XCTUnwrap(landing.imageComponentsProvider?().first?.contents)
+        XCTAssertTrue(previewImage === contents as! CGImage)
+        XCTAssertEqual(list.dragImageRenderCount, renderCount, "Slot updates and release must reuse the preview bitmap")
         let bitmap = NSBitmapImageRep(cgImage: contents as! CGImage)
         XCTAssertGreaterThan(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0, 0)
         list.concludeDragOperation(intoPins)
         XCTAssertEqual(list.layoutAttributesForItem(at: try XCTUnwrap(data.path(for: candidate.id)))?.alpha, 1)
+        XCTAssertNil(sourceItem.view.layer?.animation(forKey: "sidebarLanding"))
         data.endDrag()
         try await wait("Pinned position did not mount") { data.path(for: candidate.id)?.section == 0 }
         XCTAssertTrue(candidate.isPinned)
@@ -444,6 +453,10 @@ import XCTest
         XCTAssertNotEqual(try itemFrame(peer.id, in: list), row)
         XCTAssertNotNil(list.insertionMarkerFrame)
         try capture("05-unpin-reflow")
+        list.draggingExited(fromPins)
+        list.layoutSubtreeIfNeeded()
+        XCTAssertEqual(list.layoutAttributesForItem(at: try XCTUnwrap(data.path(for: candidate.id)))?.alpha, 0)
+        XCTAssertEqual(fromPins.draggingItem?.draggingFrame.size, pinFrame.size)
         data.endDrag() // Same cleanup as AppKit ending the session after Escape.
         XCTAssertNil(list.insertionMarkerFrame)
         XCTAssertEqual(try itemFrame(peer.id, in: list), row)
@@ -454,6 +467,18 @@ import XCTest
         try await wait("Unpinned position did not mount") { data.path(for: candidate.id)?.section == 1 }
         XCTAssertFalse(candidate.isPinned)
         try capture("07-unpin-landed")
+    }
+
+    func testSidebarReflowRetargetCarriesVelocityThroughReversal() {
+        let initial = SidebarReflowMotion(start: .zero, end: CGPoint(x: 49, y: 36), velocity: .zero, begin: 1)
+        let crossing = initial.sample(at: 1.05)
+        let reverse = SidebarReflowMotion(start: crossing.position, end: .zero, velocity: crossing.velocity, begin: 1.05)
+        XCTAssertEqual(reverse.sample(at: 1.05).position, crossing.position)
+        XCTAssertEqual(reverse.sample(at: 1.05).velocity, crossing.velocity)
+        XCTAssertGreaterThan(reverse.sample(at: 1.06).position.x, crossing.position.x)
+        XCTAssertLessThan(reverse.sample(at: 1.15).position.x, crossing.position.x)
+        XCTAssertEqual(reverse.sample(at: 1.25).position, .zero)
+        XCTAssertEqual(reverse.sample(at: 1.25).velocity, .zero)
     }
 
     func testTabDragStartMoveAndEdgeScrollWithOneHundredTabs() async throws {
@@ -567,6 +592,8 @@ import XCTest
             list.layoutSubtreeIfNeeded()
             XCTAssertEqual(list.dragRelayoutCount, initialCount + 1, "Apply only the latest request per layout pass")
             let gap = try XCTUnwrap(list.insertionMarkerFrame)
+            let artworkCount = list.dragArtworkRefreshCount
+            let imageCount = list.dragImageRenderCount
 
             for index in 0..<1_024 {
                 info.move(to: index.isMultiple(of: 2) ? beforeSecond : afterFirst)
@@ -574,6 +601,8 @@ import XCTest
                 list.layoutSubtreeIfNeeded()
             }
             XCTAssertEqual(list.dragRelayoutCount, initialCount + 1, "Equivalent slots must not allocate new layout attributes")
+            XCTAssertEqual(list.dragArtworkRefreshCount, artworkCount, "Pointer movement must not reset hosting roots")
+            XCTAssertEqual(list.dragImageRenderCount, imageCount, "Equivalent slots must not redraw the drag image")
             XCTAssertEqual(list.insertionMarkerFrame, gap)
             XCTAssertEqual(c.session.orderedTabs.map(\.id), [source.id, first.id, second.id])
             XCTAssertTrue(list.prepareForDragOperation(info))
