@@ -83,6 +83,7 @@ enum OrivLayout {
     static let sidebarPinCloseWidth: CGFloat = 20
     static let sidebarPinCloseHeight = sidebarPinHeight / 2
     static let sidebarPinRadius: CGFloat = 10
+    static let sidebarSelectionRadius: CGFloat = 13
     static let sidebarFooterHeight: CGFloat = 36
     static let sidebarDownloadBadgeSize: CGFloat = 6
     static let sidebarAccessoryWidth = OrivTarget.macMinimum.width
@@ -271,14 +272,64 @@ struct Theme {
     }
     var sidebarPrivateAccent: Color { Self.glassPrivate }
 
+    static let sidebarKeyboardFocus = adaptive("SidebarKeyboardFocus", light: 0x14212F, dark: 0xFFFFFF)
+
+    enum SidebarSelection {
+        private static let selectedInk = adaptive("SidebarSelectedInk", light: 0x154776, dark: 0xBBD8FF)
+        private static let selectedSolid = adaptive("SidebarSelectedSolid", light: 0xCDDEF4, dark: 0x25466A)
+        private static let selectedOpacity = (light: 0.16, dark: 0.30)
+        private static let selectedGuardOpacity = (light: 0.70, dark: 0.40)
+        private static let selectedDarkAccentLimit = hex(0x9E8CFF)
+        private static let selectedDarkRim = Color.white.opacity(0.32)
+        private static let selectedInkAccentMix: Float = 0.20
+
+        static func fill(in theme: Theme, dark: Bool, opaque: Bool, environment: EnvironmentValues) -> Color {
+            if opaque { return selectedSolid }
+            if !dark { return theme.accent.opacity(selectedOpacity.light) }
+            let accent = theme.accent.resolve(in: environment)
+            let limit = selectedDarkAccentLimit.resolve(in: environment)
+            // Preserve the accent hue by scaling all channels together.
+            let scale = 1 / max(1, accent.linearRed / limit.linearRed,
+                                accent.linearGreen / limit.linearGreen, accent.linearBlue / limit.linearBlue)
+            return Color(.sRGBLinear, red: Double(accent.linearRed * scale),
+                         green: Double(accent.linearGreen * scale), blue: Double(accent.linearBlue * scale))
+                .opacity(selectedOpacity.dark)
+        }
+
+        static func backing(dark: Bool) -> Color {
+            dark ? Color.black.opacity(selectedGuardOpacity.dark) : Color.white.opacity(selectedGuardOpacity.light)
+        }
+
+        static func ink(in theme: Theme, dark: Bool, environment: EnvironmentValues) -> Color {
+            let base = selectedInk.resolve(in: environment)
+            let accent = theme.accent.resolve(in: environment)
+            let baseLuminance = Theme.luminance(base)
+            let accentLuminance = Theme.luminance(accent)
+            let endpoint: Float = dark ? 1 : 0
+            // Normalize the accent to the approved ink luminance before blending.
+            let needsAdjustment = dark ? accentLuminance < baseLuminance : accentLuminance > baseLuminance
+            let adjustment = needsAdjustment ? (baseLuminance - accentLuminance) / (endpoint - accentLuminance) : 0
+            func channel(_ original: Float, _ system: Float) -> Double {
+                let adjusted = system + (endpoint - system) * adjustment
+                return Double(original + (adjusted - original) * selectedInkAccentMix)
+            }
+            return Color(.sRGBLinear, red: channel(base.linearRed, accent.linearRed),
+                         green: channel(base.linearGreen, accent.linearGreen), blue: channel(base.linearBlue, accent.linearBlue))
+        }
+
+        static func rim(in theme: Theme, dark: Bool, increased: Bool) -> Color {
+            if increased { return theme.text }
+            return dark ? selectedDarkRim : .clear
+        }
+    }
+
     enum SidebarTone {
-        case selection, hover, search, pinSelection
+        case selection, hover, search
 
         // The contrast gate reads these values and composites them over all tint backings.
         private static let selectionTone = (light: 0.42, dark: 0.10)
         private static let hoverTone = (light: 0.045, dark: 0.04)
         private static let searchTone = (light: 0.06, dark: 0.07)
-        private static let pinSelectionTone = (light: 0.16, dark: 0.08)
 
         func fill(in theme: Theme, dark: Bool, opaque: Bool) -> Color {
             let opacity: (light: Double, dark: Double)
@@ -287,10 +338,9 @@ struct Theme {
             case .selection: (opacity, solid) = (Self.selectionTone, theme.sidebar.selection)
             case .hover: (opacity, solid) = (Self.hoverTone, theme.sidebar.hover)
             case .search: (opacity, solid) = (Self.searchTone, theme.sidebar.field)
-            case .pinSelection: (opacity, solid) = (Self.pinSelectionTone, theme.sidebar.selection)
             }
             if opaque || theme.isT3Code { return solid }
-            let white = dark || self == .selection || self == .pinSelection
+            let white = dark || self == .selection
             return (white ? Color.white : Color.black).opacity(dark ? opacity.dark : opacity.light)
         }
     }
@@ -502,6 +552,7 @@ struct SiteIdentity: View {
     var showsSidebarPrivateBadge = false
     var cachedOnly = false
     var previewIcons: [String: SiteIcon]? = nil
+    var sidebarSelectedInk: Color? = nil
     @Environment(\.colorScheme) private var colorScheme
 
     /// The site's own name (apple in developer.apple.com), not a subdomain such as en. or www.
@@ -555,7 +606,7 @@ struct SiteIdentity: View {
                     #endif
             }
         }
-        .foregroundStyle(isPrivate ? theme.privateAccent : (isSelected ? theme.text : theme.secondaryText))
+        .foregroundStyle(isPrivate ? theme.privateAccent : (sidebarSelectedInk ?? (isSelected ? theme.text : theme.secondaryText)))
         .frame(width: size, height: size)
         #if os(macOS)
         .overlay(alignment: .topTrailing) {

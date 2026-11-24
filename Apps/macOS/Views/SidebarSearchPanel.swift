@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SidebarSearchPanel: View {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.self) private var environment
     @Bindable var controller: BrowserController
     let dismiss: () -> Void
     @State private var highlighted: UUID?
@@ -53,20 +54,34 @@ struct SidebarSearchPanel: View {
     }
 
     private func resultRow(_ tab: BrowserTab, selected: Bool, request: ProfileScoped<SidebarTabQuery>) -> some View {
-        Button { activate(tab.id, request: request) } label: {
+        let active = tab.id == controller.session.selectedTabID
+        let radius = OrivLayout.sidebarSelectionRadius
+        let ink = active ? Theme.SidebarSelection.ink(in: theme, dark: environment.colorScheme == .dark,
+                                                      environment: environment) : nil
+        return Button { activate(tab.id, request: request) } label: {
             HStack(spacing: OrivSpacing.small) {
-                SiteIdentity(url: tab.url, size: OrivIcon.footer, isPrivate: tab.isPrivate, sidebarIcon: true)
+                SiteIdentity(url: tab.url, size: OrivIcon.footer, isPrivate: tab.isPrivate,
+                             isSelected: active, sidebarIcon: true, sidebarSelectedInk: ink)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: OrivSpacing.xxs) {
                     Text(tab.displayTitle).lineLimit(1)
-                    Text(tab.hostname).font(OrivType.caption).foregroundStyle(theme.textSecondary)
+                    Text(tab.hostname).font(OrivType.caption).foregroundStyle(ink ?? theme.textSecondary)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }.padding(OrivSpacing.small).contentShape(Rectangle())
+                .foregroundStyle(ink ?? theme.text)
         }
-        .orivButton(.quiet)
-        .accessibilityLabel(SidebarTabs.label(tab, selected: tab.id == controller.session.selectedTabID))
+        .buttonStyle(SidebarToneButtonStyle(active: active))
+        .accessibilityLabel(SidebarTabs.label(tab, selected: active))
         .accessibilityAddTraits(selected ? [.isSelected] : [])
-        .modifier(ListSelection(selected: selected, fill: theme.fillSelected))
+        .modifier(SidebarSelectionSurface(active: active, radius: radius))
+        .overlay {
+            if selected {
+                RoundedRectangle(cornerRadius: radius - OrivOutline.focusInset)
+                    .strokeBorder(Theme.sidebarKeyboardFocus, lineWidth: OrivOutline.focus)
+                    .padding(OrivOutline.focusInset - OrivOutline.focus / 2)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     private func moveHighlight(_ offset: Int, in results: [BrowserTab]) {

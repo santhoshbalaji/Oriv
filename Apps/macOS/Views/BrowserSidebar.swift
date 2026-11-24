@@ -511,18 +511,51 @@ struct SidebarToneSurface: ViewModifier {
     }
 }
 
+struct SidebarSelectionSurface: ViewModifier {
+    @Environment(\.browserTheme) private var theme
+    @Environment(\.self) private var environment
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.chromeReduceTransparencyOverride) private var captureTransparency
+    @Environment(\.sidebarContrast) private var contrast
+    let active: Bool
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        content.background {
+            if active {
+                let dark = scheme == .dark
+                let increased = contrast == .increased
+                let opaque = reduceTransparency || captureTransparency || increased || theme.isT3Code
+                let shape = RoundedRectangle(cornerRadius: radius)
+                shape.fill(Theme.SidebarSelection.fill(in: theme, dark: dark, opaque: opaque, environment: environment))
+                    .background {
+                        if !opaque { shape.fill(Theme.SidebarSelection.backing(dark: dark)) }
+                    }
+                    .overlay {
+                        shape.strokeBorder(Theme.SidebarSelection.rim(in: theme, dark: dark, increased: increased),
+                                           lineWidth: increased ? OrivOutline.focus : OrivOutline.hairline)
+                    }
+            }
+        }
+    }
+}
+
 struct SidebarToneButtonStyle: ButtonStyle {
+    var active = false
+
     func makeBody(configuration: Configuration) -> some View {
-        Face(configuration: configuration)
+        Face(configuration: configuration, active: active)
     }
 
     private struct Face: View {
         let configuration: Configuration
+        let active: Bool
         @State private var hovered = false
 
         var body: some View {
             configuration.label
-                .modifier(SidebarToneSurface(tone: configuration.isPressed ? .selection : hovered ? .hover : nil))
+                .modifier(SidebarToneSurface(tone: active ? nil : configuration.isPressed ? .selection : hovered ? .hover : nil))
                 .onHover { hovered = $0 }
         }
     }
@@ -549,6 +582,7 @@ enum SidebarRowAccessory { case close, audio }
 struct SidebarTabArtwork: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.sidebarContrast) private var contrast
+    @Environment(\.self) private var environment
     @Environment(\.dynamicTypeSize) private var textSize
     private let tab: BrowserTab?
     private let record: TabRecord?
@@ -605,55 +639,52 @@ struct SidebarTabArtwork: View {
     }
 
     var body: some View {
-        HStack(spacing: OrivSpacing.small) {
+        let selectedInk = active ? Theme.SidebarSelection.ink(in: theme, dark: environment.colorScheme == .dark,
+                                                             environment: environment) : nil
+        return HStack(spacing: OrivSpacing.small) {
             if rail {
-                favicon.frame(width: 42, height: 36)
+                favicon(selectedInk: selectedInk).frame(width: 42, height: 36)
                     .overlay(alignment: .bottomTrailing) {
                         if let mediaSymbol { badge(mediaSymbol) }
                     }
                 if peek { Text(title).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
             } else if tile {
-                favicon
+                favicon(selectedInk: selectedInk)
             } else {
-                favicon
+                favicon(selectedInk: selectedInk)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title)
                         .font(textSize.isAccessibilitySize ? .system(size: 26, weight: active ? .medium : .regular)
-                              : (active ? OrivType.bodyEmphasized : OrivType.body))
+                              : (active ? OrivType.headline : OrivType.body))
                         .lineLimit(subtitle == nil && textSize.isAccessibilitySize ? 2 : 1)
                     if let subtitle {
                         Text(subtitle)
                             .font(textSize.isAccessibilitySize ? OrivType.windowTitle : OrivType.caption)
-                            .foregroundStyle(theme.sidebarSecondaryText(contrast))
+                            .foregroundStyle(selectedInk ?? theme.sidebarSecondaryText(contrast))
                             .lineLimit(1).truncationMode(.middle)
                             .browserGeometryMarker("sidebarHost-\(id)", when: previewIcons == nil)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 0) {
                     if tab != nil {
-                        accessory(mediaSymbol, kind: .audio).browserGeometryMarker("sidebarMedia-\(id)", when: mediaSymbol != nil)
+                        accessory(mediaSymbol, kind: .audio, ink: selectedInk)
+                            .browserGeometryMarker("sidebarMedia-\(id)", when: mediaSymbol != nil)
                     }
-                    accessory(hovered || selected || active ? "xmark" : nil, kind: .close)
+                    accessory(hovered || selected || active ? "xmark" : nil, kind: .close, ink: selectedInk)
                         .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
                 }
             }
         }
         .padding(.horizontal, rail ? 0 : MacBrowserLayout.sidebarRowInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .foregroundStyle(theme.text)
-        .modifier(SidebarToneSurface(tone: tone, radius: radius, drawsRim: !tile || hovered || active))
+        .foregroundStyle(selectedInk ?? theme.text)
+        .modifier(SidebarToneSurface(tone: !active && hovered ? .hover : nil, radius: radius))
+        .modifier(SidebarSelectionSurface(active: active, radius: radius))
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
-        .overlay(alignment: .leading) {
-            if active {
-                SelectionMarker(height: OrivIcon.toolbar, background: theme.sidebar.selection)
-                    .browserGeometryMarker("sidebarAccent-\(id)", when: previewIcons == nil)
-                    .padding(.leading, tile ? OrivSpacing.xxs : OrivSpacing.xs)
-            }
-        }
         .overlay(alignment: .topTrailing) {
             if tile && hovered {
                 Image(systemName: "xmark").font(OrivIcon.close)
-                    .foregroundStyle(theme.sidebarSecondaryText(contrast))
+                    .foregroundStyle(selectedInk ?? theme.sidebarSecondaryText(contrast))
                     .padding(.trailing, OrivSpacing.xxs)
                     .frame(width: OrivLayout.sidebarPinCloseWidth, height: OrivLayout.sidebarPinCloseHeight, alignment: .trailing)
                     .modifier(SidebarToneSurface(tone: hoveredAccessory == .close ? .hover : nil, drawsRim: false))
@@ -661,25 +692,22 @@ struct SidebarTabArtwork: View {
             }
         }
         .overlay {
-            if (selected || (tile && (active || hovered))) && contrast == .increased {
+            if tile && !active && hovered && contrast == .increased {
                 RoundedRectangle(cornerRadius: radius).strokeBorder(theme.text, lineWidth: OrivOutline.focus)
             }
         }
     }
 
-    private var radius: CGFloat { tile ? OrivLayout.sidebarPinRadius : (rail ? OrivRadius.tile : OrivRadius.control) }
-
-    private var tone: Theme.SidebarTone? {
-        if tile && (active || selected) { return .pinSelection }
-        if selected { return .selection }
-        return hovered ? .hover : nil
+    private var radius: CGFloat {
+        if tile || rail { return OrivLayout.sidebarPinRadius }
+        return active ? OrivLayout.sidebarSelectionRadius : OrivRadius.control
     }
 
-    private func accessory(_ symbol: String?, kind: SidebarRowAccessory) -> some View {
+    private func accessory(_ symbol: String?, kind: SidebarRowAccessory, ink: Color?) -> some View {
         ZStack {
             if let symbol {
                 Image(systemName: symbol).font(kind == .close ? OrivIcon.close : OrivType.caption)
-                    .foregroundStyle(theme.sidebarSecondaryText(contrast))
+                    .foregroundStyle(ink ?? theme.sidebarSecondaryText(contrast))
             }
         }
         .frame(width: OrivLayout.sidebarAccessoryWidth, height: OrivTarget.macMinimum.height)
@@ -692,12 +720,12 @@ struct SidebarTabArtwork: View {
             .background(theme.surface, in: Circle())
     }
 
-    private var favicon: some View {
+    private func favicon(selectedInk: Color?) -> some View {
         let size = rail ? OrivLayout.sidebarRailFaviconSize
             : (tile ? OrivLayout.sidebarPinIconSize : OrivLayout.sidebarFaviconSize)
         return ZStack {
             SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true,
-                         showsSidebarPrivateBadge: rail || tile, previewIcons: previewIcons)
+                         showsSidebarPrivateBadge: rail || tile, previewIcons: previewIcons, sidebarSelectedInk: selectedInk)
                 .browserGeometryMarker("sidebarFavicon-\(id)", when: previewIcons == nil)
             if loading {
                 Circle().trim(from: 0, to: 0.75).stroke(theme.accent, lineWidth: 2)

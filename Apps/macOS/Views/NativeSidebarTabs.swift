@@ -917,21 +917,22 @@ private final class SidebarAccessibleRow: NSView {
     weak var item: SidebarCollectionItem?
     var showsFocusRing = false {
         didSet {
-            guard showsFocusRing != oldValue else { return }
-            if showsFocusRing {
+            if showsFocusRing && oldValue {
+                subviews.last?.needsDisplay = true
+            } else if showsFocusRing {
                 let ring = SidebarRowFocusRing(frame: bounds)
                 ring.autoresizingMask = [.width, .height]
                 addSubview(ring)
-            } else {
+            } else if oldValue {
                 subviews.last(where: { $0 is SidebarRowFocusRing })?.removeFromSuperview()
             }
         }
     }
 
     override var focusRingMaskBounds: NSRect { showsFocusRing ? bounds.insetBy(dx: OrivOutline.focusInset, dy: OrivOutline.focusInset) : .zero }
-    override func drawFocusRingMask() {
-        let radius = item?.isPinTile == true ? OrivLayout.sidebarPinRadius - OrivOutline.focusInset : OrivRadius.control
-        NSBezierPath(roundedRect: focusRingMaskBounds, xRadius: radius, yRadius: radius).fill()
+    var focusRadius: CGFloat {
+        if item?.isPinTile == true || item?.iconOnly == true { return OrivLayout.sidebarPinRadius }
+        return item?.active == true ? OrivLayout.sidebarSelectionRadius : OrivRadius.control
     }
 
     override func accessibilityChildren() -> [Any]? { [] }
@@ -962,19 +963,19 @@ private final class SidebarAccessibleRow: NSView {
     }
 }
 
-/// Draw the AppKit ring above the hosted artwork. The collection remains the
-/// responder and owns keyboard navigation, including through recycled rows.
+/// Draw an opaque focus ring above the hosted artwork. The collection remains
+/// the responder and owns keyboard navigation, including through recycled rows.
 private final class SidebarRowFocusRing: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func accessibilityIsIgnored() -> Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let row = superview else { return }
-        NSGraphicsContext.saveGraphicsState()
-        NSFocusRingPlacement.only.set()
-        NSColor.black.setFill()
-        row.drawFocusRingMask()
-        NSGraphicsContext.restoreGraphicsState()
+        guard let row = superview as? SidebarAccessibleRow else { return }
+        let radius = row.focusRadius - OrivOutline.focusInset
+        let ring = NSBezierPath(roundedRect: row.focusRingMaskBounds, xRadius: radius, yRadius: radius)
+        NSColor(Theme.sidebarKeyboardFocus).setStroke()
+        ring.lineWidth = OrivOutline.focus
+        ring.stroke()
     }
 }
 

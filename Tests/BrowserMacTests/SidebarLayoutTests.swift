@@ -145,10 +145,11 @@ import XCTest
         let target = list.sidebar?.dropTarget(at: gap)
         XCTAssertTrue(target == .between(pins[0].id, after: true) || target == .between(pins[1].id, after: false))
         let active = try XCTUnwrap(session.selectedTabID)
-        let accent = try frame("sidebarAccent-\(active)", in: window)
+        let selection = try frame("sidebarSelection-\(active)", in: window)
         let favicon = try frame("sidebarFavicon-\(active)", in: window)
         XCTAssertEqual(favicon.width, OrivLayout.sidebarPinIconSize, accuracy: 1)
-        XCTAssertLessThan(accent.maxX, favicon.minX)
+        XCTAssertEqual(selection.midX, favicon.midX, accuracy: 1)
+        XCTAssertEqual(selection.midY, favicon.midY, accuracy: 1)
         let surface = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: window))
         let rect = surface.convert(surface.bounds, to: content)
         let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: rect))
@@ -160,7 +161,7 @@ import XCTest
         add(attachment)
     }
 
-    func testPinnedHoverCloseAndSelectionMarkerMirrorInRTL() async throws {
+    func testPinnedHoverCloseMirrorsAcrossSelectedTileInRTL() async throws {
         for rtl in [false, true] {
             let controller = BrowserController(testing: true)
             defer { controller.shutdown() }
@@ -169,8 +170,8 @@ import XCTest
             let window = makeWindow(controller, rtl: rtl, largestText: false, appearance: .light, key: false)
             defer { window.close() }
             let closeName = "sidebarClose-\(tab.id)"
-            let accentName = "sidebarAccent-\(tab.id)"
-            try await eventually("selected pin marker") { self.marker(accentName, in: window) != nil }
+            let selectionName = "sidebarSelection-\(tab.id)"
+            try await eventually("selected pin pill") { self.marker(selectionName, in: window) != nil }
             XCTAssertNil(marker(closeName, in: window))
             let content = try XCTUnwrap(window.contentView)
             let list = try XCTUnwrap(descendants(content).compactMap { $0 as? SidebarTabCollection }.first)
@@ -178,16 +179,19 @@ import XCTest
             data.setHovered(try XCTUnwrap(data.path(for: tab.id)))
             try await eventually("pinned close target on hover") { self.marker(closeName, in: window) != nil }
             let close = try frame(closeName, in: window)
-            let accent = try frame(accentName, in: window)
+            let selection = try frame(selectionName, in: window)
             let icon = try frame("sidebarFavicon-\(tab.id)", in: window)
             XCTAssertEqual(close.width, OrivLayout.sidebarPinCloseWidth, accuracy: 1)
             XCTAssertEqual(close.height, OrivLayout.sidebarPinCloseHeight, accuracy: 1)
-            XCTAssertLessThan((rtl ? close : accent).midX, icon.midX)
-            XCTAssertGreaterThan((rtl ? accent : close).midX, icon.midX)
+            XCTAssertEqual(selection.midX, icon.midX, accuracy: 1)
+            XCTAssertEqual(selection.midY, icon.midY, accuracy: 1)
+            if rtl { XCTAssertLessThan(close.midX, icon.midX) }
+            else { XCTAssertGreaterThan(close.midX, icon.midX) }
             let path = try XCTUnwrap(data.path(for: tab.id))
             let row = try XCTUnwrap(list.item(at: path)?.view)
             XCTAssertEqual(row.toolTip, tab.displayTitle)
             XCTAssertTrue(row.accessibilityLabel()?.contains(tab.displayTitle) == true)
+            XCTAssertTrue(row.accessibilityLabel()?.contains("Selected") == true)
             XCTAssertEqual(row.accessibilityValue() as? String, "Pinned, 1 of 1")
             XCTAssertFalse(list.interact(at: NSPoint(x: icon.midX, y: icon.midY)))
             XCTAssertTrue(list.interact(at: NSPoint(x: close.midX, y: close.midY)))

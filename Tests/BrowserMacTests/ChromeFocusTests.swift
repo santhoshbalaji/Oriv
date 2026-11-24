@@ -89,10 +89,12 @@ import XCTest
         list.keyDown(with: try keyEvent(125, "\u{f701}", in: w))
         XCTAssertEqual(list.sidebar?.selectedID, next.id)
         XCTAssertNotEqual(c.session.selectedTabID, next.id)
+        XCTAssertTrue(firstRow.accessibilityLabel()?.contains("Selected") == true)
         XCTAssertTrue(firstRow.focusRingMaskBounds.isEmpty)
         let path = try XCTUnwrap(list.selectionIndexPaths.first)
         let row = try XCTUnwrap(list.item(at: path)?.view)
         XCTAssertFalse(row.focusRingMaskBounds.isEmpty)
+        XCTAssertFalse(row.accessibilityLabel()?.contains("Selected") == true)
 
         func capture(_ name: String) throws -> Data {
             let bitmap = try XCTUnwrap(row.bitmapImageRepForCachingDisplay(in: row.bounds))

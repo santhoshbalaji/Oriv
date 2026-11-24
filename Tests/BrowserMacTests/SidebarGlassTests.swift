@@ -178,8 +178,7 @@ import XCTest
                 XCTAssertEqual(highlight.midX, sidebar.midX, accuracy: 1, file: file, line: line)
                 XCTAssertEqual(highlight.midX, icon.midX, accuracy: 1, file: file, line: line)
                 XCTAssertEqual(highlight.midY, icon.midY, accuracy: 1, file: file, line: line)
-                let accent = try frame("sidebarAccent-\(tab.id)")
-                XCTAssertFalse(accent.intersects(icon), "Selection accent must stay beside the favicon", file: file, line: line)
+                XCTAssertTrue(highlight.contains(icon), "Selection must surround the favicon", file: file, line: line)
             }
         }
     }
