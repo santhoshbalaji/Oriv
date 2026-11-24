@@ -19,6 +19,19 @@ import XCTest
         XCTAssertEqual(levels.map(\.backingOpacity), [0.43, 0.74, 1.0])
     }
 
+    func testSelectionDefaultsToGlassAndUsesTintedPillForAccessibility() {
+        var environment = EnvironmentValues()
+        environment.sidebarCaptureContrast = .standard
+        XCTAssertFalse(environment.sidebarUsesTintedSelection)
+
+        environment.chromeReduceTransparencyOverride = true
+        XCTAssertTrue(environment.sidebarUsesTintedSelection)
+
+        environment.chromeReduceTransparencyOverride = false
+        environment.sidebarCaptureContrast = .increased
+        XCTAssertTrue(environment.sidebarUsesTintedSelection)
+    }
+
     func testSidebarColorReadsOnlyRecognizedPreferences() {
         XCTAssertEqual(SidebarColor.saved(nil), .graphite)
         XCTAssertEqual(SidebarColor.saved("future-color"), .graphite)

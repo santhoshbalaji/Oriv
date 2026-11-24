@@ -66,10 +66,11 @@ assert "reduceTransparency || captureReduceTransparency || contrast == .increase
 assert ".background(backing.opacity(effectiveOpacity.backingOpacity))" in sidebar_source
 assert ".background(Self.balancedTintGuard.opacity(guardOpacity))" in sidebar_source
 assert ".background { glass }" in sidebar_source
-assert "SidebarSelectionSurface(active: active, radius: radius)" in sidebar_source
+assert "SidebarSelectionSurface(active: active, radius: radius, isPreview: tab == nil)" in sidebar_source
 assert "tone: !active && hovered ? .hover : nil" in sidebar_source
-assert "shape.fill(Theme.SidebarSelection.fill(in: theme, dark: dark, opaque: opaque, environment: environment))" in sidebar_source
-assert "if !opaque { shape.fill(Theme.SidebarSelection.backing(dark: dark)) }" in sidebar_source
+assert "shape.fill(Theme.SidebarSelection.selectedSolid)" in sidebar_source
+assert "guardFill.glassEffect(.regular, in: shape)" in sidebar_source
+assert "accessibilityReduceTransparency || chromeReduceTransparencyOverride || sidebarContrast == .increased" in sidebar_source
 assert "tone.fill(in: theme, dark: dark, opaque: opaque)" in sidebar_source
 native_sidebar = (ROOT / "Apps/macOS/Views/NativeSidebarTabs.swift").read_text()
 assert "NSColor(Theme.sidebarKeyboardFocus).setStroke()" in native_sidebar
@@ -77,14 +78,6 @@ assert "ring.lineWidth = OrivOutline.focus" in native_sidebar
 rail_search = (ROOT / "Apps/macOS/Views/SidebarSearchPanel.swift").read_text()
 assert "SidebarSelectionSurface(active: active, radius: radius)" in rail_search
 assert "strokeBorder(Theme.sidebarKeyboardFocus, lineWidth: OrivOutline.focus)" in rail_search
-selected_opacities = tuple(float(value) for value in re.search(
-    r"selectedOpacity = \(light: ([0-9.]+), dark: ([0-9.]+)\)", text).groups())
-selected_guards = tuple(float(value) for value in re.search(
-    r"selectedGuardOpacity = \(light: ([0-9.]+), dark: ([0-9.]+)\)", text).groups())
-selected_dark_limit = re.search(r"selectedDarkAccentLimit = hex\(0x(\w{6})\)", text)[1]
-assert "if opaque { return selectedSolid }" in text
-assert "accent.linearGreen / limit.linearGreen, accent.linearBlue / limit.linearBlue" in text
-assert "dark ? Color.black.opacity(selectedGuardOpacity.dark) : Color.white.opacity(selectedGuardOpacity.light)" in text
 assert "let adjustment = needsAdjustment ? (baseLuminance - accentLuminance) / (endpoint - accentLuminance) : 0" in text
 assert "let needsAdjustment = dark ? accentLuminance < baseLuminance : accentLuminance > baseLuminance" in text
 assert 0 <= float(re.search(r"selectedInkAccentMix: Float = ([0-9.]+)", text)[1]) <= 1
@@ -111,36 +104,29 @@ selection_checks = []
 selection_levels = {}
 
 
-def check_selection(label, step, mode, panel, hover, palette, inks, opaque):
+def check_selection(label, step, mode, panel, hover, palette, inks):
     selected_ink = adaptive_constant("selectedInk", mode)
     focus_ink = adaptive_constant("sidebarKeyboardFocus", mode)
-    # Per-channel compositing is monotonic. Check the full range of the
-    # bounded accent wash and the worst normalized ink luminance separately.
-    guarded = composite("000000" if mode else "FFFFFF", panel, selected_guards[mode])
-    fills = {adaptive_constant("selectedSolid", mode)} if opaque else {
-        composite(accent, guarded, selected_opacities[mode])
-        for accent in ("000000", selected_dark_limit if mode else "FFFFFF")
-    }
-    minima = selection_levels.setdefault(step, {"selected text": float("inf"), "focus ring": float("inf")})
-
     def check(role, ink, state, background, minimum):
         selection_checks.append((label, role, ink, state, background, minimum))
-        if role in minima:
-            minima[role] = min(minima[role], ratio(ink, background))
 
-    for fill in sorted(fills):
-        accessory = hover if opaque else composite("FFFFFF" if mode else "000000", fill, tonal_opacities["hover"][mode])
-        for state, background in (("selected row / pin", fill), ("selected hover accessory", accessory),
+    check("private glasses", palette["private"], "icon plate", palette["fill"], 3)
+    check("private badge", inks["private"], "badge", palette["surface"], 3)
+    ring_surfaces = [("idle row / pin", panel), ("hovered row / pin", hover)]
+    if step in ("increase contrast", "reduce transparency"):
+        fill = adaptive_constant("selectedSolid", mode)
+        minima = selection_levels.setdefault(step, {"selected text": float("inf"), "focus ring": float("inf")})
+        for state, background in (("selected row / pin", fill), ("selected hover accessory", hover),
                                   ("selected fallback icon plate", palette["fill"])):
             check("selected text", selected_ink, state, background, 4.5)
-        check("private glasses", palette["private"], "icon plate", palette["fill"], 3)
-        check("private badge", inks["private"], "badge", palette["surface"], 3)
+            minima["selected text"] = min(minima["selected text"], ratio(selected_ink, background))
+        minima["focus ring"] = min(minima["focus ring"], ratio(focus_ink, fill), ratio(focus_ink, hover))
+        ring_surfaces.append(("selected row / pin", fill))
         if step == "increase contrast":
             check("selected boundary", palette["text"], "selected fill", fill, 3)
             check("selected boundary", palette["text"], "panel", panel, 3)
 
-    for state, background in [("idle row / pin", panel), ("hovered row / pin", hover),
-                              *(("selected row / pin", fill) for fill in sorted(fills))]:
+    for state, background in ring_surfaces:
         ink = composite(focus_ink, background, 0.35) if focus_negative else focus_ink
         check("focus ring", ink, state, background, 3)
 
@@ -222,7 +208,7 @@ for appearance, mode, palette, sidebar in palettes:
                     states["hovered accessory"] = (sidebar["hover"] if opaque else
                         composite("FFFFFF" if mode else "000000", states["hover"], tonal_opacities["hover"][mode]))
                     label = f"{name} sidebar, glass input #{material}, {step}"
-                    check_selection(label, step, mode, panel, states["hover"], colors, inks, opaque)
+                    check_selection(label, step, mode, panel, states["hover"], colors, inks)
                     for state, background in states.items():
                         for token, foreground in inks.items():
                             sidebar_checks.append((label, token, foreground, state, background, 4.5))
@@ -237,7 +223,7 @@ for appearance, mode, palette, sidebar in palettes:
             surface = colors["surface"]
             opaque = appearance == "Black" or step in ("increase contrast", "reduce transparency")
             hover = sidebar["hover"] if opaque else composite("FFFFFF" if mode else "000000", surface, tonal_opacities["hover"][mode])
-            check_selection(f"{appearance} rail search, {step}", step, mode, surface, hover, colors, inks, opaque)
+            check_selection(f"{appearance} rail search, {step}", step, mode, surface, hover, colors, inks)
 
 checks.extend(sidebar_checks)
 checks.extend(selection_checks)
@@ -250,7 +236,7 @@ for step, minima in selection_levels.items():
     print(f"{step.capitalize()} S2 minimum (selected text / focus ring): "
           f"{minima['selected text']:.2f}:1 / {minima['focus ring']:.2f}:1")
 
-# Debug selection glass guards text and the inset keyboard ring from the full
+# G1 guards text and the inset keyboard ring from the full
 # range of material output. Check both linear and encoded sRGB composition.
 glass_guards = adaptive_tokens(sidebar_source.replace("Theme.adaptive(", "adaptive("))["selectionGlassGuard"]
 glass_opacities = tuple(float(value) for value in re.search(
@@ -259,18 +245,17 @@ glass_minima = {"text": float("inf"), "focus ring": float("inf")}
 for appearance, mode, palette, _ in palettes:
     guard_color = glass_guards[mode]
     guard_opacity = glass_opacities[mode]
-    # This endpoint also bounds the system accent tint and optical highlights.
+    # This endpoint bounds the luminance of the native material and its highlights.
     extreme = "FFFFFF" if mode else "000000"
     fill = composite(guard_color, extreme, guard_opacity)
     linear_fill = luminance(guard_color) * guard_opacity + luminance(extreme) * (1 - guard_opacity)
     for role, ink in (
         ("text", palette["text"]),
         ("text", adaptive_constant("glassSecondary", mode)),
-        ("text", adaptive_constant("selectedInk", mode)),
         ("focus ring", adaptive_constant("sidebarKeyboardFocus", mode)),
     ):
         # Accessory hover can add one neutral wash on top of the selection.
-        opacity = tonal_opacities["hover"][mode] if role == "text" else 0
+        opacity = tonal_opacities["hover"][mode]
         background = composite(extreme, fill, opacity)
         linear_background = luminance(extreme) * opacity + linear_fill * (1 - opacity)
         foreground = luminance(ink)
@@ -278,9 +263,9 @@ for appearance, mode, palette, _ in palettes:
         value = min(ratio(ink, background), linear_ratio)
         minimum = 4.5 if role == "text" else 3
         if value < minimum:
-            sys.exit(f"FAIL {appearance} debug selection glass: {role} {value:.2f}:1 (needs {minimum}:1)")
+            sys.exit(f"FAIL {appearance} G1 selection: {role} {value:.2f}:1 (needs {minimum}:1)")
         glass_minima[role] = min(glass_minima[role], value)
-print(f"Debug glass minimum (selected text / focus ring): {glass_minima['text']:.2f}:1 / {glass_minima['focus ring']:.2f}:1")
+print(f"G1 glass minimum (selected text / focus ring): {glass_minima['text']:.2f}:1 / {glass_minima['focus ring']:.2f}:1")
 
 # Settings owns the foreground and the opaque card. The full-opacity AppKit
 # material is the gutter input. Sample its possible output, including both

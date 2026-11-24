@@ -8,7 +8,7 @@ The shared palette and tokens live in `Apps/Shared/Theme.swift` and are compiled
 
 Use semantic theme roles for colors. Main text belongs in address fields and secondary text is used for hints and supporting text. Increase Contrast strengthens secondary text and boundaries. Native controls inherit the platform accent. Selection includes a checkmark or a 3 pt leading marker whose system-accent hue is preserved when lightness needs adjustment for contrast. Purple glasses and explicit labels identify private browsing independently of the connection-security icon.
 
-Use system text styles for iPhone controls and content so Dynamic Type can reflow. Toolbar glyphs retain compact, labeled targets while text grows. At accessibility text sizes the appearance picker becomes one column and hides decorative previews. Mac controls use native text fields, menu commands and familiar keyboard shortcuts. Use system sans-serif throughout. The Mac profile switcher uses 13 pt semibold and sheet titles use 15 pt semibold. Sidebar section headings use 11 pt semibold secondary ink, and counts use 11 pt regular. The active sidebar row uses 13 pt medium.
+Use system text styles for iPhone controls and content so Dynamic Type can reflow. Toolbar glyphs retain compact, labeled targets while text grows. At accessibility text sizes the appearance picker becomes one column and hides decorative previews. Mac controls use native text fields, menu commands and familiar keyboard shortcuts. Use system sans-serif throughout. The Mac profile switcher uses 13 pt semibold and sheet titles use 15 pt semibold. Sidebar section headings use 11 pt semibold secondary ink, and counts use 11 pt regular. The active sidebar row uses 13 pt semibold.
 
 ## Shared metrics and content
 
@@ -182,20 +182,21 @@ available. Hover reveals a Close action in the trailing top corner and a
 full-title tooltip. VoiceOver reads the title, pinned state and position.
 Search results present pins as titled rows.
 
-The active tab uses the S2 tinted pill in rows, pinned tiles, the rail and tab
-search. It uses a system-accent wash at 16% in Light and 30% in Dark over a
-local neutral guard. A dark-mode hairline defines the pill against dark tints.
-Titles and fallback icons use contrast-bounded accent ink. Site favicons keep
-their artwork, and private tabs keep their purple glasses. Hover uses a neutral
-fill. Reduce Transparency and Black use an opaque selected fill. Increase
-Contrast uses that fill with a 2 pt outline.
+The active tab uses G1, a neutral native Liquid Glass capsule in rows, pinned
+tiles, the rail and tab search. A light or dark inset guard keeps the title and
+accessories readable over the material. Titles use semibold system type, site
+favicons keep their artwork, and private tabs keep their purple glasses. Hover
+uses a neutral fill. Reduce Transparency and Increase Contrast use the opaque
+S2 tinted pill with contrast-bounded accent ink. Increase Contrast adds a 2 pt
+outline. Moving profile previews use a static rendering of the capsule.
 
-The active tab keeps its pill when arrow navigation moves the keyboard highlight.
-The collection draws a separate, opaque 2 pt ring inset from the highlighted
-row or tile edge. Rail search uses the same focus ink. The contrast gate checks
-selected text at 4.5:1 and the focus ring at 3:1 across all effective sidebar
-colors, glass levels and accessibility modes. Tile order, insertion markers and
-the Close corner mirror in right-to-left layouts.
+The active tab keeps its capsule when arrow navigation moves the keyboard
+highlight. The collection draws a separate, opaque 2 pt ring inset from the
+highlighted row or tile edge. Rail search uses the same focus ink. The contrast
+gate checks selected text at 4.5:1 and the focus ring at 3:1 against the
+endpoints of the native material, the S2 fallback and unselected sidebar
+surfaces. Tile order, insertion markers and the Close corner mirror in
+right-to-left layouts.
 
 Pin/unpin commands use the existing `TabRecord.isPinned` model and version-3
 session snapshot. Mac private pins live in memory for the lifetime of their

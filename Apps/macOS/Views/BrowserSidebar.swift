@@ -512,117 +512,71 @@ struct SidebarToneSurface: ViewModifier {
 }
 
 struct SidebarSelectionSurface: ViewModifier {
-    @Environment(\.browserTheme) private var theme
     @Environment(\.self) private var environment
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.chromeReduceTransparencyOverride) private var captureTransparency
-    @Environment(\.sidebarContrast) private var contrast
     let active: Bool
     let radius: CGFloat
-    #if DEBUG
-    var glassStyle: SidebarSelectionStyle = .tintedPill
-    #endif
+    var isPreview = false
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius)
         content.background {
             if active {
-                #if DEBUG
-                if glassStyle != .tintedPill {
-                    SidebarSelectionGlass(style: glassStyle, radius: radius)
+                if environment.sidebarUsesTintedSelection {
+                    let increased = environment.sidebarContrast == .increased
+                    shape.fill(Theme.SidebarSelection.selectedSolid)
+                        .overlay {
+                            shape.strokeBorder(Theme.SidebarSelection.rim(in: environment.browserTheme,
+                                                                          dark: environment.colorScheme == .dark,
+                                                                          increased: increased),
+                                               lineWidth: increased ? OrivOutline.focus : OrivOutline.hairline)
+                        }
                 } else {
-                    tintedPill
+                    SidebarSelectionGlass(shape: shape, isPreview: isPreview)
                 }
-                #else
-                tintedPill
-                #endif
             }
         }
     }
-
-    private var tintedPill: some View {
-        let dark = scheme == .dark
-        let increased = contrast == .increased
-        let opaque = reduceTransparency || captureTransparency || increased || theme.isT3Code
-        let shape = RoundedRectangle(cornerRadius: radius)
-        return shape.fill(Theme.SidebarSelection.fill(in: theme, dark: dark, opaque: opaque, environment: environment))
-            .background {
-                if !opaque { shape.fill(Theme.SidebarSelection.backing(dark: dark)) }
-            }
-            .overlay {
-                shape.strokeBorder(Theme.SidebarSelection.rim(in: theme, dark: dark, increased: increased),
-                                   lineWidth: increased ? OrivOutline.focus : OrivOutline.hairline)
-            }
-    }
-}
-
-#if DEBUG
-enum SidebarSelectionStyle: String {
-    case tintedPill = "G0"
-    case clearGlass = "G1"
-    case tintedGlass = "G2"
-    case accentEdge = "G3"
-
-    static let launchStyle: Self = {
-        let value = ProcessInfo.processInfo.environment["ORIV_SIDEBAR_SELECTION_STYLE"]
-            ?? UserDefaults.standard.string(forKey: "OrivSidebarSelectionStyle")
-        return value.flatMap(Self.init(rawValue:)) ?? .tintedPill
-    }()
-
-    func effective(in environment: EnvironmentValues) -> Self {
-        if environment.accessibilityReduceTransparency || environment.chromeReduceTransparencyOverride
-            || environment.sidebarContrast == .increased { return .tintedPill }
-        return self
-    }
-}
-
-extension EnvironmentValues {
-    @Entry var sidebarSelectionStyle: SidebarSelectionStyle = .launchStyle
 }
 
 private struct SidebarSelectionGlass: View {
-    @Environment(\.browserTheme) private var theme
     @Environment(\.colorScheme) private var scheme
+    #if DEBUG
     @Environment(\.sidebarCaptureBackdrop) private var captureBackdrop
-    let style: SidebarSelectionStyle
-    let radius: CGFloat
+    #endif
+    let shape: RoundedRectangle
+    let isPreview: Bool
 
     // Bound the glass to a readable luminance even over pure black or white.
     // The one-point inset leaves the optical edge visible outside the focus ring.
     private static let selectionGlassGuard = Theme.adaptive("SelectionGlassGuard", light: 0xFFFFFF, dark: 0x181A20)
     private static let selectionGlassGuardOpacity = (light: 0.76, dark: 0.95)
-    private var dark: Bool { scheme == .dark }
-    private var tint: Color? { style == .tintedGlass ? theme.accent.opacity(0.32) : nil }
+
+    private var usesStaticGlass: Bool {
+        #if DEBUG
+        if captureBackdrop != nil { return true }
+        #endif
+        // The moving profile preview is transient and can be drawn without sampling glass.
+        return isPreview
+    }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: radius)
+        let dark = scheme == .dark
         let guardFill = shape.inset(by: 1).fill(Self.selectionGlassGuard.opacity(
             dark ? Self.selectionGlassGuardOpacity.dark : Self.selectionGlassGuardOpacity.light))
         Group {
-            if captureBackdrop != nil {
-                // A static stand-in for evidence from app-owned off-screen windows.
+            if usesStaticGlass {
                 guardFill.background {
                     shape.fill(Theme.SidebarSelection.glassFallback(dark: dark))
-                        .overlay { shape.fill(tint ?? .clear) }
-                        .overlay { shape.strokeBorder(.white.opacity(dark ? 0.28 : 0.85), lineWidth: 0.5) }
+                        .overlay { shape.strokeBorder(.white.opacity(dark ? 0.28 : 0.85), lineWidth: OrivOutline.hairline) }
                 }
             } else {
-                guardFill.glassEffect(.regular.tint(tint), in: shape)
-            }
-        }
-        .overlay {
-            if style == .accentEdge {
-                shape.strokeBorder(
-                    LinearGradient(colors: [theme.accent.opacity(0.85), theme.accent.opacity(0.35)],
-                                   startPoint: .top, endPoint: .bottom),
-                    lineWidth: 1)
+                guardFill.glassEffect(.regular, in: shape)
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 }
-#endif
 
 struct SidebarToneButtonStyle: ButtonStyle {
     var active = false
@@ -721,27 +675,8 @@ struct SidebarTabArtwork: View {
         return tab.isPlayingAudio ? "speaker.wave.2.fill" : nil
     }
 
-    private var selectionSurface: SidebarSelectionSurface {
-        #if DEBUG
-        SidebarSelectionSurface(active: active, radius: radius, glassStyle: selectionStyle)
-        #else
-        SidebarSelectionSurface(active: active, radius: radius)
-        #endif
-    }
-
-    #if DEBUG
-    private var selectionStyle: SidebarSelectionStyle {
-        // Profile swipe previews stay cheap while both profiles are visible.
-        guard active, tab != nil else { return .tintedPill }
-        return environment.sidebarSelectionStyle.effective(in: environment)
-    }
-    #endif
-
     private var selectedInk: Color? {
-        guard active else { return nil }
-        #if DEBUG
-        if selectionStyle == .clearGlass || selectionStyle == .accentEdge { return nil }
-        #endif
+        guard active, environment.sidebarUsesTintedSelection else { return nil }
         return Theme.SidebarSelection.ink(in: theme, dark: environment.colorScheme == .dark, environment: environment)
     }
 
@@ -753,14 +688,17 @@ struct SidebarTabArtwork: View {
                     .overlay(alignment: .bottomTrailing) {
                         if let mediaSymbol { badge(mediaSymbol) }
                     }
-                if peek { Text(title).font(OrivType.body).lineLimit(1); Spacer(minLength: 0) }
+                if peek {
+                    Text(title).font(active ? OrivType.headline : OrivType.body).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
             } else if tile {
                 favicon(selectedInk: selectedInk)
             } else {
                 favicon(selectedInk: selectedInk)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title)
-                        .font(textSize.isAccessibilitySize ? .system(size: 26, weight: active ? .medium : .regular)
+                        .font(textSize.isAccessibilitySize ? .system(size: 26, weight: active ? .semibold : .regular)
                               : (active ? OrivType.headline : OrivType.body))
                         .lineLimit(subtitle == nil && textSize.isAccessibilitySize ? 2 : 1)
                     if let subtitle {
@@ -785,7 +723,7 @@ struct SidebarTabArtwork: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(selectedInk ?? theme.text)
         .modifier(SidebarToneSurface(tone: !active && hovered ? .hover : nil, radius: radius))
-        .modifier(selectionSurface)
+        .modifier(SidebarSelectionSurface(active: active, radius: radius, isPreview: tab == nil))
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .topTrailing) {
             if tile && hovered {
@@ -874,6 +812,10 @@ extension EnvironmentValues {
 #endif
 
 extension EnvironmentValues {
+    var sidebarUsesTintedSelection: Bool {
+        accessibilityReduceTransparency || chromeReduceTransparencyOverride || sidebarContrast == .increased
+    }
+
     var browserReduceMotion: Bool {
         #if DEBUG
         sidebarCaptureReduceMotion ?? accessibilityReduceMotion

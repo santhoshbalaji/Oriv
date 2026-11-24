@@ -275,34 +275,12 @@ struct Theme {
     static let sidebarKeyboardFocus = adaptive("SidebarKeyboardFocus", light: 0x14212F, dark: 0xFFFFFF)
 
     enum SidebarSelection {
-        #if DEBUG
         static func glassFallback(dark: Bool) -> Color { Color(white: dark ? 0.52 : 0.70) }
-        #endif
 
         private static let selectedInk = adaptive("SidebarSelectedInk", light: 0x154776, dark: 0xBBD8FF)
-        private static let selectedSolid = adaptive("SidebarSelectedSolid", light: 0xCDDEF4, dark: 0x25466A)
-        private static let selectedOpacity = (light: 0.16, dark: 0.30)
-        private static let selectedGuardOpacity = (light: 0.70, dark: 0.40)
-        private static let selectedDarkAccentLimit = hex(0x9E8CFF)
+        static let selectedSolid = adaptive("SidebarSelectedSolid", light: 0xCDDEF4, dark: 0x25466A)
         private static let selectedDarkRim = Color.white.opacity(0.32)
         private static let selectedInkAccentMix: Float = 0.20
-
-        static func fill(in theme: Theme, dark: Bool, opaque: Bool, environment: EnvironmentValues) -> Color {
-            if opaque { return selectedSolid }
-            if !dark { return theme.accent.opacity(selectedOpacity.light) }
-            let accent = theme.accent.resolve(in: environment)
-            let limit = selectedDarkAccentLimit.resolve(in: environment)
-            // Preserve the accent hue by scaling all channels together.
-            let scale = 1 / max(1, accent.linearRed / limit.linearRed,
-                                accent.linearGreen / limit.linearGreen, accent.linearBlue / limit.linearBlue)
-            return Color(.sRGBLinear, red: Double(accent.linearRed * scale),
-                         green: Double(accent.linearGreen * scale), blue: Double(accent.linearBlue * scale))
-                .opacity(selectedOpacity.dark)
-        }
-
-        static func backing(dark: Bool) -> Color {
-            dark ? Color.black.opacity(selectedGuardOpacity.dark) : Color.white.opacity(selectedGuardOpacity.light)
-        }
 
         static func ink(in theme: Theme, dark: Bool, environment: EnvironmentValues) -> Color {
             let base = selectedInk.resolve(in: environment)

@@ -56,7 +56,7 @@ struct SidebarSearchPanel: View {
     private func resultRow(_ tab: BrowserTab, selected: Bool, request: ProfileScoped<SidebarTabQuery>) -> some View {
         let active = tab.id == controller.session.selectedTabID
         let radius = OrivLayout.sidebarSelectionRadius
-        let ink = active ? Theme.SidebarSelection.ink(in: theme, dark: environment.colorScheme == .dark,
+        let ink = active && environment.sidebarUsesTintedSelection ? Theme.SidebarSelection.ink(in: theme, dark: environment.colorScheme == .dark,
                                                       environment: environment) : nil
         return Button { activate(tab.id, request: request) } label: {
             HStack(spacing: OrivSpacing.small) {
@@ -64,8 +64,9 @@ struct SidebarSearchPanel: View {
                              isSelected: active, sidebarIcon: true, sidebarSelectedInk: ink)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: OrivSpacing.xxs) {
-                    Text(tab.displayTitle).lineLimit(1)
-                    Text(tab.hostname).font(OrivType.caption).foregroundStyle(ink ?? theme.textSecondary)
+                    Text(tab.displayTitle).font(active ? OrivType.headline : OrivType.body).lineLimit(1)
+                    Text(tab.hostname).font(OrivType.caption)
+                        .foregroundStyle(ink ?? (active ? theme.sidebarSecondaryText(environment.sidebarContrast) : theme.textSecondary))
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }.padding(OrivSpacing.small).contentShape(Rectangle())
                 .foregroundStyle(ink ?? theme.text)
