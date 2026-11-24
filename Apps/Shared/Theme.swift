@@ -530,14 +530,14 @@ struct SidebarChromaticStyle: Equatable {
     let hoveredPanel: FaviconBacking
     let activePanel: FaviconBacking
 
-    static let balancedBacking = (light: 0.62, dark: 0.72)
-    static let balancedGuard = (light: 0.44, dark: 0.84)
+    static let balancedBacking = (light: 0.65, dark: 0.65)
+    static let balancedGuard = (light: 0.65, dark: 0.65)
     static let highBacking = 0.86
     static let blackBacking = (balanced: 0.86, high: 0.94)
     static let blackGuard = 0.36
-    static let satinBloom = (light: 0.22, dark: 0.16)
-    static let satinSheen = (light: 0.32, dark: 0.02)
-    static let activeOpacity = (light: 0.92, dark: 0.86)
+    static let satinBloom = (light: 0.055, dark: 0.055)
+    static let satinSheen = (light: 0.025, dark: 0.025)
+    static let activeOpacity = (light: 0.43, dark: 0.43)
     static let cushionHue = (light: 0.07, dark: 0.10)
     static let lightFrost: UInt32 = 0xFFFFFF
     static let darkFrost: UInt32 = 0x10141D
@@ -559,9 +559,9 @@ struct SidebarChromaticStyle: Equatable {
     var sheen: Color { .white.opacity(sheenOpacity) }
     var ink: Color { Theme.hex(tokens.ink) }
     var fill: Color { Theme.hex(opaque ? tokens.opaqueActive : tokens.active).opacity(selectionOpacity) }
-    var rimTop: Color { dark ? Theme.hex(tokens.rim).opacity(0.65) : .white.opacity(0.92) }
-    var rimBottom: Color { Theme.hex(tokens.rim).opacity(dark ? 0.22 : 0.34) }
-    var glow: Color { Theme.hex(dark ? tokens.bloom : tokens.rim).opacity(dark ? 0.34 : 0.20) }
+    var rimTop: Color { dark ? Theme.hex(tokens.rim).opacity(0.38) : .white.opacity(0.60) }
+    var rimBottom: Color { Theme.hex(tokens.rim).opacity(dark ? 0.14 : 0.24) }
+    var glow: Color { Theme.hex(dark ? tokens.bloom : tokens.rim).opacity(dark ? 0.13 : 0.09) }
     var iconEdge: Color { dark ? .white.opacity(0.20) : .black.opacity(0.14) }
 
     func cushion(light: Bool) -> Color {
@@ -569,7 +569,7 @@ struct SidebarChromaticStyle: Equatable {
     }
 
     func selectionGlow<Content: View>(_ content: Content) -> some View {
-        content.shadow(color: glow, radius: 6, y: 1.5)
+        content.shadow(color: glow, radius: 4, y: 1)
     }
 
     init(color: SidebarColor = .graphite, profile: ProfileColor? = nil, level: SidebarGlassOpacity = .balanced,

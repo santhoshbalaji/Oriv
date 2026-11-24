@@ -143,7 +143,7 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
     expected = {"mac-glass-sidebar-" + mode for mode in ("light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest", "covered")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-v3":
     expected = {f"mac-glass-sidebar-v3-{mode}-{tint}-{layout}"
-                for mode in ("light", "dark", "black") for tint in ("graphite", "sky", "rose")
+                for mode in ("light", "dark", "black") for tint in ("graphite", "sky", "rose", "lavender")
                 for layout in ("expanded", "rail")}
     expected |= {"mac-glass-sidebar-v3-" + name for name in ("light-graphite-220", "light-graphite-360",
                  "mixed-private", "private-rail", "increased-contrast", "rtl-360",

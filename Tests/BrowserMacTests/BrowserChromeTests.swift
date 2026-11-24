@@ -764,10 +764,12 @@ private struct ScrollAddressTestView: View {
     @Bindable var state: AddressTestState
     let tab: BrowserEngine.BrowserTab
     @Bindable var chrome: PageChrome
+    @Environment(\.self) private var environment
     var body: some View {
+        let palette = MacAddressPalette(color: chrome.color, dark: chrome.isDark, focused: state.editing, environment: environment)
         VStack {
             AddressTestView(state: state)
-                .modifier(MacAddressGlass(color: chrome.color, isDark: chrome.isDark))
+                .background(palette.fill, in: Capsule())
             WebPageView(tab: tab, chrome: chrome, contentUnderChrome: chrome.showsContentUnderChrome)
         }.onAppear { chrome.observe(tab.webView) }.onDisappear { chrome.observe(nil) }
     }

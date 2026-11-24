@@ -1012,7 +1012,7 @@ import WebKit
 
         if !pinsOnly {
             for (appearance, mode) in [(BrowserAppearance.light, "light"), (.dark, "dark"), (.t3Code, "black")] {
-                for color in [SidebarColor.graphite, .sky, .rose] {
+                for color in [SidebarColor.graphite, .sky, .rose, .lavender] {
                     controller.sidebarColor = color
                     for (layout, rail, width) in [("expanded", false, 256), ("rail", true, 256), ("220", false, 220), ("360", false, 360)] {
                         guard layout == "expanded" || layout == "rail" || (mode == "light" && color == .graphite) else { continue }

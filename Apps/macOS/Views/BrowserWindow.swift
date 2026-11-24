@@ -5,6 +5,7 @@ import WebKit
 
 struct BrowserWindow: View {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.self) private var environment
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.displayScale) private var displayScale
@@ -44,15 +45,16 @@ struct BrowserWindow: View {
     private var canFillPassword: Bool {
         controller.canAutoFillPassword && !addressFocused && !findFocused && !sidebarContainsKeyboardFocus
     }
-    private var showsToolbarPasswordKey: Bool { canFillPassword && tab?.passwordFields.showsGlyph == false }
+    private var reservesToolbarPasswordKey: Bool {
+        controller.canAutoFillPassword && tab?.passwordFields.showsGlyph == false
+    }
     private var toolbarSideWidth: CGFloat {
-        let count = 1 + (showsToolbarPasswordKey ? 1 : 0)
+        let count = 2 + (reservesToolbarPasswordKey ? 1 : 0)
             + (showsExpandedToolbarActions && tab?.url != nil ? 1 : 0)
             + (showsExpandedToolbarActions && showsToolbarDownloads ? 1 : 0)
         // Match the trailing action group on the leading side so the address
         // and the start-page column share the center of the page viewport.
         return CGFloat(count) * (OrivTarget.macToolbar.width + OrivSpacing.xxs) - OrivSpacing.xxs
-            + OrivSpacing.xs + OrivTarget.macRail.height
     }
     private var addressWidth: CGFloat {
         let reserved = controller.sidebar.reservation + 2 * (OrivSpacing.medium + toolbarSideWidth + OrivSpacing.xs)
@@ -61,8 +63,8 @@ struct BrowserWindow: View {
     private var compactAddress: String? { tab?.url.flatMap(URLDisplay.site) }
     private var compactAddressWidth: CGFloat? {
         guard !addressFocused, let compactAddress else { return nil }
-        let width = (compactAddress as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: OrivLayout.macAddressFontSize)]).width
-        return min(ceil(width) + 4, max(60, addressWidth - 180))
+        let width = (compactAddress as NSString).size(withAttributes: [.font: AddressField.font]).width
+        return ceil(width) + OrivSpacing.xs
     }
     private var emptyPageColor: ChromeColor { PageChrome.resolveCanvas(theme.page, scheme: colorScheme) }
     private var contentUnderChrome: Bool { pageChrome.showsContentUnderChrome && !reduceTransparency && !captureReduceTransparency && contrast != .increased }
@@ -71,7 +73,7 @@ struct BrowserWindow: View {
             && contrast != .increased && !BackgroundUIMode.isEnabled
     }
     private var chromeForeground: Color { pageChrome.foreground }
-    private var chromeGlass: MacAddressGlass { MacAddressGlass(color: pageChrome.color, isDark: pageChrome.isDark) }
+
 
     private var sceneContent: some View {
         routedContent
@@ -220,24 +222,9 @@ struct BrowserWindow: View {
             // The page receives one final viewport update, never interpolated widths.
             .transaction(value: controller.sidebar.reservation) { $0.animation = nil; $0.disablesAnimations = true }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if !controller.sidebar.webpageFullscreen {
-                Group {
-                    if usesWindowMaterial {
-                        WindowBackdropMaterial(material: .sidebar)
-                    } else {
-                        theme.chrome
-                    }
-                }
-                .frame(width: displayedSidebarWidth + 2 * MacBrowserLayout.panelInset)
-                .frame(maxHeight: .infinity)
-                .accessibilityHidden(true)
-                .allowsHitTesting(false)
-                .browserGeometryMarker("sidebarBackdropGeometry")
-            }
             sidebarPanel
                 .frame(width: displayedSidebarWidth, alignment: .leading)
                 .clipped()
-                .padding([.top, .bottom, .leading], MacBrowserLayout.panelInset)
                 .opacity(controller.sidebar.webpageFullscreen ? 0 : 1)
                 .allowsHitTesting(!controller.sidebar.webpageFullscreen)
                 .accessibilityHidden(controller.sidebar.webpageFullscreen)
@@ -317,9 +304,10 @@ struct BrowserWindow: View {
                     let rect = geometry[anchor]
                     let leading = layoutDirection == .rightToLeft ? geometry.size.width - rect.maxX : rect.minX
                     addressSuggestions.frame(width: rect.width)
+                        .browserGeometryMarker("browserAddressSuggestionsGeometry")
                         .padding(.leading, max(0, leading))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .offset(y: rect.maxY + OrivSpacing.xs)
+                        .offset(y: rect.maxY + OrivSpacing.xxs)
                 }
             }
         }
@@ -359,7 +347,7 @@ struct BrowserWindow: View {
             if !railHeader {
                 SidebarResizeGrip(width: controller.sidebar.expandedWidth, direction: layoutDirection,
                                   resize: resizeSidebar)
-                    .frame(width: MacBrowserLayout.panelInset)
+                    .frame(width: MacBrowserLayout.sidebarResizeGripWidth)
                     .padding(.vertical, OrivSpacing.xl)
             }
         }
@@ -442,7 +430,7 @@ struct BrowserWindow: View {
             Spacer(minLength: 0)
             addressCapsule
             Spacer(minLength: 0)
-            HStack(spacing: OrivSpacing.xs) {
+            HStack(spacing: OrivSpacing.xxs) {
                 toolbarActions
                 toolbarMenu
             }
@@ -471,97 +459,134 @@ struct BrowserWindow: View {
         .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
     }
 
-    private var addressEndInset: CGFloat {
-        tab?.pageZoom != 1 && tab?.url != nil ? 2 * OrivTarget.macRail.height : OrivTarget.macRail.height
-    }
-
     private var addressCapsule: some View {
         @Bindable var ui = self.ui
-        return HStack(spacing: OrivSpacing.small) {
-                    if tab?.isPrivate == true {
-                        Label("Private", systemImage: "eyeglasses")
-                            .font(OrivType.badge)
-                            .lineLimit(1)
-                            .fixedSize()
-                            .foregroundStyle(theme.private)
-                            .padding(.horizontal, OrivSpacing.xs)
-                            .padding(.vertical, OrivSpacing.xxs)
-                            .background(theme.privateWash, in: Capsule())
-                            .accessibilityLabel("Private browsing")
-                            .browserGeometryMarker("privateAddressPillGeometry")
-                    }
-                    if let tab, tab.url != nil {
-                        let cue = ConnectionCue(tab)
-                        Button { ui.showSiteInfo.toggle() } label: {
-                            HStack(spacing: OrivSpacing.xs) {
-                                Image(systemName: cue.symbol)
-                                if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
-                            }.font(OrivType.detail).foregroundStyle(chromeForeground).frame(minWidth: OrivTarget.macMinimum.width, minHeight: OrivTarget.macMinimum.height).contentShape(Rectangle())
-                        }.buttonStyle(ToolbarButtonStyle(active: ui.showSiteInfo)).accessibilityLabel("\(cue.label). Site information and permissions").help("Site information and permissions")
-                            .browserGeometryMarker("browserSiteInformationGeometry")
-                            .background {
-                                BrowserPopover(isPresented: $ui.showSiteInfo) {
-                                    SiteInformationView(session: session, tab: tab)
-                                        .environment(\.colorScheme, colorScheme)
-                                }
-                            }
-                    } else {
-                        Image(systemName: "magnifyingglass").font(OrivType.detail)
-                            .foregroundStyle(chromeForeground).accessibilityHidden(true)
-                            .allowsHitTesting(false)
-                            .browserGeometryMarker("browserAddressSearchIconGeometry")
-                    }
-                    AddressField(text: $ui.address, isEditing: $addressFocused,
-                                 placeholder: tab?.isPrivate == true ? OrivStrings.privateSearch : OrivStrings.addressPlaceholder,
-                                 displayText: compactAddress,
-                                 foreground: chromeForeground,
-                                 focusRequest: controller.activeAddressFocusRequest,
-                                 profileEpoch: controller.sidebarDragID, focusStillValid: { controller.session.isProfileActive }, submit: {
-                            if ui.addressMatches.query == ui.address, let index = ui.addressMatches.selected, suggestions.indices.contains(index) { chooseSuggestion(suggestions[index]); return true }
-                            controller.navigate(ui.address)
-                            return controller.addressError == nil
-                        }, cancel: { syncAddress() }, completion: ui.addressMatches.completion, hasSelectedSuggestion: ui.addressMatches.selected != nil && ui.addressMatches.query == ui.address, moveSelection: { ui.addressMatches.move($0) })
-                        .frame(width: compactAddressWidth, height: 20)
-                        .frame(maxWidth: compactAddressWidth == nil ? .infinity : nil)
+        let palette = MacAddressPalette(color: pageChrome.color, dark: pageChrome.isDark,
+                                        focused: addressFocused, environment: environment)
+        return HStack(spacing: OrivSpacing.xs) {
+            addressLeadingControls
+            AddressField(text: $ui.address, isEditing: $addressFocused,
+                         placeholder: tab?.isPrivate == true ? OrivStrings.privateSearch : OrivStrings.addressPlaceholder,
+                         displayText: compactAddress, foreground: chromeForeground, placeholderInk: palette.placeholder,
+                         focusRequest: controller.activeAddressFocusRequest,
+                         profileEpoch: controller.sidebarDragID, focusStillValid: { controller.session.isProfileActive }, submit: {
+                if ui.addressMatches.query == ui.address, let index = ui.addressMatches.selected, suggestions.indices.contains(index) {
+                    chooseSuggestion(suggestions[index])
+                    return true
                 }
-                .padding(.leading, tab?.isPrivate == true ? OrivSpacing.small : addressEndInset)
-                .padding(.trailing, addressEndInset)
-                .frame(height: OrivLayout.controlHeight).frame(minWidth: 230, idealWidth: addressWidth, maxWidth: addressWidth)
-                .background {
-                    AddressCapsuleHitArea { controller.focusAddress() }
-                }
-                .overlay(alignment: .trailing) {
+                controller.navigate(ui.address)
+                return controller.addressError == nil
+            }, cancel: { syncAddress() }, completion: ui.addressMatches.completion,
+                         hasSelectedSuggestion: ui.addressMatches.selected != nil && ui.addressMatches.query == ui.address,
+                         moveSelection: { ui.addressMatches.move($0) })
+                .frame(idealWidth: compactAddressWidth, maxWidth: compactAddressWidth ?? .infinity)
+                .frame(maxWidth: .infinity)
+                .frame(height: OrivLayout.controlHeight - OrivSpacing.small)
+                .layoutPriority(-1)
+            addressTrailingControls
+        }
+        .padding(.horizontal, OrivSpacing.xs)
+        .frame(height: OrivLayout.controlHeight)
+        .frame(minWidth: 230, idealWidth: addressWidth, maxWidth: addressWidth)
+        .background { AddressCapsuleHitArea { controller.focusAddress() } }
+        .foregroundStyle(chromeForeground)
+        .background(palette.fill, in: Capsule())
+        .overlay {
+            if addressFocused || contrast == .increased {
+                Capsule().strokeBorder(chromeForeground.opacity(contrast == .increased ? 1 : MacAddressPalette.focusOpacity),
+                                       lineWidth: addressFocused ? OrivOutline.focus : OrivOutline.hairline)
+                    .allowsHitTesting(false)
+            }
+        }
+        .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
+        .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
+        .browserGeometryMarker("browserAddressGeometry")
+    }
+
+    private var addressLeadingControls: some View {
+        @Bindable var ui = self.ui
+        return HStack(spacing: OrivSpacing.xs) {
+            if tab?.isPrivate == true {
+                Label("Private", systemImage: "eyeglasses")
+                    .font(OrivType.badge)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, OrivSpacing.small)
+                    .frame(height: OrivTarget.macMinimum.height)
+                    .foregroundStyle(theme.private)
+                    .background(theme.privateWash, in: Capsule())
+                    .accessibilityLabel("Private browsing")
+                    .browserGeometryMarker("privateAddressPillGeometry")
+            }
+            if let tab, tab.url != nil {
+                let cue = ConnectionCue(tab)
+                Button { ui.showSiteInfo.toggle() } label: {
                     HStack(spacing: OrivSpacing.xs) {
-                        if tab?.url != nil {
-                            if let tab, tab.pageZoom != 1 {
-                                Button { tab.resetZoom() } label: {
-                                    Text("\(Int(tab.pageZoom * 100))%").font(OrivType.caption).frame(minWidth: OrivTarget.macMinimum.width, minHeight: OrivTarget.macMinimum.height).contentShape(Rectangle())
-                                }.buttonStyle(ToolbarButtonStyle()).accessibilityLabel("Reset Page Zoom").accessibilityValue("\(Int(tab.pageZoom * 100)) percent").help("Reset Page Zoom")
-                            }
-                            Button { tab?.isLoading == true ? tab?.stop() : tab?.reload() } label: {
-                                Image(systemName: tab?.isLoading == true ? "xmark" : "arrow.clockwise")
-                                    .font(OrivType.detail).frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
-                            }
-                            .buttonStyle(ToolbarButtonStyle())
-                            .accessibilityLabel(tab?.isLoading == true ? "Stop loading" : "Reload page")
-                            .help(tab?.isLoading == true ? "Stop loading" : "Reload (⌘R)")
-                            .browserGeometryMarker("browserReloadGeometry")
-                        }
-                    }.padding(.trailing, OrivSpacing.xs)
+                        Image(systemName: cue.symbol).font(OrivIcon.toolbarFont)
+                            .frame(width: OrivTarget.macMinimum.width)
+                        if cue == .notSecure { Text(cue.label).font(OrivType.detail.weight(.medium)).fixedSize() }
+                    }
+                    .frame(height: OrivTarget.macMinimum.height)
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(chromeForeground)
-                .modifier(chromeGlass)
-                .environment(\.colorScheme, pageChrome.isDark ? .dark : .light)
-                .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
-                .browserGeometryMarker("browserAddressGeometry")
+                .buttonStyle(ToolbarButtonStyle(active: ui.showSiteInfo))
+                .accessibilityLabel("\(cue.label). Site information and permissions")
+                .help("Site information and permissions")
+                .browserGeometryMarker("browserSiteInformationGeometry")
+                .background {
+                    BrowserPopover(isPresented: $ui.showSiteInfo) {
+                        SiteInformationView(session: session, tab: tab).environment(\.colorScheme, colorScheme)
+                    }
+                }
+            } else {
+                Image(systemName: "magnifyingglass").font(OrivIcon.toolbarFont)
+                    .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
+                    .accessibilityHidden(true).allowsHitTesting(false)
+                    .browserGeometryMarker("browserAddressSearchIconGeometry")
+            }
+        }
+    }
+
+    private var addressTrailingControls: some View {
+        HStack(spacing: OrivSpacing.xxs) {
+            if let tab, tab.url != nil {
+                if tab.pageZoom != 1 {
+                    Button { tab.resetZoom() } label: {
+                        Text("\(Int(tab.pageZoom * 100))%").font(OrivType.caption.monospacedDigit())
+                            .padding(.horizontal, OrivSpacing.xs)
+                            .frame(minWidth: OrivTarget.macMinimum.width, minHeight: OrivTarget.macMinimum.height)
+                    }
+                    .buttonStyle(ToolbarButtonStyle())
+                    .accessibilityLabel("Reset Page Zoom")
+                    .accessibilityValue("\(Int(tab.pageZoom * 100)) percent")
+                    .help("Reset Page Zoom")
+                    .browserGeometryMarker("browserZoomGeometry")
+                }
+                Button { tab.isLoading ? tab.stop() : tab.reload() } label: {
+                    Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise").font(OrivIcon.toolbarFont)
+                        .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
+                }
+                .buttonStyle(ToolbarButtonStyle())
+                .accessibilityLabel(tab.isLoading ? "Stop loading" : "Reload page")
+                .help(tab.isLoading ? "Stop loading" : "Reload (⌘R)")
+                .browserGeometryMarker("browserReloadGeometry")
+            } else {
+                Spacer(minLength: 0).frame(width: OrivTarget.macMinimum.width).accessibilityHidden(true)
+            }
+        }
     }
 
     // Site privacy shares the content header's glass and adaptive foreground.
     private var toolbarActions: some View {
         @Bindable var ui = self.ui
         return HStack(spacing: OrivSpacing.xxs) {
-            if showsToolbarPasswordKey {
+            if reservesToolbarPasswordKey {
                 ToolbarButton(label: "AutoFill from Passwords", symbol: "key.fill", action: fillPassword)
+                    .opacity(canFillPassword ? 1 : 0)
+                    .disabled(!canFillPassword)
+                    .allowsHitTesting(canFillPassword)
+                    .accessibilityHidden(!canFillPassword)
+                    .browserGeometryMarker("browserPasswordGeometry")
             }
             if showsToolbarDownloads && showsExpandedToolbarActions {
                 ToolbarButton(label: "Downloads in progress", symbol: "arrow.down.circle.fill",
@@ -585,6 +610,7 @@ struct BrowserWindow: View {
                             .frame(width: OrivTarget.macToolbar.width, height: OrivTarget.macToolbar.height)
                     }
                     .buttonStyle(ToolbarButtonStyle()).help("Share Page").accessibilityLabel("Share Page")
+                    .browserGeometryMarker("browserShareGeometry")
                 }
             }
         }.foregroundStyle(chromeForeground).frame(height: OrivLayout.controlHeight)
@@ -602,7 +628,7 @@ struct BrowserWindow: View {
                 requestSiteForget: { ui.siteToForget = $0 })
         } label: {
             Image(systemName: "ellipsis").font(OrivIcon.toolbarFont)
-                .frame(width: OrivTarget.macRail.height, height: OrivLayout.controlHeight)
+                .frame(width: OrivTarget.macToolbar.width, height: OrivTarget.macToolbar.height)
         }
         return menu
         .help("Browser Actions").accessibilityLabel("Browser Actions")
@@ -777,32 +803,36 @@ private struct MacAddressBounds: PreferenceKey {
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = nextValue() ?? value }
 }
 
-/// A filled address capsule without the system glass rim. Its colour still
-/// follows the page; a contrast guard bounds the lifted dark fill.
-struct MacAddressGlass: ViewModifier {
-    @Environment(\.sidebarContrast) private var contrast
-    @Environment(\.self) private var environment
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let color: Color
-    let isDark: Bool
+/// The two capsule states follow the page band while preserving readable ink.
+struct MacAddressPalette {
     static let lift = 0.10
     static let lightShade = 0.06
-    private var fill: Color {
+    static let focusedMix = 0.28
+    static let placeholderOpacity = 0.70
+    static let focusOpacity = 0.62
+    let fill: Color
+    let placeholder: Color
+
+    init(color: Color, dark: Bool, focused: Bool, environment: EnvironmentValues) {
         let rgb = color.resolve(in: environment)
+        let ink: Double = dark ? 1 : 0
+        let back = 1 - ink
         let source = [Double(rgb.red), Double(rgb.green), Double(rgb.blue)]
-        let lifted = source.map { isDark ? $0 * (1 - Self.lift) + Self.lift : $0 * (1 - Self.lightShade) }
-        let linear = lifted.map { $0 <= 0.04045 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
-        let luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
-        let safe = isDark ? 1.05 / (luminance + 0.05) >= 4.55 : (luminance + 0.05) / 0.05 >= 4.55
-        let value = safe ? lifted : source.map { isDark ? $0 * 0.88 : $0 * 0.88 + 0.12 }
-        return Color(.sRGB, red: value[0], green: value[1], blue: value[2], opacity: 1)
-    }
-    func body(content: Content) -> some View {
-        content.background(fill, in: Capsule())
-            .overlay {
-                if contrast == .increased { Capsule().strokeBorder((isDark ? Color.white : .black).opacity(0.8), lineWidth: 1) }
-            }
-            .animation(reduceMotion ? nil : OrivMotion.standard, value: color)
+        let idle = source.map { dark ? $0 * (1 - Self.lift) + Self.lift : $0 * (1 - Self.lightShade) }
+        let proposed = focused ? source.map { $0 * (1 - Self.focusedMix) + back * Self.focusedMix } : idle
+        func luminance(_ values: [Double]) -> Double {
+            let linear = values.map { $0 <= 0.04045 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
+            return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+        }
+        func secondary(on values: [Double]) -> [Double] {
+            values.map { $0 * (1 - Self.placeholderOpacity) + ink * Self.placeholderOpacity }
+        }
+        let a = luminance(proposed), b = luminance(secondary(on: proposed))
+        let safe = (max(a, b) + 0.05) / (min(a, b) + 0.05) >= 4.55
+        let values = safe ? proposed : source.map { $0 * 0.60 + back * 0.40 }
+        fill = Color(.sRGB, red: values[0], green: values[1], blue: values[2])
+        let hint = secondary(on: values)
+        placeholder = Color(.sRGB, red: hint[0], green: hint[1], blue: hint[2])
     }
 }
 
@@ -834,6 +864,7 @@ struct AddressSuggestionList: View {
             if !suggestions.contains(where: { $0.source == .search }) {
                 Button { choose(BrowserSuggestion(title: "Search for ‘\(address)’", url: engine.searchURL(address), source: .search)) } label: {
                     Label("Search for ‘\(address)’", systemImage: "magnifyingglass")
+                        .lineLimit(1).truncationMode(.middle)
                         .foregroundStyle(theme.text).padding(.horizontal, OrivLayout.rowInset).frame(height: OrivLayout.controlHeight).frame(maxWidth: .infinity, alignment: .leading)
                 }.buttonStyle(.plain)
             }

@@ -400,7 +400,7 @@ import XCTest
         try await wait("Address capsule did not mount") { field != nil && self.marker("browserSiteInformationGeometry", in: w) != nil }
         let address = try XCTUnwrap(field)
         let capsule = try XCTUnwrap(marker("browserAddressGeometry", in: w))
-        for fraction in [0.03, 0.78] {
+        for fraction in [0.004, 0.78] {
             w.makeFirstResponder(nil)
             func clickPoint() -> NSPoint {
                 capsule.convert(NSPoint(x: capsule.bounds.width * fraction, y: capsule.bounds.midY), to: nil)
@@ -441,7 +441,66 @@ import XCTest
         try await wait("The search icon did not focus the address field") { address.currentEditor() != nil }
     }
 
-    func testNarrowOverlayKeepsNativeLightsAboveInsetSurface() async throws {
+    func testAddressChromeSharesBaselineAndAttachesSuggestionsInEveryAppearance() async throws {
+        for appearance: BrowserAppearance in [.light, .dark, .t3Code] {
+            let c = BrowserController(testing: true); defer { c.shutdown() }
+            let tab = try XCTUnwrap(c.session.selectedTab)
+            let url = try XCTUnwrap(URL(string: "http://docs.research-and-development.example/full/address?q=focus#section"))
+            tab.webView.loadHTMLString("<body>Address layout fixture</body>", baseURL: url)
+            try await wait("Address fixture did not load") { tab.url == url && !tab.isLoading }
+            let w = host(c, appearance: appearance); defer { w.close() }
+            func frame(_ name: String) throws -> NSRect {
+                let view = try XCTUnwrap(marker(name, in: w), name)
+                return view.convert(view.bounds, to: nil)
+            }
+            func capture(_ suffix: String) throws {
+                let content = try XCTUnwrap(w.contentView)
+                let top = try frame("browserTopBarGeometry")
+                let bounds = NSRect(x: 0, y: top.maxY - 174, width: content.bounds.width, height: 174)
+                let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: bounds))
+                content.cacheDisplay(in: bounds, to: bitmap)
+                let attachment = XCTAttachment(data: try XCTUnwrap(bitmap.representation(using: .png, properties: [:])),
+                                               uniformTypeIdentifier: "public.png")
+                attachment.name = "address-\(appearance.rawValue.lowercased())-\(suffix)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+
+            try await wait("Chrome did not mount") { self.marker("browserReloadGeometry", in: w) != nil }
+            let capsule = try frame("browserAddressGeometry")
+            XCTAssertEqual(capsule.height, OrivLayout.controlHeight, accuracy: 1)
+            for name in ["sidebarToggleGeometry", "browserSiteInformationGeometry", "browserReloadGeometry",
+                         "browserPrivacyGeometry", "browserPageMenuGeometry"] {
+                XCTAssertEqual(try frame(name).midY, capsule.midY, accuracy: 1, name)
+            }
+            let field = try XCTUnwrap(w.contentView.flatMap { views($0).compactMap { $0 as? FocusAwareAddressField }.first })
+            XCTAssertEqual(field.stringValue, URLDisplay.site(url))
+            try capture("compact")
+
+            tab.zoomIn()
+            try await wait("Zoom control did not appear") { self.marker("browserZoomGeometry", in: w) != nil }
+            XCTAssertEqual(try frame("browserZoomGeometry").midY, capsule.midY, accuracy: 1)
+            XCTAssertEqual(try frame("browserAddressGeometry"), capsule)
+            c.focusAddress()
+            try await wait("Editing selection or attached suggestions did not mount") {
+                field.currentEditor()?.selectedRange == NSRange(location: 0, length: url.absoluteString.utf16.count)
+                    && self.marker("browserAddressSuggestionsGeometry", in: w) != nil
+            }
+            let panel = try frame("browserAddressSuggestionsGeometry")
+            XCTAssertEqual(panel.minX, capsule.minX, accuracy: 1)
+            XCTAssertEqual(panel.width, capsule.width, accuracy: 1)
+            XCTAssertEqual(capsule.minY - panel.maxY, OrivSpacing.xxs, accuracy: 1)
+            XCTAssertEqual(try frame("browserAddressGeometry"), capsule)
+            try capture("editing-suggestions-zoom")
+
+            _ = c.session.addTab(isPrivate: true, load: false)
+            try await wait("Private address did not mount") { self.marker("privateAddressPillGeometry", in: w) != nil }
+            XCTAssertEqual(try frame("privateAddressPillGeometry").midY, capsule.midY, accuracy: 1)
+            try capture("private-empty")
+        }
+    }
+
+    func testNarrowOverlayKeepsNativeLightsAboveFlushSurface() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let w = host(c); defer { w.close() }
         w.setContentSize(NSSize(width: 780, height: 760))
@@ -449,20 +508,19 @@ import XCTest
             guard c.sidebar.rail, let surface = self.marker("sidebarSurfaceGeometry", in: w),
                   let toggle = self.marker("sidebarToggleGeometry", in: w) else { return false }
             return surface.bounds.width == MacBrowserLayout.railWidth &&
-                toggle.convert(toggle.bounds, to: nil).maxX <= MacBrowserLayout.railWidth + MacBrowserLayout.panelInset
+                toggle.convert(toggle.bounds, to: nil).maxX <= MacBrowserLayout.railWidth
         }
         try click("sidebarToggleGeometry", in: w)
         try await wait("Explicit overlay did not open") { c.sidebar.narrowOverlay }
         try await Task.sleep(for: .milliseconds(200))
         let surface = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: w))
-        let inset = MacBrowserLayout.panelInset
         XCTAssertEqual(surface.convert(surface.bounds, to: nil),
-                       NSRect(x: inset, y: inset, width: MacBrowserLayout.sidebarWidth, height: w.contentView!.bounds.height - 2 * inset))
+                       NSRect(origin: .zero, size: NSSize(width: MacBrowserLayout.sidebarWidth, height: w.contentView!.bounds.height)))
         for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
             let button = try XCTUnwrap(w.standardWindowButton(type))
             XCTAssertFalse(button.isHiddenOrHasHiddenAncestor)
             let rect = button.convert(button.bounds, to: nil)
-            XCTAssertGreaterThanOrEqual(rect.minX, 8 - 1)
+            XCTAssertGreaterThanOrEqual(rect.minX, 0)
             XCTAssertLessThanOrEqual(rect.maxX, MacBrowserLayout.railWidth)
             XCTAssertEqual(rect.minX, MacBrowserLayout.railLightsInset + CGFloat(index) * 20, accuracy: 1)
             XCTAssertEqual(w.contentView!.bounds.maxY - rect.midY, MacBrowserLayout.headerHeight / 2, accuracy: 1)

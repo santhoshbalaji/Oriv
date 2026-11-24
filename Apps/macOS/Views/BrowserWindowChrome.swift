@@ -7,20 +7,20 @@ enum MacBrowserLayout {
     static let sidebarWidthRange: ClosedRange<CGFloat> = 220...360
     static let railWidth = OrivLayout.railWidth
     static let headerHeight = OrivLayout.toolbarHeight
-    static let panelInset = OrivSpacing.small
+    static let sidebarResizeGripWidth = OrivSpacing.small
     static let sidebarInset = OrivSpacing.small
     static let sidebarRowInset = OrivSpacing.small
-    static let sidebarTitlebarHeight = headerHeight - panelInset - OrivSpacing.xs
+    static let sidebarTitlebarHeight = headerHeight - OrivSpacing.xs
     static let sidebarToggleSize: CGFloat = 30
-    static let sidebarToggleTopInset = (headerHeight - sidebarToggleSize) / 2 - panelInset
+    static let sidebarToggleTopInset = (headerHeight - sidebarToggleSize) / 2
     static let fullscreenProfileTrailingInset = sidebarToggleSize + sidebarInset
     static let sidebarFooterGap = OrivSpacing.xs
     static let railItemWidth = OrivTarget.macRail.width
     static let railItemHeight = OrivTarget.macRail.height
     static let railInset = (railWidth - railItemWidth) / 2
     static let lightsWidth: CGFloat = 54
-    static let railLightsInset = panelInset + (railWidth - lightsWidth) / 2
-    static let lightsInset = panelInset + OrivSpacing.medium
+    static let railLightsInset = (railWidth - lightsWidth) / 2
+    static let lightsInset = OrivSpacing.medium
     static let lightsSpacing: CGFloat = 20
 }
 
@@ -63,7 +63,7 @@ struct WindowBackdropMaterial: NSViewRepresentable {
         let width = content.bounds.width
         return candidates.contains { rect in
             let leading = layoutDirection == .rightToLeft ? width - rect.maxX : rect.minX
-            return rect.width > 0 && leading >= 0 && leading + rect.width <= sidebarWidth + MacBrowserLayout.panelInset + 1
+            return rect.width > 0 && leading >= 0 && leading + rect.width <= sidebarWidth + 1
         }
     }
 }

@@ -26,6 +26,7 @@ struct AddressCapsuleHitArea: NSViewRepresentable {
 
 /// An AppKit field provides reliable menu-driven focus and selection inside NSToolbar.
 struct AddressField: NSViewRepresentable {
+    static let font = NSFont.systemFont(ofSize: OrivLayout.macAddressFontSize)
     @Environment(\.browserTheme) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Binding var text: String
@@ -33,6 +34,7 @@ struct AddressField: NSViewRepresentable {
     var placeholder = OrivStrings.addressPlaceholder
     var displayText: String? = nil
     var foreground: Color? = nil
+    var placeholderInk: Color? = nil
     let focusRequest: Int
     var profileEpoch: UUID? = nil
     var focusStillValid: () -> Bool = { true }
@@ -51,7 +53,7 @@ struct AddressField: NSViewRepresentable {
         field.isSelectable = true
         field.isBezeled = false
         field.drawsBackground = false
-        field.font = .systemFont(ofSize: 13)
+        field.font = Self.font
         field.placeholderString = placeholder
         field.lineBreakMode = .byTruncatingMiddle
         field.maximumNumberOfLines = 1
@@ -73,19 +75,37 @@ struct AddressField: NSViewRepresentable {
         field.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
         field.textColor = foreground.map(NSColor.init) ?? (theme.isT3Code ? NSColor(theme.text) : .labelColor)
         field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .foregroundColor: foreground.map(NSColor.init) ?? (theme.isT3Code ? NSColor(theme.fieldText) : NSColor.placeholderTextColor)
+            .font: Self.font,
+            .foregroundColor: placeholderInk.map(NSColor.init) ?? (theme.isT3Code ? NSColor(theme.fieldText) : NSColor.placeholderTextColor)
         ])
         (field as? FocusAwareAddressField)?.editingText = text
-        let editing = field.currentEditor() != nil
-        let value = editing ? text : (displayText ?? text)
-        if field.stringValue != value { field.stringValue = value }
-        if editing, !context.coordinator.suppressCompletion, let completion,
-           completion.hasPrefix(text), completion.count > text.count,
-           let editor = field.currentEditor() as? NSTextView, !editor.hasMarkedText() {
-            field.stringValue = completion; editor.string = completion
-            editor.setSelectedRange(NSRange(location: text.utf16.count, length: completion.utf16.count - text.utf16.count))
+        let editor = field.currentEditor() as? NSTextView
+        field.alignment = editor != nil || displayText == nil ? .natural : .center
+        if let editor {
+            editor.insertionPointColor = field.textColor ?? .labelColor
+            // Chrome changes and suggestion refreshes can arrive while the
+            // native editor has a selection or is composing marked text.
+            if !editor.hasMarkedText() {
+                let inline = completion.flatMap {
+                    !context.coordinator.suppressCompletion && $0.hasPrefix(text) && $0.utf16.count > text.utf16.count ? $0 : nil
+                }
+                let value = inline ?? text
+                if editor.string != value {
+                    let previous = editor.selectedRange()
+                    editor.string = value
+                    let end = text.utf16.count
+                    if let inline {
+                        editor.setSelectedRange(NSRange(location: end, length: inline.utf16.count - end))
+                    } else {
+                        let location = min(previous.location, end)
+                        editor.setSelectedRange(NSRange(location: location, length: min(previous.length, end - location)))
+                    }
+                }
+            }
+        } else {
+            let value = displayText ?? text
+            if field.stringValue != value { field.stringValue = value }
         }
-        field.alignment = editing || displayText == nil ? .left : .center
         field.setAccessibilityValue(text)
         guard focusRequest > 0, context.coordinator.lastFocusRequest != focusRequest else { return }
         context.coordinator.lastFocusRequest = focusRequest
@@ -109,7 +129,7 @@ struct AddressField: NSViewRepresentable {
             parent.isEditing = false
             if let field = notification.object as? NSTextField {
                 field.stringValue = parent.displayText ?? parent.text
-                field.alignment = parent.displayText == nil ? .left : .center
+                field.alignment = parent.displayText == nil ? .natural : .center
             }
         }
         func control(_ control: NSControl, textShouldEndEditing fieldEditor: NSText) -> Bool {
@@ -120,7 +140,7 @@ struct AddressField: NSViewRepresentable {
             guard let field = notification.object as? NSTextField else { return }
             suppressCompletion = deleting
             deleting = false
-            parent.text = field.stringValue
+            parent.text = field.currentEditor()?.string ?? field.stringValue
         }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             if selector == #selector(NSResponder.deleteBackward(_:)) || selector == #selector(NSResponder.deleteForward(_:)) {
@@ -138,7 +158,7 @@ struct AddressField: NSViewRepresentable {
             if selector == #selector(NSResponder.moveDown(_:)) { parent.moveSelection(1); return true }
             if selector == #selector(NSResponder.moveUp(_:)) { parent.moveSelection(-1); return true }
             if selector == #selector(NSResponder.insertNewline(_:)) {
-                if !parent.hasSelectedSuggestion { parent.text = control.stringValue }
+                if !parent.hasSelectedSuggestion { parent.text = textView.string }
                 if parent.submit() {
                     parent.isEditing = false
                     control.window?.makeFirstResponder(nil)
@@ -177,7 +197,7 @@ final class FocusAwareAddressField: NSTextField {
         // Restore the complete address before AppKit creates its field editor.
         // Merely selecting the compact host would make a click edit the wrong URL.
         stringValue = editingText
-        alignment = .left
+        alignment = .natural
         let accepted = super.becomeFirstResponder()
         if accepted {
             DispatchQueue.main.async { [weak self] in

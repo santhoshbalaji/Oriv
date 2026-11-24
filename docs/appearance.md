@@ -55,16 +55,14 @@ inside a profile uses that profile’s backing and keeps its glasses and private
 | Sky | `#DCF1FF` → `#C4E5FF` | `#28527D` → `#1B3857` |
 | Lavender | `#ECE3FF` → `#DACBFF` | `#4F3878` → `#392759` |
 
-Chromatic Glass adds a satin gradient and a soft bloom at the top leading
-corner of the sidebar. Graphite stays cool and uses a cobalt selection. Each
-pastel pairs a light selection with deep matching ink in Light appearance
-and a deeper glass pill with bright ink in Dark appearance. The active tab,
-including a pinned tab or rail tile, has a bright top rim and a soft glow.
+Chromatic Glass uses a subtle leading tint over regular system Liquid Glass.
+Graphite stays cool and uses a cobalt selection. Other colors use the same
+translucent selection in Light and Dark, with deep matching ink in Light and
+bright ink in Dark. Active pins have a soft rim and a small glow.
 
-**Glass opacity** under **All profiles** offers **Balanced** (62% Light,
-72% Dark), **High** (86%), and **Solid** (100%). A hue-matched layer controls
-contrast over the glass. Dark uses a stronger guard and quieter sheen
-to keep tab text readable over bright material. Solid, Reduce Transparency
+**Glass opacity** under **All profiles** offers **Balanced** (65% backing in
+Light and Dark), **High** (86%), and **Solid** (100%). A hue-matched contrast
+guard uses the same opacity in both Light and Dark. Solid, Reduce Transparency
 and Increase Contrast use the opaque gradient and active fill. Increase
 Contrast strengthens secondary ink, the panel edge and the active outline.
 The separate inset focus ring follows keyboard navigation.

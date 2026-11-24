@@ -867,16 +867,14 @@ struct MacSidebarGlass: ViewModifier {
                 }
                 .allowsHitTesting(false).accessibilityHidden(true)
             }
-            .clipShape(shape)
-            .overlay {
-                let theme = environment.browserTheme
-                shape.strokeBorder(style.increased ? theme.text : theme.separator,
-                                   lineWidth: style.increased ? OrivOutline.enhanced : OrivOutline.hairline)
-                    .allowsHitTesting(false).accessibilityHidden(true)
+            .overlay(alignment: .trailing) {
+                if style.increased {
+                    environment.browserTheme.text
+                        .frame(width: OrivOutline.enhanced)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
             }
     }
-
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: OrivRadius.card, style: .continuous) }
 
     @ViewBuilder private var glass: some View {
         #if DEBUG
@@ -890,8 +888,12 @@ struct MacSidebarGlass: ViewModifier {
         #endif
     }
 
-    private var liveGlass: some View {
-        shape.fill(.clear).glassEffect(.clear, in: shape)
+    @ViewBuilder private var liveGlass: some View {
+        if BackgroundUIMode.isEnabled {
+            environment.browserTheme.chrome
+        } else {
+            Rectangle().fill(.clear).glassEffect(.regular, in: .rect)
+        }
     }
 }
 

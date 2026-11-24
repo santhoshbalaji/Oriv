@@ -123,6 +123,7 @@ bloom_alpha = pair_token("satinBloom")
 active_alpha = pair_token("activeOpacity")
 cushion_mix = pair_token("cushionHue")
 assert all(0 < alpha < high_backing < 1 for alpha in balanced_backing)
+assert balanced_backing[0] == balanced_backing[1] and balanced_guard[0] == balanced_guard[1]
 assert 0 < black_backing[0] < black_backing[1] < 1
 
 def record(level, label, role, ink, state, background, minimum, bucket):
@@ -292,24 +293,40 @@ mac = (ROOT / "Apps/macOS/Views/BrowserWindow.swift").read_text()
 assert "foregroundThreshold = sqrt(1.05 * 0.05) - 0.05" in chrome
 assert "private var chromeForeground: Color { pageChrome.foreground }" in mac
 assert "pageChrome.color\n" in mac
-assert "WindowBackdropMaterial(material: .sidebar)" in mac
+assert "Rectangle().fill(.clear).glassEffect(.regular, in: .rect)" in sidebar_source
 lift = float(re.search(r"static let lift = ([0-9.]+)", mac).group(1))
 shade = float(re.search(r"static let lightShade = ([0-9.]+)", mac).group(1))
 page_colours = {f"{r:02X}{g:02X}{b:02X}" for r in range(0, 256, 17) for g in range(0, 256, 17) for b in range(0, 256, 17)}
 page_colours.update(f"{c:02X}{c:02X}{c:02X}" for c in range(256))
 page_colours.update(("1F6F5C", "FBFBF9", "111111"))
+focused_mix = float(re.search(r"static let focusedMix = ([0-9.]+)", mac)[1])
+hint_opacity = float(re.search(r"static let placeholderOpacity = ([0-9.]+)", mac)[1])
+focus_opacity = float(re.search(r"static let focusOpacity = ([0-9.]+)", mac)[1])
+
+def rgb_hex(values):
+    return "".join(f"{round(c * 255):02X}" for c in values)
+
 for page in sorted(page_colours):
     dark = luminance(page) < (1.05 * 0.05) ** 0.5 - 0.05
+    ink = int(dark)
+    neutral = 1 - ink
     foreground = "FFFFFF" if dark else "000000"
     checks.append(("Mac page band / reduced chrome", "foreground", foreground, "page", page, 4.5))
-    source = [int(page[i:i+2], 16) / 255 for i in (0, 2, 4)]
-    lifted = [c * (1 - lift) + lift if dark else c * (1 - shade) for c in source]
-    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in lifted]
-    lum = sum(a*b for a, b in zip(linear, (0.2126, 0.7152, 0.0722)))
-    safe = 1.05 / (lum + 0.05) >= 4.55 if dark else (lum + 0.05) / 0.05 >= 4.55
-    values = lifted if safe else [c * 0.88 if dark else c * 0.88 + 0.12 for c in source]
-    backing = "".join(f"{round(c * 255):02X}" for c in values)
-    checks.append(("Mac filled address capsule", "foreground", foreground, "page #" + page, backing, 4.5))
+    source = [int(page[i:i+2], 16) / 255 for i in range(0, 6, 2)]
+    idle = [c * (1 - lift) + lift if dark else c * (1 - shade) for c in source]
+    focused = [c * (1 - focused_mix) + neutral * focused_mix for c in source]
+    def hint(values):
+        return rgb_hex(c * (1 - hint_opacity) + ink * hint_opacity for c in values)
+    for label, candidate in (("idle", idle), ("focused", focused)):
+        values = candidate if ratio(hint(candidate), rgb_hex(candidate)) >= 4.55 else [
+            c * 0.60 + neutral * 0.40 for c in source
+        ]
+        backing = rgb_hex(values)
+        checks.append((f"Mac address capsule / {label}", "foreground", foreground, "page #" + page, backing, 4.5))
+        checks.append((f"Mac address capsule / {label}", "placeholder", hint(values), "page #" + page, backing, 4.5))
+        if label == "focused":
+            ring = composite(foreground, backing, focus_opacity)
+            checks.append(("Mac address capsule / focused", "focus ring", ring, "page #" + page, backing, 3))
 
 # A system accent can be any luminance. Check both ends and the crossover.
 assert "luminance(resolvedAccent) < sqrt(1.05 * 0.05) - 0.05" in text

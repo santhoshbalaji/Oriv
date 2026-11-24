@@ -29,7 +29,7 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
     var reservesRail: Bool { preferredRail || automaticRail }
     var overlay: Bool { peeking || narrowOverlay }
     var reservation: CGFloat {
-        webpageFullscreen ? 0 : (reservesRail ? MacBrowserLayout.railWidth : expandedWidth) + 2 * MacBrowserLayout.panelInset
+        webpageFullscreen ? 0 : (reservesRail ? MacBrowserLayout.railWidth : expandedWidth)
     }
     var width: CGFloat { rail ? MacBrowserLayout.railWidth : expandedWidth }
 
@@ -222,7 +222,7 @@ struct SidebarWindowEvents: NSViewRepresentable {
                     } else if controller.sidebar.overlay, let width = self.window?.contentView?.bounds.width {
                         let x = event.locationInWindow.x
                         let leading = self.layoutDirection == .rightToLeft ? width - x : x
-                        if leading > controller.sidebar.width + MacBrowserLayout.panelInset { self.dismiss?() }
+                        if leading > controller.sidebar.width { self.dismiss?() }
                     }
                 }
                 if event.type == .otherMouseUp, event.buttonNumber == 2,
