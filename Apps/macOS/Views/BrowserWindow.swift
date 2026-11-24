@@ -49,12 +49,12 @@ struct BrowserWindow: View {
         controller.canAutoFillPassword && tab?.passwordFields.showsGlyph == false
     }
     private var toolbarSideWidth: CGFloat {
-        let count = 2 + (reservesToolbarPasswordKey ? 1 : 0)
+        let count = 1 + (reservesToolbarPasswordKey ? 1 : 0)
             + (showsExpandedToolbarActions && tab?.url != nil ? 1 : 0)
             + (showsExpandedToolbarActions && showsToolbarDownloads ? 1 : 0)
         // Match the trailing action group on the leading side so the address
         // and the start-page column share the center of the page viewport.
-        return CGFloat(count) * (OrivTarget.macToolbar.width + OrivSpacing.xxs) - OrivSpacing.xxs
+        return CGFloat(count) * (OrivTarget.macToolbar.width + OrivSpacing.xxs) + MacBrowserLayout.pageMenuTarget.width
     }
     private var addressWidth: CGFloat {
         let reserved = controller.sidebar.reservation + 2 * (OrivSpacing.medium + toolbarSideWidth + OrivSpacing.xs)
@@ -628,7 +628,7 @@ struct BrowserWindow: View {
                 requestSiteForget: { ui.siteToForget = $0 })
         } label: {
             Image(systemName: "ellipsis").font(OrivIcon.toolbarFont)
-                .frame(width: OrivTarget.macToolbar.width, height: OrivTarget.macToolbar.height)
+                .frame(width: MacBrowserLayout.pageMenuTarget.width, height: MacBrowserLayout.pageMenuTarget.height)
         }
         return menu
         .help("Browser Actions").accessibilityLabel("Browser Actions")

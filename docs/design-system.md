@@ -232,8 +232,8 @@ on the page viewport. Active downloads also have a sidebar badge.
 
 The 32 pt address capsule uses 24 pt inline targets and 4 pt end insets.
 Site information, the Private badge, zoom and Reload share the editor’s
-vertical center. Site Privacy, Share, Passwords and Browser Actions use
-the same 28 pt toolbar targets. The compact field displays the host with
+vertical center. Site Privacy, Share and Passwords use 28 pt toolbar targets.
+Browser Actions retains its 36 × 32 pt target on the same centerline. The compact field displays the host with
 middle truncation. Focusing any open area of the capsule selects the full
 address in the native field editor. Editing uses a distinct backing and
 focus ring. Suggestions match the capsule’s width and appear 2 pt below

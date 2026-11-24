@@ -7,6 +7,7 @@ enum MacBrowserLayout {
     static let sidebarWidthRange: ClosedRange<CGFloat> = 220...360
     static let railWidth = OrivLayout.railWidth
     static let headerHeight = OrivLayout.toolbarHeight
+    static let pageMenuTarget = CGSize(width: 36, height: OrivLayout.controlHeight)
     static let sidebarResizeGripWidth = OrivSpacing.small
     static let sidebarInset = OrivSpacing.small
     static let sidebarRowInset = OrivSpacing.small
