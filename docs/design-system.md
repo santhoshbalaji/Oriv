@@ -129,8 +129,8 @@ page-derived tint. Per-profile
 **Sidebar color** offers Graphite, Profile color and seven pastels. Black keeps
 its near-black backing while retaining the saved color choice. The Mac-wide
 **Glass opacity** applies a contrast guard below the selected backing. White
-or black tonal fills above the backing let its tint show through selected rows,
-hover, search and pins. Reduce Transparency and Increase Contrast use an opaque
+or black tonal fills above the backing let its tint show through hover and
+search. Reduce Transparency and Increase Contrast use an opaque
 backing and solid control fills. Increase Contrast strengthens outlines.
 [Sidebar backing tokens](appearance.md#mac-sidebar-color)
 
@@ -144,12 +144,7 @@ pause action. VoiceOver announces the title, host, and applicable selected,
 pinned, private, loading and audio states. Its row actions include Close and
 Mute or Unmute. Keyboard users can use ⌘W and ⌃⌘M.
 
-Pins show a favicon above a one-line caption. The active tile has the same
-leading accent marker as a tab row. Hover reveals the trailing close target.
-A single pin uses the full
-width. Below 250 pt the grid uses two columns and up to four tiles. At 250 pt
-and above it uses rows of two or three and up to six tiles. Additional pins
-continue as title-bearing rows in the same section. The rail uses 42 × 36 pt icon
+Pinned tabs use compact favicon tiles. The rail uses 42 × 36 pt icon
 targets and context menus. New Tab stays reachable outside the scrolling list.
 The footer has a hairline and five icon buttons. Downloads shows a dot while
 a download is active.
@@ -187,13 +182,20 @@ available. Hover reveals a Close action in the trailing top corner and a
 full-title tooltip. VoiceOver reads the title, pinned state and position.
 Search results present pins as titled rows.
 
-Idle tiles show the sidebar backing. Hover and selection use the sidebar’s
-tonal hover and pin-selection fills. Reduce Transparency switches to the
-corresponding opaque fills, and Increase Contrast adds the stronger focus-width
-outline to selection and hover. The selected tab keeps the shared 3 pt leading
-marker. AppKit draws a focus ring around the highlighted tile during keyboard
-navigation. Tile order, the leading marker, insertion markers and the Close
-corner mirror in right-to-left layouts.
+The active tab uses the S2 tinted pill in rows, pinned tiles, the rail and tab
+search. It uses a system-accent wash at 16% in Light and 30% in Dark over a
+local neutral guard. A dark-mode hairline defines the pill against dark tints.
+Titles and fallback icons use contrast-bounded accent ink. Site favicons keep
+their artwork, and private tabs keep their purple glasses. Hover uses a neutral
+fill. Reduce Transparency and Black use an opaque selected fill. Increase
+Contrast uses that fill with a 2 pt outline.
+
+The active tab keeps its pill when arrow navigation moves the keyboard highlight.
+The collection draws a separate, opaque 2 pt ring inset from the highlighted
+row or tile edge. Rail search uses the same focus ink. The contrast gate checks
+selected text at 4.5:1 and the focus ring at 3:1 across all effective sidebar
+colors, glass levels and accessibility modes. Tile order, insertion markers and
+the Close corner mirror in right-to-left layouts.
 
 Pin/unpin commands use the existing `TabRecord.isPinned` model and version-3
 session snapshot. Mac private pins live in memory for the lifetime of their

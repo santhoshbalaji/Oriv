@@ -66,12 +66,31 @@ assert "reduceTransparency || captureReduceTransparency || contrast == .increase
 assert ".background(backing.opacity(effectiveOpacity.backingOpacity))" in sidebar_source
 assert ".background(Self.balancedTintGuard.opacity(guardOpacity))" in sidebar_source
 assert ".background { glass }" in sidebar_source
-assert "if tile && (active || selected) { return .pinSelection }" in sidebar_source
-assert "return hovered ? .hover : nil" in sidebar_source
+assert "SidebarSelectionSurface(active: active, radius: radius)" in sidebar_source
+assert "tone: !active && hovered ? .hover : nil" in sidebar_source
+assert "shape.fill(Theme.SidebarSelection.fill(in: theme, dark: dark, opaque: opaque, environment: environment))" in sidebar_source
+assert "if !opaque { shape.fill(Theme.SidebarSelection.backing(dark: dark)) }" in sidebar_source
 assert "tone.fill(in: theme, dark: dark, opaque: opaque)" in sidebar_source
+native_sidebar = (ROOT / "Apps/macOS/Views/NativeSidebarTabs.swift").read_text()
+assert "NSColor(Theme.sidebarKeyboardFocus).setStroke()" in native_sidebar
+assert "ring.lineWidth = OrivOutline.focus" in native_sidebar
+rail_search = (ROOT / "Apps/macOS/Views/SidebarSearchPanel.swift").read_text()
+assert "SidebarSelectionSurface(active: active, radius: radius)" in rail_search
+assert "strokeBorder(Theme.sidebarKeyboardFocus, lineWidth: OrivOutline.focus)" in rail_search
+selected_opacities = tuple(float(value) for value in re.search(
+    r"selectedOpacity = \(light: ([0-9.]+), dark: ([0-9.]+)\)", text).groups())
+selected_guards = tuple(float(value) for value in re.search(
+    r"selectedGuardOpacity = \(light: ([0-9.]+), dark: ([0-9.]+)\)", text).groups())
+selected_dark_limit = re.search(r"selectedDarkAccentLimit = hex\(0x(\w{6})\)", text)[1]
+assert "if opaque { return selectedSolid }" in text
+assert "accent.linearGreen / limit.linearGreen, accent.linearBlue / limit.linearBlue" in text
+assert "dark ? Color.black.opacity(selectedGuardOpacity.dark) : Color.white.opacity(selectedGuardOpacity.light)" in text
+assert "let adjustment = needsAdjustment ? (baseLuminance - accentLuminance) / (endpoint - accentLuminance) : 0" in text
+assert "let needsAdjustment = dark ? accentLuminance < baseLuminance : accentLuminance > baseLuminance" in text
+assert 0 <= float(re.search(r"selectedInkAccentMix: Float = ([0-9.]+)", text)[1]) <= 1
 tonal_opacities = {name: (float(light), float(dark)) for name, light, dark in re.findall(
     r"private static let (\w+)Tone = \(light: ([0-9.]+), dark: ([0-9.]+)\)", text)}
-assert set(tonal_opacities) == {"selection", "hover", "search", "pinSelection"}
+assert set(tonal_opacities) == {"selection", "hover", "search"}
 sidebar_opacities = {name: float(value) for name, value in re.findall(
     r"case \.(\w+): ([0-9.]+)", sidebar_source.split("enum SidebarGlassOpacity:", 1)[1].split("struct MacSidebarGlass:", 1)[0])}
 assert 0 < sidebar_opacities["balanced"] < sidebar_opacities["high"] < sidebar_opacities["solid"] == 1
@@ -85,8 +104,47 @@ assert "content.glassEffect(.regular.interactive(), in: shape)" in control
 assert "theme.fill.opacity(" not in control
 sidebar_negative = "--negative-sidebar-test" in sys.argv
 tint_negative = "--negative-sidebar-tint-test" in sys.argv
+focus_negative = "--negative-sidebar-focus-test" in sys.argv
 sidebar_checks = []
 sidebar_levels = {}
+selection_checks = []
+selection_levels = {}
+
+
+def check_selection(label, step, mode, panel, hover, palette, inks, opaque):
+    selected_ink = adaptive_constant("selectedInk", mode)
+    focus_ink = adaptive_constant("sidebarKeyboardFocus", mode)
+    # Per-channel compositing is monotonic. Check the full range of the
+    # bounded accent wash and the worst normalized ink luminance separately.
+    guarded = composite("000000" if mode else "FFFFFF", panel, selected_guards[mode])
+    fills = {adaptive_constant("selectedSolid", mode)} if opaque else {
+        composite(accent, guarded, selected_opacities[mode])
+        for accent in ("000000", selected_dark_limit if mode else "FFFFFF")
+    }
+    minima = selection_levels.setdefault(step, {"selected text": float("inf"), "focus ring": float("inf")})
+
+    def check(role, ink, state, background, minimum):
+        selection_checks.append((label, role, ink, state, background, minimum))
+        if role in minima:
+            minima[role] = min(minima[role], ratio(ink, background))
+
+    for fill in sorted(fills):
+        accessory = hover if opaque else composite("FFFFFF" if mode else "000000", fill, tonal_opacities["hover"][mode])
+        for state, background in (("selected row / pin", fill), ("selected hover accessory", accessory),
+                                  ("selected fallback icon plate", palette["fill"])):
+            check("selected text", selected_ink, state, background, 4.5)
+        check("private glasses", palette["private"], "icon plate", palette["fill"], 3)
+        check("private badge", inks["private"], "badge", palette["surface"], 3)
+        if step == "increase contrast":
+            check("selected boundary", palette["text"], "selected fill", fill, 3)
+            check("selected boundary", palette["text"], "panel", panel, 3)
+
+    for state, background in [("idle row / pin", panel), ("hovered row / pin", hover),
+                              *(("selected row / pin", fill) for fill in sorted(fills))]:
+        ink = composite(focus_ink, background, 0.35) if focus_negative else focus_ink
+        check("focus ring", ink, state, background, 3)
+
+
 tints = {name.removesuffix("Backing"): (light.upper(), dark.upper())
          for name, light, dark in re.findall(
              r'(\w+Backing) = Theme.adaptive\("Sidebar\w+", light: 0x(\w{6}), dark: 0x(\w{6})\)', sidebar_source)}
@@ -156,18 +214,15 @@ for appearance, mode, palette, sidebar in palettes:
                     glass = composite(guard_colors[mode], material, guard_opacity)
                     panel = composite(backing, glass, 0 if sidebar_negative else backing_opacity)
                     opaque = appearance == "Black" or step in ("increase contrast", "reduce transparency")
-                    solids = {"selection": sidebar["selection"], "hover": sidebar["hover"],
-                              "search": sidebar["field"], "pinSelection": sidebar["selection"]}
+                    solids = {"selection": sidebar["selection"], "hover": sidebar["hover"], "search": sidebar["field"]}
                     states = {"panel / rail footer": panel, "private badge": colors["surface"]}
                     for state, solid in solids.items():
-                        tonal_ink = "FFFFFF" if mode or state in ("selection", "pinSelection") else "000000"
+                        tonal_ink = "FFFFFF" if mode or state == "selection" else "000000"
                         states[state] = solid if opaque else composite(tonal_ink, panel, tonal_opacities[state][mode])
-                    states["selected row accessory"] = (sidebar["hover"] if opaque else
-                        composite("FFFFFF" if mode else "000000", states["selection"], tonal_opacities["hover"][mode]))
-                    for state in ("hover", "pinSelection"):
-                        states[f"{state} pin accessory"] = (sidebar["hover"] if opaque else
-                            composite("FFFFFF" if mode else "000000", states[state], tonal_opacities["hover"][mode]))
+                    states["hovered accessory"] = (sidebar["hover"] if opaque else
+                        composite("FFFFFF" if mode else "000000", states["hover"], tonal_opacities["hover"][mode]))
                     label = f"{name} sidebar, glass input #{material}, {step}"
+                    check_selection(label, step, mode, panel, states["hover"], colors, inks, opaque)
                     for state, background in states.items():
                         for token, foreground in inks.items():
                             sidebar_checks.append((label, token, foreground, state, background, 4.5))
@@ -178,13 +233,22 @@ for appearance, mode, palette, sidebar in palettes:
             if appearance != "Black":
                 # The Settings swatch shows a primary-ink checkmark on the opaque backing.
                 sidebar_checks.append((f"{name} sidebar swatch", "checkmark", colors["text"], "swatch", backing, 3))
+        for step in steps:
+            surface = colors["surface"]
+            opaque = appearance == "Black" or step in ("increase contrast", "reduce transparency")
+            hover = sidebar["hover"] if opaque else composite("FFFFFF" if mode else "000000", surface, tonal_opacities["hover"][mode])
+            check_selection(f"{appearance} rail search, {step}", step, mode, surface, hover, colors, inks, opaque)
 
 checks.extend(sidebar_checks)
+checks.extend(selection_checks)
 worst = min((check for check in sidebar_checks if check[-1] == 4.5), key=lambda check: ratio(check[2], check[4]))
 for name, minima in sidebar_levels.items():
     values = " / ".join(f"{minima[token]:.2f}" for token in ("text", "textSecondary", "private"))
     print(f"{name.capitalize()} sidebar (primary / secondary / private): {values}")
 print(f"Sidebar minimum text contrast: {ratio(worst[2], worst[4]):.2f}:1 ({worst[0]}, {worst[1]} on {worst[3]})")
+for step, minima in selection_levels.items():
+    print(f"{step.capitalize()} S2 minimum (selected text / focus ring): "
+          f"{minima['selected text']:.2f}:1 / {minima['focus ring']:.2f}:1")
 # Settings owns the foreground and the opaque card. The full-opacity AppKit
 # material is the gutter input. Sample its possible output, including both
 # luminance endpoints. The native toolbar uses system ink.
@@ -265,7 +329,12 @@ for theme, token, colour, surface, background, minimum in checks:
     if value < minimum:
         failures += 1
         print(f"FAIL {theme}: {token} #{colour} on {surface} #{background} = {value:.2f}:1 (needs {minimum}:1)")
-if settings_negative:
+if focus_negative:
+    rejected = [check for check in selection_checks if check[1] == "focus ring" and ratio(check[2], check[4]) < check[-1]]
+    if not rejected or len(rejected) != failures:
+        sys.exit("FAIL negative focus test: expected failures from the weakened ring only")
+    print(f"Negative sidebar focus test passed: caught {len(rejected)} rings below 3:1")
+elif settings_negative:
     if not any(ratio(ink, card) < minimum for _, _, ink, _, card, minimum in settings_checks):
         sys.exit("FAIL negative Settings test: translucent Settings card was not caught")
     print("Negative Settings test passed")
