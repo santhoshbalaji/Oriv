@@ -59,9 +59,11 @@ import XCTest
         let second = profiles.controller
         XCTAssertEqual(second.sidebarColor, .graphite)
         second.sidebarColor = .profile
-        let ocean = second.sidebarColor.backing(in: .graphite, profileColor: second.sidebarProfileColor(in: profiles))
+        let ocean = Theme.SidebarChromaticTokens.resolve(second.sidebarColor, profile: second.sidebarProfileColor(in: profiles),
+                                                       dark: false, black: false)
         try profiles.update(work.id, name: work.name, color: .fern, symbol: work.symbol)
-        let fern = second.sidebarColor.backing(in: .graphite, profileColor: second.sidebarProfileColor(in: profiles))
+        let fern = Theme.SidebarChromaticTokens.resolve(second.sidebarColor, profile: second.sidebarProfileColor(in: profiles),
+                                                       dark: false, black: false)
         XCTAssertNotEqual(ocean, fern)
         try profiles.select(BrowserProfile.personalID)
         XCTAssertTrue(profiles.controller === first)
@@ -78,10 +80,15 @@ import XCTest
         controller.sidebarColor = .mint
         let profile = controller.sidebarProfileColor(in: nil)
         controller.appearance = .t3Code
-        XCTAssertEqual(controller.sidebarColor.backing(in: controller.appearance.theme, profileColor: profile), Theme.t3Code.sidebar.backing)
+        let black = Theme.SidebarChromaticTokens.resolve(controller.sidebarColor, profile: profile,
+                                                         dark: true, black: controller.appearance.theme.isT3Code)
+        XCTAssertEqual(black.top, 0x0A0A0A)
         XCTAssertEqual(controller.sidebarColor, .mint)
         controller.appearance = .system
-        XCTAssertNotEqual(controller.sidebarColor.backing(in: controller.appearance.theme, profileColor: profile), Theme.graphite.sidebar.backing)
+        let restored = Theme.SidebarChromaticTokens.resolve(controller.sidebarColor, profile: profile,
+                                                            dark: true, black: controller.appearance.theme.isT3Code)
+        XCTAssertEqual(restored, Theme.SidebarChromaticTokens.resolve(.mint, profile: profile, dark: true, black: false))
+        XCTAssertNotEqual(restored, black)
     }
 
     func testProfilelessPrivateWindowsUseGraphite() throws {
@@ -98,8 +105,9 @@ import XCTest
             context.sidebarColor = .butter
             XCTAssertEqual(context.sidebarColor, .graphite)
             XCTAssertNil(context.sidebarProfileColor(in: profiles))
-            XCTAssertEqual(SidebarColor.butter.backing(in: .graphite, profileColor: context.sidebarProfileColor(in: profiles)),
-                           Theme.graphite.sidebar.backing)
+            XCTAssertEqual(Theme.SidebarChromaticTokens.resolve(.butter, profile: context.sidebarProfileColor(in: profiles),
+                                                               dark: false, black: false),
+                           Theme.SidebarChromaticTokens.resolve(.graphite, profile: nil, dark: false, black: false))
         }
     }
 
