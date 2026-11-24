@@ -604,7 +604,8 @@ import XCTest
             func capture(_ suffix: String) throws {
                 let content = try XCTUnwrap(w.contentView)
                 let top = try frame("browserTopBarGeometry")
-                let bounds = NSRect(x: 0, y: top.maxY - 174, width: content.bounds.width, height: 174)
+                let windowBounds = NSRect(x: 0, y: top.maxY - 174, width: content.bounds.width, height: 174)
+                let bounds = content.convert(windowBounds, from: nil)
                 let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: bounds))
                 content.cacheDisplay(in: bounds, to: bitmap)
                 let attachment = XCTAttachment(data: try XCTUnwrap(bitmap.representation(using: .png, properties: [:])),
