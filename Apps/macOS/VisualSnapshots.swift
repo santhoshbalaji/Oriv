@@ -53,7 +53,9 @@ import WebKit
         }
         BackgroundUIMode.installAtLaunch()
         if BackgroundUIMode.isEnabled {
-            if ["sidebar-color", "sidebar-chromatic"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
+            if environment["ORIV_GLASS_SCENE"] == "sidebar-chromatic" {
+                manifest.limitations.append("The real sidebar renders off-screen. A static gradient models the glass input. The accessibility scenes render the opaque product fallback.")
+            } else if environment["ORIV_GLASS_SCENE"] == "sidebar-color" {
                 manifest.limitations.append("The real sidebar and Settings render off-screen. A static gradient models the glass input. WindowServer Liquid Glass and live transitions are outside this capture.")
             } else if ["sidebar-opacity", "sidebar-opacity-pastels"].contains(environment["ORIV_GLASS_SCENE"] ?? "") {
                 manifest.limitations.append("The real sidebar and production backing render over a synthetic desktop pattern in off-screen windows. These images demonstrate the backing blend; the WindowServer Liquid Glass compositor is outside this capture.")

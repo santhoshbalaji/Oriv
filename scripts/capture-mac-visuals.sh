@@ -12,6 +12,7 @@
 #   ORIV_BACKGROUND_UI=1 is the default. Foreground UI requires orchestrator approval.
 #   ORIV_GLASS_SCENE=sidebar captures the fixed-sidebar acceptance matrix.
 #   ORIV_GLASS_SCENE=sidebar-color captures Balanced tints and the Settings control.
+#   ORIV_GLASS_SCENE=sidebar-chromatic captures the selected row, pins and accessibility fallbacks.
 #   ORIV_GLASS_SCENE=sidebar-width captures the expanded sidebar and inventories the File menu.
 #   The default PID-validated PNG bridge captures only the app's own window IDs.
 #   ORIV_CAPTURE_RENDERER=inprocess opts into ScreenCaptureKit instead.
@@ -178,6 +179,17 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-b":
     expected |= {f"mac-glass-sidebar-b-12-{mode}-760-expanded-narrow" for mode in ("light", "dark")}
     expected |= {f"mac-glass-sidebar-b-100-{mode}-1280-{state}-scrolled" for mode in ("light", "dark") for state in ("expanded", "rail")}
     expected |= {"mac-glass-sidebar-b-private-" + state for state in ("expanded", "rail")}
+if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-chromatic":
+    names = {f"{mode}-{tint}-std" for mode in ("light", "dark")
+             for tint in ("graphite", "sky", "rose", "lavender")}
+    names |= {f"{mode}-sky-{state}" for mode in ("light", "dark") for state in ("pin", "rt", "ic")}
+    names |= {"black-graphite-std", "dark-sky-high", "dark-sky-solid", "dark-rose-private",
+              "dark-sky-rail", "dark-rose-rtl"}
+    expected = {"mac-glass-sidebar-contrast-chromatic-" + name for name in names}
+    if m.get("backgroundUI", {}).get("enabled", False):
+        evidence = {scene["name"] for scene in m.get("evidence", [])}
+        missing = {name + "-synthetic-composite" for name in expected} - evidence
+        if missing: problems.append(f"missing Chromatic Glass evidence: {sorted(missing)}")
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-color":
     colors = ("graphite", "mulberry", "ocean", "fern", "amber", "slate",
               "rose", "peach", "butter", "mint", "sage", "sky", "lavender")
