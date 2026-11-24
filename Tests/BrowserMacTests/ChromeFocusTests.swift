@@ -9,12 +9,13 @@ import XCTest
     private func marker(_ name: String, in window: NSWindow) -> NSView? {
         window.contentView.flatMap { views($0).first { $0.identifier?.rawValue == name } }
     }
-    private func host(_ controller: BrowserController, appearance: BrowserAppearance = .light) -> NSWindow {
+    private func host(_ controller: BrowserController, appearance: BrowserAppearance = .light, rtl: Bool = false) -> NSWindow {
         let window = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = NSHostingController(rootView: BrowserWindow(controller: controller)
             .browserAppearance(appearance).environment(\.chromeReduceTransparencyOverride, true)
+            .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
             .environment(\.sidebarCaptureReduceMotion, true))
         window.setContentSize(NSSize(width: 1000, height: 760))
         BackgroundUIMode.show(window)
@@ -253,40 +254,132 @@ import XCTest
         XCTAssertNotNil(list.accessibilityRole())
     }
 
-    func testNativeDragDelegatesReorderAndPinThroughThePasteboard() async throws {
-        let c = BrowserController(testing: true); defer { c.shutdown() }
-        let pinned = try XCTUnwrap(c.session.selectedTab)
-        c.session.togglePinned(pinned.id)
-        let first = c.session.addTab(select: false, load: false)
-        let second = c.session.addTab(select: false, load: false)
-        let w = host(c); defer { w.close() }
-        try await wait("Collection did not mount") { self.collection(in: w)?.sidebar?.path(for: second.id) != nil }
-        let list = try XCTUnwrap(collection(in: w))
-        let data = try XCTUnwrap(list.sidebar)
-        let source = try XCTUnwrap(data.path(for: second.id))
-        let destination = try XCTUnwrap(data.path(for: first.id))
-        let item = try XCTUnwrap(data.collectionView(list, pasteboardWriterForItemAt: source))
-        let info = DragFixture(source: list)
-        XCTAssertTrue(info.draggingPasteboard.writeObjects([item]))
-        list.layoutSubtreeIfNeeded()
-        let row = try XCTUnwrap(list.layoutAttributesForItem(at: destination))
-        info.move(to: row.frame, verticalFraction: 0.25)
-        var proposed = destination as NSIndexPath
-        var operation = NSCollectionView.DropOperation.before
-        XCTAssertEqual(data.collectionView(list, validateDrop: info, proposedIndexPath: &proposed, dropOperation: &operation), .move)
-        XCTAssertEqual(operation, .on)
-        XCTAssertTrue(data.collectionView(list, acceptDrop: info, indexPath: destination, dropOperation: operation))
-        XCTAssertEqual(c.session.orderedTabs.map(\.id), [pinned.id, second.id, first.id])
+    func testNativeDragPinsInGridGapsReordersAndUnpinsAtEveryWidth() async throws {
+        for rtl in [false, true] {
+            let c = BrowserController(testing: true); defer { c.shutdown() }
+            let regular = try XCTUnwrap(c.session.selectedTab)
+            let candidate = c.session.addTab(select: false, load: false)
+            let pins = (0..<7).map { _ in
+                let tab = c.session.addTab(select: false, load: false)
+                c.session.togglePinned(tab.id)
+                return tab
+            }
+            let w = host(c, rtl: rtl); defer { w.close() }
+            try await wait("Collection did not mount") { self.collection(in: w)?.sidebar?.path(for: candidate.id) != nil }
+            let list = try XCTUnwrap(collection(in: w))
+            let data = try XCTUnwrap(list.sidebar)
+            for width: CGFloat in [220, 256, 360] {
+                c.sidebar.setExpandedWidth(width)
+                try await wait("Sidebar width \(width)") {
+                    w.contentView?.layoutSubtreeIfNeeded()
+                    return self.marker("sidebarSurfaceGeometry", in: w)?.bounds.width == width
+                }
+                let first = try itemFrame(pins[0].id, in: list)
+                let second = try itemFrame(pins[1].id, in: list)
+                let gap = NSPoint(x: (first.midX + second.midX) / 2, y: first.midY)
+                try await drag(candidate.id, in: list) { gap }
+                XCTAssertEqual(c.session.orderedTabs.filter(\.isPinned).map(\.id),
+                               [pins[0].id, candidate.id] + pins.dropFirst().map(\.id))
+                try await wait("Pin order did not update") { data.path(for: candidate.id)?.item == 1 }
 
-        let pinSection = try XCTUnwrap(data.path(for: pinned.id)).section
-        let header = try XCTUnwrap(list.layoutAttributesForSupplementaryElement(ofKind: NSCollectionView.elementKindSectionHeader,
-                                                                                at: IndexPath(item: 0, section: pinSection)))
-        info.move(to: header.frame)
-        XCTAssertEqual(data.collectionView(list, validateDrop: info, proposedIndexPath: &proposed, dropOperation: &operation), .move)
-        XCTAssertEqual(operation, .before)
-        XCTAssertTrue(data.collectionView(list, acceptDrop: info, indexPath: proposed as IndexPath, dropOperation: operation))
-        XCTAssertTrue(second.isPinned)
-        XCTAssertTrue(data.menu(for: second).items.contains { $0.title == "Unpin Tab" })
+                try await drag(candidate.id, in: list) {
+                    let last = try self.itemFrame(pins[6].id, in: list)
+                    return NSPoint(x: rtl ? last.minX : last.maxX, y: last.maxY + OrivLayout.sidebarPinGap / 2)
+                }
+                XCTAssertEqual(c.session.orderedTabs.filter(\.isPinned).last?.id, candidate.id)
+                try await wait("Pinned reorder did not update") { data.path(for: candidate.id)?.item == pins.count }
+
+                try await drag(candidate.id, in: list) {
+                    let row = try self.itemFrame(regular.id, in: list)
+                    return NSPoint(x: row.midX, y: row.minY + row.height / 4)
+                }
+                XCTAssertFalse(candidate.isPinned)
+                XCTAssertEqual(c.session.orderedTabs.filter { !$0.isPinned }.map(\.id), [candidate.id, regular.id])
+                try await wait("Unpin did not update") { data.path(for: candidate.id)?.section == 1 }
+            }
+        }
+    }
+
+    func testNativeDragPinAndUnpinWithEmptySectionsInExpandedSidebarAndRail() async throws {
+        for rail in [false, true] {
+            let c = BrowserController(testing: true); defer { c.shutdown() }
+            c.compactSidebar = rail
+            let tab = try XCTUnwrap(c.session.selectedTab)
+            let w = host(c); defer { w.close() }
+            try await wait("Collection did not mount") { self.collection(in: w)?.sidebar?.path(for: tab.id) != nil }
+            let list = try XCTUnwrap(collection(in: w))
+            for pinning in [true, false] {
+                try await drag(tab.id, in: list) {
+                    // An empty pin section is first; an empty Tabs section follows the only pin.
+                    let path = IndexPath(item: 0, section: pinning ? 0 : 1)
+                    let header = try XCTUnwrap(list.layoutAttributesForSupplementaryElement(
+                        ofKind: NSCollectionView.elementKindSectionHeader, at: path))
+                    return NSPoint(x: header.frame.midX, y: header.frame.midY)
+                }
+                XCTAssertEqual(tab.isPinned, pinning)
+                try await wait("Completed drag did not collapse its empty section") { list.numberOfSections == 1 }
+            }
+
+            let other = c.session.addTab(select: false, load: false)
+            c.session.togglePinned(other.id)
+            try await wait("Single pin did not mount") { list.sidebar?.path(for: other.id)?.section == 0 && list.numberOfSections == 2 }
+            try await drag(tab.id, in: list) {
+                let pin = try self.itemFrame(other.id, in: list)
+                return NSPoint(x: pin.minX + pin.width / 4, y: pin.minY + pin.height / 4)
+            }
+            XCTAssertEqual(c.session.orderedTabs.filter(\.isPinned).map(\.id), [tab.id, other.id])
+        }
+    }
+
+    func testNativeDragRejectsForeignOwnerAndCrossPrivacyTiles() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let pin = try XCTUnwrap(c.session.selectedTab)
+        c.session.togglePinned(pin.id)
+        let privateTab = c.session.addTab(isPrivate: true, select: false, load: false)
+        let w = host(c); defer { w.close() }
+        try await wait("Private tab did not mount") { self.collection(in: w)?.sidebar?.path(for: privateTab.id) != nil }
+        let list = try XCTUnwrap(collection(in: w))
+        try await drag(privateTab.id, in: list, accepted: false) {
+            let frame = try self.itemFrame(pin.id, in: list)
+            return NSPoint(x: frame.midX, y: frame.midY)
+        }
+        try await drag(privateTab.id, in: list, accepted: false, owner: UUID()) {
+            let header = try XCTUnwrap(list.layoutAttributesForSupplementaryElement(
+                ofKind: NSCollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: 0)))
+            return NSPoint(x: header.frame.midX, y: header.frame.midY)
+        }
+        XCTAssertFalse(privateTab.isPinned)
+    }
+
+    private func itemFrame(_ id: UUID, in list: SidebarTabCollection) throws -> NSRect {
+        let path = try XCTUnwrap(list.sidebar?.path(for: id))
+        return try XCTUnwrap(list.layoutAttributesForItem(at: path)).frame
+    }
+
+    private func drag(_ id: UUID, in list: SidebarTabCollection, accepted: Bool = true, owner: UUID? = nil,
+                      at point: () throws -> NSPoint) async throws {
+        let data = try XCTUnwrap(list.sidebar)
+        let source = try XCTUnwrap(data.path(for: id))
+        let writer = try XCTUnwrap(data.collectionView(list, pasteboardWriterForItemAt: source))
+        let info = DragFixture(source: list)
+        XCTAssertTrue(info.draggingPasteboard.writeObjects([writer]))
+        if let owner {
+            let payload = try JSONEncoder().encode(SidebarTabTransfer(id: id, owner: owner))
+            XCTAssertTrue(info.draggingPasteboard.setData(payload, forType: SidebarCollectionData.pasteboardType))
+        }
+        data.beginDrag(at: source)
+        defer { data.endDrag() }
+        try await wait("Drag targets did not appear") { data.controller?.sidebar.dragging == true }
+        list.layoutSubtreeIfNeeded()
+        // Send AppKit's destination callbacks to the collection in the offscreen window.
+        info.move(to: NSPoint(x: list.bounds.midX, y: -1))
+        XCTAssertEqual(list.draggingEntered(info), [])
+        info.move(to: try point())
+        XCTAssertEqual(list.draggingUpdated(info), accepted ? .move : [])
+        XCTAssertEqual(list.insertionMarkerFrame != nil, accepted)
+        XCTAssertEqual(list.prepareForDragOperation(info), accepted)
+        XCTAssertEqual(list.performDragOperation(info), accepted)
+        XCTAssertNil(list.insertionMarkerFrame)
     }
 
     func testNarrowOverlayKeepsNativeLightsAboveInsetSurface() async throws {
@@ -335,8 +428,8 @@ import XCTest
     let springLoadingHighlight = NSSpringLoadingHighlight.none
 
     init(source: SidebarTabCollection) { self.source = source }
-    func move(to rect: NSRect, verticalFraction: CGFloat = 0.5) {
-        draggingLocation = source.convert(NSPoint(x: rect.midX, y: rect.minY + rect.height * verticalFraction), to: nil)
+    func move(to point: NSPoint) {
+        draggingLocation = source.convert(point, to: nil)
     }
     func slideDraggedImage(to screenPoint: NSPoint) {}
     func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?,

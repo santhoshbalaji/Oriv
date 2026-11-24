@@ -105,9 +105,12 @@ struct SidebarSearchScope: View {
               let source = controller.session.tabs.first(where: { $0.id == item.id }) else { return false }
         switch target {
         case .pinned(_, let isPrivate): return source.isPrivate == isPrivate
-        case .tab(let id), .between(let id, _):
+        case .tab(let id):
             guard let destination = controller.session.tabs.first(where: { $0.id == id }) else { return false }
             return source.id != id && source.isPrivate == destination.isPrivate && source.isPinned == destination.isPinned
+        case .between(let id, _):
+            guard let destination = controller.session.tabs.first(where: { $0.id == id }) else { return false }
+            return source.id != id && source.isPrivate == destination.isPrivate
         }
     }
 
@@ -117,9 +120,10 @@ struct SidebarSearchScope: View {
         case .pinned(let pinned, _): controller.session.moveTab(item.id, intoPinnedSection: pinned)
         case .tab(let id): controller.session.moveTab(item.id, to: id)
         case .between(let id, let after):
-            let ordered = controller.session.orderedTabs
-            guard let source = ordered.first(where: { $0.id == item.id }) else { return false }
-            let peers = ordered.filter { $0.isPrivate == source.isPrivate && $0.isPinned == source.isPinned }
+            guard let source = controller.session.tabs.first(where: { $0.id == item.id }),
+                  let destination = controller.session.tabs.first(where: { $0.id == id }) else { return false }
+            if source.isPinned != destination.isPinned { source.setPinned(destination.isPinned) }
+            let peers = controller.session.orderedTabs.filter { $0.isPrivate == source.isPrivate && $0.isPinned == source.isPinned }
             guard let start = peers.firstIndex(where: { $0.id == item.id }),
                   let end = peers.firstIndex(where: { $0.id == id }) else { return false }
             controller.session.moveTab(item.id, offset: end - start - (start < end ? 1 : 0) + (after ? 1 : 0))
