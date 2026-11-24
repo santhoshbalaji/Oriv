@@ -433,6 +433,31 @@ public final class BrowserSession {
         let peers = tabs.filter { $0.isPrivate == tab.isPrivate && $0.isPinned == pinned }
         if let position = peers.firstIndex(where: { $0.id == id }) { moveTab(id, offset: peers.count - position - 1) }
     }
+    #if os(macOS)
+    /// Publish a sidebar drop as one session edit. The save debounce captures
+    /// the final order and pin state together, including for Continuity.
+    public func placeSidebarTab(_ id: UUID, pinned: Bool, relativeTo anchor: UUID? = nil, after: Bool = false) {
+        guard isProfileActive, let tab = tabs.first(where: { $0.id == id }) else { return }
+        let peers = tabs.filter { $0.isPrivate == tab.isPrivate && $0.isPinned == pinned }
+        var order = peers.filter { $0 !== tab }
+        if let anchor {
+            guard let index = order.firstIndex(where: { $0.id == anchor }) else { return }
+            order.insert(tab, at: index + (after ? 1 : 0))
+        } else {
+            order.append(tab)
+        }
+
+        let changedPin = tab.updatePinned(pinned)
+        let changedOrder = changedPin || !zip(order, peers).allSatisfy { $0 === $1 }
+        if changedOrder {
+            var next = order.makeIterator()
+            let reordered = tabs.map { $0.isPrivate == tab.isPrivate && $0.isPinned == pinned ? next.next()! : $0 }
+            if !zip(reordered, tabs).allSatisfy({ $0 === $1 }) { tabs = reordered }
+            if !tab.isPrivate { scheduleSave(notifyContinuity: false) }
+        }
+    }
+    #endif
+
     public func moveTab(_ id: UUID, offset: Int) {
         guard let source = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[source]
@@ -765,8 +790,8 @@ public final class BrowserSession {
         } catch { self.bookmarks = oldBookmarks; throw error }
     }
 
-    private func scheduleSave() {
-        onContinuitySnapshotChange?()
+    private func scheduleSave(notifyContinuity: Bool = true) {
+        if notifyContinuity { onContinuitySnapshotChange?() }
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(350)) } catch { return }

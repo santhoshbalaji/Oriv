@@ -331,9 +331,9 @@ import Observation
     func perform(_ operation: () throws -> Void) {
         do { try operation() } catch { self.error = error.localizedDescription }
     }
-    func saveAll() {
+    func saveAll(terminating: Bool = false) {
         flushSelection()
-        allControllers.forEach { $0.session.saveNow(); $0.session.flushPersistence() }
+        allControllers.forEach { $0.saveSession(terminating: terminating) }
     }
     func shutdown() {
         flushSelection()

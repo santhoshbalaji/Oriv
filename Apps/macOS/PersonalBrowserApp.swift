@@ -158,8 +158,8 @@ struct PersonalBrowserApp: App {
         return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
     func applicationWillTerminate(_ notification: Notification) {
-        if let profiles { profiles.saveAll(); profiles.shutdown() }
-        else { controller?.session.saveNow(); controller?.session.flushPersistence(); controller?.downloads.shutdown() }
+        if let profiles { profiles.saveAll(terminating: true); profiles.shutdown() }
+        else { controller?.saveSession(terminating: true); controller?.downloads.shutdown() }
         #if ORIV_BENCH
         try? FileManager.default.removeItem(at: SpeedometerBenchmark.profileDirectory)
         #endif

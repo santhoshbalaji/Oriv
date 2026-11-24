@@ -605,12 +605,16 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
     public func resetZoom() { setZoom(1) }
     private func setZoom(_ value: Double) { pageZoom = min(max((value * 100).rounded() / 100, 0.5), 3); backingWebView?.pageZoom = pageZoom }
     public func setPinned(_ value: Bool) {
+        if updatePinned(value) { onChange?() }
+    }
+
+    @discardableResult func updatePinned(_ value: Bool) -> Bool {
         #if !os(macOS)
-        guard !isPrivate else { return }
+        guard !isPrivate else { return false }
         #endif
-        let previous = record
+        guard isPinned != value else { return false }
         isPinned = value
-        if record != previous { onChange?() }
+        return true
     }
     public func find(_ text: String, backwards: Bool = false, caseSensitive: Bool = false) {
         guard !text.isEmpty else { findResult = nil; return }

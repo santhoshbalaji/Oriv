@@ -654,6 +654,10 @@ import XCTest
         enum Scenario: String, CaseIterable {
             case reorderTabs, pin, unpinLastPin, reorderPins, rail, edgeScrollCancel
         }
+        let restoreDefaults = setFramePacingPreference(true)
+        defer { restoreDefaults() }
+        let pacingDirectory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: pacingDirectory) }
         let screen = try XCTUnwrap(NSScreen.main)
         for scenario in Scenario.allCases {
             let c = BrowserController(testing: true)
@@ -669,6 +673,8 @@ import XCTest
                 self.collection(in: window)?.sidebar?.path(for: peers[4].id) != nil
             }
             let list = try XCTUnwrap(collection(in: window))
+            let pacingFile = pacingDirectory.appendingPathComponent("\(scenario.rawValue).jsonl")
+            list.dragFramePacingTestOutput = pacingFile
             let data = try XCTUnwrap(list.sidebar)
             let path = try XCTUnwrap(data.path(for: source.id))
             let info = try makeDrag(source.id, in: list)
@@ -765,6 +771,10 @@ import XCTest
             displayLink.add(to: .main, forMode: .common)
             try await wait("Display link did not complete \(scenario.rawValue)") { frameClock.elapsed >= 0.66 }
             displayLink.invalidate()
+            let work = try await attachDragWork(from: pacingFile, name: scenario.rawValue)
+            if scenario != .edgeScrollCancel {
+                assertDropBudget(work, scenario: scenario.rawValue)
+            }
 
             let attachment = try XCTAttachment(data: JSONEncoder().encode(samples), uniformTypeIdentifier: "public.json")
             attachment.name = "sidebar-drag-frames-\(scenario.rawValue)"
@@ -840,6 +850,93 @@ import XCTest
         }
     }
 
+    private struct DragWork: Decodable {
+        struct Sample: Decodable {
+            let phase: String
+            let durationMS: Double
+        }
+        let mainThreadWork: [String: [Sample]]
+    }
+
+    private func attachDragWork(from file: URL, name: String) async throws -> DragWork {
+        try await wait("Missing drag timings for \(name)") {
+            (try? String(contentsOf: file, encoding: .utf8))?.hasSuffix("\n") == true
+        }
+        let data = try Data(contentsOf: file)
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        attachment.name = "sidebar-drag-work-\(name)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let work = try JSONDecoder().decode(DragWork.self, from: data)
+        for (kind, samples) in work.mainThreadWork.sorted(by: { $0.key < $1.key }) {
+            let durations = samples.map(\.durationMS).sorted()
+            print("SIDEBAR_DRAG_WORK \(name) \(kind) n=\(durations.count) p95_ms=\(durations[Int(ceil(Double(durations.count) * 0.95)) - 1]) max_ms=\(durations.last!)")
+        }
+        return work
+    }
+
+    private func assertDropBudget(_ work: DragWork, scenario: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(work.mainThreadWork["dropCommit"]?.count, 1, scenario, file: file, line: line)
+        for kind in ["dropCommit", "sidebarRepresentable", "collectionLayout", "hostingLayout"] {
+            let slices = (work.mainThreadWork[kind] ?? []).filter { $0.phase == "publish" }
+            for slice in slices {
+                XCTAssertLessThanOrEqual(slice.durationMS, 4, "\(scenario) \(kind)", file: file, line: line)
+            }
+        }
+    }
+
+    func testSidebarDropPersistsWithDebouncedSaveAndImmediateQuit() async throws {
+        for terminating in [false, true] {
+            let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+            let records = (0..<100).map { TabRecord(title: "Tab \($0)", isPinned: $0 == 0) }
+            try store.save(BrowserSnapshot(tabs: records, selectedTabID: records[0].id))
+            let controller = BrowserController(rootDirectory: root, testing: true)
+            defer { controller.shutdown() }
+            let privateTab = controller.session.addTab(isPrivate: true, select: false, load: false)
+            let window = host(controller)
+            defer { window.close() }
+            let source = records[0].id
+            let anchor = records[5].id
+            try await wait("Persisted sidebar fixture did not mount") {
+                self.collection(in: window)?.sidebar?.path(for: anchor) != nil
+            }
+            let list = try XCTUnwrap(collection(in: window))
+            let data = try XCTUnwrap(list.sidebar)
+            let info = try makeDrag(source, in: list)
+            data.beginDrag(at: try XCTUnwrap(data.path(for: source)))
+            defer { data.endDrag() }
+            try await wait("Persistence drag did not begin") { controller.sidebar.dragging }
+            let row = try itemFrame(anchor, in: list)
+            info.move(to: CGPoint(x: row.midX, y: row.maxY - 2))
+            XCTAssertEqual(list.draggingEntered(info), .move)
+            XCTAssertTrue(list.prepareForDragOperation(info))
+            XCTAssertTrue(list.performDragOperation(info))
+
+            var expected = records.map(\.id)
+            expected.insert(expected.removeFirst(), at: 5)
+            if terminating {
+                // Exercise the real quit save barrier before AppKit even concludes.
+                XCTAssertEqual(controller.session.tabs.first?.id, source)
+                controller.saveSession(terminating: true)
+            } else {
+                list.concludeDragOperation(info)
+                try await wait("Drop did not save via the debounce") {
+                    (try? store.load().snapshot?.tabs.map(\.id)) == expected
+                }
+            }
+            let saved = try XCTUnwrap(store.load().snapshot)
+            XCTAssertEqual(saved.tabs.map(\.id), expected)
+            XCTAssertFalse(saved.tabs.contains(where: \.isPinned))
+            XCTAssertEqual(saved.selectedTabID, source)
+            XCTAssertFalse(saved.tabs.contains { $0.id == privateTab.id })
+            let restored = BrowserController(rootDirectory: root, testing: true)
+            defer { restored.shutdown() }
+            XCTAssertEqual(restored.session.orderedTabs.map(\.id), expected)
+        }
+    }
+
     func testSidebarReflowRetargetStartsAtCurrentPositionAndDoesNotOvershoot() {
         let initial = SidebarReflowMotion(start: .zero, end: CGPoint(x: 49, y: 36), velocity: .zero, begin: 1)
         let crossing = initial.sample(at: 1.05)
@@ -909,13 +1006,29 @@ import XCTest
             }
         }
 
-        let info = try makeDrag(candidate.id, in: list)
-        data.beginDrag(at: source)
+        let restoreDefaults = setFramePacingPreference(true)
+        defer { restoreDefaults() }
+        let pacingDirectory = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: pacingDirectory) }
+        let pacingFile = pacingDirectory.appendingPathComponent("unpin-100.jsonl")
+        list.dragFramePacingTestOutput = pacingFile
+        let info = try makeDrag(firstPin.id, in: list)
+        data.beginDrag(at: try XCTUnwrap(data.path(for: firstPin.id)))
         defer { data.endDrag() }
-        try await wait("Auto-scroll drag did not begin") { c.sidebar.dragging }
+        try await wait("Unpin drag did not begin") { c.sidebar.dragging }
+        info.move(to: NSPoint(x: row.midX, y: row.midY))
+        XCTAssertEqual(list.draggingEntered(info), .move)
+        let interval = Duration.seconds(1.0 / 120)
+        var next = clock.now
+        for index in 0..<32 {
+            info.move(to: NSPoint(x: row.midX, y: row.midY + CGFloat(index % 3) * row.height))
+            XCTAssertEqual(list.draggingUpdated(info), .move)
+            next += interval
+            try await clock.sleep(until: next)
+        }
         let top = list.visibleRect.minY
         info.move(to: NSPoint(x: list.bounds.midX, y: list.visibleRect.maxY - 2))
-        XCTAssertEqual(list.draggingEntered(info), .move)
+        XCTAssertEqual(list.draggingUpdated(info), .move)
         try await wait("Stationary pointer did not scroll the collection") { list.visibleRect.minY > top + 14 }
         list.draggingExited(info)
         list.layoutSubtreeIfNeeded()
@@ -923,6 +1036,10 @@ import XCTest
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(list.visibleRect.minY, stopped, accuracy: 1)
         XCTAssertNil(list.insertionMarkerFrame)
+        data.endDrag()
+        let unpin = try await attachDragWork(from: pacingFile, name: "unpin-100")
+        XCTAssertGreaterThanOrEqual(unpin.mainThreadWork["draggingUpdated"]?.count ?? 0, 32)
+        XCTAssertFalse(unpin.mainThreadWork["edgeScroll"]?.isEmpty ?? true)
 
         func p95(_ values: [Double]) -> Double { values.sorted()[Int(ceil(Double(values.count) * 0.95)) - 1] }
         let move60 = try XCTUnwrap(moves[60])

@@ -53,6 +53,43 @@ import BrowserCore
         session.flushPersistence()
         print("PHASE_A_MEASURE records=\(sync.state.records.count) tabs=20 bookmarks=200 history=500 median_cycle_ms=\(cycles.sorted()[3]) median_changed_save_ms=\(saves.sorted()[3]) median_unchanged_save_ms=\(unchanged.sorted()[3]) median_durable_save_ms=\(durableSaves.sorted()[3])")
     }
+    func testSidebarDropCoalescesContinuityCaptureAndSyncsFinalOrder() async throws {
+        let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SessionFileStore(fileURL: root.appendingPathComponent("session.json"))
+        let records = (0..<100).map {
+            TabRecord(title: "Tab \($0)", url: URL(string: "https://example.test/\($0)"), isPinned: $0 == 0)
+        }
+        try store.save(BrowserSnapshot(tabs: records, selectedTabID: records[0].id))
+        let session = BrowserSession(store: store, dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil),
+                                     settings: BrowserSettings(defaults: nil))
+        let cloud = EfficiencyTransport()
+        let sync = BrowserContinuity(root: nil, deviceName: "Test device", transportFactory: { cloud })
+        sync.configure(profiles: { [.personal] }, source: { _ in
+            ContinuitySource(session: session, preferences: { [:] }, applyPreferences: { _ in })
+        }, importProfiles: { _ in })
+        defer { sync.shutdown(); session.shutdown() }
+        sync.setEnabled(true)
+        await sync.syncNow()
+        XCTAssertTrue(sync.state.dirtyKeys.isEmpty)
+
+        let counter = sync.state.counter
+        session.placeSidebarTab(records[0].id, pinned: false, relativeTo: records[2].id, after: true)
+        session.placeSidebarTab(records[0].id, pinned: false, relativeTo: records[5].id, after: true)
+        XCTAssertEqual(sync.state.counter, counter, "The drop must not synchronously capture the replica")
+        session.saveNow()
+        session.flushPersistence()
+        await sync.syncNow()
+
+        let expected = Array(records[1...5].map(\.id)) + [records[0].id] + records.dropFirst(6).map(\.id)
+        let positions = cloud.records.values.compactMap { record -> (id: UUID, position: Int, pinned: Bool)? in
+            guard case .tab(_, let device, let tab, let position) = record.payload, device == sync.state.deviceID else { return nil }
+            return (tab.id, position, tab.isPinned)
+        }
+        XCTAssertEqual(positions.sorted { $0.position < $1.position }.map(\.id), expected)
+        XCTAssertFalse(positions.contains(where: \.pinned))
+    }
+
     func testOnlyChangedKeysAndDeletionTombstonesArePushed() async throws {
         _ = NSApplication.shared
         let session = BrowserSession(dataStore: .nonPersistent(), adBlocker: AdBlocker(defaults: nil), settings: BrowserSettings(defaults: nil))

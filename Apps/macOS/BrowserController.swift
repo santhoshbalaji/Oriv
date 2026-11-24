@@ -237,6 +237,14 @@ final class BrowserController {
         }
     }
 
+    @ObservationIgnored weak var sidebarWithPendingDrop: SidebarCollectionData?
+
+    func saveSession(terminating: Bool = false) {
+        if terminating { sidebarWithPendingDrop?.commitPendingDropForSave() }
+        session.saveNow()
+        session.flushPersistence()
+    }
+
     func shutdown() { sidebar.cancel(); sidebarTooltip.dismiss(); bookmarkMigration?.cancel(); session.shutdown(); downloads.shutdown() }
 
     var savedBookmarks: [Bookmark] { session.bookmarks }

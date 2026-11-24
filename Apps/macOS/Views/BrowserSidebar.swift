@@ -101,7 +101,7 @@ struct SidebarSearchScope: View {
             .joined(separator: ", ")
     }
     static func canDrop(_ item: SidebarTabTransfer, on target: SidebarDropTarget, controller: BrowserController) -> Bool {
-        guard item.owner == controller.sidebarDragID,
+        guard controller.session.isProfileActive, item.owner == controller.sidebarDragID,
               let source = controller.session.tabs.first(where: { $0.id == item.id }) else { return false }
         switch target {
         case .pinned(_, let isPrivate): return source.isPrivate == isPrivate
@@ -117,16 +117,11 @@ struct SidebarSearchScope: View {
     static func drop(_ items: [SidebarTabTransfer], on target: SidebarDropTarget, controller: BrowserController) -> Bool {
         guard items.count == 1, let item = items.first, canDrop(item, on: target, controller: controller) else { return false }
         switch target {
-        case .pinned(let pinned, _): controller.session.moveTab(item.id, intoPinnedSection: pinned)
+        case .pinned(let pinned, _): controller.session.placeSidebarTab(item.id, pinned: pinned)
         case .tab(let id): controller.session.moveTab(item.id, to: id)
         case .between(let id, let after):
-            guard let source = controller.session.tabs.first(where: { $0.id == item.id }),
-                  let destination = controller.session.tabs.first(where: { $0.id == id }) else { return false }
-            if source.isPinned != destination.isPinned { source.setPinned(destination.isPinned) }
-            let peers = controller.session.orderedTabs.filter { $0.isPrivate == source.isPrivate && $0.isPinned == source.isPinned }
-            guard let start = peers.firstIndex(where: { $0.id == item.id }),
-                  let end = peers.firstIndex(where: { $0.id == id }) else { return false }
-            controller.session.moveTab(item.id, offset: end - start - (start < end ? 1 : 0) + (after ? 1 : 0))
+            guard let destination = controller.session.tabs.first(where: { $0.id == id }) else { return false }
+            controller.session.placeSidebarTab(item.id, pinned: destination.isPinned, relativeTo: id, after: after)
         }
         return true
     }
