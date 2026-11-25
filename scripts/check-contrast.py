@@ -287,49 +287,33 @@ print("Settings material opacity: 100%")
 checks.extend(settings_checks)
 print("App-owned colors checked. Native system accent and compositor output depend on runtime settings.")
 
-# Mac page chrome chooses black/white from the band's WCAG luminance. Read the
-# actual lift constant and check RGB cube samples, every neutral and the theme
-# colour. The capsule is opaque, so underlying page extremes cannot affect it.
+# Mac Design v3 glass toolbar & solid fallback source and contrast checks.
+# Live glass relies on system Liquid Glass legibility (Q6); solid paths
+# (Reduce Transparency, Increase Contrast, Black, off-screen fallback) use
+# OrivMacV3 toolbar/address tokens and PageChrome polarity on solid page bands.
 mac = (ROOT / "Apps/macOS/Views/BrowserWindow.swift").read_text()
 assert "foregroundThreshold = sqrt(1.05 * 0.05) - 0.05" in chrome
-assert "private var chromeForeground: Color { pageChrome.foreground }" in mac
-assert "pageChrome.color\n" in mac
+assert "GlassEffectContainer(" in mac
+assert "OrivMacV3.Toolbar.groupTint(" in mac
+assert "OrivMacV3.Toolbar.scrollEdge(" in mac
+assert "OrivMacV3.Address.restFill(" in mac
+assert "OrivMacV3.Address.focusFill(" in mac
+assert "ConnectionCue(" in mac and "cue.color(theme)" in mac
+assert ".scrollEdgeEffectStyle(.soft, for: .top)" in mac
+assert "MacAddressPalette" not in mac
+assert "pageChrome.color\n" not in mac
 assert ".glassEffect(.regular.tint(recipe.tintColor.opacity(recipe.tintOpacity)), in: shape)" in text
 assert "shape.fill(guardColor.opacity(recipe.guardOpacity))" in text
 assert "OrivMacV3.usesOpaqueSurface(" in text
-lift = float(re.search(r"static let lift = ([0-9.]+)", mac).group(1))
-shade = float(re.search(r"static let lightShade = ([0-9.]+)", mac).group(1))
+
 page_colours = {f"{r:02X}{g:02X}{b:02X}" for r in range(0, 256, 17) for g in range(0, 256, 17) for b in range(0, 256, 17)}
 page_colours.update(f"{c:02X}{c:02X}{c:02X}" for c in range(256))
 page_colours.update(("1F6F5C", "FBFBF9", "111111"))
-focused_mix = float(re.search(r"static let focusedMix = ([0-9.]+)", mac)[1])
-hint_opacity = float(re.search(r"static let placeholderOpacity = ([0-9.]+)", mac)[1])
-focus_opacity = float(re.search(r"static let focusOpacity = ([0-9.]+)", mac)[1])
-
-def rgb_hex(values):
-    return "".join(f"{round(c * 255):02X}" for c in values)
 
 for page in sorted(page_colours):
     dark = luminance(page) < (1.05 * 0.05) ** 0.5 - 0.05
-    ink = int(dark)
-    neutral = 1 - ink
     foreground = "FFFFFF" if dark else "000000"
-    checks.append(("Mac page band / reduced chrome", "foreground", foreground, "page", page, 4.5))
-    source = [int(page[i:i+2], 16) / 255 for i in range(0, 6, 2)]
-    idle = [c * (1 - lift) + lift if dark else c * (1 - shade) for c in source]
-    focused = [c * (1 - focused_mix) + neutral * focused_mix for c in source]
-    def hint(values):
-        return rgb_hex(c * (1 - hint_opacity) + ink * hint_opacity for c in values)
-    for label, candidate in (("idle", idle), ("focused", focused)):
-        values = candidate if ratio(hint(candidate), rgb_hex(candidate)) >= 4.55 else [
-            c * 0.60 + neutral * 0.40 for c in source
-        ]
-        backing = rgb_hex(values)
-        checks.append((f"Mac address capsule / {label}", "foreground", foreground, "page #" + page, backing, 4.5))
-        checks.append((f"Mac address capsule / {label}", "placeholder", hint(values), "page #" + page, backing, 4.5))
-        if label == "focused":
-            ring = composite(foreground, backing, focus_opacity)
-            checks.append(("Mac address capsule / focused", "focus ring", ring, "page #" + page, backing, 3))
+    checks.append(("PageChrome solid band", "foreground", foreground, "page", page, 4.5))
 
 # A system accent can be any luminance. Check both ends and the crossover.
 assert "luminance(resolvedAccent) < sqrt(1.05 * 0.05) - 0.05" in text
@@ -526,6 +510,32 @@ v3_surface_pairs = [
     ("v3 Address Private focus", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("focusSolidPrivateHex"), 4.5),
     ("v3 Address Private pill", "ink", v3_hex("privatePillInkHex"), composite("C084FC", v3_hex("restSolidPrivateHex"), 0.24), 4.5),
     ("v3 Address Private pill solid", "ink", v3_hex("privatePillSolidInkHex"), v3_hex("privatePillSolidFillHex"), 4.5),
+    # Semantic ConnectionCue (warning & danger) and IC secondary ink on v3 solid address pills
+    ("v3 Address Light rest", "warning cue", palettes[0][2]["warning"], v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Light rest", "danger cue", adaptive_constant("danger", 0), v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Light rest", "secondary IC", v3_hex("secondaryICLightHex"), v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Dark rest", "warning cue", palettes[1][2]["warning"], v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Dark rest", "danger cue", adaptive_constant("danger", 1), v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Dark rest", "secondary IC", v3_hex("secondaryICDarkHex"), v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Black rest", "warning cue", palettes[2][2]["warning"], v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Black rest", "danger cue", adaptive_constant("danger", 1), v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Black rest", "secondary IC", v3_hex("secondaryICBlackHex"), v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Private rest", "warning cue", palettes[1][2]["warning"], v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Private rest", "danger cue", adaptive_constant("danger", 1), v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Private rest", "secondary IC", v3_hex("secondaryICPrivateHex"), v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Light focus", "warning cue", palettes[0][2]["warning"], v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Light focus", "danger cue", adaptive_constant("danger", 0), v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Dark focus", "warning cue", palettes[1][2]["warning"], v3_hex("focusSolidDarkHex"), 4.5),
+    ("v3 Address Dark focus", "danger cue", adaptive_constant("danger", 1), v3_hex("focusSolidDarkHex"), 4.5),
+    ("v3 Address Black focus", "warning cue", palettes[2][2]["warning"], v3_hex("focusSolidBlackHex"), 4.5),
+    ("v3 Address Black focus", "danger cue", adaptive_constant("danger", 1), v3_hex("focusSolidBlackHex"), 4.5),
+    ("v3 Address Private focus", "warning cue", palettes[1][2]["warning"], v3_hex("focusSolidPrivateHex"), 4.5),
+    ("v3 Address Private focus", "danger cue", adaptive_constant("danger", 1), v3_hex("focusSolidPrivateHex"), 4.5),
+    # Toolbar IC secondary ink on v3 solid toolbar groups
+    ("v3 Toolbar Light solid", "secondary IC", v3_hex("secondaryICLightHex"), v3_hex("solidLightHex"), 4.5),
+    ("v3 Toolbar Dark solid", "secondary IC", v3_hex("secondaryICDarkHex"), v3_hex("solidDarkHex"), 4.5),
+    ("v3 Toolbar Black solid", "secondary IC", v3_hex("secondaryICBlackHex"), v3_hex("solidBlackHex"), 4.5),
+    ("v3 Toolbar Private solid", "secondary IC", v3_hex("secondaryICPrivateHex"), v3_hex("solidPrivateHex"), 4.5),
     # Popover & Suggestions solid fallbacks
     ("v3 Popover Light", "primary", v3_hex("primaryLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
     ("v3 Popover Light", "secondary", v3_hex("secondaryLightHex"), v3_hex("popoverSolidLightHex"), 4.5),

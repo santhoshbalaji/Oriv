@@ -431,7 +431,7 @@ import XCTest
                 XCTAssertTrue(toolbar.contains(try frame(name, in: window)))
             }
             let address = try frame("browserAddressGeometry", in: window)
-            XCTAssertGreaterThan(address.width, rail ? 600 : 570)
+            XCTAssertEqual(address.width, OrivMacV3.ToolbarLayout.addressRestWidth, accuracy: 1)
             XCTAssertEqual(address.midX, toolbar.midX, accuracy: 1)
         }
     }

@@ -1012,6 +1012,51 @@ enum OrivMacV3 {
             || theme.isT3Code || BackgroundUIMode.isEnabled || forceSolid
     }
 
+    /// True semicircular stadium path stroked cleanly without SwiftUI's macOS 26
+    /// `Capsule().strokeBorder` vertical-tangent artifact at line widths >= 1.5 pt.
+    struct CapsuleBorder: View {
+        let color: Color
+        let lineWidth: CGFloat
+        var inset: CGFloat = 0
+
+        var body: some View {
+            GeometryReader { proxy in
+                let totalInset = inset + lineWidth / 2
+                let rect = CGRect(origin: .zero, size: proxy.size).insetBy(dx: totalInset, dy: totalInset)
+                if rect.width > 0, rect.height > 0 {
+                    let radius = min(rect.width, rect.height) / 2
+                    Path { path in
+                        path.addRoundedRect(in: rect, cornerSize: CGSize(width: radius, height: radius), style: .circular)
+                    }
+                    .stroke(color, lineWidth: lineWidth)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    struct CapsuleSpecular: View {
+        let color: Color
+
+        var body: some View {
+            GeometryReader { proxy in
+                let totalInset = OrivOutline.hairline + 0.5
+                let rect = CGRect(origin: .zero, size: proxy.size).insetBy(dx: totalInset, dy: totalInset)
+                if rect.width > 0, rect.height > 0 {
+                    let radius = min(rect.width, rect.height) / 2
+                    Path { path in
+                        path.addRoundedRect(in: rect, cornerSize: CGSize(width: radius, height: radius), style: .circular)
+                    }
+                    .stroke(
+                        LinearGradient(colors: [color, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.12)),
+                        lineWidth: 1
+                    )
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
     struct GlassModifier<S: InsettableShape>: ViewModifier {
         let recipe: GlassRecipe
         let shape: S
@@ -1038,21 +1083,33 @@ enum OrivMacV3 {
                     .background(recipe.solidGradient, in: shape)
                     .overlay {
                         if !increased, let specular = recipe.specularTop {
-                            shape.inset(by: OrivOutline.hairline)
-                                .stroke(
-                                    LinearGradient(colors: [specular, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.12)),
-                                    lineWidth: 1
-                                )
-                                .allowsHitTesting(false)
+                            if S.self == Capsule.self {
+                                CapsuleSpecular(color: specular)
+                            } else {
+                                shape.inset(by: OrivOutline.hairline)
+                                    .stroke(
+                                        LinearGradient(colors: [specular, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.12)),
+                                        lineWidth: 1
+                                    )
+                                    .allowsHitTesting(false)
+                            }
                         }
                     }
                     .overlay {
-                        shape.strokeBorder(increased ? recipe.increasedBorderColor : recipe.borderColor,
-                                           lineWidth: increased ? OrivOutline.enhanced : recipe.borderWidth)
-                            .allowsHitTesting(false)
+                        borderOverlay(color: increased ? recipe.increasedBorderColor : recipe.borderColor,
+                                      lineWidth: increased ? OrivOutline.enhanced : recipe.borderWidth)
                     }
             } else {
                 liveGlass(content, increased: increased)
+            }
+        }
+
+        @ViewBuilder private func borderOverlay(color: Color, lineWidth: CGFloat) -> some View {
+            if S.self == Capsule.self {
+                CapsuleBorder(color: color, lineWidth: lineWidth)
+            } else {
+                shape.strokeBorder(color, lineWidth: lineWidth)
+                    .allowsHitTesting(false)
             }
         }
 
@@ -1065,20 +1122,17 @@ enum OrivMacV3 {
             if recipe.clearGlass {
                 base.glassEffect(.clear, in: shape)
                     .overlay {
-                        shape.strokeBorder(recipe.borderColor, lineWidth: recipe.borderWidth)
-                            .allowsHitTesting(false)
+                        borderOverlay(color: recipe.borderColor, lineWidth: recipe.borderWidth)
                     }
             } else if recipe.interactive {
                 base.glassEffect(.regular.interactive().tint(recipe.tintColor.opacity(recipe.tintOpacity)), in: shape)
                     .overlay {
-                        shape.strokeBorder(recipe.borderColor, lineWidth: recipe.borderWidth)
-                            .allowsHitTesting(false)
+                        borderOverlay(color: recipe.borderColor, lineWidth: recipe.borderWidth)
                     }
             } else {
                 base.glassEffect(.regular.tint(recipe.tintColor.opacity(recipe.tintOpacity)), in: shape)
                     .overlay {
-                        shape.strokeBorder(recipe.borderColor, lineWidth: recipe.borderWidth)
-                            .allowsHitTesting(false)
+                        borderOverlay(color: recipe.borderColor, lineWidth: recipe.borderWidth)
                     }
             }
         }
@@ -1091,17 +1145,11 @@ enum OrivMacV3 {
 
         func body(content: Content) -> some View {
             let increased = (captureContrast ?? systemContrast) == .increased
-            if increased {
-                content
-            } else if let primary = shadow.primary, let secondary = shadow.secondary {
-                content
-                    .shadow(color: primary.color, radius: primary.radius, x: primary.x, y: primary.y)
-                    .shadow(color: secondary.color, radius: secondary.radius, x: secondary.x, y: secondary.y)
-            } else if let primary = shadow.primary {
-                content.shadow(color: primary.color, radius: primary.radius, x: primary.x, y: primary.y)
-            } else {
-                content
-            }
+            let primary = increased ? nil : shadow.primary
+            let secondary = increased ? nil : shadow.secondary
+            content
+                .shadow(color: primary?.color ?? .clear, radius: primary?.radius ?? 0, x: primary?.x ?? 0, y: primary?.y ?? 0)
+                .shadow(color: secondary?.color ?? .clear, radius: secondary?.radius ?? 0, x: secondary?.x ?? 0, y: secondary?.y ?? 0)
         }
     }
 
@@ -1849,6 +1897,9 @@ enum OrivMacV3 {
             return mode == .black ? 0.35 : 0.30
         }
 
+        static let shieldDotRingWidth: CGFloat = 1.5
+        static let scrollEdgeFadeExtension: CGFloat = 18
+
         static func shieldDot(_ mode: AppearanceMode) -> Color {
             mode == .light ? Theme.hex(0x16A34A) : Theme.hex(0x4ADE80)
         }
@@ -1862,7 +1913,7 @@ enum OrivMacV3 {
             }
         }
 
-        static func scrollEdge(_ mode: AppearanceMode, solid: Bool = false) -> LinearGradient {
+        static func scrollEdge(_ mode: AppearanceMode, tint: Color? = nil, solid: Bool = false) -> LinearGradient {
             let base: UInt32
             switch mode {
             case .light: base = Card.fillLightHex
@@ -1870,16 +1921,17 @@ enum OrivMacV3 {
             case .black: base = Card.fillBlackHex
             case .private: base = Card.fillPrivateTopHex
             }
+            let baseColor = mode == .black ? Theme.hex(base) : (tint ?? Theme.hex(base))
             if solid || mode == .black {
-                return LinearGradient(colors: [Theme.hex(base), Theme.hex(base)], startPoint: .top, endPoint: .bottom)
+                return LinearGradient(colors: [baseColor, baseColor], startPoint: .top, endPoint: .bottom)
             }
             let topOpacity = mode == .light ? 0.88 : 0.80
             let midOpacity = mode == .light ? 0.66 : 0.48
             return LinearGradient(
                 stops: [
-                    .init(color: rgba(base, topOpacity), location: 0),
-                    .init(color: rgba(base, midOpacity), location: 0.54),
-                    .init(color: rgba(base, 0), location: 1),
+                    .init(color: baseColor.opacity(topOpacity), location: 0),
+                    .init(color: baseColor.opacity(midOpacity), location: 0.54),
+                    .init(color: baseColor.opacity(0), location: 1),
                 ],
                 startPoint: .top, endPoint: .bottom
             )
@@ -2081,6 +2133,27 @@ enum OrivMacV3 {
         static let privatePillSolidInkHex: UInt32 = 0xD5AAF8
         static let privatePillSolidFill = Theme.hex(privatePillSolidFillHex)
         static let privatePillSolidInk = Theme.hex(privatePillSolidInkHex)
+
+        struct PrivatePillStyle {
+            let fill: Color
+            let border: Color
+            let borderWidth: CGFloat
+            let ink: Color
+        }
+
+        static func privatePillStyle(mode: AppearanceMode, solid: Bool, increasedContrast: Bool) -> PrivatePillStyle {
+            let borderWidth = increasedContrast ? OrivOutline.enhanced : OrivOutline.hairline
+            if mode == .private && !solid && !increasedContrast {
+                return PrivatePillStyle(fill: privatePillFill, border: privatePillBorder,
+                                        borderWidth: borderWidth, ink: privatePillInk)
+            }
+            return PrivatePillStyle(
+                fill: privatePillSolidFill,
+                border: increasedContrast ? Card.rimIncreasedContrast(mode) : privatePillBorder,
+                borderWidth: borderWidth,
+                ink: privatePillSolidInk
+            )
+        }
 
         static func progressBar(_ mode: AppearanceMode) -> LinearGradient {
             switch mode {
@@ -2886,6 +2959,10 @@ enum OrivMacV3 {
         static func progressShimmer(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : progressShimmer }
         static func tabLoading(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : tabLoading }
     }
+}
+
+extension EnvironmentValues {
+    @Entry var v3AppearanceMode: OrivMacV3.AppearanceMode = .light
 }
 
 extension View {

@@ -1255,13 +1255,19 @@ import XCTest
 
             try await wait("Chrome did not mount") { self.marker("browserReloadGeometry", in: w) != nil }
             let capsule = try frame("browserAddressGeometry")
-            XCTAssertEqual(capsule.height, OrivLayout.controlHeight, accuracy: 1)
-            for name in ["sidebarToggleGeometry", "browserSiteInformationGeometry", "browserReloadGeometry",
+            XCTAssertEqual(capsule.height, OrivMacV3.ToolbarLayout.addressRestHeight, accuracy: 1)
+            XCTAssertEqual(try frame("browserNavGroupGeometry").height, OrivMacV3.ToolbarLayout.groupHeight, accuracy: 1)
+            XCTAssertEqual(try frame("browserActionsGroupGeometry").height, OrivMacV3.ToolbarLayout.groupHeight, accuracy: 1)
+            XCTAssertEqual(try frame("browserTopBarGeometry").height, OrivMacV3.ToolbarLayout.overlayHeight, accuracy: 1)
+            for name in ["sidebarToggleGeometry", "browserNavGroupGeometry", "browserActionsGroupGeometry",
+                         "browserSiteInformationGeometry", "browserReloadGeometry",
                          "browserPrivacyGeometry", "browserPageMenuGeometry"] {
                 XCTAssertEqual(try frame(name).midY, capsule.midY, accuracy: 1, name)
             }
             let field = try XCTUnwrap(w.contentView.flatMap { views($0).compactMap { $0 as? FocusAwareAddressField }.first })
             XCTAssertEqual(field.stringValue, URLDisplay.site(url))
+            let fieldFrame = field.convert(field.bounds, to: nil)
+            XCTAssertEqual(fieldFrame.midX, capsule.midX, accuracy: 1.5, "Compact host stays optically centered even with Not secure cue")
             try capture("compact")
 
             tab.zoomIn()
@@ -1337,6 +1343,47 @@ import XCTest
             XCTAssertLessThanOrEqual(rect.maxX, inset + MacBrowserLayout.railWidth)
             XCTAssertEqual(rect.minX, MacBrowserLayout.railLightsInset + CGFloat(index) * MacBrowserLayout.lightsSpacing, accuracy: 1)
             XCTAssertEqual(w.contentView!.bounds.maxY - rect.midY, MacBrowserLayout.lightsCenterY, accuracy: 1)
+        }
+    }
+
+    func testToolbarProgressLineFitsInsideCapsuleAndPrivacyDotTracksProtections() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let tab = try XCTUnwrap(c.session.selectedTab)
+        let url = try XCTUnwrap(URL(string: "https://docs.example.com/progress"))
+        tab.webView.loadHTMLString("<body style='height:2000px'>Progress fixture</body>", baseURL: url)
+        try await wait("Fixture did not load") { tab.url == url && !tab.webView.isLoading }
+        let w = host(c, appearance: .dark, reduceMotion: true); defer { w.close() }
+        try await wait("Toolbar capsules did not mount") {
+            self.marker("browserAddressGeometry", in: w) != nil
+                && self.marker("browserPrivacyActiveDotGeometry", in: w) != nil
+        }
+        // Verify empirically whether WKWebView hosts an NSScrollView reachable by SwiftUI scrollEdgeEffectStyle.
+        let webScrollViews = views(tab.webView).compactMap { $0 as? NSScrollView }
+        XCTAssertTrue(webScrollViews.isEmpty && tab.webView.enclosingScrollView == nil,
+                      "Documented macOS 26 behavior: WKWebView does not expose an NSScrollView to SwiftUI .scrollEdgeEffectStyle")
+
+        // Turning off all protections for the site removes the active green shield dot.
+        c.session.adBlocker.setException(true, for: url, isPrivate: false)
+        for layer in PrivacyLayer.allCases { c.session.settings.privacy.setException(true, layer, for: url, isPrivate: false) }
+        try await wait("Shield active dot did not hide when protections disabled") {
+            self.marker("browserPrivacyActiveDotGeometry", in: w) == nil
+        }
+
+        // Start a navigation against the delayed local fixture and verify the 2 pt progress line sits inside the address capsule.
+        c.navigate("http://127.0.0.1:18768/tab-switch?delay=2")
+        try await wait("Address progress line did not mount") {
+            self.marker("browserAddressProgressGeometry", in: w) != nil
+        }
+        let capsule = try XCTUnwrap(marker("browserAddressGeometry", in: w))
+        let progress = try XCTUnwrap(marker("browserAddressProgressGeometry", in: w))
+        let capsuleFrame = capsule.convert(capsule.bounds, to: nil)
+        let progressFrame = progress.convert(progress.bounds, to: nil)
+        XCTAssertTrue(capsuleFrame.insetBy(dx: -1, dy: -1).contains(progressFrame))
+
+        // Under Reduce Motion, finishing load hides the progress bar immediately without fading.
+        tab.stop()
+        try await wait("Address progress line did not hide on completion") {
+            self.marker("browserAddressProgressGeometry", in: w) == nil
         }
     }
 }

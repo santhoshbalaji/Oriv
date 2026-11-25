@@ -13,7 +13,7 @@ enum MacBrowserLayout {
         OrivMacV3.Frame.expandedReservation(sidebarWidth: sidebarWidth)
     }
     static let headerHeight = OrivMacV3.ToolbarLayout.overlayHeight
-    static let pageMenuTarget = CGSize(width: 36, height: OrivLayout.controlHeight)
+    static let pageMenuTarget = CGSize(width: OrivMacV3.ToolbarLayout.buttonSize, height: OrivMacV3.ToolbarLayout.buttonSize)
     static let sidebarResizeGripWidth = OrivMacV3.Frame.sidebarCardGap
     static let sidebarInset = OrivMacV3.SidebarLayout.innerPaddingHorizontal
     static let sidebarRowInset = OrivSpacing.small

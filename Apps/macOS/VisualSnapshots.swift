@@ -2018,28 +2018,12 @@ import WebKit
         frame.cacheDisplay(in: frame.bounds, to: bitmap)
         var note: String?
         if let webView {
+            let scrollY = ((try? await webView.evaluateJavaScript("window.scrollY")) as? NSNumber)?.doubleValue ?? 0
             let configuration = WKSnapshotConfiguration()
-            configuration.rect = NSRect(x: 0, y: -webView.obscuredContentInsets.top,
+            configuration.rect = NSRect(x: 0, y: scrollY > 1 ? 0 : -webView.obscuredContentInsets.top,
                                         width: webView.bounds.width, height: webView.bounds.height)
             if webView.window === window, let image = try? await webView.takeSnapshot(configuration: configuration) {
-                let rect = webView.convert(webView.bounds, to: frame)
-                let cardRect = snapshotMarker("browserPageCardGeometry", in: window.contentView)
-                    .map { $0.convert($0.bounds, to: frame) } ?? rect
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-                NSBezierPath(roundedRect: cardRect, xRadius: OrivMacV3.Radius.pageCard, yRadius: OrivMacV3.Radius.pageCard).addClip()
-                NSBezierPath(rect: rect.intersection(frame.convert(window.contentLayoutRect, from: nil))).addClip()
-                if let content = window.contentView {
-                    for identifier in ["browserTopBarGeometry", "browserSidebarGeometry", "browserAddressSuggestionsGeometry"] {
-                        if let overlay = snapshotMarker(identifier, in: content) {
-                            let excluded = overlay.convert(overlay.bounds, to: frame)
-                            let clip = NSBezierPath(rect: rect)
-                            clip.appendRect(excluded.intersection(rect)); clip.windingRule = .evenOdd; clip.addClip()
-                        }
-                    }
-                }
-                image.draw(in: rect)
-                NSGraphicsContext.restoreGraphicsState()
+                compositeWebSnapshot(image, for: webView, onto: bitmap, in: frame, window: window)
                 note = "web content composited from WKWebView.takeSnapshot"
             } else {
                 note = "web content not rendered"
@@ -2072,9 +2056,10 @@ import WebKit
         }
         var pageImage: NSImage?
         if let webView {
+            let scrollY = ((try? await webView.evaluateJavaScript("window.scrollY")) as? NSNumber)?.doubleValue ?? 0
             let configuration = WKSnapshotConfiguration()
             let snapshotSize = webView.superview?.bounds.size ?? webView.bounds.size
-            configuration.rect = NSRect(x: 0, y: -webView.obscuredContentInsets.top,
+            configuration.rect = NSRect(x: 0, y: scrollY > 1 ? 0 : -webView.obscuredContentInsets.top,
                                         width: snapshotSize.width, height: snapshotSize.height)
             configuration.afterScreenUpdates = true
             for _ in 0..<3 {
@@ -2112,31 +2097,8 @@ import WebKit
             if name.hasPrefix("mac-glass-menu"), let raw = bitmap.representation(using: .png, properties: [:]) {
                 save(raw, suffix: "chrome", note: "Uncomposited off-screen cacheDisplay of the real window; WebKit and glass may be blank. Preserves overlays that page compositing would cover.")
             }
-            if let pageImage, let host = webView?.superview {
-                var rect = host.convert(host.bounds, to: frame)
-                if frame.isFlipped { rect.origin.y = frame.bounds.maxY - rect.maxY }
-                var cardRect = snapshotMarker("browserPageCardGeometry", in: window.contentView)
-                    .map { $0.convert($0.bounds, to: frame) } ?? rect
-                if frame.isFlipped { cardRect.origin.y = frame.bounds.maxY - cardRect.maxY }
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-                NSBezierPath(roundedRect: cardRect, xRadius: OrivMacV3.Radius.pageCard, yRadius: OrivMacV3.Radius.pageCard).addClip()
-                NSBezierPath(rect: rect).addClip()
-                // Page snapshots are painted behind real chrome overlays.
-                func overlays(_ view: NSView) -> [NSView] {
-                    let own = ["browserTopBarGeometry", "browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry", "browserAddressSuggestionsGeometry"].contains(view.identifier?.rawValue ?? "") ? [view] : []
-                    return own + view.subviews.flatMap(overlays)
-                }
-                if let content = window.contentView {
-                    for overlay in overlays(content) {
-                        var excluded = overlay.convert(overlay.bounds, to: frame)
-                        if frame.isFlipped { excluded.origin.y = frame.bounds.maxY - excluded.maxY }
-                        let clip = NSBezierPath(rect: rect)
-                        clip.appendRect(excluded.intersection(rect)); clip.windingRule = .evenOdd; clip.addClip()
-                    }
-                }
-                pageImage.draw(in: rect)
-                NSGraphicsContext.restoreGraphicsState()
+            if let pageImage, let webView {
+                compositeWebSnapshot(pageImage, for: webView, onto: bitmap, in: frame, window: window)
             }
             if let data = bitmap.representation(using: .png, properties: [:]) {
                 if sidebarV3 {
@@ -2152,6 +2114,90 @@ import WebKit
                 }
             }
         }
+    }
+
+    /// Draws the WKWebView snapshot inside the rounded page card behind floating
+    /// chrome: excludes the full toolbar band only on solid-edge paths (RT/IC/Black),
+    /// and excludes only the floating toolbar capsules (+ focus halo) on translucent
+    /// paths so scrolled page content visibly passes beneath the toolbar.
+    private static func compositeWebSnapshot(_ pageImage: NSImage, for webView: WKWebView,
+                                             onto bitmap: NSBitmapImageRep, in frame: NSView, window: NSWindow) {
+        let targetView = webView.superview ?? webView
+        func frameRect(_ view: NSView) -> NSRect {
+            var rect = view.convert(view.bounds, to: frame)
+            if frame.isFlipped { rect.origin.y = frame.bounds.maxY - rect.maxY }
+            return rect
+        }
+        let rect = frameRect(targetView)
+        let cardRect = snapshotMarker("browserPageCardGeometry", in: window.contentView).map(frameRect) ?? rect
+        let content = window.contentView
+        let solidToolbar = content.flatMap { snapshotMarker("browserSolidScrollEdgeGeometry", in: $0) } != nil
+        let softEdgeRect = content.flatMap { snapshotMarker("browserSoftScrollEdgeGeometry", in: $0) }.map(frameRect)
+        let addressFocused = content.flatMap { snapshotMarker("browserAddressFocusedGeometry", in: $0) } != nil
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        NSBezierPath(roundedRect: cardRect, xRadius: OrivMacV3.Radius.pageCard, yRadius: OrivMacV3.Radius.pageCard).addClip()
+        NSBezierPath(rect: rect).addClip()
+
+        if let content {
+            let rectNames: Set<String> = solidToolbar
+                ? ["browserTopBarGeometry", "browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry", "browserAddressSuggestionsGeometry"]
+                : ["browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry", "browserAddressSuggestionsGeometry"]
+            let pillNames: Set<String> = solidToolbar
+                ? []
+                : ["browserNavGroupGeometry", "browserAddressGeometry", "browserActionsGroupGeometry"]
+
+            func matching(_ view: NSView, in names: Set<String>) -> [NSView] {
+                let id = view.identifier?.rawValue ?? ""
+                return (names.contains(id) ? [view] : []) + view.subviews.flatMap { matching($0, in: names) }
+            }
+
+            for overlay in matching(content, in: rectNames) {
+                let excluded = frameRect(overlay).intersection(rect)
+                if !excluded.isEmpty {
+                    let clip = NSBezierPath(rect: rect)
+                    clip.appendRect(excluded)
+                    clip.windingRule = .evenOdd
+                    clip.addClip()
+                }
+            }
+            for pill in matching(content, in: pillNames) {
+                var excluded = frameRect(pill)
+                if pill.identifier?.rawValue == "browserAddressGeometry", addressFocused {
+                    let pad = OrivMacV3.Focus.addressHaloWidth
+                    excluded = excluded.insetBy(dx: -pad, dy: -pad)
+                }
+                if excluded.intersects(rect) {
+                    let radius = min(excluded.width, excluded.height) / 2
+                    let clip = NSBezierPath(rect: rect)
+                    clip.append(NSBezierPath(roundedRect: excluded, xRadius: radius, yRadius: radius))
+                    clip.windingRule = .evenOdd
+                    clip.addClip()
+                }
+            }
+        }
+
+        pageImage.draw(in: rect)
+
+        // Re-apply the soft scroll-edge fade over scrolled page pixels (outside the excluded capsules).
+        if let softEdgeRect, !solidToolbar, softEdgeRect.intersects(rect) {
+            let sampleY = max(0, min(bitmap.pixelsHigh - 1, Int((frame.bounds.height - cardRect.maxY + 2) * CGFloat(bitmap.pixelsHigh) / frame.bounds.height)))
+            let sampleX = max(0, min(bitmap.pixelsWide - 1, Int((cardRect.minX + 6) * CGFloat(bitmap.pixelsWide) / frame.bounds.width)))
+            let sampled = bitmap.colorAt(x: sampleX, y: sampleY)?.usingColorSpace(.sRGB)
+            let isDark = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let base = sampled ?? (isDark ? NSColor(OrivMacV3.Card.fillDark) : NSColor(OrivMacV3.Card.fillLight))
+            let topAlpha: CGFloat = isDark ? 0.80 : 0.88
+            let midAlpha: CGFloat = isDark ? 0.48 : 0.66
+            if let gradient = NSGradient(colorsAndLocations:
+                (base.withAlphaComponent(topAlpha), 0.0),
+                (base.withAlphaComponent(midAlpha), 0.54),
+                (base.withAlphaComponent(0.0), 1.0)) {
+                gradient.draw(in: softEdgeRect, angle: -90)
+            }
+        }
+
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 /// Keeps capture windows off every display, even when they become key (AppKit would otherwise

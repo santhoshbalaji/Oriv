@@ -27,6 +27,7 @@ struct AddressCapsuleHitArea: NSViewRepresentable {
 /// An AppKit field provides reliable menu-driven focus and selection inside NSToolbar.
 struct AddressField: NSViewRepresentable {
     static let font = NSFont.systemFont(ofSize: OrivLayout.macAddressFontSize)
+    static let restFont = NSFont.systemFont(ofSize: OrivLayout.macAddressFontSize, weight: .medium)
     @Environment(\.browserTheme) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Binding var text: String
@@ -78,7 +79,10 @@ struct AddressField: NSViewRepresentable {
         field.setAccessibilityPlaceholderValue(placeholder)
         (field as? FocusAwareAddressField)?.editingText = text
         let editor = field.currentEditor() as? NSTextView
-        field.alignment = editor != nil || displayText == nil ? .natural : .center
+        let showingCompact = editor == nil && displayText != nil
+        let targetFont = showingCompact ? Self.restFont : Self.font
+        if field.font != targetFont { field.font = targetFont }
+        field.alignment = showingCompact ? .center : .natural
         if let editor {
             editor.insertionPointColor = field.textColor ?? .labelColor
             // Chrome changes and suggestion refreshes can arrive while the
@@ -127,6 +131,7 @@ struct AddressField: NSViewRepresentable {
             parent.isEditing = false
             if let field = notification.object as? NSTextField {
                 field.stringValue = parent.displayText ?? parent.text
+                field.font = parent.displayText == nil ? AddressField.font : AddressField.restFont
                 field.alignment = parent.displayText == nil ? .natural : .center
             }
         }
@@ -195,6 +200,7 @@ final class FocusAwareAddressField: NSTextField {
         // Restore the complete address before AppKit creates its field editor.
         // Merely selecting the compact host would make a click edit the wrong URL.
         stringValue = editingText
+        font = AddressField.font
         alignment = .natural
         let accepted = super.becomeFirstResponder()
         if accepted {

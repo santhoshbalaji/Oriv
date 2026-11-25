@@ -43,8 +43,8 @@ import XCTest
         let window = makeWindow(controller, probe: probe); defer { window.close() }
         try await Task.sleep(for: .milliseconds(500))
         let button = try XCTUnwrap(marker("browserPageMenuGeometry", in: window))
-        XCTAssertEqual(button.bounds.width, 36, accuracy: 0.5)
-        XCTAssertEqual(button.bounds.height, 32, accuracy: 0.5)
+        XCTAssertEqual(button.bounds.width, OrivMacV3.ToolbarLayout.buttonSize, accuracy: 0.5)
+        XCTAssertEqual(button.bounds.height, OrivMacV3.ToolbarLayout.buttonSize, accuracy: 0.5)
         // Prevent a regressed padding hit from entering a WindowServer drag loop.
         let original = try XCTUnwrap(class_getInstanceMethod(NSWindow.self, #selector(NSWindow.performDrag(with:))))
         let replacement = try XCTUnwrap(class_getInstanceMethod(NSWindow.self, #selector(NSWindow.pageMenuTestDrag(with:))))
@@ -53,9 +53,9 @@ import XCTest
         for width: CGFloat in [1000, 760] {
             window.setContentSize(NSSize(width: width, height: 650))
             try await Task.sleep(for: .milliseconds(150))
-            for point in [NSPoint(x: 18,y: 16), NSPoint(x: 2,y: 16), NSPoint(x: 34,y: 16),
-                          NSPoint(x: 18,y: 2), NSPoint(x: 18,y: 30), NSPoint(x: 2,y: 2),
-                          NSPoint(x: 34,y: 30), NSPoint(x: 6,y: 8), NSPoint(x: 30,y: 24)] {
+            for point in [NSPoint(x: 14,y: 14), NSPoint(x: 2,y: 14), NSPoint(x: 26,y: 14),
+                          NSPoint(x: 14,y: 2), NSPoint(x: 14,y: 26), NSPoint(x: 2,y: 2),
+                          NSPoint(x: 26,y: 26), NSPoint(x: 6,y: 8), NSPoint(x: 22,y: 20)] {
                 let count = probe.count
                 controller.focusAddress()
                 try await Task.sleep(for: .milliseconds(50))
@@ -90,7 +90,7 @@ import XCTest
             if index >= 10 { window.resignKey(); XCTAssertFalse(window.isKeyWindow) }
             XCTAssertFalse(NSApp.isActive)
             let count = probe.count
-            try click(button.convert(NSPoint(x: 18,y: 16), to: nil), in: window)
+            try click(button.convert(NSPoint(x: 14,y: 14), to: nil), in: window)
             try await Task.sleep(for: .milliseconds(40))
             XCTAssertEqual(probe.count, count + 1, "Each press after dismissal must open exactly once (\(index))")
         }

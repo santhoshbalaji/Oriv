@@ -764,12 +764,14 @@ private struct ScrollAddressTestView: View {
     @Bindable var state: AddressTestState
     let tab: BrowserEngine.BrowserTab
     @Bindable var chrome: PageChrome
-    @Environment(\.self) private var environment
+    @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
-        let palette = MacAddressPalette(color: chrome.color, dark: chrome.isDark, focused: state.editing, environment: environment)
+        let mode = OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: colorScheme)
+        let recipe = state.editing ? OrivMacV3.Address.focusFill(mode) : OrivMacV3.Address.restFill(mode)
         VStack {
             AddressTestView(state: state)
-                .background(palette.fill, in: Capsule())
+                .orivV3Glass(recipe, in: Capsule())
             WebPageView(tab: tab, chrome: chrome, contentUnderChrome: chrome.showsContentUnderChrome)
         }.onAppear { chrome.observe(tab.webView) }.onDisappear { chrome.observe(nil) }
     }

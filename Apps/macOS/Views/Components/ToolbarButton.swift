@@ -29,6 +29,7 @@ struct ToolbarButtonStyle: ButtonStyle {
     private struct Face: View {
         @Environment(\.isEnabled) private var enabled
         @Environment(\.browserTheme) private var theme
+        @Environment(\.v3AppearanceMode) private var v3Mode
         @Environment(\.colorSchemeContrast) private var contrast
         @Environment(\.chromeContrastOverride) private var captureContrast
         @State private var hovered = false
@@ -36,16 +37,17 @@ struct ToolbarButtonStyle: ButtonStyle {
         let active: Bool
 
         var body: some View {
+            let increased = (captureContrast ?? contrast) == .increased
             let highlighted = enabled && (active || configuration.isPressed || hovered)
             configuration.label.contentShape(Rectangle())
                 .background(.primary.opacity(highlighted ? (configuration.isPressed ? 0.12 : active ? 0.16 : 0.07) : 0),
                             in: Capsule())
                 .overlay {
-                    if highlighted && (captureContrast ?? contrast) == .increased {
-                        Capsule().strokeBorder(theme.separatorStrong).allowsHitTesting(false)
+                    if highlighted && increased {
+                        OrivMacV3.CapsuleBorder(color: theme.separatorStrong, lineWidth: OrivOutline.hairline)
                     }
                 }
-                .opacity(enabled ? 1 : 0.5)
+                .opacity(enabled ? 1 : OrivMacV3.Toolbar.disabledOpacity(v3Mode, increasedContrast: increased))
                 .onHover { hovered = $0 }
         }
     }
