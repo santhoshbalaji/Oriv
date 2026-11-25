@@ -1331,9 +1331,10 @@ import WebKit
                 other.webView.loadHTMLString("<title>\(name)</title><body>Example</body>", baseURL: URL(string: "https://fixture.example/other"))
             }
             try? await Task.sleep(for: .milliseconds(700))
+            let appearance: BrowserAppearance = mode == "light" ? .light : .dark
             await capture("mac-glass-sidebar-\(mode)", directory,
                 mode == "minimum" || mode == "rtl-largest" ? CGSize(width: 760, height: 520) : (mode.hasPrefix("fullscreen") && !BackgroundUIMode.foregroundAllowed ? CGSize(width: 1800, height: 1152) : CGSize(width: 1250, height: 815.625)),
-                key: activate && mode != "inactive", compositeWeb: tab.webView, covered: mode == "covered", prepare: { window in
+                key: activate && mode != "inactive", compositeWeb: tab.webView, appearance: appearance, covered: mode == "covered", prepare: { window in
                     window.makeFirstResponder(tab.webView)
                     if mode.hasPrefix("fullscreen") {
                         if BackgroundUIMode.foregroundAllowed {
@@ -1361,7 +1362,7 @@ import WebKit
                     }
                 }) {
                     BrowserWindow(controller: controller, profiles: profiles)
-                        .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled || mode == "reduced")
+                        .environment(\.chromeReduceTransparencyOverride, mode == "reduced")
                         .environment(\.layoutDirection, mode == "rtl-largest" ? .rightToLeft : .leftToRight)
                         .dynamicTypeSize(mode == "rtl-largest" ? .accessibility5 : .large)
             }
@@ -1523,8 +1524,10 @@ import WebKit
                 }
             }
             try? await Task.sleep(for: .milliseconds(900))
+            let sceneAppearance: BrowserAppearance = mode.hasPrefix("dark") || mode.hasPrefix("theme") || mode == "private" || mode == "menu-dark" || mode == "menu-private" ? .dark : .light
             await capture("mac-glass-\(mode)", directory, CGSize(width: mode == "menu-narrow" ? 760 : 1440, height: 848), key: activate, settle: 1_400, compositeWeb: tab.webView,
                           expectedFields: ["addressField": mode == "focused" ? address : "docs.example.com"],
+                          appearance: sceneAppearance,
                           prepare: { window in
                 if mode.hasSuffix("scrolled") {
                     _ = try? await tab.webView.evaluateJavaScript("window.scrollTo(0, 560)")
@@ -1553,7 +1556,7 @@ import WebKit
                 }
             }) {
                 BrowserWindow(controller: controller, profiles: profiles)
-                    .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled || mode == "reduced")
+                    .environment(\.chromeReduceTransparencyOverride, mode == "reduced")
             }
             if mode.hasPrefix("menu") {
                 manifest.skipped.append("mac-glass-\(mode)-expanded: native Menu is a separate AppKit tracking window, constrained to a display. Opening it would violate the background-only policy. Toolbar/layout evidence only.")
@@ -2015,11 +2018,26 @@ import WebKit
         frame.cacheDisplay(in: frame.bounds, to: bitmap)
         var note: String?
         if let webView {
-            if webView.window === window, let image = try? await webView.takeSnapshot(configuration: nil) {
+            let configuration = WKSnapshotConfiguration()
+            configuration.rect = NSRect(x: 0, y: -webView.obscuredContentInsets.top,
+                                        width: webView.bounds.width, height: webView.bounds.height)
+            if webView.window === window, let image = try? await webView.takeSnapshot(configuration: configuration) {
                 let rect = webView.convert(webView.bounds, to: frame)
+                let cardRect = snapshotMarker("browserPageCardGeometry", in: window.contentView)
+                    .map { $0.convert($0.bounds, to: frame) } ?? rect
                 NSGraphicsContext.saveGraphicsState()
                 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+                NSBezierPath(roundedRect: cardRect, xRadius: OrivMacV3.Radius.pageCard, yRadius: OrivMacV3.Radius.pageCard).addClip()
                 NSBezierPath(rect: rect.intersection(frame.convert(window.contentLayoutRect, from: nil))).addClip()
+                if let content = window.contentView {
+                    for identifier in ["browserTopBarGeometry", "browserSidebarGeometry", "browserAddressSuggestionsGeometry"] {
+                        if let overlay = snapshotMarker(identifier, in: content) {
+                            let excluded = overlay.convert(overlay.bounds, to: frame)
+                            let clip = NSBezierPath(rect: rect)
+                            clip.appendRect(excluded.intersection(rect)); clip.windingRule = .evenOdd; clip.addClip()
+                        }
+                    }
+                }
                 image.draw(in: rect)
                 NSGraphicsContext.restoreGraphicsState()
                 note = "web content composited from WKWebView.takeSnapshot"
@@ -2055,7 +2073,9 @@ import WebKit
         var pageImage: NSImage?
         if let webView {
             let configuration = WKSnapshotConfiguration()
-            configuration.rect = NSRect(origin: .zero, size: webView.superview?.bounds.size ?? webView.bounds.size)
+            let snapshotSize = webView.superview?.bounds.size ?? webView.bounds.size
+            configuration.rect = NSRect(x: 0, y: -webView.obscuredContentInsets.top,
+                                        width: snapshotSize.width, height: snapshotSize.height)
             configuration.afterScreenUpdates = true
             for _ in 0..<3 {
                 if let candidate = try? await webView.takeSnapshot(configuration: configuration),
@@ -2095,12 +2115,16 @@ import WebKit
             if let pageImage, let host = webView?.superview {
                 var rect = host.convert(host.bounds, to: frame)
                 if frame.isFlipped { rect.origin.y = frame.bounds.maxY - rect.maxY }
+                var cardRect = snapshotMarker("browserPageCardGeometry", in: window.contentView)
+                    .map { $0.convert($0.bounds, to: frame) } ?? rect
+                if frame.isFlipped { cardRect.origin.y = frame.bounds.maxY - cardRect.maxY }
                 NSGraphicsContext.saveGraphicsState()
                 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+                NSBezierPath(roundedRect: cardRect, xRadius: OrivMacV3.Radius.pageCard, yRadius: OrivMacV3.Radius.pageCard).addClip()
                 NSBezierPath(rect: rect).addClip()
                 // Page snapshots are painted behind real chrome overlays.
                 func overlays(_ view: NSView) -> [NSView] {
-                    let own = ["browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry"].contains(view.identifier?.rawValue ?? "") ? [view] : []
+                    let own = ["browserTopBarGeometry", "browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry", "browserAddressSuggestionsGeometry"].contains(view.identifier?.rawValue ?? "") ? [view] : []
                     return own + view.subviews.flatMap(overlays)
                 }
                 if let content = window.contentView {

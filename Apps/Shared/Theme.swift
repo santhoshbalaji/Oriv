@@ -168,7 +168,7 @@ enum OrivElevation: ViewModifier {
 
 enum OrivMaterial: ViewModifier {
     #if os(macOS)
-    case navigation(color: SidebarColor = .graphite, profileColor: ProfileColor? = nil)
+    case navigation(color: SidebarColor = .graphite, profileColor: ProfileColor? = nil, isPrivateWindow: Bool = false)
     #endif
     case control(radius: CGFloat? = nil)
     case overlay(radius: CGFloat = OrivRadius.panel)
@@ -177,8 +177,8 @@ enum OrivMaterial: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         switch self {
         #if os(macOS)
-        case let .navigation(color, profileColor):
-            content.modifier(MacSidebarGlass(color: color, profileColor: profileColor))
+        case let .navigation(color, profileColor, isPrivateWindow):
+            content.modifier(MacSidebarGlass(color: color, profileColor: profileColor, isPrivateWindow: isPrivateWindow))
         #endif
         case let .control(radius):
             content.modifier(BrowserGlass(radius: radius))

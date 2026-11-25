@@ -23,7 +23,6 @@ struct StartPage: View {
             .padding(.vertical, OrivSpacing.xxl + OrivSpacing.xl)
             .frame(maxWidth: .infinity)
         }
-        .background(theme.canvas)
     }
 
     private var privateExplanation: some View {

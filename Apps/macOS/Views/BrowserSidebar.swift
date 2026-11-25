@@ -825,6 +825,7 @@ enum SidebarGlassOpacity: String, CaseIterable {
 struct MacSidebarGlass: ViewModifier {
     var color: SidebarColor = .graphite
     var profileColor: ProfileColor? = nil
+    var isPrivateWindow = false
 
     @Environment(\.self) private var environment
     @AppStorage(SidebarGlassOpacity.preferenceKey) private var opacity: SidebarGlassOpacity = .balanced
@@ -842,56 +843,46 @@ struct MacSidebarGlass: ViewModifier {
     }
 
     func body(content: Content) -> some View {
+        let mode = OrivMacV3.AppearanceMode.resolve(theme: environment.browserTheme,
+                                                    colorScheme: environment.colorScheme,
+                                                    isPrivateWindow: isPrivateWindow)
         let style = SidebarChromaticStyle(color: color, profile: profileColor, level: effectiveOpacity,
                                           environment: environment)
-        content.environment(\.sidebarChromaticStyle, style)
-            .background {
-                ZStack {
-                    if !style.opaque {
-                        glass
-                        Theme.hex(style.tokens.guardColor).opacity(style.guardOpacity)
+        let recipe = OrivMacV3.Sidebar.chromaticSwatches(color: color, profile: profileColor,
+                                                         mode: mode, level: effectiveOpacity)
+        let shape = RoundedRectangle(cornerRadius: OrivMacV3.Radius.sidebar, style: .continuous)
+        surface(content.environment(\.sidebarChromaticStyle, style).clipShape(shape),
+                recipe: recipe, shape: shape, style: style)
+            .orivV3Shadow(OrivMacV3.Sidebar.elevation(mode))
+    }
+
+    @ViewBuilder private func surface(_ content: some View, recipe: OrivMacV3.GlassRecipe,
+                                      shape: RoundedRectangle, style: SidebarChromaticStyle) -> some View {
+        #if DEBUG
+        if let captureBackdrop, !style.opaque, !style.black {
+            let effectiveBackdrop = isPrivateWindow ? OrivMacV3.Backdrop.reduced(.private) : captureBackdrop
+            content
+                .background {
+                    ZStack {
+                        effectiveBackdrop
+                        recipe.tintColor.opacity(recipe.tintOpacity)
+                        if let guardColor = recipe.guardColor, recipe.guardOpacity > 0 {
+                            guardColor.opacity(recipe.guardOpacity)
+                        }
                     }
-                    LinearGradient(colors: [Theme.hex(style.tokens.top), Theme.hex(style.tokens.bottom)],
-                                   startPoint: .top, endPoint: .bottom)
-                        .opacity(style.opaque ? 1 : style.backingOpacity)
-                    if !style.opaque && !style.black {
-                        let bloom = Theme.hex(style.tokens.bloom)
-                        RadialGradient(colors: [bloom.opacity(style.bloomOpacity), bloom.opacity(0)],
-                                       center: .topLeading, startRadius: SidebarChromaticStyle.bloomStart,
-                                       endRadius: SidebarChromaticStyle.bloomEnd)
-                        LinearGradient(colors: [style.sheen, .clear],
-                                       startPoint: .top, endPoint: SidebarChromaticStyle.sheenEnd)
-                    }
+                    .clipShape(shape)
+                    .allowsHitTesting(false).accessibilityHidden(true)
                 }
-                .allowsHitTesting(false).accessibilityHidden(true)
-            }
-            .overlay(alignment: .trailing) {
-                if style.increased {
-                    environment.browserTheme.text
-                        .frame(width: OrivOutline.enhanced)
+                .overlay {
+                    shape.strokeBorder(recipe.borderColor, lineWidth: recipe.borderWidth)
                         .allowsHitTesting(false).accessibilityHidden(true)
                 }
-            }
-    }
-
-    @ViewBuilder private var glass: some View {
-        #if DEBUG
-        if let captureBackdrop {
-            captureBackdrop
         } else {
-            liveGlass
+            content.orivV3Glass(recipe, in: shape, forceSolid: effectiveOpacity == .solid)
         }
         #else
-        liveGlass
+        content.orivV3Glass(recipe, in: shape, forceSolid: effectiveOpacity == .solid)
         #endif
-    }
-
-    @ViewBuilder private var liveGlass: some View {
-        if BackgroundUIMode.isEnabled {
-            environment.browserTheme.chrome
-        } else {
-            Rectangle().fill(.clear).glassEffect(.regular, in: .rect)
-        }
     }
 }
 

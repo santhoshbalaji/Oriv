@@ -64,8 +64,9 @@ role_negative = next((role for role in negative_roles if f"--negative-{role}-tes
 checks = []  # (theme, token, colour, surface, background, minimum)
 sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
 assert "content.environment(\\.sidebarChromaticStyle, style)" in sidebar_source
-assert ".opacity(style.opaque ? 1 : style.backingOpacity)" in sidebar_source
-assert "Theme.hex(style.tokens.guardColor).opacity(style.guardOpacity)" in sidebar_source
+assert "OrivMacV3.Sidebar.chromaticSwatches(" in sidebar_source
+assert "orivV3Glass(recipe, in: shape, forceSolid: effectiveOpacity == .solid)" in sidebar_source
+assert "OrivMacV3.Radius.sidebar" in sidebar_source
 assert "tone: !active && hovered ? .hover : nil" in sidebar_source
 assert "shape.fill(style.fill)" in sidebar_source
 assert "accessibilityReduceTransparency || chromeReduceTransparencyOverride || sidebarContrast == .increased" in sidebar_source
@@ -293,7 +294,9 @@ mac = (ROOT / "Apps/macOS/Views/BrowserWindow.swift").read_text()
 assert "foregroundThreshold = sqrt(1.05 * 0.05) - 0.05" in chrome
 assert "private var chromeForeground: Color { pageChrome.foreground }" in mac
 assert "pageChrome.color\n" in mac
-assert "Rectangle().fill(.clear).glassEffect(.regular, in: .rect)" in sidebar_source
+assert ".glassEffect(.regular.tint(recipe.tintColor.opacity(recipe.tintOpacity)), in: shape)" in text
+assert "shape.fill(guardColor.opacity(recipe.guardOpacity))" in text
+assert "OrivMacV3.usesOpaqueSurface(" in text
 lift = float(re.search(r"static let lift = ([0-9.]+)", mac).group(1))
 shade = float(re.search(r"static let lightShade = ([0-9.]+)", mac).group(1))
 page_colours = {f"{r:02X}{g:02X}{b:02X}" for r in range(0, 256, 17) for g in range(0, 256, 17) for b in range(0, 256, 17)}

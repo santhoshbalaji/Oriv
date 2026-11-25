@@ -201,7 +201,7 @@ import XCTest
     func testExplicitNarrowExpansionOverlaysAndRestoresWidePreference() {
         let s = SidebarPresentation(); s.resize(availableWidth: 760)
         XCTAssertFalse(s.toggle()); XCTAssertTrue(s.narrowOverlay)
-        XCTAssertEqual(s.reservation, MacBrowserLayout.railWidth)
+        XCTAssertEqual(s.reservation, MacBrowserLayout.railReservation)
         XCTAssertEqual(s.width, MacBrowserLayout.sidebarWidth)
         s.dismissOverlay(); XCTAssertTrue(s.rail); XCTAssertFalse(s.preferredRail)
         s.resize(availableWidth: 1000)
@@ -213,7 +213,7 @@ import XCTest
         s.hoverEnabled = true; s.pointer(true)
         try await pause(180); XCTAssertFalse(s.peeking)
         try await pause(110); XCTAssertTrue(s.peeking)
-        XCTAssertTrue(s.preferredRail); XCTAssertEqual(s.reservation, MacBrowserLayout.railWidth)
+        XCTAssertTrue(s.preferredRail); XCTAssertEqual(s.reservation, MacBrowserLayout.railReservation)
         s.cancel()
     }
     func testPeekTravelExitAndSettingCancellation() async throws {
@@ -243,7 +243,7 @@ import XCTest
         s.pointer(true); try await pause(280); XCTAssertFalse(s.peeking)
         s.voiceOver = false; s.fullscreen(true); s.pointer(true)
         try await pause(280); XCTAssertFalse(s.peeking); XCTAssertEqual(s.reservation, 0)
-        s.fullscreen(false); XCTAssertTrue(s.rail); XCTAssertEqual(s.reservation, MacBrowserLayout.railWidth)
+        s.fullscreen(false); XCTAssertTrue(s.rail); XCTAssertEqual(s.reservation, MacBrowserLayout.railReservation)
         s.pointer(true); try await eventually("sidebar peek") { s.peeking }
         s.voiceOver = true; XCTAssertFalse(s.peeking); XCTAssertTrue(s.hoverEnabled)
     }
@@ -365,7 +365,7 @@ import XCTest
         try await pause(650); XCTAssertTrue(w.firstResponder === responder)
         c.sidebar.pointer(true); try await eventually("sidebar peek") { c.sidebar.peeking }
         c.toggleSidebar(); XCTAssertFalse(c.compactSidebar); XCTAssertFalse(c.sidebar.peeking)
-        XCTAssertEqual(c.sidebar.reservation, MacBrowserLayout.sidebarWidth)
+        XCTAssertEqual(c.sidebar.reservation, MacBrowserLayout.expandedReservation())
     }
     func testNativeNarrowResizeAndExplicitShortcutKeepPageReservation() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
@@ -379,7 +379,7 @@ import XCTest
         XCTAssertTrue(c.sidebar.narrowOverlay)
         let all = views(try XCTUnwrap(w.contentView))
         let top = try XCTUnwrap(all.first { $0.identifier?.rawValue == "browserTopBarGeometry" })
-        XCTAssertEqual(top.convert(top.bounds, to: nil).minX, MacBrowserLayout.railWidth, accuracy: 1)
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minX, MacBrowserLayout.railReservation, accuracy: 1)
         w.setContentSize(NSSize(width: 1000, height: 820)); try await pause(350)
         XCTAssertFalse(c.sidebar.rail); XCTAssertFalse(c.sidebar.overlay)
     }
@@ -399,7 +399,7 @@ import XCTest
             grip.mouseDragged(with: try event(.leftMouseDragged, 260 + offset))
             grip.mouseUp(with: try event(.leftMouseUp, 260 + offset))
             try await waitForSurface(width, in: window)
-            XCTAssertEqual(c.sidebar.reservation, width)
+            XCTAssertEqual(c.sidebar.reservation, MacBrowserLayout.expandedReservation(sidebarWidth: width))
             XCTAssertTrue(tab.webView === web)
         }
     }

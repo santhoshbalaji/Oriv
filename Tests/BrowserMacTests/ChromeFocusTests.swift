@@ -1316,26 +1316,27 @@ import XCTest
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let w = host(c); defer { w.close() }
         w.setContentSize(NSSize(width: 780, height: 760))
+        let inset = MacBrowserLayout.windowInset
         try await wait("Narrow rail did not mount") {
             guard c.sidebar.rail, let surface = self.marker("sidebarSurfaceGeometry", in: w),
                   let toggle = self.marker("sidebarToggleGeometry", in: w) else { return false }
             return surface.bounds.width == MacBrowserLayout.railWidth &&
-                toggle.convert(toggle.bounds, to: nil).maxX <= MacBrowserLayout.railWidth
+                toggle.convert(toggle.bounds, to: nil).maxX <= inset + MacBrowserLayout.railWidth
         }
         try click("sidebarToggleGeometry", in: w)
         try await wait("Explicit overlay did not open") { c.sidebar.narrowOverlay }
         try await Task.sleep(for: .milliseconds(200))
         let surface = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: w))
         XCTAssertEqual(surface.convert(surface.bounds, to: nil),
-                       NSRect(origin: .zero, size: NSSize(width: MacBrowserLayout.sidebarWidth, height: w.contentView!.bounds.height)))
+                       NSRect(x: inset, y: inset, width: MacBrowserLayout.sidebarWidth, height: w.contentView!.bounds.height - 2 * inset))
         for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
             let button = try XCTUnwrap(w.standardWindowButton(type))
             XCTAssertFalse(button.isHiddenOrHasHiddenAncestor)
             let rect = button.convert(button.bounds, to: nil)
-            XCTAssertGreaterThanOrEqual(rect.minX, 0)
-            XCTAssertLessThanOrEqual(rect.maxX, MacBrowserLayout.railWidth)
-            XCTAssertEqual(rect.minX, MacBrowserLayout.railLightsInset + CGFloat(index) * 20, accuracy: 1)
-            XCTAssertEqual(w.contentView!.bounds.maxY - rect.midY, MacBrowserLayout.headerHeight / 2, accuracy: 1)
+            XCTAssertGreaterThanOrEqual(rect.minX, inset)
+            XCTAssertLessThanOrEqual(rect.maxX, inset + MacBrowserLayout.railWidth)
+            XCTAssertEqual(rect.minX, MacBrowserLayout.railLightsInset + CGFloat(index) * MacBrowserLayout.lightsSpacing, accuracy: 1)
+            XCTAssertEqual(w.contentView!.bounds.maxY - rect.midY, MacBrowserLayout.lightsCenterY, accuracy: 1)
         }
     }
 }
