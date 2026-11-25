@@ -456,3 +456,23 @@ All animations check `environment.browserReduceMotion` (`Apps/macOS/Views/Browse
 6. **Q6 — Scrolled-page toolbar ink polarity:** On live Liquid Glass over a scrolled web page, should toolbar controls rely on system Liquid Glass automatic legibility (using `PageChrome` only for Reduce Transparency / Increase Contrast / Black fallbacks), or should `PageChrome` continue driving explicit light/dark foreground overrides?
 7. **Q7 — Regular Dark start-page backdrop:** `fable-04-start-page.html:150–153` shares a purple `#15101A` gradient for both `.dark` and `.private`. Confirm using the proposed cool slate-blue + profile-tinted Dark gradient (`OrivMacV3.Backdrop.startDarkBase`) on regular Dark start pages so purple remains exclusive to Private Browsing.
 8. **Q8 — Narrow-window responsive start page:** Confirm wrapping the 8-column bookmark row into `4 × 2` when the page card is `< 772 pt` wide, and collapsing Frequently Visited (and Private info card) from 2 columns to 1 column when the page card is `< 600 pt` wide.
+
+### 6.3 Orchestrator decisions (binding for Phases 1–9)
+
+| # | Decision |
+| --- | --- |
+| Q1 | **One horizontal axis.** Toolbar band inside the card is `52 pt`; the sidebar titlebar is also `52 pt`. Both start at the `8 pt` window inset, so traffic lights, sidebar toggle and toolbar pills all centre at `y = 34 pt` from the window top. Neon's 40/60 offset is a mock artefact. |
+| Q2 | Keep `railWidth = 72 pt` (rail reservation `88 pt`). |
+| Q3 | Pinned grid: adaptive columns with a `52 pt` minimum tile width and `40 pt` height, which gives exactly 4 columns at the default `256 pt` width and up to 6 at `360 pt`. |
+| Q4 | New Tab sits directly under the last tab and scrolls with the list; once the list overflows it sticks to the bottom of the tab area, above the profile dots, so it is always reachable. |
+| Q5 | Full Amethyst Dusk (backdrop, sidebar, card) only for private windows (including the external-private window). A private tab selected inside a regular window keeps the profile backdrop and sidebar, and shows the purple pill in the address capsule plus the private start page. |
+| Q6 | Live glass relies on system Liquid Glass legibility. `PageChrome` drives foreground polarity only on the solid paths (Reduce Transparency, Increase Contrast, Black, off-screen snapshot fallback). |
+| Q7 | Confirmed: regular Dark start page uses the cool slate-blue backdrop; purple is reserved for private. |
+| Q8 | Confirmed: bookmarks wrap to 4 × 2 below a `772 pt` card width; two-column cards collapse to one column below `600 pt`. |
+
+**Glass layering rule (correction to §2).** The HTML mocks imitate glass with a semi-opaque `rgba` fill plus `backdrop-filter`. Do not reproduce that literally in SwiftUI by stacking a 55–90 % fill on top of `.glassEffect`, which smothers the material (the exact problem in today's sidebar). On the live-glass path:
+
+- Express the mock's hue as the glass tint: `.glassEffect(.regular.tint(color.opacity(t)), in: shape)` with `t ≤ 0.35`, plus at most one extra layer at `≤ 0.20` opacity where a contrast guard is genuinely needed.
+- The mock `rgba` values define the **solid fallback** (Reduce Transparency, Increase Contrast, Black, off-screen snapshots) and the target appearance the live glass should approximate.
+- The sidebar and the toolbar groups at the top of the card sit over known colours (the window backdrop gradient and the card fill), not arbitrary content, so `scripts/check-contrast.py` can compute contrast over those backdrops. Tune the guard per tint until the gate passes, and raise only the tints that fail.
+- The address capsule and toolbar groups over scrolled web content rely on system glass legibility (Q6).
