@@ -12,3 +12,5 @@ source it was rendered from; read exact sizes and colours from the HTML.
 | `mocks/neon-05-private-mode.*` | Private window chrome and external-private banner (not its start-page card) |
 | `mocks/fable-04-start-page.*` | Regular start page content (not its sidebar) |
 | `mocks/fable-05-private-window.*` | Private start page content (not its sidebar) |
+
+Implementation specification: [Oriv Mac design v3 spec](spec-mac-v3.md).
