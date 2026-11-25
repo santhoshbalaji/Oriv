@@ -79,7 +79,9 @@ else
     "$APP/Contents/MacOS/Oriv-Snapshots" > "$DERIVED.run.log" 2>&1 &
 fi
 PID=$!
-for _ in $(seq 1 "${ORIV_CAPTURE_TICKS:-240}"); do
+DEFAULT_TICKS=240
+if [[ "${ORIV_GLASS_SCENE:-}" == design-system ]]; then DEFAULT_TICKS=480; fi
+for _ in $(seq 1 "${ORIV_CAPTURE_TICKS:-$DEFAULT_TICKS}"); do
   kill -0 $PID 2>/dev/null || break
   if [[ "$GLASS" == 1 && -f "$SRC/capture-request.json" ]]; then
     python3 -I - "$SRC" "$APP" <<'CAPTURE'
@@ -214,7 +216,7 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-opacity":
 if os.environ.get("ORIV_GLASS_SCENE") == "design-system":
     expected = {f"mac-glass-design-system-{theme}-{state}{suffix}" for theme in ("light", "dark", "black")
                 for state in ("standard", "reduced", "increased")
-                for suffix in ("", "-controls", "-rows", "-notices", "-presentations")}
+                for suffix in ("", "-controls", "-rows", "-notices", "-presentations", "-design-v3")}
     if m.get("backgroundUI", {}).get("enabled", False):
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-opaque-fallback" for name in expected} - evidence

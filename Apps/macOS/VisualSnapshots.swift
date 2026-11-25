@@ -371,11 +371,13 @@ import WebKit
             for variant in ["standard", "reduced", "increased"] {
                 for page in DesignSystemGallery.Page.allCases {
                     let suffix = page == .foundations ? "" : "-\(page.rawValue)"
+                    let size = page == .designV3 ? CGSize(width: 1180, height: 920) : CGSize(width: 560, height: 660)
                     await capture("mac-glass-design-system-\(name)-\(variant)\(suffix)", directory,
-                                  CGSize(width: 560, height: 660), key: false, appearance: appearance) {
-                        DesignSystemGallery(page: page)
+                                  size, key: false, settle: 100, appearance: appearance) {
+                        DesignSystemGallery(page: page, scrollable: false)
                             .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
-                            .environment(\.chromeReduceTransparencyOverride, variant == "reduced" || BackgroundUIMode.isEnabled)
+                            .environment(\.chromeReduceTransparencyOverride,
+                                         page == .designV3 ? (variant == "reduced") : (variant == "reduced" || BackgroundUIMode.isEnabled))
                     }
                 }
             }
@@ -1914,7 +1916,7 @@ import WebKit
         // Capture stable geometry, without an inferred WindowServer opening animation.
         window.animationBehavior = .none
         window.toolbarStyle = toolbarStyle
-        if name.hasPrefix("mac-glass-sidebar-contrast-") || name.hasPrefix("mac-glass-sidebar-v3-") {
+        if name.hasPrefix("mac-glass-sidebar-contrast-") || name.hasPrefix("mac-glass-sidebar-v3-") || name.hasPrefix("mac-glass-design-system-") {
             // Direct hosting avoids scene toolbar/title bridging, whose remote
             // layer tree is absent from AppKit's off-screen bitmap cache.
             window.contentView = NSHostingView(rootView: content().browserAppearance(appearance))
@@ -2077,7 +2079,8 @@ import WebKit
         } else if webView != nil { manifest.skipped.append("\(name)-page: visual-foreground-only; off-screen WebKit fixture stayed blank after three in-process snapshot attempts") }
         let contrastFixture = name.hasPrefix("mac-glass-sidebar-contrast-")
         let sidebarV3 = name.hasPrefix("mac-glass-sidebar-v3-")
-        let target = contrastFixture || sidebarV3 ? window.contentView : window.contentView?.superview
+        let designSystem = name.hasPrefix("mac-glass-design-system-")
+        let target = contrastFixture || sidebarV3 || designSystem ? window.contentView : window.contentView?.superview
         if let frame = target, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
             frame.layoutSubtreeIfNeeded()
             frame.needsDisplay = true

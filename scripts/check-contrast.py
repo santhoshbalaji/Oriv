@@ -334,6 +334,247 @@ for accent in sorted(page_colours):
     ink = "FFFFFF" if luminance(accent) < (1.05 * 0.05) ** 0.5 - 0.05 else "000000"
     checks.append(("System accent", "onAccent", accent if role_negative == "onAccent" else ink, "accent", accent, 4.5))
 
+# Oriv Mac Design v3 token & glass-layering contrast checks (§2–§4, §6.3).
+v3_block = block("enum OrivMacV3 {", "\nextension View {", text)
+
+def v3_hex(name):
+    match = re.search(rf"static let {name}: UInt32 = 0x([0-9A-Fa-f]{{6}})", v3_block)
+    assert match, f"Missing OrivMacV3 hex token: {name}"
+    return match.group(1).upper()
+
+def v3_float(name):
+    match = re.search(rf"static let {name}(?:: Double)? = ([0-9.]+)", v3_block)
+    assert match, f"Missing OrivMacV3 float token: {name}"
+    return float(match.group(1))
+
+def v3_hex_list(name):
+    match = re.search(rf"static let {name}: \[UInt32\] = \[([^\]]+)\]", v3_block)
+    assert match, f"Missing OrivMacV3 hex array: {name}"
+    return [h.upper() for h in re.findall(r"0x([0-9A-Fa-f]{6})", match.group(1))]
+
+def v3_glows(name):
+    match = re.search(rf"static let {name}: \[RadialGlow\] = \[([\s\S]+?)\n        \]", v3_block)
+    assert match, f"Missing OrivMacV3 glows: {name}"
+    return [(h.upper(), float(op)) for h, op in re.findall(r"RadialGlow\(hex: 0x([0-9A-Fa-f]{6}), opacity: ([0-9.]+)", match.group(1))]
+
+v3_tint_pair = tuple(map(float, re.search(
+    r"static let v3TintOpacity = \(balanced: ([0-9.]+), high: ([0-9.]+)\)", v3_block).groups()))
+v3_high_guard = v3_float("v3HighGuardOpacity")
+v3_solid_mix = v3_float("v3ChromaticSolidMix")
+v3_guards_block = re.search(r"static let v3BalancedGuardByTint: \[String: Double\] = \[([\s\S]+?)\n        \]", v3_block).group(1)
+v3_guards = {k: float(v) for k, v in re.findall(r'"(\w+)": ([0-9.]+)', v3_guards_block)}
+assert set(v3_guards) == ({name + mode for name in tint_names for mode in ("Light", "Dark")} | {"private", "black"})
+assert all(0 < t <= 0.35 for t in v3_tint_pair), f"v3 tint opacity exceeds 0.35 cap: {v3_tint_pair}"
+assert 0 <= v3_high_guard <= 0.20, f"v3 high guard exceeds 0.20 cap: {v3_high_guard}"
+assert all(0 <= g <= 0.20 for g in v3_guards.values()), f"v3 balanced guard exceeds 0.20 cap: {v3_guards}"
+
+v3_negative = "--negative-v3-test" in sys.argv
+
+# Window backdrop gradient stops + radial glows (sidebar floats over the backdrop, not over web content).
+v3_light_stops = v3_hex_list("lightStops")
+v3_dark_stops = v3_hex_list("darkStops")
+v3_priv_stops = v3_hex_list("privateStops")
+v3_light_backdrops = list(v3_light_stops) + [
+    composite(gh, v3_light_stops[i % len(v3_light_stops)], gop)
+    for i, (gh, gop) in enumerate(v3_glows("lightAmbient"))
+] + [v3_hex("startLightBaseHex")] + [
+    composite(gh, v3_hex("startLightBaseHex"), gop)
+    for gh, gop in v3_glows("startLightAmbient")
+]
+v3_dark_backdrops = list(v3_dark_stops) + [
+    composite(gh, v3_dark_stops[i % len(v3_dark_stops)], gop)
+    for i, (gh, gop) in enumerate(v3_glows("darkAmbient"))
+] + [
+    composite("3E6CC6", v3_hex("startDarkBaseHex"), 0.38),
+    composite("2C8092", v3_hex("startDarkBaseHex"), 0.30),
+]
+v3_priv_backdrops = list(v3_priv_stops) + [
+    composite(gh, v3_priv_stops[i % len(v3_priv_stops)], gop)
+    for i, (gh, gop) in enumerate(v3_glows("privateAmbient"))
+]
+
+v3_inks = {
+    "light": (v3_hex("primaryLightHex"), v3_hex("secondaryLightHex"), v3_hex("tertiarySidebarLightHex"),
+              v3_hex("secondaryICLightHex"), v3_hex("tertiaryCardLightHex")),
+    "dark": (v3_hex("primaryDarkHex"), v3_hex("secondaryDarkHex"), v3_hex("tertiarySidebarDarkHex"),
+             v3_hex("secondaryICDarkHex"), v3_hex("tertiaryCardDarkHex")),
+    "black": (v3_hex("primaryBlackHex"), v3_hex("secondaryBlackHex"), v3_hex("tertiarySidebarBlackHex"),
+              v3_hex("secondaryICBlackHex"), v3_hex("tertiaryCardBlackHex")),
+    "private": (v3_hex("primaryPrivateHex"), v3_hex("secondaryPrivateHex"), v3_hex("tertiarySidebarPrivateHex"),
+                v3_hex("secondaryICPrivateHex"), v3_hex("tertiaryCardPrivateHex")),
+}
+v3_focus_rings = {
+    "light": v3_hex("sidebarRingLightHex"),
+    "dark": v3_hex("sidebarRingDarkHex"),
+    "black": v3_hex("sidebarRingDarkHex"),
+    "private": v3_hex("sidebarRingPrivateHex"),
+}
+v3_ic_borders = {
+    "light": v3_hex("rimICLightHex"),
+    "dark": v3_hex("rimICDarkHex"),
+    "black": v3_hex("rimICBlackHex"),
+    "private": v3_hex("rimICPrivateHex"),
+}
+
+v3_checks = []
+v3_sidebar_minima = {}
+
+def v3_record(level, label, role, fg, surface, bg, minimum):
+    v3_checks.append((label, role, fg, surface, bg, minimum))
+    if level is not None:
+        bucket = v3_sidebar_minima.setdefault(level, {})
+        bucket[role] = min(bucket.get(role, float("inf")), ratio(fg, bg))
+
+v3_sidebar_entries = []
+for key, tok in sorted(tints.items()):
+    if key == "black":
+        v3_sidebar_entries.append(("black", "black", "0A0A0A", "0A0A0A", "000000", "0A0A0A", "0A0A0A",
+                                   "292E37", "292E37", 1.0, "252A32", v3_hex("activeInkBlackHex"), ["000000"]))
+        continue
+    mode = "dark" if key.endswith("Dark") else "light"
+    bgs = v3_dark_backdrops if mode == "dark" else v3_light_backdrops
+    if key == "graphiteLight":
+        v3_sidebar_entries.append((key, mode, "F7F9FE", "EEF2FA", "FFFFFF", "F2F4FA", "E6EAF3",
+                                   "FFFFFF", "E0EEFF", 0.82, "E5F0FE", v3_hex("activeInkLightHex"), bgs))
+    elif key == "graphiteDark":
+        v3_sidebar_entries.append((key, mode, "242A3A", "191E2A", "0E1118", "242A3A", "191E2A",
+                                   "4E86E0", "3666B2", 0.37, "2E5A8F", v3_hex("activeInkDarkHex"), bgs))
+    else:
+        base_bg = v3_hex("reducedDarkHex") if mode == "dark" else v3_hex("reducedLightHex")
+        v3_sidebar_entries.append((key, mode, tok["top"], tok["bottom"], tok["guardColor"],
+                                   composite(tok["top"], base_bg, v3_solid_mix),
+                                   composite(tok["bottom"], base_bg, v3_solid_mix),
+                                   tok["active"], tok["active"], active_alpha[mode == "dark"],
+                                   tok["opaqueActive"], tok["ink"], bgs))
+
+v3_sidebar_entries.append(("private", "private", "301C4E", "1E1232", "120C1C", "301C4E", "1E1232",
+                           "A855F7", "7E22CE", 0.36, "5A2C8A", v3_hex("activeInkPrivateHex"), v3_priv_backdrops))
+
+for (key, mode, tint_top, tint_bot, guard_col, solid_top, solid_bot,
+     act_top, act_bot, act_alpha, act_solid, act_ink, backdrops) in v3_sidebar_entries:
+    primary, secondary, tertiary, sec_ic, _ = v3_inks[mode]
+    focus_ring = v3_focus_rings[mode]
+    ic_border = v3_ic_borders[mode]
+    hover_col = "D8B4FE" if mode == "private" else ("FFFFFF" if mode != "light" else "141A28")
+    hover_a = 0.08 if mode == "private" else (0.06 if mode != "light" else 0.05)
+    search_col = hover_col
+    search_a = 0.075 if mode == "private" else (0.065 if mode != "light" else 0.055)
+    for step in ("balanced", "high", "solid", "reduce transparency", "increase contrast"):
+        opaque = step in ("solid", "reduce transparency", "increase contrast") or mode == "black"
+        tint_a = v3_tint_pair[1] if step == "high" else v3_tint_pair[0]
+        guard_a = v3_high_guard if step == "high" else v3_guards[key]
+        if v3_negative and key == "skyDark" and step == "balanced":
+            guard_a = 0.0
+        label = f"v3 {key} sidebar, {step}"
+        surfaces = ([solid_top, solid_bot] if opaque else [
+            composite(guard_col, composite(stop, bg, tint_a), guard_a)
+            for bg in backdrops for stop in (tint_top, tint_bot)
+        ])
+        sec_ink = sec_ic if step == "increase contrast" else secondary
+        ter_ink = sec_ic if step == "increase contrast" else tertiary
+        for panel in surfaces:
+            hover = composite(hover_col, panel, hover_a)
+            search = composite(search_col, panel, search_a)
+            for state, bg in (("panel", panel), ("hover", hover), ("search", search)):
+                v3_record(step, label, "primary", primary, state, bg, 4.5)
+                v3_record(step, label, "secondary", sec_ink, state, bg, 4.5)
+                v3_record(step, label, "tertiary", ter_ink, state, bg, 4.5)
+            act_surfaces = [act_solid] if opaque else [composite(act_top, panel, act_alpha), composite(act_bot, panel, act_alpha)]
+            for act_bg in act_surfaces:
+                v3_record(step, label, "active", act_ink, "active row", act_bg, 4.5)
+                v3_record(step, label, "focus ring", focus_ring, "active row", act_bg, 3.0)
+            v3_record(step, label, "focus ring", focus_ring, "panel", panel, 3.0)
+            if step == "increase contrast":
+                v3_record(step, label, "ic border", ic_border, "panel", panel, 3.0)
+
+for step, minima in v3_sidebar_minima.items():
+    roles = ("primary", "secondary", "tertiary", "active", "focus ring")
+    numbers = " / ".join(f"{minima[r]:.2f}" for r in roles)
+    print(f"v3 {step.capitalize()} (primary / secondary / tertiary / active / focus ring): {numbers}")
+
+# Toolbar, Address, Popover, Suggestions, Handoff, Start Page solid fallbacks, focus rings, and IC borders.
+v3_surface_pairs = [
+    # Toolbar solid fallbacks
+    ("v3 Toolbar Light solid", "primary", v3_hex("primaryLightHex"), v3_hex("solidLightHex"), 4.5),
+    ("v3 Toolbar Light solid", "secondary", v3_hex("secondaryLightHex"), v3_hex("solidLightHex"), 4.5),
+    ("v3 Toolbar Dark solid", "primary", v3_hex("primaryDarkHex"), v3_hex("solidDarkHex"), 4.5),
+    ("v3 Toolbar Dark solid", "secondary", v3_hex("secondaryDarkHex"), v3_hex("solidDarkHex"), 4.5),
+    ("v3 Toolbar Black solid", "primary", v3_hex("primaryBlackHex"), v3_hex("solidBlackHex"), 4.5),
+    ("v3 Toolbar Black solid", "secondary", v3_hex("secondaryBlackHex"), v3_hex("solidBlackHex"), 4.5),
+    ("v3 Toolbar Private solid", "primary", v3_hex("primaryPrivateHex"), v3_hex("solidPrivateHex"), 4.5),
+    ("v3 Toolbar Private solid", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("solidPrivateHex"), 4.5),
+    # Address rest & focused solid fallbacks
+    ("v3 Address Light rest", "primary", v3_hex("primaryLightHex"), v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Light rest", "secondary", v3_hex("secondaryLightHex"), v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Dark rest", "primary", v3_hex("primaryDarkHex"), v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Dark rest", "secondary", v3_hex("secondaryDarkHex"), v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Black rest", "primary", v3_hex("primaryBlackHex"), v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Black rest", "secondary", v3_hex("secondaryBlackHex"), v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Private rest", "primary", v3_hex("primaryPrivateHex"), v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Private rest", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Light focus", "primary", v3_hex("primaryLightHex"), v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Light focus", "secondary", v3_hex("secondaryLightHex"), v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Light focus", "tertiary", v3_hex("tertiaryCardLightHex"), v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Dark focus", "primary", v3_hex("primaryDarkHex"), v3_hex("focusSolidDarkHex"), 4.5),
+    ("v3 Address Dark focus", "secondary", v3_hex("secondaryDarkHex"), v3_hex("focusSolidDarkHex"), 4.5),
+    ("v3 Address Black focus", "primary", v3_hex("primaryBlackHex"), v3_hex("focusSolidBlackHex"), 4.5),
+    ("v3 Address Black focus", "secondary", v3_hex("secondaryBlackHex"), v3_hex("focusSolidBlackHex"), 4.5),
+    ("v3 Address Private focus", "primary", v3_hex("primaryPrivateHex"), v3_hex("focusSolidPrivateHex"), 4.5),
+    ("v3 Address Private focus", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("focusSolidPrivateHex"), 4.5),
+    ("v3 Address Private pill", "ink", v3_hex("privatePillInkHex"), composite("C084FC", v3_hex("restSolidPrivateHex"), 0.24), 4.5),
+    ("v3 Address Private pill solid", "ink", v3_hex("privatePillSolidInkHex"), v3_hex("privatePillSolidFillHex"), 4.5),
+    # Popover & Suggestions solid fallbacks
+    ("v3 Popover Light", "primary", v3_hex("primaryLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
+    ("v3 Popover Light", "secondary", v3_hex("secondaryLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
+    ("v3 Popover Light", "tertiary", v3_hex("tertiaryCardLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
+    ("v3 Popover Dark", "primary", v3_hex("primaryDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
+    ("v3 Popover Dark", "secondary", v3_hex("secondaryDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
+    ("v3 Popover Black", "primary", v3_hex("primaryBlackHex"), v3_hex("popoverSolidBlackHex"), 4.5),
+    ("v3 Popover Private", "primary", v3_hex("primaryPrivateHex"), v3_hex("popoverSolidPrivateHex"), 4.5),
+    ("v3 Popover Light selected", "title", v3_hex("selectedTitleLightHex"), composite("007AFF", v3_hex("popoverSolidLightHex"), 0.15), 4.5),
+    ("v3 Popover Light selected", "url", v3_hex("selectedURLLightHex"), composite("007AFF", v3_hex("popoverSolidLightHex"), 0.15), 4.5),
+    ("v3 Popover Dark selected", "title", "FFFFFF", composite("3B82F6", v3_hex("popoverSolidDarkHex"), 0.28), 4.5),
+    ("v3 Popover Dark selected", "url", v3_hex("selectedURLDarkHex"), composite("3B82F6", v3_hex("popoverSolidDarkHex"), 0.28), 4.5),
+    ("v3 Popover Private selected", "title", "FFFFFF", composite("A855F7", v3_hex("popoverSolidPrivateHex"), 0.32), 4.5),
+    ("v3 Popover Private selected", "url", v3_hex("selectedURLPrivateHex"), composite("A855F7", v3_hex("popoverSolidPrivateHex"), 0.32), 4.5),
+    # Handoff bar & Move button
+    ("v3 Handoff Private", "message", v3_hex("messageInkHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Move button top", "ink", "FFFFFF", v3_hex("moveButtonTopHex"), 4.5),
+    ("v3 Handoff Move button bottom", "ink", "FFFFFF", v3_hex("moveButtonBottomHex"), 4.5),
+    ("v3 Handoff Move button solid", "ink", "FFFFFF", v3_hex("moveButtonSolidHex"), 4.5),
+    # Start Page big field & private card solid fallbacks
+    ("v3 StartPage Light bigField", "primary", v3_hex("primaryLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
+    ("v3 StartPage Light bigField", "tertiary", v3_hex("tertiaryCardLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
+    ("v3 StartPage Dark bigField", "primary", v3_hex("primaryDarkHex"), v3_hex("bigFieldSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark bigField", "secondary", v3_hex("secondaryDarkHex"), v3_hex("bigFieldSolidDarkHex"), 4.5),
+    ("v3 StartPage Black bigField", "primary", v3_hex("primaryBlackHex"), v3_hex("bigFieldSolidBlackHex"), 4.5),
+    ("v3 StartPage Private bigField", "primary", v3_hex("primaryPrivateHex"), v3_hex("bigFieldSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private card", "primary", v3_hex("primaryPrivateHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    ("v3 StartPage Private card", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    # Focus rings & IC borders (>= 3.0:1)
+    ("v3 Focus address Light", "focus ring", v3_hex("accentLightHex"), v3_hex("focusSolidLightHex"), 3.0),
+    ("v3 Focus address Light card", "focus ring", v3_hex("accentLightHex"), v3_hex("fillLightHex"), 3.0),
+    ("v3 Focus address Dark", "focus ring", v3_hex("accentDarkHex"), v3_hex("focusSolidDarkHex"), 3.0),
+    ("v3 Focus address Dark card", "focus ring", v3_hex("accentDarkHex"), v3_hex("fillDarkHex"), 3.0),
+    ("v3 Focus address Black", "focus ring", v3_hex("accentDarkHex"), v3_hex("focusSolidBlackHex"), 3.0),
+    ("v3 Focus address Private", "focus ring", v3_hex("privateAccentStrongHex"), v3_hex("focusSolidPrivateHex"), 3.0),
+    ("v3 Focus address Private IC", "focus ring", v3_hex("privateAccentDarkHex"), v3_hex("focusSolidPrivateHex"), 3.0),
+    ("v3 IC border Light toolbar", "ic border", v3_hex("rimICLightHex"), v3_hex("solidLightHex"), 3.0),
+    ("v3 IC border Light card", "ic border", v3_hex("rimICLightHex"), v3_hex("fillLightHex"), 3.0),
+    ("v3 IC border Light backdrop", "ic border", v3_hex("rimICLightHex"), v3_hex("reducedLightHex"), 3.0),
+    ("v3 IC border Dark toolbar", "ic border", v3_hex("rimICDarkHex"), v3_hex("solidDarkHex"), 3.0),
+    ("v3 IC border Dark card", "ic border", v3_hex("rimICDarkHex"), v3_hex("fillDarkHex"), 3.0),
+    ("v3 IC border Dark backdrop", "ic border", v3_hex("rimICDarkHex"), v3_hex("reducedDarkHex"), 3.0),
+    ("v3 IC border Black address", "ic border", v3_hex("rimICBlackHex"), v3_hex("restSolidBlackHex"), 3.0),
+    ("v3 IC border Black card", "ic border", v3_hex("rimICBlackHex"), v3_hex("fillBlackHex"), 3.0),
+    ("v3 IC border Private address", "ic border", v3_hex("rimICPrivateHex"), v3_hex("restSolidPrivateHex"), 3.0),
+    ("v3 IC border Private backdrop", "ic border", v3_hex("rimICPrivateHex"), v3_hex("reducedPrivateHex"), 3.0),
+]
+for label, role, fg, bg, minimum in v3_surface_pairs:
+    v3_checks.append((label, role, fg, "solid", bg, minimum))
+
+checks.extend(v3_checks)
+
 failures = 0
 reported = set()
 for theme, token, colour, surface, background, minimum in checks:
@@ -364,7 +605,7 @@ elif role_negative:
                for _, token, foreground, surface, background, minimum in checks):
         sys.exit(f"FAIL negative test: {role_negative} regression was not caught")
     print(f"Negative {role_negative} test passed")
-elif negative_test or sidebar_negative:
+elif negative_test or sidebar_negative or v3_negative:
     if not failures:
         print("FAIL negative test: low-contrast foreground was not caught")
         sys.exit(1)
