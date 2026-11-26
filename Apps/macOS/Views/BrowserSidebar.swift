@@ -136,6 +136,7 @@ private struct SidebarProfileCover: ViewModifier {
 }
 
 struct BrowserSidebar: View {
+    @Environment(\.sidebarChromaticStyle) private var chromaticStyle
     @Environment(\.browserTheme) private var theme
     @Environment(\.sidebarContrast) private var contrast
     @Environment(\.colorScheme) private var scheme
@@ -233,7 +234,7 @@ struct BrowserSidebar: View {
                 NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs,
                                   duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
                                   expandedWidth: controller.sidebar.expandedWidth, overflowing: overflowing,
-                                  searchRequest: request) { id, right in
+                                  searchRequest: request, style: chromaticStyle) { id, right in
                     controller.profileUI.closeToRight = right
                     controller.profileUI.closeOthers = id
                 }

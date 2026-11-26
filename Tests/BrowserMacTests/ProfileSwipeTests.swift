@@ -360,6 +360,75 @@ final class ProfileSwipeTests: XCTestCase {
         XCTAssertLessThanOrEqual(percentile(revisit, 0.95), 3 * percentile(tabTurns, 0.95))
     }
 
+    func testSwipeSwitchRestylesTheSelectedTabHighlight() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        profiles.profileSwipePreference = .on
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        try profiles.select(work.id)
+        profiles.controller.sidebarColor = .profile
+        profiles.controller.session.addTab(url: URL(string: "https://example.com/work")!, select: true, load: false)
+        try profiles.select(BrowserProfile.personalID)
+        profiles.controller.sidebarColor = .profile
+        profiles.controller.sidebar.setPreference(false)
+        profiles.controller.session.addTab(url: URL(string: "https://example.com/personal")!, select: true, load: false)
+        let window = makeWindow(Fixture(profiles: profiles).frame(width: 1000, height: 600))
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        func marker(_ name: String) -> NSView? {
+            content.layoutSubtreeIfNeeded()
+            return descendants(content).first {
+                $0.identifier?.rawValue == name && $0.window === window && !$0.bounds.isEmpty && !$0.isHiddenOrHasHiddenAncestor
+            }
+        }
+        /// Mean hue of the selected row's coloured pixels, as drawn.
+        func selectedRowHue() throws -> Double {
+            let id = try XCTUnwrap(profiles.controller.session.selectedTabID)
+            var row = marker("sidebarSelection-\(id.uuidString)")
+            while let view = row, !String(describing: type(of: view)).contains("SidebarAccessibleRow") { row = view.superview }
+            let view = try XCTUnwrap(row)
+            let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: rep)
+            var x = 0.0, y = 0.0
+            for py in stride(from: 0, to: rep.pixelsHigh, by: 2) { for px in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB), c.saturationComponent > 0.3, c.alphaComponent > 0.2 else { continue }
+                x += cos(c.hueComponent * 2 * .pi); y += sin(c.hueComponent * 2 * .pi)
+            } }
+            return (atan2(y, x) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+        }
+        func expectedHue(_ color: ProfileColor) -> Double {
+            let dark = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let hex = Theme.SidebarChromaticTokens.resolve(.profile, profile: color, dark: dark, black: false).active
+            let rgb = NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                              blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+            return rgb.hueComponent * 360
+        }
+        func assertHighlight(_ color: ProfileColor, _ label: String) throws {
+            let drawn = try selectedRowHue(), expected = expectedHue(color)
+            let difference = abs((drawn - expected + 540).truncatingRemainder(dividingBy: 360) - 180)
+            XCTAssertLessThan(difference, 25, "\(label): highlight hue \(Int(drawn))° should match \(Int(expected))°")
+        }
+
+        try await eventually("profile dots laid out") { marker("sidebarProfileDot-1") != nil }
+        try await Task.sleep(for: .milliseconds(300))
+        try assertHighlight(.mulberry, "Personal before swiping")
+        for (round, destination) in [(1, work.id), (2, BrowserProfile.personalID), (3, work.id)] {
+            let row = try XCTUnwrap(marker("sidebarSelection-\(try XCTUnwrap(profiles.controller.session.selectedTabID).uuidString)"))
+            let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+            let delta: Int32 = destination == work.id ? -150 : 150
+            let start = Double(round) * 10
+            for (phase, value, time) in [(NSEvent.Phase.began, delta > 0 ? 4 : -4, start), (.changed, delta, start + 0.02),
+                                         (.ended, 0, start + 0.04)] as [(NSEvent.Phase, Int32, TimeInterval)] {
+                _ = profiles.sidebarSwitch.route(try wheel(phase, x: value, time: time), window: window, profiles: profiles,
+                                                 source: profiles.controller, location: point)
+            }
+            try await eventually("swipe reached the destination") { profiles.active.id == destination }
+            try await eventually("swipe settled") { content.layoutSubtreeIfNeeded(); return !profiles.sidebarSwitch.isCovering }
+            try await Task.sleep(for: .milliseconds(400))
+            try assertHighlight(destination == work.id ? .ocean : .mulberry, "After swipe \(round)")
+        }
+    }
+
     func testSwipeSwitchFocusesLoadedPage() async throws {
         try await assertSwitchFocus(viaSwipe: true, hasPage: true)
     }
