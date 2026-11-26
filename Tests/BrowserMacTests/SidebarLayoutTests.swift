@@ -146,11 +146,15 @@ import XCTest
         let layout = try XCTUnwrap(list.collectionViewLayout)
         let tiles = try (0..<4).map { try XCTUnwrap(layout.layoutAttributesForItem(at: IndexPath(item: $0, section: 0))).frame }
         let row = try XCTUnwrap(layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 1))).frame
+        let expectedGrid = SidebarTabs.PinGrid(availableWidth: row.width)
+        XCTAssertEqual(expectedGrid.columns, 4)
         XCTAssertEqual(tiles.first?.minX, row.minX)
+        XCTAssertEqual(tiles.last?.maxX ?? 0, row.maxX, accuracy: 1)
         for (index, tile) in tiles.enumerated() {
             XCTAssertEqual(tile.minY, tiles[0].minY)
-            XCTAssertEqual(tile.width, OrivLayout.sidebarPinWidth, accuracy: 1)
-            let step = OrivLayout.sidebarPinWidth + OrivLayout.sidebarPinGap
+            XCTAssertEqual(tile.height, OrivMacV3.SidebarLayout.pinHeight, accuracy: 1)
+            XCTAssertEqual(tile.width, expectedGrid.tileWidth, accuracy: 1)
+            let step = expectedGrid.tileWidth + OrivMacV3.SidebarLayout.pinGap
             XCTAssertEqual(tile.minX - row.minX, CGFloat(index) * step, accuracy: 1)
         }
         let gap = NSPoint(x: (tiles[0].maxX + tiles[1].minX) / 2, y: tiles[0].midY)
@@ -160,7 +164,7 @@ import XCTest
         let active = try XCTUnwrap(session.selectedTabID)
         let selection = try frame("sidebarSelection-\(active)", in: window)
         let favicon = try frame("sidebarFavicon-\(active)", in: window)
-        XCTAssertEqual(favicon.width, OrivLayout.sidebarPinIconSize, accuracy: 1)
+        XCTAssertEqual(favicon.width, OrivMacV3.SidebarLayout.pinIconSize, accuracy: 1)
         XCTAssertEqual(selection.midX, favicon.midX, accuracy: 1)
         XCTAssertEqual(selection.midY, favicon.midY, accuracy: 1)
         let surface = try XCTUnwrap(marker("sidebarSurfaceGeometry", in: window))
@@ -194,8 +198,8 @@ import XCTest
             let close = try frame(closeName, in: window)
             let selection = try frame(selectionName, in: window)
             let icon = try frame("sidebarFavicon-\(tab.id)", in: window)
-            XCTAssertEqual(close.width, OrivLayout.sidebarPinCloseWidth, accuracy: 1)
-            XCTAssertEqual(close.height, OrivLayout.sidebarPinCloseHeight, accuracy: 1)
+            XCTAssertEqual(close.width, OrivMacV3.SidebarLayout.pinCloseWidth, accuracy: 1)
+            XCTAssertEqual(close.height, OrivMacV3.SidebarLayout.pinCloseHeight, accuracy: 1)
             XCTAssertEqual(selection.midX, icon.midX, accuracy: 1)
             XCTAssertEqual(selection.midY, icon.midY, accuracy: 1)
             if rtl { XCTAssertLessThan(close.midX, icon.midX) }
@@ -249,8 +253,9 @@ import XCTest
             }
             let row = try frame("sidebarItem-\(tab)", in: window)
             let icon = try frame("sidebarFavicon-\(tab)", in: window)
-            XCTAssertEqual(row.height, OrivLayout.tabRowHeight, accuracy: 1)
-            XCTAssertEqual(icon.minX - row.minX, 8, accuracy: 1)
+            XCTAssertEqual(row.height, OrivMacV3.SidebarLayout.tabRowHeight, accuracy: 1)
+            XCTAssertEqual(icon.width, OrivMacV3.SidebarLayout.tabFaviconSize, accuracy: 1)
+            XCTAssertEqual(icon.minX - row.minX, OrivMacV3.SidebarLayout.tabRowPaddingHorizontal, accuracy: 1)
             XCTAssertEqual(try frame("sidebarSection-Tabs", in: window).minX, icon.minX, accuracy: 1)
             let toolbar = try frame("browserTopBarGeometry", in: window)
             XCTAssertEqual(surface.minX, MacBrowserLayout.windowInset, accuracy: 1)
@@ -262,22 +267,27 @@ import XCTest
                 XCTAssertEqual(toolbar.minX - surface.maxX, MacBrowserLayout.sidebarCardGap, accuracy: 1)
             }
             XCTAssertEqual(surface.maxY, toolbar.maxY, accuracy: 1)
-            XCTAssertEqual(try frame("sidebarSearchGeometry", in: window).height, OrivLayout.sidebarSearchHeight, accuracy: 1)
+            XCTAssertEqual(try frame("sidebarSearchGeometry", in: window).height, OrivMacV3.SidebarLayout.searchHeight, accuracy: 1)
             let footer = try frame("sidebarFooterGeometry", in: window)
+            XCTAssertEqual(footer.height, OrivMacV3.SidebarLayout.footerHeight, accuracy: 1)
             let footerTitles = LibrarySection.allCases.map(\.rawValue) + ["Settings"]
             let footerButtons = try footerTitles.map { try frame("sidebarFooter-\($0)", in: window) }
             for (title, button) in zip(footerTitles, footerButtons) {
                 XCTAssertTrue(footer.contains(button), title)
-                XCTAssertGreaterThanOrEqual(button.width, OrivLayout.controlHeight, title)
-                XCTAssertEqual(button.height, 32, accuracy: 1, title)
+                XCTAssertGreaterThanOrEqual(button.width, OrivMacV3.SidebarLayout.footerButtonSize, title)
+                XCTAssertEqual(button.height, OrivMacV3.SidebarLayout.footerButtonSize, accuracy: 1, title)
             }
             for (left, right) in zip(footerButtons, footerButtons.dropFirst()) {
                 XCTAssertLessThanOrEqual(left.maxX, right.minX)
             }
-            XCTAssertEqual(footer.minY - surface.minY, 8, accuracy: 1)
-            XCTAssertEqual(try frame("sidebarNewTabGeometry", in: window).minY - footer.maxY, MacBrowserLayout.sidebarFooterGap, accuracy: 1)
+            XCTAssertEqual(footer.minY - surface.minY, MacBrowserLayout.sidebarInset, accuracy: 1)
+            // Q4: With few tabs, New Tab sits inline directly under the last tab row (6 pt gap).
+            let newTab = try frame("sidebarNewTabGeometry", in: window)
+            XCTAssertEqual(newTab.height, OrivMacV3.SidebarLayout.newTabHeight, accuracy: 1)
+            XCTAssertEqual(row.minY - newTab.maxY, OrivMacV3.SidebarLayout.newTabTopMargin, accuracy: 1.5)
+            XCTAssertGreaterThan(newTab.minY, footer.maxY)
             XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, MacBrowserLayout.sidebarTitlebarHeight, accuracy: 1)
-            XCTAssertEqual(surface.maxY - (try frame("sidebarProfileGeometry", in: window)).maxY, MacBrowserLayout.sidebarTitlebarHeight + OrivSpacing.xs, accuracy: 1)
+            XCTAssertEqual(surface.maxY - (try frame("sidebarProfileGeometry", in: window)).maxY, MacBrowserLayout.sidebarTitlebarHeight, accuracy: 1)
             XCTAssertEqual(surface.maxY - (try frame("sidebarToggleGeometry", in: window)).midY, MacBrowserLayout.sidebarTitlebarHeight / 2, accuracy: 1)
             XCTAssertEqual((try frame("sidebarToggleGeometry", in: window)).midY, toolbar.midY, accuracy: 1)
         }
@@ -346,7 +356,7 @@ import XCTest
         XCTAssertEqual(try frame("sidebarTitlebarGeometry", in: window).height, MacBrowserLayout.sidebarTitlebarHeight, accuracy: 1)
     }
 
-    func testProfileNameAndCountAlignAndStayClearOfSearchAndToggle() async throws {
+    func testProfileNameAlignsWithoutRedundantCountAndStaysClearOfSearchAndToggle() async throws {
         for appearance in [BrowserAppearance.light, .dark] {
             let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
             for _ in 0..<2 { _ = profiles.controller.session.addTab(select: false, load: false) }
@@ -359,18 +369,47 @@ import XCTest
                 try await waitForTitlebar(window, height: fullscreen ? 0 : MacBrowserLayout.sidebarTitlebarHeight)
                 let profile = try frame("sidebarProfileGeometry", in: window)
                 let name = try frame("sidebarProfileNameGeometry", in: window)
-                let count = try frame("sidebarProfileCountGeometry", in: window)
                 let search = try frame("sidebarSearchGeometry", in: window)
                 let toggle = try frame("sidebarToggleGeometry", in: window)
                 XCTAssertEqual(profile.minX, MacBrowserLayout.windowInset + MacBrowserLayout.sidebarInset, accuracy: 1)
-                XCTAssertEqual(profile.height, OrivLayout.sidebarProfileHeight, accuracy: 1)
-                XCTAssertLessThanOrEqual(name.maxX, count.minX)
-                XCTAssertEqual(name.midY, count.midY, accuracy: 1)
-                XCTAssertTrue(profile.contains(name)); XCTAssertTrue(profile.contains(count))
-                XCTAssertGreaterThanOrEqual(profile.minY - search.maxY, OrivSpacing.xs - 1)
+                XCTAssertEqual(profile.height, OrivMacV3.SidebarLayout.profileHeight, accuracy: 1)
+                XCTAssertNil(marker("sidebarProfileCountGeometry", in: window), "Phase 4 removes redundant tab count next to profile name")
+                XCTAssertTrue(profile.contains(name))
+                XCTAssertEqual(profile.minY - search.maxY, OrivMacV3.SidebarLayout.profileBottomMargin, accuracy: 1)
                 XCTAssertFalse(profile.intersects(toggle)); XCTAssertFalse(search.intersects(toggle))
             }
         }
+    }
+
+    func testNewTabSitsInlineBelowLastTabAndSticksOnOverflow() async throws {
+        let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }
+        _ = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        let controller = profiles.controller
+        let window = makeWindow(controller, profiles: profiles, largestText: false, appearance: .light, key: false)
+        defer { window.close() }
+        try await waitForSidebar(window, rail: false)
+        let firstTab = try XCTUnwrap(controller.session.orderedTabs.last)
+        try await eventually("inline new tab directly below last tab") {
+            guard let row = self.geometry("sidebarItem-\(firstTab.id)", in: window),
+                  let newTab = self.geometry("sidebarNewTabGeometry", in: window) else { return false }
+            return abs((row.minY - newTab.maxY) - OrivMacV3.SidebarLayout.newTabTopMargin) <= 1.5
+        }
+        let dots = try frame("sidebarProfileDotsGeometry", in: window)
+        let inlineNewTab = try frame("sidebarNewTabGeometry", in: window)
+        XCTAssertGreaterThan(inlineNewTab.minY, dots.maxY + 40, "Inline New Tab should sit below the last tab, not pinned to the bottom")
+
+        // Overflow the tab list: New Tab must stick to the bottom of the tab area directly above profile dots.
+        for index in 0..<24 {
+            _ = controller.session.addTab(url: URL(string: "https://overflow\(index).example"), select: false, load: false)
+        }
+        try await eventually("sticky new tab above profile dots on overflow") {
+            guard let sticky = self.geometry("sidebarNewTabGeometry", in: window),
+                  let dots = self.geometry("sidebarProfileDotsGeometry", in: window) else { return false }
+            return abs((sticky.minY - dots.maxY) - MacBrowserLayout.sidebarFooterGap) <= 1.5
+        }
+        let stickyNewTab = try frame("sidebarNewTabGeometry", in: window)
+        XCTAssertEqual(stickyNewTab.height, OrivMacV3.SidebarLayout.newTabHeight, accuracy: 1)
+        XCTAssertEqual(stickyNewTab.minY - dots.maxY, MacBrowserLayout.sidebarFooterGap, accuracy: 1.5)
     }
     func testPrivacyShieldAndAddressFitDefaultAndMinimumWithSidebar() async throws {
         let profiles = BrowserProfiles(testing: true); defer { profiles.shutdown() }

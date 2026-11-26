@@ -61,8 +61,10 @@ struct SidebarSearchPanel: View {
 
     private func resultRow(_ tab: BrowserTab, selected: Bool, request: ProfileScoped<SidebarTabQuery>, style: SidebarChromaticStyle) -> some View {
         let active = tab.id == controller.session.selectedTabID
-        let radius = OrivLayout.sidebarSelectionRadius
-        let ink = active ? style.ink : nil
+        let radius = OrivMacV3.Radius.row
+        let mode = OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: environment.colorScheme,
+                                                    isPrivateWindow: environment.v3AppearanceMode == .private)
+        let ink = active ? style.v3ActiveInk(mode: mode) : nil
         return Button { activate(tab.id, request: request) } label: {
             HStack(spacing: OrivSpacing.small) {
                 SiteIdentity(url: tab.url, size: OrivIcon.footer, isPrivate: tab.isPrivate,
