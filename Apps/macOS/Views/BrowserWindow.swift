@@ -31,6 +31,7 @@ struct BrowserWindow: View {
     @State private var startAddressSlot: CGRect? = nil
     @State private var addressMorphOpacity: Double = 1
     @State private var addressMorphFadeTask: Task<Void, Never>?
+    @State private var addressMorphStartedAt: Date?
     @Namespace private var addressMorphNamespace
     @State private var passwordGuideFallback = false
     @State private var requestingPassword = false
@@ -157,14 +158,16 @@ struct BrowserWindow: View {
             }
             .onChange(of: controller.scoped(session.selectedTabID)) { old, new in
                 guard old.owner == new.owner else { return }
-                addressFocused = false; syncAddress()
+                addressFocused = false; endAddressEditing(); syncAddress()
                 ui.showFind = false; ui.showSiteInfo = false; ui.showProtection = false
             }
             .onChange(of: controller.scoped(tab?.url)) { old, new in
                 if old.owner == new.owner, !addressFocused { syncAddress() }
             }
             .onChange(of: isStartPage) { _, onStart in
-                if !onStart { startAddressSlot = nil }
+                // Keep the last measured slot: returning to a start page then has its exact
+                // target in the first frame instead of an estimate corrected mid-travel.
+                addressMorphStartedAt = Date()
                 addressMorphFadeTask?.cancel()
                 addressMorphFadeTask = nil
                 if reduceMotion && !BackgroundUIMode.isEnabled {
@@ -349,11 +352,7 @@ struct BrowserWindow: View {
                             return startRect.minY
                         }
                         if useStartSlot {
-                            return OrivMacV3.StartLayout.headerTopMargin(for: cardProxy.size.height, hasTopBars: hasPageTopBars)
-                                + OrivMacV3.StartLayout.profileChipAvatar
-                                + OrivMacV3.StartLayout.titleTopGap
-                                + OrivMacV3.ToolbarLayout.addressFocusHeight
-                                + OrivMacV3.StartLayout.bigFieldTopMargin
+                            return OrivMacV3.StartLayout.bigFieldTop(for: cardProxy.size, hasTopBars: hasPageTopBars)
                         }
                         return (MacBrowserLayout.headerHeight - targetHeight) / 2
                     }()
@@ -689,6 +688,15 @@ struct BrowserWindow: View {
         .orivV3Glass(OrivMacV3.Toolbar.groupTint(v3Mode), in: Capsule())
         .orivV3Shadow(OrivMacV3.Toolbar.groupShadow(v3Mode))
         .browserGeometryMarker("browserNavGroupGeometry")
+    }
+
+    /// The focus state alone does not stop AppKit's field editor: without this, a tab
+    /// switch leaves the toolbar showing the full URL with a live selection.
+    private func endAddressEditing() {
+        guard let window = windowContext.window,
+              let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+              editor.delegate is FocusAwareAddressField else { return }
+        window.makeFirstResponder(nil)
     }
 
     private func addressCapsule(isBigField: Bool, width: CGFloat, height: CGFloat) -> some View {
@@ -1191,7 +1199,15 @@ struct BrowserWindow: View {
         }
         else {
             StartPage(session: session, isPrivate: tab.isPrivate, profile: profiles?.active ?? controller.profile, hasTopBars: hasPageTopBars, openLibrary: { controller.library = $0 }, onAddressSlotChange: { rect in
-                if startAddressSlot != rect { startAddressSlot = rect }
+                guard startAddressSlot != rect else { return }
+                // A measurement that lands while the field is travelling retargets the same
+                // motion; outside it (window resizing) the field follows without lag.
+                let travelling = addressMorphStartedAt.map {
+                    Date().timeIntervalSince($0) < OrivMacV3.Motion.addressMorphRetargetWindow
+                } ?? false
+                withAnimation(travelling ? OrivMacV3.Motion.addressMorphGeometry(reduceMotion: reduceMotion) : nil) {
+                    startAddressSlot = rect
+                }
             }, addressSlotSpace: Self.pageCardSpace)
                 .overlay {
                     HomeProfileFade(epoch: controller.sidebarDragID,
@@ -1201,6 +1217,7 @@ struct BrowserWindow: View {
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
+                .transition(.opacity.animation(OrivMacV3.Motion.startPageFade(reduceMotion: reduceMotion)))
         }
     }
 

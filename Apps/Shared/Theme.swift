@@ -3471,6 +3471,22 @@ enum OrivMacV3 {
             return min(columnWidth, max(min(columnMinWidth, available), available))
         }
 
+        static let heroTitleLineHeight: CGFloat = 35
+
+        /// The start page's header margin: narrow cards wrap bookmarks to two rows,
+        /// so they use the compact margin whatever their height.
+        static func pageTopMargin(for cardSize: CGSize, hasTopBars: Bool) -> CGFloat {
+            cardSize.width < bookmarkWrapCardWidth
+                ? headerTopMargin(for: .zero, hasTopBars: hasTopBars)
+                : headerTopMargin(for: cardSize.height, hasTopBars: hasTopBars)
+        }
+
+        /// Where the big field sits before the start page reports its measured slot.
+        static func bigFieldTop(for cardSize: CGSize, hasTopBars: Bool) -> CGFloat {
+            pageTopMargin(for: cardSize, hasTopBars: hasTopBars) + profileChipAvatar + titleTopGap
+                + heroTitleLineHeight + bigFieldTopMargin
+        }
+
         static func headerTopMargin(for cardHeight: CGFloat, hasTopBars: Bool = false) -> CGFloat {
             let base: CGFloat
             if cardHeight >= shortWindowHeightThreshold {
@@ -3541,7 +3557,15 @@ enum OrivMacV3 {
         static let standard = Animation.easeInOut(duration: standardDuration)
         static let standardReduced = Animation.easeInOut(duration: reducedDuration)
         static let addressFocus = Animation.spring(response: 0.24, dampingFraction: 0.88)
-        static let addressMorph = Animation.spring(response: 0.34, dampingFraction: 0.90)
+        /// Start page <-> toolbar travel: critically damped (no overshoot or long tail),
+        /// about 95% there in 0.15 s and settled by about 0.25 s.
+        static let addressMorph = Animation.spring(response: 0.24, dampingFraction: 1.0)
+        /// The start page's content fades with the field's travel instead of popping in.
+        static let startPageFade = Animation.easeOut(duration: 0.18)
+        static let startPageFadeReduced = Animation.easeInOut(duration: 0.12)
+        static func startPageFade(reduceMotion: Bool) -> Animation { reduceMotion ? startPageFadeReduced : startPageFade }
+        /// How long after a start/page switch a late slot measurement still joins the travel.
+        static let addressMorphRetargetWindow: TimeInterval = 0.5
         static let addressMorphReduced = Animation.easeInOut(duration: reducedDuration)
         static let popover = Animation.spring(response: 0.22, dampingFraction: 0.92)
         static let popoverReduced = Animation.easeInOut(duration: popoverReducedDuration)

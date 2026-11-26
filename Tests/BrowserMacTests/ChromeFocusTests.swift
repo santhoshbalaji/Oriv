@@ -1177,6 +1177,74 @@ import XCTest
         XCTAssertNil(list.insertionMarkerFrame)
     }
 
+    func testStartPageAddressMorphTravelsWithoutJumpsAndClosingEndsEditing() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let tab = try XCTUnwrap(c.session.selectedTab)
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:18768/morph/article"))
+        tab.webView.loadHTMLString("<body>Morph fixture</body>", baseURL: url)
+        try await wait("Morph fixture did not load") { tab.url == url && !tab.webView.isLoading }
+        let w = host(c, reduceMotion: false); defer { w.close() }
+        var field: FocusAwareAddressField? {
+            w.contentView.flatMap { views($0).compactMap { $0 as? FocusAwareAddressField }.first }
+        }
+        try await wait("Address capsule did not mount") { field != nil && self.marker("browserAddressGeometry", in: w) != nil }
+        func capsule() -> NSRect {
+            w.contentView?.layoutSubtreeIfNeeded()
+            return self.marker("browserAddressGeometry", in: w).map { $0.convert($0.bounds, to: nil) } ?? .zero
+        }
+        /// Samples the capsule until it rests, so each frame can be checked for travel direction.
+        func travel(from origin: NSRect, _ action: () -> Void) async throws -> [NSRect] {
+            action()
+            var frames: [NSRect] = [origin, capsule()]
+            var still = 0
+            let start = Date()
+            // The tab switch renders a frame or two later: wait for the first change.
+            while frames.last == origin, Date().timeIntervalSince(start) < 1 {
+                try await Task.sleep(for: .milliseconds(4))
+                frames.append(capsule())
+            }
+            while still < 8, Date().timeIntervalSince(start) < 2 {
+                try await Task.sleep(for: .milliseconds(8))
+                let frame = capsule()
+                still = frame == frames.last ? still + 1 : 0
+                frames.append(frame)
+            }
+            return frames
+        }
+        func assertMonotonic(_ frames: [NSRect], _ label: String) {
+            guard let first = frames.first, let last = frames.last else { return XCTFail("\(label): no frames") }
+            let down = last.minY < first.minY
+            for (previous, next) in zip(frames, frames.dropFirst()) {
+                // Window coordinates: travelling down the card lowers minY. A slot correction
+                // applied without animation shows up as a step against the direction of travel.
+                let step = next.minY - previous.minY
+                XCTAssertLessThanOrEqual(down ? step : -step, 0.5, "\(label) moved against its travel: \(previous) -> \(next)")
+            }
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        let toolbar = capsule()
+
+        let opening = try await travel(from: toolbar) { c.newTab() }
+        assertMonotonic(opening, "Opening a new tab")
+        let start = try XCTUnwrap(opening.last)
+        XCTAssertEqual(start.height, OrivMacV3.StartLayout.bigFieldSize.height, accuracy: 1)
+        XCTAssertLessThan(start.minY, toolbar.minY - 100, "The field settles in the start page slot")
+
+        let closing = c.session.selectedTabID
+        try await wait("New tab did not focus the address") { field?.currentEditor() != nil }
+        let closingID = try XCTUnwrap(closing)
+        let returning = try await travel(from: capsule()) { c.session.closeTab(closingID) }
+        assertMonotonic(returning, "Closing the new tab")
+        let back = try XCTUnwrap(returning.last)
+        XCTAssertEqual(back.minY, toolbar.minY, accuracy: 1, "The field returns to the toolbar")
+        XCTAssertNil(field?.currentEditor(), "Closing the new tab ends address editing")
+        XCTAssertEqual(field?.stringValue, URLDisplay.site(url), "The toolbar shows the compact site, not a selected URL")
+
+        let reopening = try await travel(from: capsule()) { c.newTab() }
+        assertMonotonic(reopening, "Reopening a new tab")
+        XCTAssertEqual(try XCTUnwrap(reopening.last).minY, start.minY, accuracy: 1)
+    }
+
     func testAddressCapsulePaddingSelectsFullURLAndSiteInfoKeepsItsAction() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let tab = try XCTUnwrap(c.session.selectedTab)
