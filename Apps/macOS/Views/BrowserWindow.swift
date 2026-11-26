@@ -51,13 +51,13 @@ struct BrowserWindow: View {
     private var effectiveAddressMode: OrivMacV3.AppearanceMode { (isStartPage && isPrivateTab) ? .private : v3Mode }
     private var usesEmbeddedPrivateStartCard: Bool { isStartPage && isPrivateTab && !isPrivateWindow }
     private var increasedContrast: Bool { contrast == .increased }
-    private var usesReducedBackdrop: Bool { reduceTransparency || captureReduceTransparency || increasedContrast }
+    private var usesReducedBackdrop: Bool { reduceTransparency || captureReduceTransparency || increasedContrast || theme.isT3Code }
     private var usesOpaqueToolbar: Bool {
         OrivMacV3.usesOpaqueSurface(theme: theme, reduceTransparency: reduceTransparency,
                                     captureReduceTransparency: captureReduceTransparency, contrast: contrast)
     }
     private var requiresSolidScrollEdge: Bool {
-        reduceTransparency || captureReduceTransparency || increasedContrast || v3Mode == .black
+        reduceTransparency || captureReduceTransparency || increasedContrast || v3Mode == .black || theme.isT3Code
     }
     private var siteProtectionsActive: Bool {
         guard let tab, let url = tab.url else { return false }
@@ -424,6 +424,7 @@ struct BrowserWindow: View {
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(BrowserWindowChrome(windowContext: windowContext, compact: controller.sidebar.reservesRail, sidebarWidth: controller.sidebar.width,
             backdrop: OrivMacV3.Backdrop.reduced(v3Mode), usesWindowMaterial: usesWindowMaterial,
+            darkWindowControls: isPrivateWindow,
             initialContentFocus: tab?.url != nil || tab?.hasLoaded == true ? tab?.webView : nil,
             shouldApplyProfileSwitchFocus: profileSwitchFocus, profileEpoch: controller.sidebarDragID,
             externalPresentationRequest: session.isExternalPrivate ? profiles?.externalPresentationRequest : nil,
@@ -566,7 +567,7 @@ struct BrowserWindow: View {
             return .handled
         }
         .accessibilitySortPriority(2)
-        .foregroundStyle(theme.text)
+        .foregroundStyle(isPrivateWindow ? OrivMacV3.Ink.secondary(v3Mode, increasedContrast: increasedContrast) : theme.text)
     }
 
     private func toggleSidebar() {

@@ -2717,6 +2717,7 @@ enum OrivMacV3 {
 
     enum Handoff {
         static let solidBgHex: UInt32 = 0x33263D
+        static let pickerSolidFillHex: UInt32 = 0x43374C
         static let messageInkHex: UInt32 = 0xEAD8FF
         // Top stop tightened from #A855F7 (3.96:1) to #9B44F0 (4.68:1) so white ink passes WCAG AA across the full gradient.
         static let moveButtonTopHex: UInt32 = 0x9B44F0
@@ -2732,6 +2733,7 @@ enum OrivMacV3 {
         static let shadow = DualShadow(primary: ShadowSpec(color: rgba(0x000000, 0.26), radius: 20, y: 6))
         static let messageInk = Theme.hex(messageInkHex)
         static let pickerFill = rgba(0xFFFFFF, 0.08)
+        static let pickerHoverFill = rgba(0xFFFFFF, 0.14)
         static let pickerBorder = rgba(0xD8B4FE, 0.20)
         static let moveButtonGradient = LinearGradient(
             colors: [Theme.hex(moveButtonTopHex), Theme.hex(moveButtonBottomHex)],
@@ -2739,6 +2741,28 @@ enum OrivMacV3 {
         )
         static let moveButtonSolid = Theme.hex(moveButtonSolidHex)
         static let moveButtonInk = Theme.hex(0xFFFFFF)
+        static let moveButtonSpecularTop = rgba(0xFFFFFF, 0.30)
+        static let moveButtonHoverOverlay = rgba(0xFFFFFF, 0.08)
+        static let moveButtonPressedOverlay = rgba(0x000000, 0.14)
+        static let dismissHoverFill = rgba(0xD8B4FE, 0.10)
+        static let dismissPressedFill = rgba(0xD8B4FE, 0.16)
+
+        static func messageForeground(increasedContrast: Bool) -> Color {
+            increasedContrast ? Ink.primary(.private) : messageInk
+        }
+
+        static func pickerSurface(solid: Bool, hovered: Bool = false) -> Color {
+            if solid { return hovered ? Theme.hex(0x52425D) : Theme.hex(pickerSolidFillHex) }
+            return hovered ? pickerHoverFill : pickerFill
+        }
+
+        static func pickerOutline(increasedContrast: Bool) -> Color {
+            increasedContrast ? Card.rimIncreasedContrast(.private) : pickerBorder
+        }
+
+        static func keepForeground(increasedContrast: Bool) -> Color {
+            Ink.secondary(.private, increasedContrast: increasedContrast)
+        }
     }
 
     // MARK: - 2.7 Start Page Surface Tokens
@@ -3357,11 +3381,25 @@ enum OrivMacV3 {
         static let suggestionEnginePillPaddingVertical: CGFloat = 2
         static let handoffHeight: CGFloat = 44
         static let handoffTopOffset: CGFloat = 58
+        static let handoffTopGap: CGFloat = handoffTopOffset - overlayHeight
+        static let handoffBottomGap: CGFloat = OrivSpacing.small
         static let handoffHorizontalInset: CGFloat = 24
         static let handoffLeadingPadding: CGFloat = 14
         static let handoffTrailingPadding: CGFloat = 10
         static let handoffGap: CGFloat = 12
+        static let handoffMediumGap: CGFloat = 10
+        static let handoffCompactGap: CGFloat = OrivSpacing.small
         static let handoffControlHeight: CGFloat = 26
+        static let handoffPickerDotSize: CGFloat = 8
+        static let handoffPickerPaddingHorizontal: CGFloat = 9
+        static let handoffPickerInnerGap: CGFloat = 6
+        static let handoffMovePaddingHorizontal: CGFloat = 11
+        static let handoffDismissPaddingHorizontal: CGFloat = 6
+        static let handoffDismissInnerGap: CGFloat = 5
+        static let handoffMessageMinWidth: CGFloat = 120
+        static let handoffMessageIdealWidth: CGFloat = 132
+        static let handoffCompactMessageMinWidth: CGFloat = 72
+        static let handoffCompactMessageIdealWidth: CGFloat = 80
     }
 
     // MARK: - 3.5 Start Page Geometry (Mac-only; Q8 applied)

@@ -461,7 +461,7 @@ private struct SidebarSection {
         let unpinningRegular = pinDrag?.isPinned == true && pinDrag?.isPrivate == false
         let unpinningPrivate = pinDrag?.isPinned == true && pinDrag?.isPrivate == true
         let icons = configuration.rail || configuration.peek
-        let privateHeading = configuration.controller.profile == nil ? nil : "Private"
+        let privateHeading: String? = "Private"
         var hasVisibleSection = false
         let groups: [(SidebarSection.Kind, [BrowserTab], String?, String, Bool)] = [
             (.pinned, pinned, "Pinned", "Pin tab", pinning),
@@ -499,7 +499,7 @@ private struct SidebarSection {
         switch group.kind {
         case .pinned: heading = "Pinned"
         case .regular: heading = "Tabs"
-        case .privateTabs: heading = controller?.profile == nil ? nil : "Private"
+        case .privateTabs: heading = "Private"
         case .empty: heading = nil
         }
         return SidebarSection(kind: group.kind, tabs: [], heading: isIconLayout ? nil : heading,

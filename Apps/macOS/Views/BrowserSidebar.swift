@@ -283,7 +283,7 @@ struct BrowserSidebar: View {
             if !privateTabs.isEmpty { height += OrivSpacing.medium - OrivMacV3.SidebarLayout.tabRowGap }
         }
         if !privateTabs.isEmpty {
-            if controller.profile != nil { height += OrivMacV3.SidebarLayout.sectionTotalHeight }
+            height += OrivMacV3.SidebarLayout.sectionTotalHeight
             height += CGFloat(privateTabs.count) * rowPitch
         }
         return height
@@ -312,26 +312,27 @@ struct BrowserSidebar: View {
     @ViewBuilder private func searchField(firstResult: UUID?) -> some View {
         let request = controller.tabSearchRequest
         let secondary = OrivMacV3.Ink.secondary(mode, increasedContrast: contrast == .increased)
+        let searchPlaceholder = privateWindow ? OrivStrings.searchPrivateTabs : OrivStrings.searchTabs
         if railLayout {
             Button { controller.searchTabs() } label: {
                 HStack(spacing: OrivSpacing.small) {
                     Image(systemName: "magnifyingglass").frame(width: MacBrowserLayout.railItemWidth, height: MacBrowserLayout.railItemHeight)
-                    if peeking { Text(OrivStrings.searchTabs).modifier(SidebarLabelFade()); Spacer() }
+                    if peeking { Text(searchPlaceholder).modifier(SidebarLabelFade()); Spacer() }
                 }
             }.frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
                 .buttonStyle(SidebarToneButtonStyle()).focused($utilityFocus, equals: "search")
                 .browserGeometryMarker("sidebarSearchGeometry")
-                .accessibilityLabel(OrivStrings.searchTabs).help("Search Tabs (⇧⌘A)")
+                .accessibilityLabel(searchPlaceholder).help("Search Tabs (⇧⌘A)")
                 .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
                 .padding(.horizontal, MacBrowserLayout.railInset)
         } else {
             OrivSearchField(text: $controller.tabSearch, shortcut: "⇧⌘A", sidebar: true,
                             focused: searchFocused, ink: secondary,
                             clearLabel: "Clear tab search", onClear: { searchFocused = true }) {
-                TextField(OrivStrings.searchTabs, text: $controller.tabSearch,
-                          prompt: Text(OrivStrings.searchTabs).foregroundStyle(secondary))
-                    .focused($searchFocused).accessibilityLabel(OrivStrings.searchTabs).accessibilityIdentifier("tabSearchField")
-                    .accessibilityHint("Press Shift-Command-A to focus Search tabs.")
+                TextField(searchPlaceholder, text: $controller.tabSearch,
+                          prompt: Text(searchPlaceholder).foregroundStyle(secondary))
+                    .focused($searchFocused).accessibilityLabel(searchPlaceholder).accessibilityIdentifier("tabSearchField")
+                    .accessibilityHint("Press Shift-Command-A to focus \(searchPlaceholder).")
                     .onExitCommand { controller.dismissTabSearch(); focusTabAfterSearch(session.selectedTabID) }
                     .onKeyPress(.downArrow) {
                         guard request == controller.tabSearchRequest,
@@ -590,10 +591,13 @@ struct SidebarSectionHeading: View {
         let mode = OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: scheme,
                                                     isPrivateWindow: v3Mode == .private)
         let increased = contrast == .increased
+        let privateHeader = title == "Private" && mode == .private
         SectionHeader(title: title, kind: .sidebar, count: count,
                       symbol: title == "Private" ? "eyeglasses" : nil,
                       symbolInk: OrivMacV3.Semantic.privateAccent(mode, increasedContrast: increased),
-                      ink: OrivMacV3.Ink.secondary(mode, increasedContrast: increased),
+                      ink: privateHeader
+                        ? OrivMacV3.Semantic.privateAccent(mode, increasedContrast: increased)
+                        : OrivMacV3.Ink.secondary(mode, increasedContrast: increased),
                       countInk: OrivMacV3.Ink.tertiary(mode, onSidebar: true, increasedContrast: increased))
         .browserGeometryMarker("sidebarSection-\(title)", when: marksGeometry)
         .padding(.horizontal, OrivMacV3.SidebarLayout.sectionPaddingHorizontal)

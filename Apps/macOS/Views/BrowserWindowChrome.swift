@@ -86,6 +86,9 @@ struct BrowserWindowChrome: NSViewRepresentable {
     var sidebarWidth = MacBrowserLayout.sidebarWidth
     var backdrop: Color? = nil
     var usesWindowMaterial = false
+    /// Private windows are always Amethyst Dusk, so their traffic lights use the
+    /// dark rendering even when the app appearance is Light.
+    var darkWindowControls = false
     var initialContentFocus: NSView? = nil
     var shouldApplyProfileSwitchFocus: (() -> Bool)? = nil
     var profileEpoch: UUID? = nil
@@ -100,6 +103,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         view.compact = compact
         view.backdrop = backdrop.map { NSColor($0) }
         view.usesWindowMaterial = usesWindowMaterial
+        view.darkWindowControls = darkWindowControls
         view.stateChanged = stateChanged
         view.contentWidthChanged = contentWidthChanged
         windowContext.layoutDirection = context.environment.layoutDirection
@@ -125,6 +129,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         var compact = false
         var backdrop: NSColor?
         var usesWindowMaterial = false
+        var darkWindowControls = false
         var stateChanged: ((Bool, Bool) -> Void)?
         var contentWidthChanged: ((CGFloat) -> Void)?
         private var widthTask: Task<Void, Never>?
@@ -255,6 +260,8 @@ struct BrowserWindowChrome: NSViewRepresentable {
                     // Only position controls in this window. During fullscreen
                     // AppKit moves them to its auto-revealing titlebar host.
                     guard button.window === window else { continue }
+                    let controlsAppearance = darkWindowControls ? NSAppearance(named: .darkAqua) : nil
+                    if button.appearance?.name != controlsAppearance?.name { button.appearance = controlsAppearance }
                     let inset = (compact ? MacBrowserLayout.railLightsInset : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing
                     let rtl = windowContext?.layoutDirection == .rightToLeft
                     let x = rtl ? window.frame.width - inset - button.frame.width : inset
