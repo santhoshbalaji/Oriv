@@ -3,11 +3,6 @@ import BrowserCore
 import BrowserEngine
 import SwiftUI
 
-struct MacStartAddressSlotBounds: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>? { nil }
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = nextValue() ?? value }
-}
-
 /// Fable-layout Mac start page rendered inside the Neon floating frame.
 /// The single persistent `AddressField` overlay positions itself over the
 /// reserved big-field slot reported via `onAddressSlotChange`.
@@ -26,8 +21,6 @@ struct StartPage: View {
     let openLibrary: (LibrarySection) -> Void
     var onAddressSlotChange: (CGRect) -> Void = { _ in }
     @State private var formattedDate = Self.formatDate(.now)
-    @State private var slotInDocument: CGRect = .zero
-    @State private var scrollOffsetY: CGFloat = 0
 
     private var mode: OrivMacV3.AppearanceMode { isPrivate ? .private : windowMode }
     private var contrast: ColorSchemeContrast { captureContrast ?? systemContrast }
@@ -37,6 +30,7 @@ struct StartPage: View {
                                     captureReduceTransparency: captureReduceTransparency, contrast: contrast)
     }
 
+    private static let viewportSpace = "startPageViewport"
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.setLocalizedDateFormatFromTemplate("EEEEMMMMd")
@@ -47,71 +41,71 @@ struct StartPage: View {
         dateFormatter.string(from: date)
     }
 
-    private func reportSlot(docRect: CGRect, scrollY: CGFloat) {
-        guard docRect.width > 0, docRect.height > 0 else { return }
-        let shifted = CGRect(x: docRect.minX, y: docRect.minY - scrollY, width: docRect.width, height: docRect.height)
-        onAddressSlotChange(shifted)
-    }
-
     var body: some View {
         GeometryReader { proxy in
             let cardWidth = proxy.size.width
             let cardHeight = proxy.size.height
-            let columnWidth = OrivMacV3.StartLayout.columnWidth(for: cardWidth)
-            let topMargin = OrivMacV3.StartLayout.headerTopMargin(for: cardHeight, hasTopBars: hasTopBars)
-            TransparentVerticalScroll(
-                viewportSize: proxy.size,
-                onScrollYChange: { offsetY in
-                    scrollOffsetY = offsetY
-                    reportSlot(docRect: slotInDocument, scrollY: offsetY)
+            // Render without a scroll view whenever the page fits (the normal
+            // case); fall back to scrolling only on short windows.
+            ViewThatFits(in: .vertical) {
+                pageContent(cardWidth: cardWidth, cardHeight: cardHeight)
+                    .frame(width: max(1, cardWidth))
+                    .frame(minHeight: max(1, cardHeight), alignment: .top)
+                ScrollView(.vertical) {
+                    pageContent(cardWidth: cardWidth, cardHeight: cardHeight)
+                        .frame(width: max(1, cardWidth))
                 }
-            ) {
-                VStack(spacing: .zero) {
-                    OrivMacV3.Card.fillStartPage
-                        .frame(height: topMargin)
-                        .accessibilityHidden(true)
-                    headerChip
-                    Text(isPrivate ? "Private Browsing" : "Where to?")
-                        .font(OrivMacV3.Typography.startHeroTitle)
-                        .tracking(OrivMacV3.Typography.startHeroTracking)
-                        .foregroundStyle(OrivMacV3.Ink.primary(mode))
-                        .padding(.top, OrivMacV3.StartLayout.titleTopGap)
-                        .accessibilityAddTraits(.isHeader)
-                    OrivMacV3.Card.fillStartPage
-                        .frame(width: columnWidth, height: OrivMacV3.StartLayout.bigFieldSize.height)
-                        .padding(.top, OrivMacV3.StartLayout.bigFieldTopMargin)
-                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("startPageDocument")) } action: { rect in
-                            slotInDocument = rect
-                            reportSlot(docRect: rect, scrollY: scrollOffsetY)
-                        }
-                        .accessibilityHidden(true)
-                    if isPrivate {
-                        privateInfoCard(cardWidth: cardWidth, columnWidth: columnWidth)
-                            .padding(.top, OrivMacV3.StartLayout.privateCardTopGap)
-                    } else {
-                        MacStartPageSites(
-                            session: session,
-                            mode: mode,
-                            cardWidth: cardWidth,
-                            columnWidth: columnWidth,
-                            usesSolid: usesSolid,
-                            increasedContrast: increasedContrast,
-                            open: { session.openSavedPage($0) },
-                            showBookmarks: { openLibrary(.bookmarks) },
-                            showHistory: { openLibrary(.history) }
-                        )
-                    }
-                    Spacer(minLength: OrivSpacing.xl)
-                    shortcutHintsFooter(cardWidth: cardWidth)
-                        .padding(.bottom, OrivMacV3.StartLayout.footerBottomInset)
-                }
-                .frame(width: max(1, cardWidth))
-                .frame(minHeight: max(1, cardHeight))
-                .coordinateSpace(name: "startPageDocument")
+                .scrollIndicators(.automatic)
+                .scrollEdgeEffectHidden(true, for: .all)
             }
         }
+        .coordinateSpace(name: Self.viewportSpace)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(isPrivate ? "Private Browsing Start Page" : "Start Page")
+    }
+
+    private func pageContent(cardWidth: CGFloat, cardHeight: CGFloat) -> some View {
+        let columnWidth = OrivMacV3.StartLayout.columnWidth(for: cardWidth)
+        let topMargin = OrivMacV3.StartLayout.headerTopMargin(for: cardHeight, hasTopBars: hasTopBars)
+        return VStack(spacing: .zero) {
+            headerChip
+            Text(isPrivate ? "Private Browsing" : "Where to?")
+                .font(OrivMacV3.Typography.startHeroTitle)
+                .tracking(OrivMacV3.Typography.startHeroTracking)
+                .foregroundStyle(OrivMacV3.Ink.primary(mode))
+                .padding(.top, OrivMacV3.StartLayout.titleTopGap)
+                .accessibilityAddTraits(.isHeader)
+            // Reserved slot: the window's single AddressField capsule is
+            // positioned over this rect, so the text field is never re-created.
+            Color.clear
+                .frame(width: columnWidth, height: OrivMacV3.StartLayout.bigFieldSize.height)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.viewportSpace)) } action: { rect in
+                    guard rect.width > 0, rect.height > 0 else { return }
+                    onAddressSlotChange(rect)
+                }
+                .padding(.top, OrivMacV3.StartLayout.bigFieldTopMargin)
+                .accessibilityHidden(true)
+            if isPrivate {
+                privateInfoCard(cardWidth: cardWidth, columnWidth: columnWidth)
+                    .padding(.top, OrivMacV3.StartLayout.privateCardTopGap)
+            } else {
+                MacStartPageSites(
+                    session: session,
+                    mode: mode,
+                    cardWidth: cardWidth,
+                    columnWidth: columnWidth,
+                    usesSolid: usesSolid,
+                    increasedContrast: increasedContrast,
+                    open: { session.openSavedPage($0) },
+                    showBookmarks: { openLibrary(.bookmarks) },
+                    showHistory: { openLibrary(.history) }
+                )
+            }
+            Spacer(minLength: OrivSpacing.xl)
+            shortcutHintsFooter(cardWidth: cardWidth)
+                .padding(.bottom, OrivMacV3.StartLayout.footerBottomInset)
+        }
+        .padding(.top, topMargin)
     }
 
     @ViewBuilder
@@ -619,99 +613,5 @@ private struct StartAppIcon: View {
         }
         .orivV3Shadow(showsShadow ? OrivMacV3.StartPage.appIconShadow(mode) : .none)
         .accessibilityHidden(true)
-    }
-}
-
-/// Transparent vertical NSScrollView host so the start page shows the window
-/// backdrop gradient through the rim-only card in both live compositing and
-/// off-screen snapshots while supporting native macOS scrolling on short windows.
-private struct TransparentVerticalScroll<Content: View>: NSViewRepresentable {
-    let viewportSize: CGSize
-    let onScrollYChange: (CGFloat) -> Void
-    @ViewBuilder let content: () -> Content
-
-    func makeCoordinator() -> Coordinator { Coordinator(onScrollYChange: onScrollYChange) }
-
-    func makeNSView(context: Context) -> ScrollHost {
-        let scroll = ScrollHost()
-        let clip = FlippedClipView()
-        clip.drawsBackground = false
-        clip.postsBoundsChangedNotifications = true
-        scroll.contentView = clip
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
-        scroll.hasVerticalScroller = true
-        scroll.hasHorizontalScroller = false
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        scroll.automaticallyAdjustsContentInsets = false
-        let hosted = NSHostingView(rootView: AnyView(content().environment(\.self, context.environment)))
-        hosted.sizingOptions = []
-        scroll.documentView = hosted
-        NotificationCenter.default.addObserver(
-            context.coordinator,
-            selector: #selector(Coordinator.boundsDidChange(_:)),
-            name: NSView.boundsDidChangeNotification,
-            object: clip
-        )
-        return scroll
-    }
-
-    func updateNSView(_ scroll: ScrollHost, context: Context) {
-        context.coordinator.onScrollYChange = onScrollYChange
-        let hosted = scroll.documentView as? NSHostingView<AnyView>
-        hosted?.rootView = AnyView(content().environment(\.self, context.environment))
-        scroll.updateDocumentSize(viewportSize: viewportSize)
-    }
-
-    static func dismantleNSView(_ scroll: ScrollHost, coordinator: Coordinator) {
-        NotificationCenter.default.removeObserver(coordinator)
-    }
-
-    @MainActor final class Coordinator: NSObject {
-        var onScrollYChange: (CGFloat) -> Void
-        private var lastY: CGFloat = 0
-
-        init(onScrollYChange: @escaping (CGFloat) -> Void) {
-            self.onScrollYChange = onScrollYChange
-        }
-
-        @objc func boundsDidChange(_ notification: Notification) {
-            guard let clip = notification.object as? NSClipView else { return }
-            let y = clip.bounds.origin.y
-            guard abs(y - lastY) > 0.25 else { return }
-            lastY = y
-            onScrollYChange(y)
-        }
-    }
-
-    final class FlippedClipView: NSClipView {
-        override var isFlipped: Bool { true }
-    }
-
-    final class ScrollHost: NSScrollView {
-        private var lastViewport: CGSize = .zero
-
-        func updateDocumentSize(viewportSize: CGSize) {
-            lastViewport = viewportSize
-            relayoutDocument()
-        }
-
-        override func layout() {
-            super.layout()
-            relayoutDocument()
-        }
-
-        private func relayoutDocument() {
-            guard let doc = documentView else { return }
-            let width = max(1, contentView.bounds.width > 0 ? contentView.bounds.width : lastViewport.width)
-            let minHeight = max(1, contentView.bounds.height > 0 ? contentView.bounds.height : lastViewport.height)
-            doc.frame.size.width = width
-            let fittingHeight = doc.fittingSize.height
-            let targetSize = CGSize(width: width, height: max(minHeight, fittingHeight))
-            if abs(doc.frame.size.width - targetSize.width) > 0.5 || abs(doc.frame.size.height - targetSize.height) > 0.5 {
-                doc.frame = CGRect(origin: .zero, size: targetSize)
-            }
-        }
     }
 }

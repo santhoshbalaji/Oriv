@@ -1754,9 +1754,6 @@ import WebKit
             return
         }
 
-        let profiles = BrowserProfiles(testing: true)
-        let controller = profiles.controller
-        let session = controller.session
         let now = Date()
         let bookmarkSites: [(String, String)] = [
             ("Apple Developer", "https://developer.apple.com/documentation/"),
@@ -1782,8 +1779,17 @@ import WebKit
         let history = frequentSites.enumerated().map { index, site in
             HistoryEntry(title: site.0, url: URL(string: site.1)!, visitedAt: now.addingTimeInterval(Double(-index * 600)), visitCount: 8 - index)
         }
-        do { try session.applyContinuity(bookmarks: bookmarks, history: history) }
-        catch { manifest.failures.append("\(mode): seed data failed: \(error)") }
+        // Seed through a session file so history counts as local visits, which is
+        // what Frequently Visited ranks (continuity history is shared-only).
+        let root = URL.temporaryDirectory.appendingPathComponent("start-\(mode)-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            let store = SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+            try store.save(BrowserSnapshot(bookmarks: bookmarks, history: history, legacyBookmarksImported: true))
+        } catch { manifest.failures.append("\(mode): seed data failed: \(error)") }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        let controller = profiles.controller
+        let session = controller.session
         if isFocusedScene {
             let devTabURL = URL(string: "https://developer.apple.com/documentation/swiftui/liquid-glass")!
             let devTab = session.addTab(url: devTabURL, select: false, load: false)
