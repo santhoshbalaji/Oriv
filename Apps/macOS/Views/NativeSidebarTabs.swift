@@ -687,15 +687,18 @@ private struct SidebarSection {
         list.layoutSubtreeIfNeeded()
         guard let frame = list.layoutAttributesForItem(at: path)?.frame else { return }
         let section = sections[path.section]
+        var target = frame
         if section.heading != nil,
            let first = list.layoutAttributesForItem(at: IndexPath(item: 0, section: path.section)),
            first.frame.minY == frame.minY,
            let header = list.layoutAttributesForSupplementaryElement(ofKind: NSCollectionView.elementKindSectionHeader,
                                                                     at: IndexPath(item: 0, section: path.section)) {
-            list.scrollToVisible(frame.union(header.frame))
-        } else {
-            list.scrollToVisible(frame)
+            target = frame.union(header.frame)
         }
+        // Already on screen: skip the scroll and the second synchronous layout, which
+        // otherwise run on every tab switch and delay the window's next frame.
+        guard !list.visibleRect.contains(target) else { return }
+        list.scrollToVisible(target)
         list.layoutSubtreeIfNeeded()
     }
 

@@ -4,10 +4,10 @@ import AppKit
 /// Foreground UI is a separate, explicit test-run permission; normal app usage
 /// without either environment variable retains its usual window behaviour.
 @MainActor enum BackgroundUIMode {
-    static var foregroundAllowed: Bool { ProcessInfo.processInfo.environment["ORIV_FOREGROUND_UI"] == "1" }
-    static var isEnabled: Bool {
-        ProcessInfo.processInfo.environment["ORIV_BACKGROUND_UI"] == "1" && !foregroundAllowed
-    }
+    // Read once: `ProcessInfo.environment` builds a new dictionary on every call, and
+    // theme code asks for this on every view update.
+    static let foregroundAllowed = ProcessInfo.processInfo.environment["ORIV_FOREGROUND_UI"] == "1"
+    static let isEnabled = ProcessInfo.processInfo.environment["ORIV_BACKGROUND_UI"] == "1" && !foregroundAllowed
     static let foregroundOnlyReason = "Foreground-only UI check: requires an active, unoccluded app or a system full-screen/menu transition. Background mode skips it; ORIV_FOREGROUND_UI=1 requires orchestrator approval."
 
     struct Audit: Encodable {

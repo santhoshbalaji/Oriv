@@ -500,8 +500,8 @@ class ProfileSidebarScrollView: NSScrollView {
                 let current = profile.id == active.id
                 let controller = profiles.loadedController(profile.id)
                 let preview = profiles.preview(for: profile)
-                let appearance = controller?.appearance ?? .system
-                let color = controller?.sidebarColor ?? .graphite
+                // An unloaded profile still previews in its own saved theme and sidebar color.
+                let (appearance, color) = profiles.savedChrome(for: profile)
                 let query = current ? controller?.tabSearch ?? "" : ""
                 if let cached = previous[profile.id], cached.profile == profile,
                    cached.query == query, cached.appearance == appearance, cached.color == color,

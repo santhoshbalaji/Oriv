@@ -238,6 +238,19 @@ import Observation
         }
     }
 
+    /// Tests substitute the store that holds an unloaded profile's saved preferences.
+    @ObservationIgnored var savedPreferencesOverride: ((BrowserProfile) -> UserDefaults?)?
+
+    /// A profile's own appearance and sidebar color, read without loading its session, so a
+    /// profile switch previews the destination in its theme rather than the system default.
+    func savedChrome(for profile: BrowserProfile) -> (appearance: BrowserAppearance, sidebarColor: SidebarColor) {
+        if let controller = loadedController(profile.id) { return (controller.appearance, controller.sidebarColor) }
+        let defaults = savedPreferencesOverride.map { $0(profile) }
+            ?? (testing ? nil : SessionFactory.profileDefaults(for: profile, bundleID: Bundle.main.bundleIdentifier ?? "local.personalbrowser.mac"))
+        return (BrowserAppearance.saved(defaults?.string(forKey: "browserAppearance")),
+                SidebarColor.saved(defaults?.string(forKey: SidebarColor.preferenceKey)))
+    }
+
     func preview(for profile: BrowserProfile) -> ProfileSidebarPreview {
         if let session = loadedController(profile.id)?.session { return ProfileSidebarPreview(session: session) }
         return profilePreviews[profile.id] ?? ProfileSidebarPreview()

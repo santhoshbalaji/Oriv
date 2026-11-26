@@ -3557,11 +3557,12 @@ enum OrivMacV3 {
         static let standard = Animation.easeInOut(duration: standardDuration)
         static let standardReduced = Animation.easeInOut(duration: reducedDuration)
         static let addressFocus = Animation.spring(response: 0.24, dampingFraction: 0.88)
-        /// Start page <-> toolbar travel: critically damped (no overshoot or long tail),
-        /// about 95% there in 0.15 s and settled by about 0.25 s.
-        static let addressMorph = Animation.spring(response: 0.24, dampingFraction: 1.0)
+        /// Start page <-> toolbar travel: a fixed-length strong ease-out. It leaves fast and
+        /// lands exactly at 0.22 s; a spring's asymptotic tail read as a slow crawl on 120 Hz.
+        static let addressMorphDuration: TimeInterval = 0.22
+        static let addressMorph = Animation.timingCurve(0.2, 0.85, 0.25, 1.0, duration: addressMorphDuration)
         /// The start page's content fades with the field's travel instead of popping in.
-        static let startPageFade = Animation.easeOut(duration: 0.18)
+        static let startPageFade = Animation.easeOut(duration: addressMorphDuration)
         static let startPageFadeReduced = Animation.easeInOut(duration: 0.12)
         static func startPageFade(reduceMotion: Bool) -> Animation { reduceMotion ? startPageFadeReduced : startPageFade }
         /// How long after a start/page switch a late slot measurement still joins the travel.

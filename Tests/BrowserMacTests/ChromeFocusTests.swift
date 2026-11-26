@@ -1188,6 +1188,7 @@ import XCTest
             w.contentView.flatMap { views($0).compactMap { $0 as? FocusAwareAddressField }.first }
         }
         try await wait("Address capsule did not mount") { field != nil && self.marker("browserAddressGeometry", in: w) != nil }
+        XCTAssertEqual(field?.focusRingType, NSFocusRingType.none, "The capsule draws its own focus halo; AppKit's ring would box the text")
         func capsule() -> NSRect {
             w.contentView?.layoutSubtreeIfNeeded()
             return self.marker("browserAddressGeometry", in: w).map { $0.convert($0.bounds, to: nil) } ?? .zero

@@ -179,6 +179,77 @@ final class ProfileSwipeTests: XCTestCase {
         return window
     }
 
+    /// Mirrors the app scene: the window follows the active profile's own appearance.
+    private struct AppearanceFixture: View {
+        let profiles: BrowserProfiles
+        var body: some View {
+            BrowserWindow(controller: profiles.controller, profiles: profiles)
+                .browserAppearance(profiles.controller.appearance)
+        }
+    }
+
+    func testProfileSwitchAppliesEachProfilesAppearance() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        try profiles.select(BrowserProfile.personalID)
+        profiles.controller.appearance = .dark
+        try profiles.select(work.id)
+        profiles.controller.appearance = .light
+        try profiles.select(BrowserProfile.personalID)
+
+        let window = makeWindow(AppearanceFixture(profiles: profiles))
+        defer { window.close() }
+        func isDark() -> Bool {
+            window.contentView?.layoutSubtreeIfNeeded()
+            return window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        }
+        let systemDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        try await eventually("Personal opens dark") { isDark() }
+
+        try profiles.select(work.id)
+        try await eventually("Work switches the window to light") { !isDark() }
+        try profiles.select(BrowserProfile.personalID)
+        try await eventually("Personal switches the window back to dark") { isDark() }
+
+        // "System" must release the previous profile's forced appearance.
+        try profiles.select(work.id)
+        profiles.controller.appearance = .system
+        try profiles.select(BrowserProfile.personalID)
+        try await eventually("Personal is dark again") { isDark() }
+        try profiles.select(work.id)
+        try await eventually("Work follows the system appearance") { isDark() == systemDark }
+        profiles.controller.appearance = .light
+        try await eventually("Work is light") { !isDark() }
+        profiles.controller.appearance = .system
+        try await eventually("Choosing System releases Light") { isDark() == systemDark }
+    }
+
+    func testUnloadedProfilePreviewUsesItsSavedAppearanceAndSidebarColor() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        XCTAssertNil(profiles.loadedController(work.id), "Work stays unloaded until it is selected")
+        let suite = "oriv.saved-chrome." + UUID().uuidString
+        let store = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { store.removePersistentDomain(forName: suite) }
+        store.set(BrowserAppearance.light.rawValue, forKey: "browserAppearance")
+        store.set(SidebarColor.rose.rawValue, forKey: SidebarColor.preferenceKey)
+        profiles.savedPreferencesOverride = { $0.id == work.id ? store : nil }
+
+        let saved = profiles.savedChrome(for: work)
+        XCTAssertEqual(saved.appearance, .light, "The swipe preview uses Work's own appearance, not System")
+        XCTAssertEqual(saved.sidebarColor, .rose, "The swipe preview uses Work's own sidebar color, not Graphite")
+
+        profiles.controller.appearance = .t3Code
+        let active = profiles.savedChrome(for: profiles.active)
+        XCTAssertEqual(active.appearance, .t3Code, "A loaded profile reports its live appearance")
+    }
+
     func testProfileSwitchTurnBudget() async throws {
         guard ProcessInfo.processInfo.environment["ORIV_PROFILE_SWITCH_BUDGET"] == "1" else {
             throw XCTSkip("Opt-in profile switch timing")
