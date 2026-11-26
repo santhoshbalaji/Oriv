@@ -4,6 +4,9 @@ enum OrivStrings {
     static let search = "Search"
     static let privateSearch = "Private search"
     static let searchTabs = "Search tabs"
+    #if os(macOS)
+    static let searchPrivateTabs = "Search private tabs"
+    #endif
     static let pageError = "This page couldn't load"
     static let pageErrorRecovery = "Check the address or your connection."
     static let tryAgain = "Try Again"

@@ -46,13 +46,13 @@ struct BrowserWindow: View {
     }
     private var isStartPage: Bool { tab?.url == nil && tab?.hasLoaded != true }
     private var increasedContrast: Bool { contrast == .increased }
-    private var usesReducedBackdrop: Bool { reduceTransparency || captureReduceTransparency || increasedContrast }
+    private var usesReducedBackdrop: Bool { reduceTransparency || captureReduceTransparency || increasedContrast || theme.isT3Code }
     private var usesOpaqueToolbar: Bool {
         OrivMacV3.usesOpaqueSurface(theme: theme, reduceTransparency: reduceTransparency,
                                     captureReduceTransparency: captureReduceTransparency, contrast: contrast)
     }
     private var requiresSolidScrollEdge: Bool {
-        reduceTransparency || captureReduceTransparency || increasedContrast || v3Mode == .black
+        reduceTransparency || captureReduceTransparency || increasedContrast || v3Mode == .black || theme.isT3Code
     }
     private var siteProtectionsActive: Bool {
         guard let tab, let url = tab.url else { return false }
@@ -506,7 +506,7 @@ struct BrowserWindow: View {
             return .handled
         }
         .accessibilitySortPriority(2)
-        .foregroundStyle(theme.text)
+        .foregroundStyle(isPrivateWindow ? OrivMacV3.Ink.secondary(v3Mode, increasedContrast: increasedContrast) : theme.text)
     }
 
     private func toggleSidebar() {

@@ -142,6 +142,13 @@ if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":
     expected = {"mac-glass-" + mode for mode in ("menu", "menu-dark", "menu-private", "menu-narrow")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
     expected = {"mac-glass-sidebar-" + mode for mode in ("light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest", "covered")}
+if os.environ.get("ORIV_GLASS_SCENE") == "private-v3":
+    expected = {"mac-glass-private-v3-" + name for name in (
+        "window-light", "window-dark", "window-black", "rail",
+        "external-dark", "external-reduced", "external-increased",
+        "external-narrow", "external-ultranarrow", "external-unknown-source",
+        "mixed-light", "mixed-dark",
+    )}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-v3":
     expected = {f"mac-glass-sidebar-v3-{mode}-{tint}-{layout}"
                 for mode in ("light", "dark", "black") for tint in ("graphite", "sky", "rose", "lavender")

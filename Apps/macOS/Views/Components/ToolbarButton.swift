@@ -44,7 +44,7 @@ struct ToolbarButtonStyle: ButtonStyle {
                             in: Capsule())
                 .overlay {
                     if highlighted && increased {
-                        OrivMacV3.CapsuleBorder(color: theme.separatorStrong, lineWidth: OrivOutline.hairline)
+                        OrivMacV3.CapsuleBorder(color: OrivMacV3.Card.rimIncreasedContrast(v3Mode), lineWidth: OrivOutline.hairline)
                     }
                 }
                 .opacity(enabled ? 1 : OrivMacV3.Toolbar.disabledOpacity(v3Mode, increasedContrast: increased))

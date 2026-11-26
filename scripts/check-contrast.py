@@ -311,6 +311,10 @@ assert "pageChrome.color\n" not in mac
 assert ".glassEffect(.regular.tint(recipe.tintColor.opacity(recipe.tintOpacity)), in: shape)" in text
 assert "shape.fill(guardColor.opacity(recipe.guardOpacity))" in text
 assert "OrivMacV3.usesOpaqueSurface(" in text
+handoff_bar_source = (ROOT / "Apps/Shared/ExternalPrivateBar.swift").read_text()
+assert "OrivMacV3.Handoff.bar" in handoff_bar_source
+assert "OrivMacV3.Handoff.moveButtonGradient" in handoff_bar_source
+assert "OrivMacV3.Handoff.moveButtonSolid" in handoff_bar_source
 
 page_colours = {f"{r:02X}{g:02X}{b:02X}" for r in range(0, 256, 17) for g in range(0, 256, 17) for b in range(0, 256, 17)}
 page_colours.update(f"{c:02X}{c:02X}{c:02X}" for c in range(256))
@@ -501,6 +505,11 @@ for (key, mode, tint_top, tint_bot, guard_col, solid_top, solid_bot,
             if step == "increase contrast":
                 v3_record(step, label, "ic border", ic_border, "panel", panel, 3.0)
                 v3_record(step, label, "ic border", ic_border, "pin tile", pin_bg, 3.0)
+            if mode == "private":
+                priv_sec_ink = v3_hex("privateAccentICDarkHex") if step == "increase contrast" else v3_hex("privateAccentDarkHex")
+                v3_record(step, label, "private section", priv_sec_ink, "panel", panel, 4.5)
+                priv_av_bg = composite("C084FC", panel, 0.24)
+                v3_record(step, label, "private avatar", priv_sec_ink, "avatar", priv_av_bg, 3.0)
         # Profile avatar ink over profile avatar background on solid sidebar fallback
         if opaque and mode != "private":
             avatar_specs = [
@@ -651,11 +660,28 @@ v3_surface_pairs = [
     ("v3 Address Dark completion", "completion", v3_hex("inlineCompletionInkDarkHex"), composite("3B82F6", v3_hex("focusSolidDarkHex"), 0.28), 4.5),
     ("v3 Address Black completion", "completion", v3_hex("inlineCompletionInkBlackHex"), composite("3B82F6", v3_hex("focusSolidBlackHex"), 0.30), 4.5),
     ("v3 Address Private completion", "completion", v3_hex("inlineCompletionInkPrivateHex"), composite("C084FC", v3_hex("focusSolidPrivateHex"), 0.28), 4.5),
-    # Handoff bar & Move button
+    # Handoff bar & Move button (normal live composite, RT solid, and IC)
     ("v3 Handoff Private", "message", v3_hex("messageInkHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private", "app name", v3_hex("primaryPrivateHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private", "glasses icon", v3_hex("privateAccentDarkHex"), v3_hex("solidBgHex"), 3.0),
+    ("v3 Handoff Private", "keep private", v3_hex("secondaryPrivateHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private live", "message", v3_hex("messageInkHex"), composite("161020", composite("3C265E", v3_hex("fillPrivateTopHex"), 0.34), 0.14), 4.5),
+    ("v3 Handoff Private live", "keep private", v3_hex("secondaryPrivateHex"), composite("161020", composite("3C265E", v3_hex("fillPrivateTopHex"), 0.34), 0.14), 4.5),
+    ("v3 Handoff Private IC", "message", v3_hex("primaryPrivateHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private IC", "glasses icon", v3_hex("privateAccentICDarkHex"), v3_hex("solidBgHex"), 3.0),
+    ("v3 Handoff Private IC", "keep private", v3_hex("secondaryICPrivateHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private IC", "border on bar", v3_hex("rimICPrivateHex"), v3_hex("solidBgHex"), 3.0),
+    ("v3 Handoff Private IC", "border on card", v3_hex("rimICPrivateHex"), v3_hex("fillPrivateHex"), 3.0),
+    ("v3 Handoff Picker", "label", v3_hex("primaryPrivateHex"), composite("FFFFFF", v3_hex("solidBgHex"), 0.08), 4.5),
+    ("v3 Handoff Picker solid", "label", v3_hex("primaryPrivateHex"), v3_hex("pickerSolidFillHex"), 4.5),
+    ("v3 Handoff Picker solid", "chevron", v3_hex("secondaryPrivateHex"), v3_hex("pickerSolidFillHex"), 3.0),
+    ("v3 Handoff Picker IC", "chevron", v3_hex("secondaryICPrivateHex"), v3_hex("pickerSolidFillHex"), 4.5),
+    ("v3 Handoff Picker IC", "border", v3_hex("rimICPrivateHex"), v3_hex("pickerSolidFillHex"), 3.0),
     ("v3 Handoff Move button top", "ink", "FFFFFF", v3_hex("moveButtonTopHex"), 4.5),
     ("v3 Handoff Move button bottom", "ink", "FFFFFF", v3_hex("moveButtonBottomHex"), 4.5),
     ("v3 Handoff Move button solid", "ink", "FFFFFF", v3_hex("moveButtonSolidHex"), 4.5),
+    ("v3 Toolbar Private IC", "border", v3_hex("rimICPrivateHex"), v3_hex("solidPrivateHex"), 3.0),
+    ("v3 Address Private pill IC", "border", v3_hex("rimICPrivateHex"), v3_hex("privatePillSolidFillHex"), 3.0),
     # Start Page big field & private card solid fallbacks
     ("v3 StartPage Light bigField", "primary", v3_hex("primaryLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
     ("v3 StartPage Light bigField", "tertiary", v3_hex("tertiaryCardLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
