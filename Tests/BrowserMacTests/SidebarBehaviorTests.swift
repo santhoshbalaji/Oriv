@@ -201,7 +201,7 @@ import XCTest
     func testExplicitNarrowExpansionOverlaysAndRestoresWidePreference() {
         let s = SidebarPresentation(); s.resize(availableWidth: 760)
         XCTAssertFalse(s.toggle()); XCTAssertTrue(s.narrowOverlay)
-        XCTAssertEqual(s.reservation, MacBrowserLayout.railWidth)
+        XCTAssertEqual(s.reservation, MacBrowserLayout.railReservation)
         XCTAssertEqual(s.width, MacBrowserLayout.sidebarWidth)
         s.dismissOverlay(); XCTAssertTrue(s.rail); XCTAssertFalse(s.preferredRail)
         s.resize(availableWidth: 1000)
@@ -213,7 +213,7 @@ import XCTest
         s.hoverEnabled = true; s.pointer(true)
         try await pause(180); XCTAssertFalse(s.peeking)
         try await pause(110); XCTAssertTrue(s.peeking)
-        XCTAssertTrue(s.preferredRail); XCTAssertEqual(s.reservation, MacBrowserLayout.railWidth)
+        XCTAssertTrue(s.preferredRail); XCTAssertEqual(s.reservation, MacBrowserLayout.railReservation)
         s.cancel()
     }
     func testPeekTravelExitAndSettingCancellation() async throws {
@@ -243,7 +243,7 @@ import XCTest
         s.pointer(true); try await pause(280); XCTAssertFalse(s.peeking)
         s.voiceOver = false; s.fullscreen(true); s.pointer(true)
         try await pause(280); XCTAssertFalse(s.peeking); XCTAssertEqual(s.reservation, 0)
-        s.fullscreen(false); XCTAssertTrue(s.rail); XCTAssertEqual(s.reservation, MacBrowserLayout.railWidth)
+        s.fullscreen(false); XCTAssertTrue(s.rail); XCTAssertEqual(s.reservation, MacBrowserLayout.railReservation)
         s.pointer(true); try await eventually("sidebar peek") { s.peeking }
         s.voiceOver = true; XCTAssertFalse(s.peeking); XCTAssertTrue(s.hoverEnabled)
     }
@@ -281,11 +281,16 @@ import XCTest
         }
         XCTAssertFalse(all.contains { $0.identifier?.rawValue.hasPrefix("sidebarClose-") == true })
     }
-    func testPinGridFitsFourToSixFixedWidthColumns() {
+    func testPinGridFitsFourToSixAdaptiveColumns() {
         for (width, columns) in [(220.0, 4), (256.0, 4), (300.0, 5), (360.0, 6)] {
-            let grid = SidebarTabs.PinGrid(availableWidth: width - 2 * MacBrowserLayout.sidebarInset)
+            let available = width - 2 * MacBrowserLayout.sidebarInset
+            let grid = SidebarTabs.PinGrid(availableWidth: available)
             XCTAssertEqual(grid.columns, columns)
-            XCTAssertEqual(grid.tileWidth, OrivLayout.sidebarPinWidth)
+            let expectedTileWidth = (available - CGFloat(columns - 1) * OrivMacV3.SidebarLayout.pinGap) / CGFloat(columns)
+            XCTAssertEqual(grid.tileWidth, expectedTileWidth, accuracy: 0.01)
+            if width >= 256 {
+                XCTAssertGreaterThanOrEqual(grid.tileWidth, OrivMacV3.SidebarLayout.pinMinWidth)
+            }
         }
     }
 
@@ -310,12 +315,14 @@ import XCTest
             let surface = try XCTUnwrap(all.first { $0.identifier?.rawValue == "sidebarSurfaceGeometry" })
             XCTAssertEqual(surface.bounds.width, 256, accuracy: 1)
             if style == .legacy { XCTAssertLessThan(scroll.contentView.bounds.width, scroll.bounds.width) }
+            let grid = SidebarTabs.PinGrid(availableWidth: scroll.contentView.bounds.width)
+            XCTAssertEqual(grid.columns, 4)
             for (index, frame) in frames.enumerated() {
-                XCTAssertEqual(frame.height, OrivLayout.sidebarPinHeight, accuracy: 1)
-                XCTAssertEqual(frame.width, OrivLayout.sidebarPinWidth, accuracy: 1)
+                XCTAssertEqual(frame.height, OrivMacV3.SidebarLayout.pinHeight, accuracy: 1)
+                XCTAssertEqual(frame.width, grid.tileWidth, accuracy: 1)
                 let rowStart = frames[index - index % 4]
                 XCTAssertEqual(frame.midY, rowStart.midY, accuracy: 1)
-                let step = OrivLayout.sidebarPinWidth + OrivLayout.sidebarPinGap
+                let step = grid.tileWidth + OrivMacV3.SidebarLayout.pinGap
                 XCTAssertEqual(frame.minX - rowStart.minX, CGFloat(index % 4) * step, accuracy: 1)
             }
             XCTAssertEqual(frames[0].minX, frames[4].minX, accuracy: 1)
@@ -325,7 +332,7 @@ import XCTest
         try await pause(350)
         let firstPinPath = try XCTUnwrap(collection.sidebar?.path(for: pins[0].id))
         let firstPinRow = try XCTUnwrap(collection.item(at: firstPinPath)?.view)
-        XCTAssertEqual(firstPinRow.bounds.height, OrivLayout.tabRowHeight, accuracy: 1)
+        XCTAssertEqual(firstPinRow.bounds.height, OrivMacV3.SidebarLayout.tabRowHeight, accuracy: 1)
         XCTAssertTrue(firstPinRow.accessibilityLabel()?.contains("New Tab") == true)
         XCTAssertNil(firstPinRow.toolTip)
         XCTAssertFalse(pins.contains(where: \.isInstantiated))
@@ -365,7 +372,7 @@ import XCTest
         try await pause(650); XCTAssertTrue(w.firstResponder === responder)
         c.sidebar.pointer(true); try await eventually("sidebar peek") { c.sidebar.peeking }
         c.toggleSidebar(); XCTAssertFalse(c.compactSidebar); XCTAssertFalse(c.sidebar.peeking)
-        XCTAssertEqual(c.sidebar.reservation, MacBrowserLayout.sidebarWidth)
+        XCTAssertEqual(c.sidebar.reservation, MacBrowserLayout.expandedReservation())
     }
     func testNativeNarrowResizeAndExplicitShortcutKeepPageReservation() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
@@ -379,7 +386,7 @@ import XCTest
         XCTAssertTrue(c.sidebar.narrowOverlay)
         let all = views(try XCTUnwrap(w.contentView))
         let top = try XCTUnwrap(all.first { $0.identifier?.rawValue == "browserTopBarGeometry" })
-        XCTAssertEqual(top.convert(top.bounds, to: nil).minX, MacBrowserLayout.railWidth, accuracy: 1)
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minX, MacBrowserLayout.railReservation, accuracy: 1)
         w.setContentSize(NSSize(width: 1000, height: 820)); try await pause(350)
         XCTAssertFalse(c.sidebar.rail); XCTAssertFalse(c.sidebar.overlay)
     }
@@ -399,7 +406,7 @@ import XCTest
             grip.mouseDragged(with: try event(.leftMouseDragged, 260 + offset))
             grip.mouseUp(with: try event(.leftMouseUp, 260 + offset))
             try await waitForSurface(width, in: window)
-            XCTAssertEqual(c.sidebar.reservation, width)
+            XCTAssertEqual(c.sidebar.reservation, MacBrowserLayout.expandedReservation(sidebarWidth: width))
             XCTAssertTrue(tab.webView === web)
         }
     }

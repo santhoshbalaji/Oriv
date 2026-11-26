@@ -186,7 +186,7 @@ final class TabSwitchCover: CoverView {
             // An instant swap has no inherited SwiftUI or layer animation.
             if self.fadesWhenReady {
                 NSAnimationContext.runAnimationGroup { context in
-                    context.duration = self.reduceMotion ? 0.15 : 0.20
+                    context.duration = OrivMacV3.Motion.caFadeDuration(reduceMotion: self.reduceMotion)
                     context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                     self.animator().alphaValue = 0
                 } completionHandler: {

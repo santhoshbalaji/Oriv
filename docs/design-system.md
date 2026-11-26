@@ -6,7 +6,7 @@ Oriv is a privacy-first native browser for Mac and iPhone. The active interface 
 
 The shared palette and tokens live in `Apps/Shared/Theme.swift` and are compiled into both apps. **System** is the default and uses the Graphite palette. Light and Dark set Graphite explicitly. Black keeps its dark canvas. The choice belongs to the current profile. When the user turns on Sync on their devices, appearance syncs for that same profile across Mac and iPhone. The continuity allowlist includes `appearance`, keyed as `preference.<profile UUID>.appearance`; different profiles retain independent choices. With Sync off, the choice stays local. Website logins, cookies and passwords remain on the device inside the profile and are never synced. See [Appearance](appearance.md) for the exact palette and website-color behavior.
 
-Use semantic theme roles for colors. Main text belongs in address fields and secondary text is used for hints and supporting text. Increase Contrast strengthens secondary text and boundaries. Native controls inherit the platform accent. Selection includes a checkmark or a 3 pt leading marker whose system-accent hue is preserved when lightness needs adjustment for contrast. Purple glasses and explicit labels identify private browsing independently of the connection-security icon.
+Use semantic theme roles for colors. Main text belongs in address fields and secondary text is used for hints and supporting text. Increase Contrast strengthens secondary text and boundaries. Native controls inherit the platform accent. Shared list selection includes a checkmark or a 3 pt leading marker whose system-accent hue is preserved when lightness needs adjustment for contrast (Mac v3 sidebar rows and address suggestions use full-row tinted pills instead; see [the Mac design v3 spec](design/spec-mac-v3.md)). Purple glasses and explicit labels identify private browsing independently of the connection-security icon.
 
 Use system text styles for iPhone controls and content so Dynamic Type can reflow. Toolbar glyphs retain compact, labeled targets while text grows. At accessibility text sizes the appearance picker becomes one column and hides decorative previews. Mac controls use native text fields, menu commands and familiar keyboard shortcuts. Use system sans-serif throughout. The Mac profile switcher uses 13 pt semibold and sheet titles use 15 pt semibold. Sidebar section headings use 11 pt semibold secondary ink, and counts use 11 pt regular. The active sidebar row uses 13 pt semibold.
 
@@ -38,13 +38,13 @@ interactive system glass, `overlay` for a solid floating surface with a border a
 shadow, and `sheet` for native presentation. Page content and libraries use solid
 or native grouped surfaces.
 
-Liquid Glass belongs to the navigation layer, the Mac sidebar, iPhone bars and floating controls. Use system foreground styles where controls sit on glass. Keep start pages and libraries on solid or native grouped surfaces. The appearance modifier disables SwiftUI transaction animations under Reduce Motion. Glass controls use solid accessibility backings under Reduce Transparency or Increase Contrast. Native sheets and menus inherit the system material preferences. Site monograms use BrowserCore’s small `SiteMonogram` suffix hint, never for security, storage or sync decisions.
+Liquid Glass belongs to the navigation layer, the Mac sidebar, iPhone bars and floating controls. Use system foreground styles where controls sit on glass. On iPhone, keep start pages and libraries on solid or native grouped surfaces; on Mac, design v3 extends the tinted window backdrop and Liquid Glass controls onto the start page (with solid fallbacks for Black, Reduce Transparency and Increase Contrast) while keeping libraries and Settings on solid or native grouped surfaces — see [the Mac design v3 spec](design/spec-mac-v3.md). The appearance modifier disables SwiftUI transaction animations under Reduce Motion. Glass controls use solid accessibility backings under Reduce Transparency or Increase Contrast. Native sheets and menus inherit the system material preferences. Site monograms use BrowserCore’s small `SiteMonogram` suffix hint, never for security, storage or sync decisions.
 
 ## Navigation
 
-Mac: a native toolbar with one address/search field, a vertical tab sidebar, and a browser content area. The start-page search affordance focuses that same field. Suggestions are available from any page. The sidebar footer opens Bookmarks, History, Downloads, Other devices and Settings.
+Mac: a floating Liquid Glass sidebar, an inset rounded page card, and a floating glass toolbar with grouped capsules and one shared `AddressField` instance whose overlay moves between the start-page search slot and the toolbar address capsule (see [the Mac design v3 spec](design/spec-mac-v3.md)). Suggestions are available from any page. The sidebar footer opens Bookmarks, History, Downloads, Other devices and Settings.
 
-The Mac header’s **Browser Actions** ellipsis opens a native SwiftUI pull-down `Menu`. Its 36 × 32 pt target uses the shared toolbar button style. The menu inherits system material, selection, dismissal, keyboard navigation and accessibility. Group Bookmark (with its current state), Copy Link / Copy Original Link and Find first, followed by a zoom section (Zoom In, Zoom Out, Actual Size with the current percentage; a palette hid the reset label in practice), tab actions (including active downloads), and Sync / reading / privacy / Password AutoFill Help. Keep page-dependent and private-tab disabled states. Password help opens a popover from its menu action. Do not reintroduce a full-window tap-catcher or a custom menu panel. The native menu inherits the platform’s accessibility material preferences. Off-screen captures verify toolbar layout only; a menu tracking window must not be opened under the background-only policy.
+The Mac header’s **Browser Actions** ellipsis opens a native SwiftUI pull-down `Menu`. In Mac v3 it sits inside the trailing glass pill group at 28 × 28 pt (see [the Mac design v3 spec](design/spec-mac-v3.md)); the menu inherits system material, selection, dismissal, keyboard navigation and accessibility. Group Bookmark (with its current state), Copy Link / Copy Original Link and Find first, followed by a zoom section (Zoom In, Zoom Out, Actual Size with the current percentage; a palette hid the reset label in practice), tab actions (including active downloads), and Sync / reading / privacy / Password AutoFill Help. Keep page-dependent and private-tab disabled states. Password help opens a popover from its menu action. Do not reintroduce a full-window tap-catcher or a custom menu panel. The native menu inherits the platform’s accessibility material preferences. Off-screen captures verify toolbar layout only; a menu tracking window must not be opened under the background-only policy.
 
 On iPhone, the bottom browser controls contain Back, Forward when available,
 the address capsule, and Show All Tabs. The capsule keeps Page Menu and Reload
@@ -108,7 +108,11 @@ icon presentation.
 Address results use shared `AddressSuggestionRow` content and native field
 editors. Group up to seven local matches under Switch to Tab, Bookmarks and
 History, followed by one explicit Search row. Highlight query text in title and
-address; keep selection visible with the existing marker. Both platforms place suggestions on solid overlays.
+address. iPhone places suggestions on solid overlays with the leading selection
+marker; Mac design v3 places suggestions in a floating Liquid Glass popover
+(falling back to a solid surface under Reduce Transparency, Increase Contrast or
+Black) with a tinted full-row selection pill — see
+[the Mac design v3 spec](design/spec-mac-v3.md).
 The group heading says “Switch to Tab” and the row badge says “Already open.”
 Inline completion selects only the host suffix; accepting it is distinct from
 choosing a result. Local ranking uses prefix strength, bookmarks, visit frequency
@@ -116,24 +120,28 @@ and recency; an actor maintains normalized prefix and trigram indexes off-main.
 
 ## Mac sidebar and rail
 
-The Mac sidebar is a single Liquid Glass panel set 8 pt in from the window
-edges with 14 pt continuous corners. The expanded panel defaults to 256 pt.
+> For Mac v3 tokens, floating window-frame geometry, glass toolbar capsules, and
+> start-page layout details, see [the Mac design v3 spec](design/spec-mac-v3.md).
+> Mac v3 tokens live beside the shared tokens below so iPhone remains unchanged.
+
+The Mac sidebar is a single floating Liquid Glass panel set 8 pt in from the window
+edges with 14 pt continuous corners, paired with an inset rounded page card (12 pt
+corners, hairline rim, soft shadow) across an 8 pt gap on a tinted window backdrop.
+The expanded panel defaults to 256 pt.
 Drag its trailing edge between 220 and 360 pt or double-click the edge to
 return to 256 pt. Each open browser window keeps its width across profile
 switches. New windows use the last saved width on this Mac. The 72 pt icon rail
-retains an independent width. The 50 pt browser toolbar aligns with the native
-traffic lights. ⌥⌘S toggles the rail. At narrow window sizes explicit expansion
-overlays the page.
+retains an independent width. ⌥⌘S toggles the rail. At narrow window sizes
+explicit expansion overlays the page.
 
-The sidebar and rail share one edge-to-edge `MacSidebarGlass` surface.
-The expanded sidebar aligns its traffic lights and toggle with the 50 pt
-content-toolbar midpoint. The rail moves its toggle below the traffic lights.
-Internal content keeps its row and footer insets. The page starts at the
-sidebar’s trailing edge except when an expanded sidebar overlays the page.
-The sidebar uses regular system Liquid Glass in its custom flush layout.
-The toolbar retains its own page-derived tint. Per-profile
+The sidebar and rail share one floating `MacSidebarGlass` surface (with solid
+fallbacks for Black, Reduce Transparency and Increase Contrast). The toolbar
+floats inside the top of the page card over `.scrollEdgeEffectStyle(.soft, for: .top)`
+using grouped `GlassEffectContainer` capsules and a centered glass address capsule
+(solid fallbacks under Black, Reduce Transparency or Increase Contrast). Per-profile
 **Sidebar color** offers Graphite, Profile color and seven pastels. Black keeps
-its near-black backing while retaining the saved color choice. The Mac-wide
+its near-black backing while retaining the saved color choice. Standalone private
+windows use full-window Amethyst Dusk chrome. The Mac-wide
 **Glass opacity** applies a contrast guard below the selected backing. White
 or black tonal fills above the backing let its tint show through hover and
 search. Reduce Transparency and Increase Contrast use an opaque
@@ -141,34 +149,35 @@ backing and solid control fills. Increase Contrast strengthens outlines.
 [Sidebar backing tokens](appearance.md#mac-sidebar-color)
 
 The profile picker shows the current profile’s symbol and color in both
-layouts. Expanded mode also shows the profile name, a plain secondary tab count and colored
-profile dots for direct switching. Keyboard focus receives a visible outline.
-Expanded rows are 32 pt high at standard text sizes. They reserve two trailing
-targets for audio and close. The close glyph appears on hover and selection.
+layouts. Expanded mode also shows the profile name (without a redundant tab count)
+and colored profile dots above the footer for direct switching. Keyboard focus
+receives a visible outline. Expanded rows are 34 pt high at standard text sizes
+in v3 (see [the Mac design v3 spec](design/spec-mac-v3.md)) and show audio or
+close accessories only when needed so quiet rows use the full title width. The
+close glyph appears on hover and selection.
 Clicking a speaker toggles mute. The context menu retains the separate media
 pause action. VoiceOver announces the title, host, and applicable selected,
 pinned, private, loading and audio states. Its row actions include Close and
 Mute or Unmute. Keyboard users can use ⌘W and ⌃⌘M.
 
-Pinned tabs use compact favicon tiles. The rail uses 42 × 36 pt icon
-targets and context menus. New Tab stays reachable outside the scrolling list.
-The footer has a hairline and five icon buttons. Downloads shows a dot while
-a download is active.
+Pinned tabs use compact favicon tiles in a 4-column glass grid. The rail uses
+42 × 36 pt icon targets and context menus. New Tab sits directly below the last
+tab row. The footer has a hairline and five icon buttons. Downloads shows a dot
+while a download is active.
 
-| Mac sidebar token | Points |
+| Mac sidebar v3 token (see [spec](design/spec-mac-v3.md#33-sidebar-rail-and-traffic-lights-orivmacv3sidebarlayout)) | Points |
 | --- | ---: |
-| Toolbar height and expanded titlebar spacer | 50 and 46 |
-| Content and row horizontal inset | 8 |
-| Expanded toggle and profile picker height | 30 and 32 |
-| Profile symbol frame | 22 |
-| Search height and horizontal padding | 28 and 8 |
-| Section height and extra spacing before Tabs and Private | 24 and 4 |
-| Standard row height and between-row gap | 32 and 2 |
-| Close and audio hit target | 24 × 24 each |
-| Pin tile width, height and corner radius | 44, 36 and 10 |
-| Pin favicon and tile spacing | 20 and 6 |
-| Pin hover-close corner target | 20 × 18 |
-| Expanded footer button band and button size | 36 and 32 × 32 |
+| Floating toolbar overlay and sidebar titlebar height | 60 and 40 |
+| Outer window inset, sidebar-card gap and inner horizontal inset | 8 |
+| Expanded toggle and profile picker height | 28 and 34 |
+| Profile avatar badge frame and corner radius | 22 and 7 |
+| Search height, corner radius and horizontal padding | 30, 9 and 9 |
+| Section height | 22 |
+| Standard row height, corner radius and between-row gap | 34, 10 and 2 |
+| Close and audio visual / hit target | 20 / 24 × 24 |
+| Pin tile height, gap and corner radius (4 equal columns) | 40, 6 and 10 |
+| Pin favicon size | 18 |
+| Expanded footer height and button size | 40 and 32 × 32 |
 | Rail footer button target | 42 × 36 |
 
 Search uses one active-profile finder for both widths and ⇧⌘A. It begins in the
@@ -230,21 +239,28 @@ At narrow expanded widths, Share remains available in Browser Actions and New Ta
 remains in the sidebar. The address capsule keeps a 230 pt minimum and centers
 on the page viewport. Active downloads also have a sidebar badge.
 
-The 32 pt address capsule uses 24 pt inline targets and 4 pt end insets.
-Site information, the Private badge, zoom and Reload share the editor’s
-vertical center. Site Privacy, Share and Passwords use 28 pt toolbar targets.
-Browser Actions retains its 36 × 32 pt target on the same centerline. The compact field displays the host with
-middle truncation. Focusing any open area of the capsule selects the full
-address in the native field editor. Editing uses a distinct backing and
-focus ring. Suggestions match the capsule’s width and appear 2 pt below
-it. Restored pages receive initial native web-content focus, and empty tabs
-focus the address editor.
+In Mac v3, the centered glass address capsule is 520 × 34 pt at rest (expanding
+to 576 × 36 pt with an accent focus halo while editing, 230 pt minimum) with
+24 pt inline targets, semantic `ConnectionCue` colors for `"Not secure"` and
+recording, and an integrated 2 pt bottom loading progress bar inside the capsule
+(see [the Mac design v3 spec](design/spec-mac-v3.md)). Site information, the
+Private badge, zoom and Reload share the editor’s vertical center. Toolbar
+controls sit in 34 pt grouped glass capsules with 28 × 28 pt targets. The
+compact field displays the host with middle truncation. Focusing any open area
+of the capsule selects the full address in the native field editor. Suggestions
+match the focused capsule’s width in a floating glass popover 7 pt below it.
+Restored pages receive initial native web-content focus, and empty tabs focus
+the address editor.
 
-The Mac start page aligns its 640 pt content column with the address capsule
-and uses a four-column tile grid at standard text sizes with up to eight bookmarks. The private start page
-uses the shared private banner and a short explanation on the private surface.
+The Mac start page (see [the Mac design v3 spec](design/spec-mac-v3.md)) renders
+over the transparent rim-only page card on the tinted window backdrop with a
+724 pt column: profile chip + date, "Where to?" title, the shared `AddressField`
+in its 724 × 52 pt in-page slot (hiding the toolbar capsule), one row of up to
+eight 52 pt app-icon bookmark tiles, a two-column Frequently Visited card, and
+shortcut hints. The private start page shows "Private Browsing", the private
+search field, and a two-column privacy summary card.
 iPhone uses three flexible columns at standard text sizes and one column at
-accessibility text sizes. Both use
+accessibility text sizes. iPhone uses
 solid tiles and secondary section labels. Library counts appear beside their
 section names on the surface, with list content on the canvas. Find in Page
 uses the shared search field and toolbar controls. Glass opacity applies to all

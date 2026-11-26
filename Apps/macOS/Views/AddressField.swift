@@ -24,16 +24,39 @@ struct AddressCapsuleHitArea: NSViewRepresentable {
     }
 }
 
+/// Captures clicks on the page scrim above WKWebView so clicking outside the
+/// suggestions popover dismisses address editing cleanly without activating page links.
+struct AddressScrimHitArea: NSViewRepresentable {
+    let dismiss: () -> Void
+
+    func makeNSView(context: Context) -> ScrimView { ScrimView() }
+    func updateNSView(_ view: ScrimView, context: Context) { view.dismiss = dismiss }
+
+    final class ScrimView: NSView {
+        var dismiss: (() -> Void)?
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func accessibilityIsIgnored() -> Bool { true }
+        override func mouseDown(with event: NSEvent) { dismiss?() }
+    }
+}
+
 /// An AppKit field provides reliable menu-driven focus and selection inside NSToolbar.
 struct AddressField: NSViewRepresentable {
-    static let font = NSFont.systemFont(ofSize: OrivLayout.macAddressFontSize)
+    static let font = OrivMacV3.Address.focusedNSFont
+    static let restFont = OrivMacV3.Address.restNSFont
+    static let bigFieldFont = OrivMacV3.Address.bigFieldNSFont
     @Environment(\.browserTheme) private var theme
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.v3AppearanceMode) private var v3Mode
+    @Environment(\.colorSchemeContrast) private var systemContrast
+    @Environment(\.chromeContrastOverride) private var captureContrast
     @Binding var text: String
     @Binding var isEditing: Bool
     var placeholder = OrivStrings.addressPlaceholder
     var displayText: String? = nil
     var foreground: Color? = nil
+    var isBigField = false
     var showsNativePlaceholder = true
     let focusRequest: Int
     var profileEpoch: UUID? = nil
@@ -43,6 +66,7 @@ struct AddressField: NSViewRepresentable {
     var completion: String? = nil
     var hasSelectedSuggestion = false
     var moveSelection: (Int) -> Void = { _ in }
+    var onInlineCompletionChange: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -70,6 +94,7 @@ struct AddressField: NSViewRepresentable {
         if context.coordinator.parent.profileEpoch != profileEpoch {
             context.coordinator.lastFocusRequest = 0
             context.coordinator.suppressCompletion = false
+            context.coordinator.reportInlineCompletion(false)
         }
         context.coordinator.parent = self
         field.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
@@ -77,10 +102,22 @@ struct AddressField: NSViewRepresentable {
         field.placeholderString = showsNativePlaceholder ? placeholder : nil
         field.setAccessibilityPlaceholderValue(placeholder)
         (field as? FocusAwareAddressField)?.editingText = text
+        let targetEditingFont = isBigField ? Self.bigFieldFont : Self.font
+        (field as? FocusAwareAddressField)?.editingFont = targetEditingFont
         let editor = field.currentEditor() as? NSTextView
-        field.alignment = editor != nil || displayText == nil ? .natural : .center
+        let showingCompact = editor == nil && displayText != nil
+        let targetFont = showingCompact ? Self.restFont : targetEditingFont
+        if field.font != targetFont { field.font = targetFont }
+        field.alignment = showingCompact ? .center : .natural
+        let increasedContrast = (captureContrast ?? systemContrast) == .increased
         if let editor {
+            if editor.font != targetEditingFont { editor.font = targetEditingFont }
             editor.insertionPointColor = field.textColor ?? .labelColor
+            let privacyEditor = editor as? PrivacyAddressEditor
+            privacyEditor?.isBigField = isBigField
+            privacyEditor?.onInlineCompletionDismissed = { [weak coordinator = context.coordinator] in
+                coordinator?.reportInlineCompletion(false)
+            }
             // Chrome changes and suggestion refreshes can arrive while the
             // native editor has a selection or is composing marked text.
             if !editor.hasMarkedText() {
@@ -88,21 +125,33 @@ struct AddressField: NSViewRepresentable {
                     !context.coordinator.suppressCompletion && $0.hasPrefix(text) && $0.utf16.count > text.utf16.count ? $0 : nil
                 }
                 let value = inline ?? text
+                let end = text.utf16.count
+                let completionRange = inline.map { NSRange(location: end, length: $0.utf16.count - end) }
                 if editor.string != value {
                     let previous = editor.selectedRange()
                     editor.string = value
-                    let end = text.utf16.count
-                    if let inline {
-                        editor.setSelectedRange(NSRange(location: end, length: inline.utf16.count - end))
+                    if let completionRange {
+                        editor.setSelectedRange(completionRange)
                     } else {
                         let location = min(previous.location, end)
                         editor.setSelectedRange(NSRange(location: location, length: min(previous.length, end - location)))
                     }
                 }
+                let activeCompletion = completionRange.flatMap { editor.selectedRange() == $0 ? $0 : nil }
+                privacyEditor?.updateInlineCompletion(
+                    range: activeCompletion,
+                    mode: v3Mode,
+                    increasedContrast: increasedContrast
+                )
+                context.coordinator.reportInlineCompletion(activeCompletion != nil)
+            } else {
+                privacyEditor?.updateInlineCompletion(range: nil, mode: v3Mode, increasedContrast: increasedContrast)
+                context.coordinator.reportInlineCompletion(false)
             }
         } else {
             let value = displayText ?? text
             if field.stringValue != value { field.stringValue = value }
+            context.coordinator.reportInlineCompletion(false)
         }
         field.setAccessibilityValue(text)
         guard focusRequest > 0, context.coordinator.lastFocusRequest != focusRequest else { return }
@@ -121,12 +170,28 @@ struct AddressField: NSViewRepresentable {
         var lastFocusRequest = 0
         var suppressCompletion = false
         private var deleting = false
+        private var reportedInlineCompletion = false
         init(_ parent: AddressField) { self.parent = parent }
+
+        func reportInlineCompletion(_ active: Bool) {
+            guard reportedInlineCompletion != active else { return }
+            reportedInlineCompletion = active
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.parent.onInlineCompletionChange(self.reportedInlineCompletion)
+            }
+        }
+
         func controlTextDidBeginEditing(_ notification: Notification) { parent.isEditing = true }
         func controlTextDidEndEditing(_ notification: Notification) {
             parent.isEditing = false
+            suppressCompletion = false
+            reportInlineCompletion(false)
             if let field = notification.object as? NSTextField {
+                (field.currentEditor() as? PrivacyAddressEditor)?.clearInlineCompletion()
                 field.stringValue = parent.displayText ?? parent.text
+                let editingFont = parent.isBigField ? AddressField.bigFieldFont : AddressField.font
+                field.font = parent.displayText == nil ? editingFont : AddressField.restFont
                 field.alignment = parent.displayText == nil ? .natural : .center
             }
         }
@@ -138,11 +203,17 @@ struct AddressField: NSViewRepresentable {
             guard let field = notification.object as? NSTextField else { return }
             suppressCompletion = deleting
             deleting = false
+            if suppressCompletion {
+                (field.currentEditor() as? PrivacyAddressEditor)?.clearInlineCompletion()
+                reportInlineCompletion(false)
+            }
             parent.text = field.currentEditor()?.string ?? field.stringValue
         }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             if selector == #selector(NSResponder.deleteBackward(_:)) || selector == #selector(NSResponder.deleteForward(_:)) {
                 deleting = true; suppressCompletion = true
+                (textView as? PrivacyAddressEditor)?.clearInlineCompletion()
+                reportInlineCompletion(false)
                 return false
             }
             if selector == #selector(NSResponder.insertTab(_:)) || selector == #selector(NSResponder.moveRight(_:)) {
@@ -150,6 +221,8 @@ struct AddressField: NSViewRepresentable {
                 if range.length > 0, NSMaxRange(range) == textView.string.utf16.count,
                    range.location == parent.text.utf16.count, textView.string.hasPrefix(parent.text) {
                     parent.text = textView.string; suppressCompletion = true
+                    (textView as? PrivacyAddressEditor)?.clearInlineCompletion()
+                    reportInlineCompletion(false)
                     textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0)); return true
                 }
             }
@@ -159,6 +232,7 @@ struct AddressField: NSViewRepresentable {
                 if !parent.hasSelectedSuggestion { parent.text = textView.string }
                 if parent.submit() {
                     parent.isEditing = false
+                    reportInlineCompletion(false)
                     control.window?.makeFirstResponder(nil)
                 }
                 return true
@@ -166,6 +240,9 @@ struct AddressField: NSViewRepresentable {
             if selector == #selector(NSResponder.cancelOperation(_:)) {
                 parent.cancel()
                 parent.isEditing = false
+                suppressCompletion = false
+                (textView as? PrivacyAddressEditor)?.clearInlineCompletion()
+                reportInlineCompletion(false)
                 control.stringValue = parent.text
                 control.window?.makeFirstResponder(nil)
                 return true
@@ -190,11 +267,13 @@ final class FocusAwareAddressField: NSTextField {
     @objc private func copyOriginalLink() { if let url = URL(string: editingText) { PrivacyPasteboard.copy(url, original: true) } }
 
     var editingText = ""
+    var editingFont: NSFont = AddressField.font
     var focusBegan: (() -> Void)?
     override func becomeFirstResponder() -> Bool {
         // Restore the complete address before AppKit creates its field editor.
         // Merely selecting the compact host would make a click edit the wrong URL.
         stringValue = editingText
+        font = editingFont
         alignment = .natural
         let accepted = super.becomeFirstResponder()
         if accepted {
@@ -217,6 +296,116 @@ final class FocusAwareAddressField: NSTextField {
 }
 
 @MainActor final class PrivacyAddressEditor: NSTextView {
+    private(set) var inlineCompletionRange: NSRange?
+    private var inlineCompletionMode: OrivMacV3.AppearanceMode = .light
+    private var usesHighContrastSelection = false
+    var isBigField = false
+    var onInlineCompletionDismissed: (() -> Void)?
+
+    func updateInlineCompletion(range: NSRange?, mode: OrivMacV3.AppearanceMode, increasedContrast: Bool) {
+        let changed = inlineCompletionRange != range || inlineCompletionMode != mode || usesHighContrastSelection != increasedContrast
+        inlineCompletionRange = range
+        inlineCompletionMode = mode
+        usesHighContrastSelection = increasedContrast
+        if changed {
+            applyInlineCompletionAppearance()
+            needsDisplay = true
+        }
+    }
+
+    func clearInlineCompletion() {
+        guard inlineCompletionRange != nil else { return }
+        inlineCompletionRange = nil
+        applyInlineCompletionAppearance()
+        needsDisplay = true
+    }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        if let range = inlineCompletionRange, selectedRange() != range {
+            inlineCompletionRange = nil
+            applyInlineCompletionAppearance()
+            needsDisplay = true
+            onInlineCompletionDismissed?()
+        }
+    }
+
+    private func applyInlineCompletionAppearance() {
+        clearTemporaryCompletionAttributes()
+        guard let range = inlineCompletionRange,
+              range.length > 0,
+              NSMaxRange(range) <= (string as NSString).length,
+              !usesHighContrastSelection else {
+            selectedTextAttributes = OrivMacV3.Address.defaultSelectionAttributes
+            return
+        }
+        let fg = OrivMacV3.Address.inlineCompletionNSForeground(inlineCompletionMode)
+        selectedTextAttributes = [
+            .backgroundColor: OrivMacV3.Address.clearSelectionNSColor,
+            .foregroundColor: fg,
+        ]
+        if let textLayoutManager, let tcm = textLayoutManager.textContentManager {
+            let docStart = tcm.documentRange.location
+            if let start = tcm.location(docStart, offsetBy: range.location),
+               let end = tcm.location(start, offsetBy: range.length),
+               let textRange = NSTextRange(location: start, end: end) {
+                textLayoutManager.setRenderingAttributes([.foregroundColor: fg], for: textRange)
+            }
+        } else if let layoutManager {
+            layoutManager.addTemporaryAttribute(.foregroundColor, value: fg, forCharacterRange: range)
+        }
+    }
+
+    private func clearTemporaryCompletionAttributes() {
+        if let textLayoutManager, let docRange = textLayoutManager.textContentManager?.documentRange {
+            textLayoutManager.removeRenderingAttribute(.foregroundColor, for: docRange)
+        } else if let layoutManager, let storage = textStorage, storage.length > 0 {
+            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: NSRange(location: 0, length: storage.length))
+        }
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        if !usesHighContrastSelection,
+           !hasMarkedText(),
+           let range = inlineCompletionRange,
+           let window,
+           range.length > 0,
+           NSMaxRange(range) <= (string as NSString).length,
+           selectedRange() == range {
+            let screenRect = firstRect(forCharacterRange: range, actualRange: nil)
+            if !screenRect.isEmpty {
+                let windowRect = window.convertFromScreen(screenRect)
+                var local = convert(windowRect, from: nil)
+                let boundaryX = local.minX
+                // Flush leading edge with typed text (zero gap); subtle trailing & vertical breathing room.
+                local.size.width += OrivMacV3.Address.inlineCompletionTrailingPadding
+                local = local.insetBy(dx: 0, dy: -OrivMacV3.Address.inlineCompletionVerticalPadding)
+                local = local.intersection(bounds)
+                if !local.isEmpty {
+                    OrivMacV3.Address.inlineCompletionNSBackground(inlineCompletionMode).setFill()
+                    let corner = OrivMacV3.Address.inlineCompletionCornerRadius
+                    NSBezierPath(roundedRect: local, xRadius: corner, yRadius: corner).fill()
+
+                    let caretWidth = OrivMacV3.Address.inlineCompletionCaretWidth
+                    let targetCaretHeight = isBigField
+                        ? OrivMacV3.Address.bigFieldInlineCompletionCaretHeight
+                        : OrivMacV3.Address.inlineCompletionCaretHeight
+                    let caretHeight = min(targetCaretHeight, local.height)
+                    let caretRect = NSRect(
+                        x: max(bounds.minX, boundaryX - caretWidth / 2),
+                        y: local.midY - caretHeight / 2,
+                        width: caretWidth,
+                        height: caretHeight
+                    )
+                    OrivMacV3.Address.inlineCompletionNSCaret(inlineCompletionMode).setFill()
+                    NSBezierPath(roundedRect: caretRect, xRadius: caretWidth / 2, yRadius: caretWidth / 2).fill()
+                }
+                return
+            }
+        }
+        super.drawBackground(in: rect)
+    }
+
     override func copy(_ sender: Any?) {
         let selected = (string as NSString).substring(with: selectedRange())
         if let url = URL(string: selected), AddressResolver.isWebURL(url) { PrivacyPasteboard.copy(url) }

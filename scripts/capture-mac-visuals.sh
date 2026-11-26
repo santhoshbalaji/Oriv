@@ -79,7 +79,10 @@ else
     "$APP/Contents/MacOS/Oriv-Snapshots" > "$DERIVED.run.log" 2>&1 &
 fi
 PID=$!
-for _ in $(seq 1 "${ORIV_CAPTURE_TICKS:-240}"); do
+DEFAULT_TICKS=540
+if [[ "$GLASS" == 1 ]]; then DEFAULT_TICKS=900; fi
+if [[ "${ORIV_GLASS_SCENE:-}" == design-system ]]; then DEFAULT_TICKS=540; fi
+for _ in $(seq 1 "${ORIV_CAPTURE_TICKS:-$DEFAULT_TICKS}"); do
   kill -0 $PID 2>/dev/null || break
   if [[ "$GLASS" == 1 && -f "$SRC/capture-request.json" ]]; then
     python3 -I - "$SRC" "$APP" <<'CAPTURE'
@@ -135,19 +138,29 @@ expected = {
 }
 if os.environ.get("ORIV_BATCH_VISUALS") == "1":
     expected = {"mac-batch-" + part + "-" + mode for part in ("sidebar", "suggestions") for mode in ("light", "dark")}
-if sys.argv[4] == "1": expected = {"mac-glass-" + mode for mode in ("light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "private", "reduced", "insecure")}
+if sys.argv[4] == "1": expected = {"mac-glass-" + mode for mode in ("light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "focused-dark", "focused-completion", "focused-completion-dark", "menu", "private", "reduced", "insecure", "start-light", "start-dark", "start-private", "start-focused", "start-narrow-772", "start-narrow-600", "start-short")}
 if sys.argv[4] == "1" and os.environ.get("ORIV_GLASS_SCENE", "all") != "all": expected = {"mac-glass-" + os.environ["ORIV_GLASS_SCENE"]}
+if os.environ.get("ORIV_GLASS_SCENE") == "start-page":
+    expected = {"mac-glass-" + mode for mode in ("start-light", "start-dark", "start-private", "start-focused", "start-narrow-772", "start-narrow-600", "start-short")}
 if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":
     expected = {"mac-glass-" + mode for mode in ("menu", "menu-dark", "menu-private", "menu-narrow")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
     expected = {"mac-glass-sidebar-" + mode for mode in ("light", "purple", "dark", "collapsed", "fullscreen", "fullscreen-collapsed", "scrolled", "inactive", "minimum", "reduced", "rtl-largest", "covered")}
+if os.environ.get("ORIV_GLASS_SCENE") == "private-v3":
+    expected = {"mac-glass-private-v3-" + name for name in (
+        "window-light", "window-dark", "window-black", "rail",
+        "external-dark", "external-reduced", "external-increased",
+        "external-narrow", "external-ultranarrow", "external-unknown-source",
+        "mixed-light", "mixed-dark",
+    )}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-v3":
     expected = {f"mac-glass-sidebar-v3-{mode}-{tint}-{layout}"
                 for mode in ("light", "dark", "black") for tint in ("graphite", "sky", "rose", "lavender")
                 for layout in ("expanded", "rail")}
     expected |= {"mac-glass-sidebar-v3-" + name for name in ("light-graphite-220", "light-graphite-360",
                  "mixed-private", "private-rail", "increased-contrast", "rtl-360",
-                 "dark-white-pins-220", "dark-white-pins-256", "dark-white-pins-360", "dark-white-high", "dark-white-solid")}
+                 "dark-white-pins-220", "dark-white-pins-256", "dark-white-pins-360", "dark-white-high", "dark-white-solid",
+                 "light-audio-states", "dark-audio-states", "light-overflow-sticky", "dark-overflow-sticky")}
     if m.get("backgroundUI", {}).get("enabled", False):
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-synthetic-composite" for name in expected} - evidence
@@ -214,7 +227,7 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-opacity":
 if os.environ.get("ORIV_GLASS_SCENE") == "design-system":
     expected = {f"mac-glass-design-system-{theme}-{state}{suffix}" for theme in ("light", "dark", "black")
                 for state in ("standard", "reduced", "increased")
-                for suffix in ("", "-controls", "-rows", "-notices", "-presentations")}
+                for suffix in ("", "-controls", "-rows", "-notices", "-presentations", "-design-v3")}
     if m.get("backgroundUI", {}).get("enabled", False):
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-opaque-fallback" for name in expected} - evidence

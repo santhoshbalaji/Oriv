@@ -429,6 +429,9 @@ import UIKit
     }
 
     func testBundledRulesCompileColdAndWarm() async throws {
+        // A cold strict compile took 157 s on a hosted iPhone simulator runner;
+        // use the 180 s maximum that scripts/check-iphone.sh allows.
+        executionTimeAllowance = 180
         let namespace = "oriv.privacy-benchmark." + UUID().uuidString
         let cold = AdBlocker(cacheNamespace: namespace)
         cold.setMode(.strict)

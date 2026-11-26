@@ -3,26 +3,34 @@ import SwiftUI
 
 /// Shared geometry for the content header and the real AppKit window controls.
 enum MacBrowserLayout {
-    static let sidebarWidth = OrivLayout.sidebarWidth
-    static let sidebarWidthRange: ClosedRange<CGFloat> = 220...360
-    static let railWidth = OrivLayout.railWidth
-    static let headerHeight = OrivLayout.toolbarHeight
-    static let pageMenuTarget = CGSize(width: 36, height: OrivLayout.controlHeight)
-    static let sidebarResizeGripWidth = OrivSpacing.small
-    static let sidebarInset = OrivSpacing.small
+    static let windowInset = OrivMacV3.Frame.windowInset
+    static let sidebarCardGap = OrivMacV3.Frame.sidebarCardGap
+    static let sidebarWidth = OrivMacV3.SidebarLayout.width
+    static let sidebarWidthRange = OrivMacV3.SidebarLayout.widthRange
+    static let railWidth = OrivMacV3.SidebarLayout.railWidth
+    static let railReservation = OrivMacV3.Frame.railReservation
+    static func expandedReservation(sidebarWidth: CGFloat = sidebarWidth) -> CGFloat {
+        OrivMacV3.Frame.expandedReservation(sidebarWidth: sidebarWidth)
+    }
+    static let headerHeight = OrivMacV3.ToolbarLayout.overlayHeight
+    static let pageMenuTarget = CGSize(width: OrivMacV3.ToolbarLayout.buttonSize, height: OrivMacV3.ToolbarLayout.buttonSize)
+    static let sidebarResizeGripWidth = OrivMacV3.Frame.sidebarCardGap
+    static let sidebarInset = OrivMacV3.SidebarLayout.innerPaddingHorizontal
     static let sidebarRowInset = OrivSpacing.small
-    static let sidebarTitlebarHeight = headerHeight - OrivSpacing.xs
-    static let sidebarToggleSize: CGFloat = 30
-    static let sidebarToggleTopInset = (headerHeight - sidebarToggleSize) / 2
+    static let sidebarTitlebarHeight = OrivMacV3.SidebarLayout.titlebarHeight
+    static let sidebarToggleSize = OrivMacV3.SidebarLayout.toggleSize
+    static let sidebarToggleTopInset = (sidebarTitlebarHeight - sidebarToggleSize) / 2
     static let fullscreenProfileTrailingInset = sidebarToggleSize + sidebarInset
     static let sidebarFooterGap = OrivSpacing.xs
-    static let railItemWidth = OrivTarget.macRail.width
-    static let railItemHeight = OrivTarget.macRail.height
+    static let railItemWidth = OrivMacV3.SidebarLayout.railItemSize.width
+    static let railItemHeight = OrivMacV3.SidebarLayout.railItemSize.height
     static let railInset = (railWidth - railItemWidth) / 2
+    static let railFullscreenTopInset = OrivSpacing.small
     static let lightsWidth: CGFloat = 54
-    static let railLightsInset = (railWidth - lightsWidth) / 2
-    static let lightsInset = OrivSpacing.medium
-    static let lightsSpacing: CGFloat = 20
+    static let railLightsInset = OrivMacV3.SidebarLayout.lightsRailLeading
+    static let lightsInset = OrivMacV3.SidebarLayout.lightsLeading
+    static let lightsCenterY = OrivMacV3.SidebarLayout.lightsCenterY
+    static let lightsSpacing = OrivMacV3.SidebarLayout.lightsSpacing
 }
 
 /// Window blending stays in one view across the titlebar and the body.
@@ -62,9 +70,10 @@ struct WindowBackdropMaterial: NSViewRepresentable {
             }
         }
         let width = content.bounds.width
+        let inset = MacBrowserLayout.windowInset
         return candidates.contains { rect in
             let leading = layoutDirection == .rightToLeft ? width - rect.maxX : rect.minX
-            return rect.width > 0 && leading >= 0 && leading + rect.width <= sidebarWidth + 1
+            return rect.width > 0 && leading >= inset - 1 && leading + rect.width <= inset + sidebarWidth + 1
         }
     }
 }
@@ -77,6 +86,9 @@ struct BrowserWindowChrome: NSViewRepresentable {
     var sidebarWidth = MacBrowserLayout.sidebarWidth
     var backdrop: Color? = nil
     var usesWindowMaterial = false
+    /// Private windows are always Amethyst Dusk, so their traffic lights use the
+    /// dark rendering even when the app appearance is Light.
+    var darkWindowControls = false
     var initialContentFocus: NSView? = nil
     var shouldApplyProfileSwitchFocus: (() -> Bool)? = nil
     var profileEpoch: UUID? = nil
@@ -91,6 +103,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         view.compact = compact
         view.backdrop = backdrop.map { NSColor($0) }
         view.usesWindowMaterial = usesWindowMaterial
+        view.darkWindowControls = darkWindowControls
         view.stateChanged = stateChanged
         view.contentWidthChanged = contentWidthChanged
         windowContext.layoutDirection = context.environment.layoutDirection
@@ -116,6 +129,7 @@ struct BrowserWindowChrome: NSViewRepresentable {
         var compact = false
         var backdrop: NSColor?
         var usesWindowMaterial = false
+        var darkWindowControls = false
         var stateChanged: ((Bool, Bool) -> Void)?
         var contentWidthChanged: ((CGFloat) -> Void)?
         private var widthTask: Task<Void, Never>?
@@ -227,16 +241,32 @@ struct BrowserWindowChrome: NSViewRepresentable {
             }
             if window.titlebarAppearsTransparent == fullscreen { window.titlebarAppearsTransparent = !fullscreen }
             if !fullscreen {
+                if let close = window.standardWindowButton(.closeButton),
+                   close.window === window,
+                   let titlebar = close.superview,
+                   let container = titlebar.superview,
+                   let themeFrame = window.contentView?.superview,
+                   container !== window.contentView,
+                   container.superview === themeFrame {
+                    let requiredHeight = MacBrowserLayout.windowInset + MacBrowserLayout.sidebarTitlebarHeight
+                    let containerFrame = NSRect(x: 0, y: themeFrame.bounds.height - requiredHeight,
+                                                width: themeFrame.bounds.width, height: requiredHeight)
+                    if container.frame != containerFrame { container.frame = containerFrame }
+                    let titlebarFrame = NSRect(x: 0, y: 0, width: container.bounds.width, height: requiredHeight)
+                    if titlebar.frame != titlebarFrame { titlebar.frame = titlebarFrame }
+                }
                 for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                     guard let button = window.standardWindowButton(type), let parent = button.superview else { continue }
                     // Only position controls in this window. During fullscreen
                     // AppKit moves them to its auto-revealing titlebar host.
                     guard button.window === window else { continue }
+                    let controlsAppearance = darkWindowControls ? NSAppearance(named: .darkAqua) : nil
+                    if button.appearance?.name != controlsAppearance?.name { button.appearance = controlsAppearance }
                     let inset = (compact ? MacBrowserLayout.railLightsInset : MacBrowserLayout.lightsInset) + CGFloat(index) * MacBrowserLayout.lightsSpacing
                     let rtl = windowContext?.layoutDirection == .rightToLeft
                     let x = rtl ? window.frame.width - inset - button.frame.width : inset
                     let target = parent.convert(NSPoint(x: x,
-                        y: window.frame.height - MacBrowserLayout.headerHeight / 2), from: nil)
+                        y: window.frame.height - MacBrowserLayout.lightsCenterY), from: nil)
                     button.setFrameOrigin(NSPoint(x: target.x, y: target.y - button.frame.height / 2))
                 }
             }

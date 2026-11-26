@@ -64,9 +64,13 @@ role_negative = next((role for role in negative_roles if f"--negative-{role}-tes
 checks = []  # (theme, token, colour, surface, background, minimum)
 sidebar_source = (ROOT / "Apps/macOS/Views/BrowserSidebar.swift").read_text()
 assert "content.environment(\\.sidebarChromaticStyle, style)" in sidebar_source
-assert ".opacity(style.opaque ? 1 : style.backingOpacity)" in sidebar_source
-assert "Theme.hex(style.tokens.guardColor).opacity(style.guardOpacity)" in sidebar_source
-assert "tone: !active && hovered ? .hover : nil" in sidebar_source
+assert "OrivMacV3.Sidebar.chromaticSwatches(" in sidebar_source
+assert "orivV3Glass(recipe, in: shape, forceSolid: effectiveOpacity == .solid)" in sidebar_source
+assert "OrivMacV3.Radius.sidebar" in sidebar_source
+assert "tone: !tile && !active && hovered ? .hover : nil" in sidebar_source
+assert "OrivMacV3.Sidebar.activeFill(" in sidebar_source
+assert "OrivMacV3.Sidebar.pinFill(" in sidebar_source
+assert "OrivMacV3.Sidebar.audioInk(" in sidebar_source
 assert "shape.fill(style.fill)" in sidebar_source
 assert "accessibilityReduceTransparency || chromeReduceTransparencyOverride || sidebarContrast == .increased" in sidebar_source
 assert "tone.fill(in: theme, dark: dark, opaque: opaque)" in sidebar_source
@@ -286,53 +290,565 @@ print("Settings material opacity: 100%")
 checks.extend(settings_checks)
 print("App-owned colors checked. Native system accent and compositor output depend on runtime settings.")
 
-# Mac page chrome chooses black/white from the band's WCAG luminance. Read the
-# actual lift constant and check RGB cube samples, every neutral and the theme
-# colour. The capsule is opaque, so underlying page extremes cannot affect it.
+# Mac Design v3 glass toolbar & solid fallback source and contrast checks.
+# Live glass relies on system Liquid Glass legibility (Q6); solid paths
+# (Reduce Transparency, Increase Contrast, Black, off-screen fallback) use
+# OrivMacV3 toolbar/address tokens and PageChrome polarity on solid page bands.
 mac = (ROOT / "Apps/macOS/Views/BrowserWindow.swift").read_text()
 assert "foregroundThreshold = sqrt(1.05 * 0.05) - 0.05" in chrome
-assert "private var chromeForeground: Color { pageChrome.foreground }" in mac
-assert "pageChrome.color\n" in mac
-assert "Rectangle().fill(.clear).glassEffect(.regular, in: .rect)" in sidebar_source
-lift = float(re.search(r"static let lift = ([0-9.]+)", mac).group(1))
-shade = float(re.search(r"static let lightShade = ([0-9.]+)", mac).group(1))
+assert "GlassEffectContainer(" in mac
+assert "OrivMacV3.Toolbar.groupTint(" in mac
+assert "OrivMacV3.Toolbar.scrollEdge(" in mac
+assert "OrivMacV3.Address.restFill(" in mac
+assert "OrivMacV3.Address.focusFill(" in mac
+assert "OrivMacV3.Popover.glassFill(" in mac
+assert "OrivMacV3.Suggestions.scrim(" in mac
+assert "OrivMacV3.Suggestions.selectedFill(" in mac
+assert "OrivMacV3.StartPage.bigFieldFill(" in mac
+assert "startAddressSlot" in mac
+start_page_src = (ROOT / "Apps/macOS/Views/StartPage.swift").read_text()
+assert "OrivMacV3.StartPage." in start_page_src
+assert "OrivMacV3.StartLayout." in start_page_src
+assert "onAddressSlotChange" in start_page_src
+assert "ConnectionCue(" in mac and "cue.color(theme)" in mac
+assert ".scrollEdgeEffectStyle(.soft, for: .top)" in mac
+assert "MacAddressPalette" not in mac
+assert "pageChrome.color\n" not in mac
+assert ".glassEffect(.regular.tint(recipe.tintColor.opacity(recipe.tintOpacity)), in: shape)" in text
+assert "shape.fill(guardColor.opacity(recipe.guardOpacity))" in text
+assert "OrivMacV3.usesOpaqueSurface(" in text
+handoff_bar_source = (ROOT / "Apps/Shared/ExternalPrivateBar.swift").read_text()
+assert "OrivMacV3.Handoff.bar" in handoff_bar_source
+assert "OrivMacV3.Handoff.moveButtonGradient" in handoff_bar_source
+assert "OrivMacV3.Handoff.moveButtonSolid" in handoff_bar_source
+
 page_colours = {f"{r:02X}{g:02X}{b:02X}" for r in range(0, 256, 17) for g in range(0, 256, 17) for b in range(0, 256, 17)}
 page_colours.update(f"{c:02X}{c:02X}{c:02X}" for c in range(256))
 page_colours.update(("1F6F5C", "FBFBF9", "111111"))
-focused_mix = float(re.search(r"static let focusedMix = ([0-9.]+)", mac)[1])
-hint_opacity = float(re.search(r"static let placeholderOpacity = ([0-9.]+)", mac)[1])
-focus_opacity = float(re.search(r"static let focusOpacity = ([0-9.]+)", mac)[1])
-
-def rgb_hex(values):
-    return "".join(f"{round(c * 255):02X}" for c in values)
 
 for page in sorted(page_colours):
     dark = luminance(page) < (1.05 * 0.05) ** 0.5 - 0.05
-    ink = int(dark)
-    neutral = 1 - ink
     foreground = "FFFFFF" if dark else "000000"
-    checks.append(("Mac page band / reduced chrome", "foreground", foreground, "page", page, 4.5))
-    source = [int(page[i:i+2], 16) / 255 for i in range(0, 6, 2)]
-    idle = [c * (1 - lift) + lift if dark else c * (1 - shade) for c in source]
-    focused = [c * (1 - focused_mix) + neutral * focused_mix for c in source]
-    def hint(values):
-        return rgb_hex(c * (1 - hint_opacity) + ink * hint_opacity for c in values)
-    for label, candidate in (("idle", idle), ("focused", focused)):
-        values = candidate if ratio(hint(candidate), rgb_hex(candidate)) >= 4.55 else [
-            c * 0.60 + neutral * 0.40 for c in source
-        ]
-        backing = rgb_hex(values)
-        checks.append((f"Mac address capsule / {label}", "foreground", foreground, "page #" + page, backing, 4.5))
-        checks.append((f"Mac address capsule / {label}", "placeholder", hint(values), "page #" + page, backing, 4.5))
-        if label == "focused":
-            ring = composite(foreground, backing, focus_opacity)
-            checks.append(("Mac address capsule / focused", "focus ring", ring, "page #" + page, backing, 3))
+    checks.append(("PageChrome solid band", "foreground", foreground, "page", page, 4.5))
 
 # A system accent can be any luminance. Check both ends and the crossover.
 assert "luminance(resolvedAccent) < sqrt(1.05 * 0.05) - 0.05" in text
 for accent in sorted(page_colours):
     ink = "FFFFFF" if luminance(accent) < (1.05 * 0.05) ** 0.5 - 0.05 else "000000"
     checks.append(("System accent", "onAccent", accent if role_negative == "onAccent" else ink, "accent", accent, 4.5))
+
+# Oriv Mac Design v3 token & glass-layering contrast checks (§2–§4, §6.3).
+v3_block = block("enum OrivMacV3 {", "\nextension View {", text)
+
+def v3_hex(name):
+    match = re.search(rf"static let {name}: UInt32 = 0x([0-9A-Fa-f]{{6}})", v3_block)
+    assert match, f"Missing OrivMacV3 hex token: {name}"
+    return match.group(1).upper()
+
+def v3_float(name):
+    match = re.search(rf"static let {name}(?:: Double)? = ([0-9.]+)", v3_block)
+    assert match, f"Missing OrivMacV3 float token: {name}"
+    return float(match.group(1))
+
+def v3_hex_list(name):
+    match = re.search(rf"static let {name}: \[UInt32\] = \[([^\]]+)\]", v3_block)
+    assert match, f"Missing OrivMacV3 hex array: {name}"
+    return [h.upper() for h in re.findall(r"0x([0-9A-Fa-f]{6})", match.group(1))]
+
+def v3_glows(name):
+    match = re.search(rf"static let {name}: \[RadialGlow\] = \[([\s\S]+?)\n        \]", v3_block)
+    assert match, f"Missing OrivMacV3 glows: {name}"
+    return [(h.upper(), float(op)) for h, op in re.findall(r"RadialGlow\(hex: 0x([0-9A-Fa-f]{6}), opacity: ([0-9.]+)", match.group(1))]
+
+v3_tint_pair = tuple(map(float, re.search(
+    r"static let v3TintOpacity = \(balanced: ([0-9.]+), high: ([0-9.]+)\)", v3_block).groups()))
+v3_high_guard = v3_float("v3HighGuardOpacity")
+v3_solid_mix = v3_float("v3ChromaticSolidMix")
+v3_guards_block = re.search(r"static let v3BalancedGuardByTint: \[String: Double\] = \[([\s\S]+?)\n        \]", v3_block).group(1)
+v3_guards = {k: float(v) for k, v in re.findall(r'"(\w+)": ([0-9.]+)', v3_guards_block)}
+assert set(v3_guards) == ({name + mode for name in tint_names for mode in ("Light", "Dark")} | {"private", "black"})
+assert all(0 < t <= 0.35 for t in v3_tint_pair), f"v3 tint opacity exceeds 0.35 cap: {v3_tint_pair}"
+assert 0 <= v3_high_guard <= 0.20, f"v3 high guard exceeds 0.20 cap: {v3_high_guard}"
+assert all(0 <= g <= 0.20 for g in v3_guards.values()), f"v3 balanced guard exceeds 0.20 cap: {v3_guards}"
+
+v3_negative = "--negative-v3-test" in sys.argv
+
+# Window backdrop gradient stops + radial glows (sidebar floats over the backdrop, not over web content).
+v3_light_stops = v3_hex_list("lightStops")
+v3_dark_stops = v3_hex_list("darkStops")
+v3_priv_stops = v3_hex_list("privateStops")
+v3_light_backdrops = list(v3_light_stops) + [
+    composite(gh, v3_light_stops[i % len(v3_light_stops)], gop)
+    for i, (gh, gop) in enumerate(v3_glows("lightAmbient"))
+] + [v3_hex("startLightBaseHex")] + [
+    composite(gh, v3_hex("startLightBaseHex"), gop)
+    for gh, gop in v3_glows("startLightAmbient")
+]
+v3_dark_backdrops = list(v3_dark_stops) + [
+    composite(gh, v3_dark_stops[i % len(v3_dark_stops)], gop)
+    for i, (gh, gop) in enumerate(v3_glows("darkAmbient"))
+] + [
+    composite("3E6CC6", v3_hex("startDarkBaseHex"), 0.38),
+    composite("2C8092", v3_hex("startDarkBaseHex"), 0.30),
+]
+v3_priv_backdrops = list(v3_priv_stops) + [
+    composite(gh, v3_priv_stops[i % len(v3_priv_stops)], gop)
+    for i, (gh, gop) in enumerate(v3_glows("privateAmbient"))
+]
+
+v3_inks = {
+    "light": (v3_hex("primaryLightHex"), v3_hex("secondaryLightHex"), v3_hex("tertiarySidebarLightHex"),
+              v3_hex("secondaryICLightHex"), v3_hex("tertiaryCardLightHex")),
+    "dark": (v3_hex("primaryDarkHex"), v3_hex("secondaryDarkHex"), v3_hex("tertiarySidebarDarkHex"),
+             v3_hex("secondaryICDarkHex"), v3_hex("tertiaryCardDarkHex")),
+    "black": (v3_hex("primaryBlackHex"), v3_hex("secondaryBlackHex"), v3_hex("tertiarySidebarBlackHex"),
+              v3_hex("secondaryICBlackHex"), v3_hex("tertiaryCardBlackHex")),
+    "private": (v3_hex("primaryPrivateHex"), v3_hex("secondaryPrivateHex"), v3_hex("tertiarySidebarPrivateHex"),
+                v3_hex("secondaryICPrivateHex"), v3_hex("tertiaryCardPrivateHex")),
+}
+v3_focus_rings = {
+    "light": v3_hex("sidebarRingLightHex"),
+    "dark": v3_hex("sidebarRingDarkHex"),
+    "black": v3_hex("sidebarRingDarkHex"),
+    "private": v3_hex("sidebarRingPrivateHex"),
+}
+v3_ic_borders = {
+    "light": v3_hex("rimICLightHex"),
+    "dark": v3_hex("rimICDarkHex"),
+    "black": v3_hex("rimICBlackHex"),
+    "private": v3_hex("rimICPrivateHex"),
+}
+
+v3_checks = []
+v3_sidebar_minima = {}
+
+def v3_record(level, label, role, fg, surface, bg, minimum):
+    v3_checks.append((label, role, fg, surface, bg, minimum))
+    if level is not None:
+        bucket = v3_sidebar_minima.setdefault(level, {})
+        bucket[role] = min(bucket.get(role, float("inf")), ratio(fg, bg))
+
+v3_sidebar_entries = []
+for key, tok in sorted(tints.items()):
+    if key == "black":
+        v3_sidebar_entries.append(("black", "black", "0A0A0A", "0A0A0A", "000000", "0A0A0A", "0A0A0A",
+                                   "292E37", "292E37", 1.0, "252A32", v3_hex("activeInkBlackHex"), ["000000"]))
+        continue
+    mode = "dark" if key.endswith("Dark") else "light"
+    bgs = v3_dark_backdrops if mode == "dark" else v3_light_backdrops
+    if key == "graphiteLight":
+        v3_sidebar_entries.append((key, mode, "F7F9FE", "EEF2FA", "FFFFFF", "F2F4FA", "E6EAF3",
+                                   "FFFFFF", "E0EEFF", 0.82, "E5F0FE", v3_hex("activeInkLightHex"), bgs))
+    elif key == "graphiteDark":
+        v3_sidebar_entries.append((key, mode, "242A3A", "191E2A", "0E1118", "242A3A", "191E2A",
+                                   "4E86E0", "3666B2", 0.37, "2E5A8F", v3_hex("activeInkDarkHex"), bgs))
+    else:
+        base_bg = v3_hex("reducedDarkHex") if mode == "dark" else v3_hex("reducedLightHex")
+        v3_sidebar_entries.append((key, mode, tok["top"], tok["bottom"], tok["guardColor"],
+                                   composite(tok["top"], base_bg, v3_solid_mix),
+                                   composite(tok["bottom"], base_bg, v3_solid_mix),
+                                   tok["active"], tok["active"], active_alpha[mode == "dark"],
+                                   tok["opaqueActive"], tok["ink"], bgs))
+
+v3_sidebar_entries.append(("private", "private", "301C4E", "1E1232", "120C1C", "301C4E", "1E1232",
+                           "A855F7", "7E22CE", 0.36, "5A2C8A", v3_hex("activeInkPrivateHex"), v3_priv_backdrops))
+
+for (key, mode, tint_top, tint_bot, guard_col, solid_top, solid_bot,
+     act_top, act_bot, act_alpha, act_solid, act_ink, backdrops) in v3_sidebar_entries:
+    primary, secondary, tertiary, sec_ic, _ = v3_inks[mode]
+    focus_ring = v3_focus_rings[mode]
+    ic_border = v3_ic_borders[mode]
+    hover_col = "D8B4FE" if mode == "private" else ("FFFFFF" if mode != "light" else "141A28")
+    hover_a = 0.08 if mode == "private" else (0.06 if mode != "light" else 0.05)
+    search_col = hover_col
+    search_a = 0.075 if mode == "private" else (0.065 if mode != "light" else 0.055)
+    pin_col = "D8B4FE" if mode == "private" else ("171717" if mode == "black" else "FFFFFF")
+    pin_a = 0.10 if mode == "private" else (1.0 if mode == "black" else (0.075 if mode == "dark" else 0.52))
+    pin_hover_a = 0.16 if mode == "private" else (1.0 if mode == "black" else (0.13 if mode == "dark" else 0.74))
+    pin_hover_col = "222226" if mode == "black" else pin_col
+    audio_ink = v3_hex("audioInkPrivateHex") if mode == "private" else (
+        v3_hex("audioInkDarkHex") if mode != "light" else v3_hex("audioInkLightHex"))
+    close_active_a = 0.72 if mode == "light" else 0.78
+    fallback_col = "D8B4FE" if mode == "private" else ("1E1E22" if mode == "black" else ("FFFFFF" if mode == "dark" else "141A28"))
+    fallback_a = 0.14 if mode == "private" else (1.0 if mode == "black" else (0.12 if mode == "dark" else 0.07))
+    fallback_ink = primary if mode in ("black", "private") else ("D5DCE8" if mode == "dark" else secondary)
+    for step in ("balanced", "high", "solid", "reduce transparency", "increase contrast"):
+        opaque = step in ("solid", "reduce transparency", "increase contrast") or mode == "black"
+        tint_a = v3_tint_pair[1] if step == "high" else v3_tint_pair[0]
+        guard_a = v3_high_guard if step == "high" else v3_guards[key]
+        if v3_negative and key == "skyDark" and step == "balanced":
+            guard_a = 0.0
+        label = f"v3 {key} sidebar, {step}"
+        surfaces = ([solid_top, solid_bot] if opaque else [
+            composite(guard_col, composite(stop, bg, tint_a), guard_a)
+            for bg in backdrops for stop in (tint_top, tint_bot)
+        ])
+        sec_ink = sec_ic if step == "increase contrast" else secondary
+        ter_ink = sec_ic if step == "increase contrast" else tertiary
+        for panel in surfaces:
+            hover = "171717" if mode == "black" else composite(hover_col, panel, hover_a)
+            search = "1E1E1E" if mode == "black" else composite(search_col, panel, search_a)
+            pin_bg = pin_col if mode == "black" else composite(pin_col, panel, pin_a)
+            pin_hover_bg = pin_hover_col if mode == "black" else composite(pin_hover_col, panel, pin_hover_a)
+            fallback_bg = fallback_col if mode == "black" else composite(fallback_col, panel, fallback_a)
+            for state, bg in (("panel", panel), ("hover", hover), ("search", search)):
+                v3_record(step, label, "primary", primary, state, bg, 4.5)
+                v3_record(step, label, "secondary", sec_ink, state, bg, 4.5)
+                v3_record(step, label, "tertiary", ter_ink, state, bg, 4.5)
+            # Phase 4 sidebar controls: audio accessory, pin tiles, fallback favicon marks, profile avatars
+            for state, bg in (("panel", panel), ("hover", hover)):
+                v3_record(step, label, "audio accessory", audio_ink, state, bg, 3.0)
+            for state, bg in (("pin tile", pin_bg), ("pin tile hover", pin_hover_bg)):
+                v3_record(step, label, "pin icon", primary, state, bg, 4.5)
+            v3_record(step, label, "fallback favicon", fallback_ink, "fallback badge", fallback_bg, 4.5)
+            act_surfaces = [act_solid] if opaque else [composite(act_top, panel, act_alpha), composite(act_bot, panel, act_alpha)]
+            for act_bg in act_surfaces:
+                v3_record(step, label, "active", act_ink, "active row", act_bg, 4.5)
+                close_ink = act_ink if step == "increase contrast" else composite(act_ink, act_bg, close_active_a)
+                v3_record(step, label, "active close", close_ink, "active row", act_bg, 3.0)
+                v3_record(step, label, "focus ring", focus_ring, "active row", act_bg, 3.0)
+            v3_record(step, label, "focus ring", focus_ring, "panel", panel, 3.0)
+            if step == "increase contrast":
+                v3_record(step, label, "ic border", ic_border, "panel", panel, 3.0)
+                v3_record(step, label, "ic border", ic_border, "pin tile", pin_bg, 3.0)
+            if mode == "private":
+                priv_sec_ink = v3_hex("privateAccentICDarkHex") if step == "increase contrast" else v3_hex("privateAccentDarkHex")
+                v3_record(step, label, "private section", priv_sec_ink, "panel", panel, 4.5)
+                priv_av_bg = composite("C084FC", panel, 0.24)
+                v3_record(step, label, "private avatar", priv_sec_ink, "avatar", priv_av_bg, 3.0)
+        # Profile avatar ink over profile avatar background on solid sidebar fallback
+        if opaque and mode != "private":
+            avatar_specs = [
+                ("mulberry", "A855F7" if mode != "light" else "8B5CF6", "E5B8FF" if mode != "light" else "6B21A8"),
+                ("ocean", "3B82F6", "95C8FF" if mode != "light" else "215B9A"),
+                ("fern", "22C55E", "A3D79A" if mode != "light" else "346738"),
+                ("amber", "F59E0B", "F4C17E" if mode != "light" else "845214"),
+                ("slate", "64748B", "B5C7D9" if mode != "light" else "4B5D70"),
+            ]
+            for prof_name, prof_base, prof_ink in avatar_specs:
+                for panel in (solid_top, solid_bot):
+                    if mode == "black":
+                        av_bgs = ("242428", "1B1B1F")
+                    else:
+                        av_bgs = (composite(prof_base, panel, 0.20), composite(prof_base, panel, 0.30))
+                    for av_bg in av_bgs:
+                        v3_record(step, label, f"profile avatar ({prof_name})", prof_ink, "avatar", av_bg, 3.0)
+
+for step, minima in v3_sidebar_minima.items():
+    roles = ("primary", "secondary", "tertiary", "active", "focus ring")
+    numbers = " / ".join(f"{minima[r]:.2f}" for r in roles)
+    print(f"v3 {step.capitalize()} (primary / secondary / tertiary / active / focus ring): {numbers}")
+
+# Toolbar, Address, Popover, Suggestions, Handoff, Start Page solid fallbacks, focus rings, and IC borders.
+v3_surface_pairs = [
+    # Toolbar solid fallbacks
+    ("v3 Toolbar Light solid", "primary", v3_hex("primaryLightHex"), v3_hex("solidLightHex"), 4.5),
+    ("v3 Toolbar Light solid", "secondary", v3_hex("secondaryLightHex"), v3_hex("solidLightHex"), 4.5),
+    ("v3 Toolbar Dark solid", "primary", v3_hex("primaryDarkHex"), v3_hex("solidDarkHex"), 4.5),
+    ("v3 Toolbar Dark solid", "secondary", v3_hex("secondaryDarkHex"), v3_hex("solidDarkHex"), 4.5),
+    ("v3 Toolbar Black solid", "primary", v3_hex("primaryBlackHex"), v3_hex("solidBlackHex"), 4.5),
+    ("v3 Toolbar Black solid", "secondary", v3_hex("secondaryBlackHex"), v3_hex("solidBlackHex"), 4.5),
+    ("v3 Toolbar Private solid", "primary", v3_hex("primaryPrivateHex"), v3_hex("solidPrivateHex"), 4.5),
+    ("v3 Toolbar Private solid", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("solidPrivateHex"), 4.5),
+    # Address rest & focused solid fallbacks
+    ("v3 Address Light rest", "primary", v3_hex("primaryLightHex"), v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Light rest", "secondary", v3_hex("secondaryLightHex"), v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Dark rest", "primary", v3_hex("primaryDarkHex"), v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Dark rest", "secondary", v3_hex("secondaryDarkHex"), v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Black rest", "primary", v3_hex("primaryBlackHex"), v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Black rest", "secondary", v3_hex("secondaryBlackHex"), v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Private rest", "primary", v3_hex("primaryPrivateHex"), v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Private rest", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Light focus", "primary", v3_hex("primaryLightHex"), v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Light focus", "secondary", v3_hex("secondaryLightHex"), v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Light focus", "tertiary", v3_hex("tertiaryCardLightHex"), v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Dark focus", "primary", v3_hex("primaryDarkHex"), v3_hex("focusSolidDarkHex"), 4.5),
+    ("v3 Address Dark focus", "secondary", v3_hex("secondaryDarkHex"), v3_hex("focusSolidDarkHex"), 4.5),
+    ("v3 Address Black focus", "primary", v3_hex("primaryBlackHex"), v3_hex("focusSolidBlackHex"), 4.5),
+    ("v3 Address Black focus", "secondary", v3_hex("secondaryBlackHex"), v3_hex("focusSolidBlackHex"), 4.5),
+    ("v3 Address Private focus", "primary", v3_hex("primaryPrivateHex"), v3_hex("focusSolidPrivateHex"), 4.5),
+    ("v3 Address Private focus", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("focusSolidPrivateHex"), 4.5),
+    ("v3 Address Private pill", "ink", v3_hex("privatePillInkHex"), composite("C084FC", v3_hex("restSolidPrivateHex"), 0.24), 4.5),
+    ("v3 Address Private pill solid", "ink", v3_hex("privatePillSolidInkHex"), v3_hex("privatePillSolidFillHex"), 4.5),
+    # Semantic ConnectionCue (warning & danger) and IC secondary ink on v3 solid address pills
+    ("v3 Address Light rest", "warning cue", palettes[0][2]["warning"], v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Light rest", "danger cue", adaptive_constant("danger", 0), v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Light rest", "secondary IC", v3_hex("secondaryICLightHex"), v3_hex("restSolidLightHex"), 4.5),
+    ("v3 Address Dark rest", "warning cue", palettes[1][2]["warning"], v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Dark rest", "danger cue", adaptive_constant("danger", 1), v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Dark rest", "secondary IC", v3_hex("secondaryICDarkHex"), v3_hex("restSolidDarkHex"), 4.5),
+    ("v3 Address Black rest", "warning cue", palettes[2][2]["warning"], v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Black rest", "danger cue", adaptive_constant("danger", 1), v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Black rest", "secondary IC", v3_hex("secondaryICBlackHex"), v3_hex("restSolidBlackHex"), 4.5),
+    ("v3 Address Private rest", "warning cue", palettes[1][2]["warning"], v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Private rest", "danger cue", adaptive_constant("danger", 1), v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Private rest", "secondary IC", v3_hex("secondaryICPrivateHex"), v3_hex("restSolidPrivateHex"), 4.5),
+    ("v3 Address Light focus", "warning cue", palettes[0][2]["warning"], v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Light focus", "danger cue", adaptive_constant("danger", 0), v3_hex("focusSolidLightHex"), 4.5),
+    ("v3 Address Dark focus", "warning cue", palettes[1][2]["warning"], v3_hex("focusSolidDarkHex"), 4.5),
+    ("v3 Address Dark focus", "danger cue", adaptive_constant("danger", 1), v3_hex("focusSolidDarkHex"), 4.5),
+    ("v3 Address Black focus", "warning cue", palettes[2][2]["warning"], v3_hex("focusSolidBlackHex"), 4.5),
+    ("v3 Address Black focus", "danger cue", adaptive_constant("danger", 1), v3_hex("focusSolidBlackHex"), 4.5),
+    ("v3 Address Private focus", "warning cue", palettes[1][2]["warning"], v3_hex("focusSolidPrivateHex"), 4.5),
+    ("v3 Address Private focus", "danger cue", adaptive_constant("danger", 1), v3_hex("focusSolidPrivateHex"), 4.5),
+    # Toolbar IC secondary ink on v3 solid toolbar groups
+    ("v3 Toolbar Light solid", "secondary IC", v3_hex("secondaryICLightHex"), v3_hex("solidLightHex"), 4.5),
+    ("v3 Toolbar Dark solid", "secondary IC", v3_hex("secondaryICDarkHex"), v3_hex("solidDarkHex"), 4.5),
+    ("v3 Toolbar Black solid", "secondary IC", v3_hex("secondaryICBlackHex"), v3_hex("solidBlackHex"), 4.5),
+    ("v3 Toolbar Private solid", "secondary IC", v3_hex("secondaryICPrivateHex"), v3_hex("solidPrivateHex"), 4.5),
+    # Popover & Suggestions solid fallbacks (Light, Dark, Black, Private, RT and IC)
+    ("v3 Popover Light", "primary", v3_hex("primaryLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
+    ("v3 Popover Light", "secondary", v3_hex("secondaryLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
+    ("v3 Popover Light", "secondary IC", v3_hex("secondaryICLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
+    ("v3 Popover Light", "header", v3_hex("headerLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
+    ("v3 Popover Dark", "primary", v3_hex("primaryDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
+    ("v3 Popover Dark", "secondary", v3_hex("secondaryDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
+    ("v3 Popover Dark", "secondary IC", v3_hex("secondaryICDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
+    ("v3 Popover Dark", "header", v3_hex("headerDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
+    ("v3 Popover Black", "primary", v3_hex("primaryBlackHex"), v3_hex("popoverSolidBlackHex"), 4.5),
+    ("v3 Popover Black", "secondary", v3_hex("secondaryBlackHex"), v3_hex("popoverSolidBlackHex"), 4.5),
+    ("v3 Popover Black", "secondary IC", v3_hex("secondaryICBlackHex"), v3_hex("popoverSolidBlackHex"), 4.5),
+    ("v3 Popover Black", "header", v3_hex("headerBlackHex"), v3_hex("popoverSolidBlackHex"), 4.5),
+    ("v3 Popover Private", "primary", v3_hex("primaryPrivateHex"), v3_hex("popoverSolidPrivateHex"), 4.5),
+    ("v3 Popover Private", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("popoverSolidPrivateHex"), 4.5),
+    ("v3 Popover Private", "secondary IC", v3_hex("secondaryICPrivateHex"), v3_hex("popoverSolidPrivateHex"), 4.5),
+    ("v3 Popover Private", "header", v3_hex("headerPrivateHex"), v3_hex("popoverSolidPrivateHex"), 4.5),
+    # Suggestion selection pills (translucent gradient stops & RT/IC solid)
+    ("v3 Popover Light selected", "title", v3_hex("selectedTitleLightHex"), composite("007AFF", v3_hex("popoverSolidLightHex"), 0.15), 4.5),
+    ("v3 Popover Light selected", "url", v3_hex("selectedURLLightHex"), composite("007AFF", v3_hex("popoverSolidLightHex"), 0.15), 4.5),
+    ("v3 Popover Light selected solid", "title", v3_hex("selectedTitleLightHex"), v3_hex("selectedSolidLightHex"), 4.5),
+    ("v3 Popover Light selected solid", "url", v3_hex("selectedURLLightHex"), v3_hex("selectedSolidLightHex"), 4.5),
+    ("v3 Popover Dark selected", "title", "FFFFFF", composite("3B82F6", v3_hex("popoverSolidDarkHex"), 0.28), 4.5),
+    ("v3 Popover Dark selected", "url", v3_hex("selectedURLDarkHex"), composite("3B82F6", v3_hex("popoverSolidDarkHex"), 0.28), 4.5),
+    ("v3 Popover Dark selected solid", "title", "FFFFFF", v3_hex("selectedSolidDarkHex"), 4.5),
+    ("v3 Popover Dark selected solid", "url", v3_hex("selectedURLDarkHex"), v3_hex("selectedSolidDarkHex"), 4.5),
+    ("v3 Popover Black selected solid", "title", "FFFFFF", v3_hex("selectedSolidBlackHex"), 4.5),
+    ("v3 Popover Black selected solid", "url", v3_hex("selectedURLDarkHex"), v3_hex("selectedSolidBlackHex"), 4.5),
+    ("v3 Popover Private selected", "title", "FFFFFF", composite("A855F7", v3_hex("popoverSolidPrivateHex"), 0.32), 4.5),
+    ("v3 Popover Private selected", "url", v3_hex("selectedURLPrivateHex"), composite("A855F7", v3_hex("popoverSolidPrivateHex"), 0.32), 4.5),
+    ("v3 Popover Private selected solid", "title", "FFFFFF", v3_hex("selectedSolidPrivateHex"), 4.5),
+    ("v3 Popover Private selected solid", "url", v3_hex("selectedURLPrivateHex"), v3_hex("selectedSolidPrivateHex"), 4.5),
+    # Suggestion chips ("Already open", return key, search engine pill) & Tab hint chip
+    ("v3 Suggestions Light alreadyOpen", "chip", v3_hex("alreadyOpenPillInkLightHex"), composite("007AFF", v3_hex("popoverSolidLightHex"), 0.12), 4.5),
+    ("v3 Suggestions Light alreadyOpen solid", "chip", v3_hex("alreadyOpenPillInkLightHex"), v3_hex("alreadyOpenPillSolidLightHex"), 4.5),
+    ("v3 Suggestions Dark alreadyOpen", "chip", v3_hex("alreadyOpenPillInkDarkHex"), composite("3B82F6", v3_hex("popoverSolidDarkHex"), 0.22), 4.5),
+    ("v3 Suggestions Dark alreadyOpen solid", "chip", v3_hex("alreadyOpenPillInkDarkHex"), v3_hex("alreadyOpenPillSolidDarkHex"), 4.5),
+    ("v3 Suggestions Black alreadyOpen solid", "chip", v3_hex("alreadyOpenPillInkDarkHex"), v3_hex("alreadyOpenPillSolidBlackHex"), 4.5),
+    ("v3 Suggestions Private alreadyOpen", "chip", v3_hex("alreadyOpenPillInkPrivateHex"), composite("C084FC", v3_hex("popoverSolidPrivateHex"), 0.22), 4.5),
+    ("v3 Suggestions Private alreadyOpen solid", "chip", v3_hex("alreadyOpenPillInkPrivateHex"), v3_hex("alreadyOpenPillSolidPrivateHex"), 4.5),
+    ("v3 Suggestions Light returnChip", "chip", v3_hex("returnKeyChipInkLightHex"), composite("FFFFFF", v3_hex("selectedSolidLightHex"), 0.78), 4.5),
+    ("v3 Suggestions Light returnChip solid", "chip", v3_hex("returnKeyChipInkLightHex"), v3_hex("returnKeyChipSolidLightHex"), 4.5),
+    ("v3 Suggestions Dark returnChip", "chip", v3_hex("returnKeyChipInkDarkHex"), composite("FFFFFF", v3_hex("selectedSolidDarkHex"), 0.14), 4.5),
+    ("v3 Suggestions Dark returnChip solid", "chip", v3_hex("returnKeyChipInkDarkHex"), v3_hex("returnKeyChipSolidDarkHex"), 4.5),
+    ("v3 Suggestions Black returnChip solid", "chip", v3_hex("returnKeyChipInkDarkHex"), v3_hex("returnKeyChipSolidBlackHex"), 4.5),
+    ("v3 Suggestions Private returnChip", "chip", v3_hex("returnKeyChipInkDarkHex"), composite("D8B4FE", v3_hex("selectedSolidPrivateHex"), 0.18), 4.5),
+    ("v3 Suggestions Private returnChip solid", "chip", v3_hex("returnKeyChipInkDarkHex"), v3_hex("returnKeyChipSolidPrivateHex"), 4.5),
+    ("v3 Suggestions Light enginePill", "chip", v3_hex("enginePillInkLightHex"), composite("0F172A", v3_hex("popoverSolidLightHex"), 0.05), 4.5),
+    ("v3 Suggestions Light enginePill solid", "chip", v3_hex("enginePillInkLightHex"), v3_hex("enginePillSolidLightHex"), 4.5),
+    ("v3 Suggestions Light enginePill IC", "chip", v3_hex("secondaryICLightHex"), v3_hex("enginePillSolidLightHex"), 4.5),
+    ("v3 Suggestions Dark enginePill", "chip", v3_hex("secondaryDarkHex"), composite("FFFFFF", v3_hex("popoverSolidDarkHex"), 0.08), 4.5),
+    ("v3 Suggestions Dark enginePill solid", "chip", v3_hex("secondaryDarkHex"), v3_hex("enginePillSolidDarkHex"), 4.5),
+    ("v3 Suggestions Dark enginePill IC", "chip", v3_hex("secondaryICDarkHex"), v3_hex("enginePillSolidDarkHex"), 4.5),
+    ("v3 Suggestions Black enginePill solid", "chip", v3_hex("secondaryBlackHex"), v3_hex("enginePillSolidBlackHex"), 4.5),
+    ("v3 Suggestions Black enginePill IC", "chip", v3_hex("secondaryICBlackHex"), v3_hex("enginePillSolidBlackHex"), 4.5),
+    ("v3 Suggestions Private enginePill", "chip", v3_hex("secondaryPrivateHex"), composite("D8B4FE", v3_hex("popoverSolidPrivateHex"), 0.10), 4.5),
+    ("v3 Suggestions Private enginePill solid", "chip", v3_hex("secondaryPrivateHex"), v3_hex("enginePillSolidPrivateHex"), 4.5),
+    ("v3 Suggestions Private enginePill IC", "chip", v3_hex("secondaryICPrivateHex"), v3_hex("enginePillSolidPrivateHex"), 4.5),
+    ("v3 Address Light tabHint", "chip", v3_hex("secondaryLightHex"), composite("0F172A", v3_hex("focusSolidLightHex"), 0.06), 4.5),
+    ("v3 Address Light tabHint solid", "chip", v3_hex("secondaryICLightHex"), v3_hex("tabHintSolidLightHex"), 4.5),
+    ("v3 Address Dark tabHint", "chip", v3_hex("secondaryDarkHex"), composite("FFFFFF", v3_hex("focusSolidDarkHex"), 0.09), 4.5),
+    ("v3 Address Dark tabHint solid", "chip", v3_hex("secondaryICDarkHex"), v3_hex("tabHintSolidDarkHex"), 4.5),
+    ("v3 Address Black tabHint solid", "chip", v3_hex("secondaryBlackHex"), v3_hex("tabHintSolidBlackHex"), 4.5),
+    ("v3 Address Private tabHint", "chip", v3_hex("secondaryPrivateHex"), composite("D8B4FE", v3_hex("focusSolidPrivateHex"), 0.12), 4.5),
+    ("v3 Address Private tabHint solid", "chip", v3_hex("secondaryICPrivateHex"), v3_hex("tabHintSolidPrivateHex"), 4.5),
+    # Inline completion highlight over focused capsule solid fallbacks
+    ("v3 Address Light completion", "completion", v3_hex("inlineCompletionInkLightHex"), composite("007AFF", v3_hex("focusSolidLightHex"), 0.16), 4.5),
+    ("v3 Address Dark completion", "completion", v3_hex("inlineCompletionInkDarkHex"), composite("3B82F6", v3_hex("focusSolidDarkHex"), 0.28), 4.5),
+    ("v3 Address Black completion", "completion", v3_hex("inlineCompletionInkBlackHex"), composite("3B82F6", v3_hex("focusSolidBlackHex"), 0.30), 4.5),
+    ("v3 Address Private completion", "completion", v3_hex("inlineCompletionInkPrivateHex"), composite("C084FC", v3_hex("focusSolidPrivateHex"), 0.28), 4.5),
+    # Handoff bar & Move button (normal live composite, RT solid, and IC)
+    ("v3 Handoff Private", "message", v3_hex("messageInkHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private", "app name", v3_hex("primaryPrivateHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private", "glasses icon", v3_hex("privateAccentDarkHex"), v3_hex("solidBgHex"), 3.0),
+    ("v3 Handoff Private", "keep private", v3_hex("secondaryPrivateHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private live", "message", v3_hex("messageInkHex"), composite("161020", composite("3C265E", v3_hex("fillPrivateTopHex"), 0.34), 0.14), 4.5),
+    ("v3 Handoff Private live", "keep private", v3_hex("secondaryPrivateHex"), composite("161020", composite("3C265E", v3_hex("fillPrivateTopHex"), 0.34), 0.14), 4.5),
+    ("v3 Handoff Private IC", "message", v3_hex("primaryPrivateHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private IC", "glasses icon", v3_hex("privateAccentICDarkHex"), v3_hex("solidBgHex"), 3.0),
+    ("v3 Handoff Private IC", "keep private", v3_hex("secondaryICPrivateHex"), v3_hex("solidBgHex"), 4.5),
+    ("v3 Handoff Private IC", "border on bar", v3_hex("rimICPrivateHex"), v3_hex("solidBgHex"), 3.0),
+    ("v3 Handoff Private IC", "border on card", v3_hex("rimICPrivateHex"), v3_hex("fillPrivateHex"), 3.0),
+    ("v3 Handoff Picker", "label", v3_hex("primaryPrivateHex"), composite("FFFFFF", v3_hex("solidBgHex"), 0.08), 4.5),
+    ("v3 Handoff Picker solid", "label", v3_hex("primaryPrivateHex"), v3_hex("pickerSolidFillHex"), 4.5),
+    ("v3 Handoff Picker solid", "chevron", v3_hex("secondaryPrivateHex"), v3_hex("pickerSolidFillHex"), 3.0),
+    ("v3 Handoff Picker IC", "chevron", v3_hex("secondaryICPrivateHex"), v3_hex("pickerSolidFillHex"), 4.5),
+    ("v3 Handoff Picker IC", "border", v3_hex("rimICPrivateHex"), v3_hex("pickerSolidFillHex"), 3.0),
+    ("v3 Handoff Move button top", "ink", "FFFFFF", v3_hex("moveButtonTopHex"), 4.5),
+    ("v3 Handoff Move button bottom", "ink", "FFFFFF", v3_hex("moveButtonBottomHex"), 4.5),
+    ("v3 Handoff Move button solid", "ink", "FFFFFF", v3_hex("moveButtonSolidHex"), 4.5),
+    ("v3 Toolbar Private IC", "border", v3_hex("rimICPrivateHex"), v3_hex("solidPrivateHex"), 3.0),
+    ("v3 Address Private pill IC", "border", v3_hex("rimICPrivateHex"), v3_hex("privatePillSolidFillHex"), 3.0),
+    ("v3 Address Private pill IC", "ink", v3_hex("privatePillSolidInkHex"), v3_hex("privatePillSolidFillHex"), 4.5),
+]
+# Phase 7 Amethyst Dusk chrome over the private card fill (toolbar groups, address
+# capsule, private pill and handoff bar sit inside the card, never over web pixels
+# while the handoff bar is shown). Live tints use the §6.3 glass recipes over both
+# card gradient stops; RT/IC use the solid fallbacks above.
+for card_stop in (v3_hex("fillPrivateTopHex"), v3_hex("fillPrivateHex")):
+    toolbar_live = composite("342250", card_stop, 0.32)
+    address_live = composite("362354", card_stop, 0.34)
+    pill_live = composite("C084FC", address_live, 0.24)
+    handoff_live = composite("161020", composite("3C265E", card_stop, 0.34), 0.14)
+    v3_surface_pairs += [
+        (f"v3 Toolbar Private live over #{card_stop}", "primary", v3_hex("primaryPrivateHex"), toolbar_live, 4.5),
+        (f"v3 Toolbar Private live over #{card_stop}", "secondary", v3_hex("secondaryPrivateHex"), toolbar_live, 4.5),
+        (f"v3 Address Private live over #{card_stop}", "primary", v3_hex("primaryPrivateHex"), address_live, 4.5),
+        (f"v3 Address Private live over #{card_stop}", "secondary", v3_hex("secondaryPrivateHex"), address_live, 4.5),
+        (f"v3 Address Private pill live over #{card_stop}", "ink", v3_hex("privatePillInkHex"), pill_live, 4.5),
+        (f"v3 Handoff Private live over #{card_stop}", "message", v3_hex("messageInkHex"), handoff_live, 4.5),
+        (f"v3 Handoff Private live over #{card_stop}", "app name", v3_hex("primaryPrivateHex"), handoff_live, 4.5),
+        (f"v3 Handoff Private live over #{card_stop}", "glasses icon", v3_hex("privateAccentDarkHex"), handoff_live, 3.0),
+        (f"v3 Handoff Private live over #{card_stop}", "keep private", v3_hex("secondaryPrivateHex"), handoff_live, 4.5),
+        (f"v3 Handoff Picker live over #{card_stop}", "label", v3_hex("primaryPrivateHex"), composite("FFFFFF", handoff_live, 0.08), 4.5),
+        (f"v3 Handoff Picker live over #{card_stop}", "chevron", v3_hex("secondaryPrivateHex"), composite("FFFFFF", handoff_live, 0.08), 3.0),
+    ]
+# Q5: a private tab in a regular window keeps profile chrome; its pill is always the
+# solid Amethyst pill, which must stay legible and distinct on every regular capsule.
+for mode_name in ("Light", "Dark", "Black"):
+    v3_surface_pairs.append((f"v3 Address {mode_name} rest private pill", "ink",
+                             v3_hex("privatePillSolidInkHex"), v3_hex("privatePillSolidFillHex"), 4.5))
+    v3_surface_pairs.append((f"v3 Address {mode_name} rest private pill IC", "border",
+                             v3_hex(f"rimIC{mode_name}Hex"), v3_hex(f"restSolid{mode_name}Hex"), 3.0))
+v3_surface_pairs += [
+    # Start Page big field, engine chip, title, secondary, links, bookmark tiles, frequent rows, footer/keycaps, and private card
+    # over solid start-page backdrop fallbacks in Light, Dark, Black, Private, RT and IC.
+    ("v3 StartPage Light bigField", "primary", v3_hex("primaryLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
+    ("v3 StartPage Light bigField", "placeholder", v3_hex("tertiaryCardLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
+    ("v3 StartPage Light bigField IC", "placeholder IC", v3_hex("secondaryICLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
+    ("v3 StartPage Light engineChip", "chip", v3_hex("secondaryLightHex"), v3_hex("engineChipSolidLightHex"), 4.5),
+    ("v3 StartPage Light engineChip IC", "chip IC", v3_hex("secondaryICLightHex"), v3_hex("engineChipSolidLightHex"), 4.5),
+    ("v3 StartPage Dark bigField", "primary", v3_hex("primaryDarkHex"), v3_hex("bigFieldSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark bigField", "placeholder", v3_hex("secondaryDarkHex"), v3_hex("bigFieldSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark bigField IC", "placeholder IC", v3_hex("secondaryICDarkHex"), v3_hex("bigFieldSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark engineChip", "chip", v3_hex("secondaryDarkHex"), v3_hex("engineChipSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark engineChip IC", "chip IC", v3_hex("secondaryICDarkHex"), v3_hex("engineChipSolidDarkHex"), 4.5),
+    ("v3 StartPage Black bigField", "primary", v3_hex("primaryBlackHex"), v3_hex("bigFieldSolidBlackHex"), 4.5),
+    ("v3 StartPage Black bigField", "placeholder", v3_hex("secondaryBlackHex"), v3_hex("bigFieldSolidBlackHex"), 4.5),
+    ("v3 StartPage Black bigField IC", "placeholder IC", v3_hex("secondaryICBlackHex"), v3_hex("bigFieldSolidBlackHex"), 4.5),
+    ("v3 StartPage Black engineChip", "chip", v3_hex("secondaryBlackHex"), v3_hex("engineChipSolidBlackHex"), 4.5),
+    ("v3 StartPage Black engineChip IC", "chip IC", v3_hex("secondaryICBlackHex"), v3_hex("engineChipSolidBlackHex"), 4.5),
+    ("v3 StartPage Private bigField", "primary", v3_hex("primaryPrivateHex"), v3_hex("bigFieldSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private bigField", "placeholder", v3_hex("secondaryPrivateHex"), v3_hex("bigFieldSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private bigField IC", "placeholder IC", v3_hex("secondaryICPrivateHex"), v3_hex("bigFieldSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private engineChip", "chip", v3_hex("secondaryPrivateHex"), v3_hex("engineChipSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private engineChip IC", "chip IC", v3_hex("secondaryICPrivateHex"), v3_hex("engineChipSolidPrivateHex"), 4.5),
+    # Title, secondary, Show All link, tile labels, footer and keycaps over start-page solid backings
+    ("v3 StartPage Light backdrop", "title", v3_hex("primaryLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "secondary", v3_hex("secondaryLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "secondary IC", v3_hex("secondaryICLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "link", v3_hex("linkLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "link IC", v3_hex("linkICLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "footer", v3_hex("footerLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light keycap", "keycap", v3_hex("secondaryLightHex"), v3_hex("keycapSolidLightHex"), 4.5),
+    ("v3 StartPage Light keycap IC", "keycap IC", v3_hex("secondaryICLightHex"), v3_hex("keycapSolidLightHex"), 4.5),
+    ("v3 StartPage Light tileHover", "tile label", v3_hex("primaryLightHex"), v3_hex("tileHoverSolidLightHex"), 4.5),
+    ("v3 StartPage Light frequent", "row title", v3_hex("primaryLightHex"), v3_hex("frequentCardSolidLightHex"), 4.5),
+    ("v3 StartPage Light frequent", "row host", v3_hex("frequentHostLightHex"), v3_hex("frequentCardSolidLightHex"), 4.5),
+    ("v3 StartPage Light frequent IC", "row host IC", v3_hex("secondaryICLightHex"), v3_hex("frequentCardSolidLightHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "title", v3_hex("primaryDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "secondary", v3_hex("secondaryDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "secondary IC", v3_hex("secondaryICDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "link", v3_hex("linkDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "link IC", v3_hex("linkICDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "footer", v3_hex("footerDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark keycap", "keycap", v3_hex("secondaryDarkHex"), v3_hex("keycapSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark keycap IC", "keycap IC", v3_hex("secondaryICDarkHex"), v3_hex("keycapSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark tileHover", "tile label", v3_hex("primaryDarkHex"), v3_hex("tileHoverSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark frequent", "row title", v3_hex("primaryDarkHex"), v3_hex("frequentCardSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark frequent", "row host", v3_hex("frequentHostDarkHex"), v3_hex("frequentCardSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark frequent IC", "row host IC", v3_hex("secondaryICDarkHex"), v3_hex("frequentCardSolidDarkHex"), 4.5),
+    ("v3 StartPage Black backdrop", "title", v3_hex("primaryBlackHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "secondary", v3_hex("secondaryBlackHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "secondary IC", v3_hex("secondaryICBlackHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "link", v3_hex("linkDarkHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "link IC", v3_hex("linkICDarkHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "footer", v3_hex("footerBlackHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black keycap", "keycap", v3_hex("secondaryBlackHex"), v3_hex("keycapSolidBlackHex"), 4.5),
+    ("v3 StartPage Black keycap IC", "keycap IC", v3_hex("secondaryICBlackHex"), v3_hex("keycapSolidBlackHex"), 4.5),
+    ("v3 StartPage Black tileHover", "tile label", v3_hex("primaryBlackHex"), v3_hex("tileHoverSolidBlackHex"), 4.5),
+    ("v3 StartPage Black frequent", "row title", v3_hex("primaryBlackHex"), v3_hex("frequentCardSolidBlackHex"), 4.5),
+    ("v3 StartPage Black frequent", "row host", v3_hex("frequentHostBlackHex"), v3_hex("frequentCardSolidBlackHex"), 4.5),
+    ("v3 StartPage Black frequent IC", "row host IC", v3_hex("secondaryICBlackHex"), v3_hex("frequentCardSolidBlackHex"), 4.5),
+    ("v3 StartPage Private backdrop", "chip", v3_hex("privateAccentDarkHex"), v3_hex("startSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private backdrop", "chip IC", v3_hex("privateAccentICDarkHex"), v3_hex("startSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private backdrop", "title", v3_hex("primaryPrivateHex"), v3_hex("startSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private backdrop", "footer", v3_hex("footerPrivateHex"), v3_hex("startSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private keycap", "keycap", v3_hex("secondaryPrivateHex"), v3_hex("keycapSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private keycap IC", "keycap IC", v3_hex("secondaryICPrivateHex"), v3_hex("keycapSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private card", "heading", v3_hex("privateAccentDarkHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    ("v3 StartPage Private card", "heading IC", v3_hex("privateAccentICDarkHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    ("v3 StartPage Private card", "primary", v3_hex("primaryPrivateHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    ("v3 StartPage Private card", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    ("v3 StartPage Private card", "secondary IC", v3_hex("secondaryICPrivateHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    ("v3 StartPage Private card translucent", "heading", v3_hex("privateAccentDarkHex"), composite("D5AAF8", v3_hex("startSolidPrivateHex"), 0.09), 4.5),
+    ("v3 StartPage Private card translucent", "primary", v3_hex("primaryPrivateHex"), composite("D5AAF8", v3_hex("startSolidPrivateHex"), 0.09), 4.5),
+    ("v3 StartPage Private card translucent", "secondary", v3_hex("secondaryPrivateHex"), composite("D5AAF8", v3_hex("startSolidPrivateHex"), 0.09), 4.5),
+    # Focus rings & IC borders (>= 3.0:1)
+    ("v3 Focus bigField Light", "focus ring", v3_hex("linkLightHex"), v3_hex("bigFieldSolidLightHex"), 3.0),
+    ("v3 Focus bigField Dark", "focus ring", "3B9BFF", v3_hex("bigFieldSolidDarkHex"), 3.0),
+    ("v3 Focus bigField Private", "focus ring", "C792F5", v3_hex("bigFieldSolidPrivateHex"), 3.0),
+    ("v3 IC border StartPage Light", "ic border", v3_hex("rimICLightHex"), v3_hex("startSolidLightHex"), 3.0),
+    ("v3 IC border StartPage Dark", "ic border", v3_hex("rimICDarkHex"), v3_hex("startSolidDarkHex"), 3.0),
+    ("v3 IC border StartPage Private card", "ic border", v3_hex("rimICPrivateHex"), v3_hex("privateCardSolidFillHex"), 3.0),
+    ("v3 Focus address Light", "focus ring", v3_hex("accentLightHex"), v3_hex("focusSolidLightHex"), 3.0),
+    ("v3 Focus address Light card", "focus ring", v3_hex("accentLightHex"), v3_hex("fillLightHex"), 3.0),
+    ("v3 Focus address Dark", "focus ring", v3_hex("accentDarkHex"), v3_hex("focusSolidDarkHex"), 3.0),
+    ("v3 Focus address Dark card", "focus ring", v3_hex("accentDarkHex"), v3_hex("fillDarkHex"), 3.0),
+    ("v3 Focus address Black", "focus ring", v3_hex("accentDarkHex"), v3_hex("focusSolidBlackHex"), 3.0),
+    ("v3 Focus address Private", "focus ring", v3_hex("privateAccentStrongHex"), v3_hex("focusSolidPrivateHex"), 3.0),
+    ("v3 Focus address Private IC", "focus ring", v3_hex("privateAccentDarkHex"), v3_hex("focusSolidPrivateHex"), 3.0),
+    ("v3 IC border Light toolbar", "ic border", v3_hex("rimICLightHex"), v3_hex("solidLightHex"), 3.0),
+    ("v3 IC border Light card", "ic border", v3_hex("rimICLightHex"), v3_hex("fillLightHex"), 3.0),
+    ("v3 IC border Light backdrop", "ic border", v3_hex("rimICLightHex"), v3_hex("reducedLightHex"), 3.0),
+    ("v3 IC border Dark toolbar", "ic border", v3_hex("rimICDarkHex"), v3_hex("solidDarkHex"), 3.0),
+    ("v3 IC border Dark card", "ic border", v3_hex("rimICDarkHex"), v3_hex("fillDarkHex"), 3.0),
+    ("v3 IC border Dark backdrop", "ic border", v3_hex("rimICDarkHex"), v3_hex("reducedDarkHex"), 3.0),
+    ("v3 IC border Black address", "ic border", v3_hex("rimICBlackHex"), v3_hex("restSolidBlackHex"), 3.0),
+    ("v3 IC border Black card", "ic border", v3_hex("rimICBlackHex"), v3_hex("fillBlackHex"), 3.0),
+    ("v3 IC border Private address", "ic border", v3_hex("rimICPrivateHex"), v3_hex("restSolidPrivateHex"), 3.0),
+    ("v3 IC border Private backdrop", "ic border", v3_hex("rimICPrivateHex"), v3_hex("reducedPrivateHex"), 3.0),
+]
+for label, role, fg, bg, minimum in v3_surface_pairs:
+    v3_checks.append((label, role, fg, "solid", bg, minimum))
+
+# Verify start-page app-icon squircle monogram gradients meet >= 4.5:1 with white ink.
+app_icon_block = re.search(r"static let appIconPalette:.*?=\s*\[([\s\S]+?)\n        \]", v3_block)
+assert app_icon_block, "Missing OrivMacV3.StartPage.appIconPalette"
+app_icon_stops = re.findall(r"\(0x([0-9A-Fa-f]{6}),\s*0x([0-9A-Fa-f]{6})\)", app_icon_block.group(1))
+assert len(app_icon_stops) >= 6, "Expected at least 6 app-icon palette stops"
+for idx, (top_hex, bot_hex) in enumerate(app_icon_stops):
+    v3_checks.append((f"v3 StartPage appIcon #{idx} top", "monogram", v3_hex("appIconOnColorHex"), "squircle", top_hex.upper(), 4.5))
+    v3_checks.append((f"v3 StartPage appIcon #{idx} bottom", "monogram", v3_hex("appIconOnColorHex"), "squircle", bot_hex.upper(), 4.5))
+
+# Verify start-page inks also pass over peak start-page radial glows.
+for gh, gop in v3_glows("startLightAmbient"):
+    glow_bg = composite(gh, v3_hex("startLightBaseHex"), gop)
+    v3_checks.append((f"v3 StartPage Light glow #{gh}", "title", v3_hex("primaryLightHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Light glow #{gh}", "secondary", v3_hex("secondaryLightHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Light glow #{gh}", "link", v3_hex("linkLightHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Light glow #{gh}", "footer", v3_hex("footerLightHex"), "glow", glow_bg, 4.5))
+for gh, gop in (("3E6CC6", 0.38), ("2C8092", 0.30)):
+    glow_bg = composite(gh, v3_hex("startDarkBaseHex"), gop)
+    v3_checks.append((f"v3 StartPage Dark glow #{gh}", "title", v3_hex("primaryDarkHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Dark glow #{gh}", "secondary", v3_hex("secondaryDarkHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Dark glow #{gh}", "footer", v3_hex("footerDarkHex"), "glow", glow_bg, 4.5))
+for gh, gop in v3_glows("startPrivateAmbient"):
+    glow_bg = composite(gh, v3_hex("startPrivateBaseHex"), gop)
+    v3_checks.append((f"v3 StartPage Private glow #{gh}", "title", v3_hex("primaryPrivateHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Private glow #{gh}", "chip", v3_hex("privateAccentDarkHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Private glow #{gh}", "footer", v3_hex("footerPrivateHex"), "glow", glow_bg, 4.5))
+
+checks.extend(v3_checks)
 
 failures = 0
 reported = set()
@@ -364,7 +880,7 @@ elif role_negative:
                for _, token, foreground, surface, background, minimum in checks):
         sys.exit(f"FAIL negative test: {role_negative} regression was not caught")
     print(f"Negative {role_negative} test passed")
-elif negative_test or sidebar_negative:
+elif negative_test or sidebar_negative or v3_negative:
     if not failures:
         print("FAIL negative test: low-contrast foreground was not caught")
         sys.exit(1)

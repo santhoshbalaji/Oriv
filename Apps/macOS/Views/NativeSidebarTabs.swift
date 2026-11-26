@@ -8,8 +8,16 @@ private let sidebarDragLog = OSLog(subsystem: "Oriv", category: "SidebarDrag")
 @MainActor @Observable final class SidebarListHandle {
     @ObservationIgnored weak var collection: SidebarTabCollection?
     var hasFocus = false
+    var contentHeight: CGFloat? = nil
+    @ObservationIgnored var fallbackHeight: CGFloat? = nil
 
     func focus(_ id: UUID? = nil) { collection?.focusTab(id) }
+
+    func updateContentHeight(_ height: CGFloat) {
+        let current = contentHeight ?? fallbackHeight
+        if let current, abs(current - height) <= 0.5 { return }
+        contentHeight = height
+    }
 
     func frame(for id: UUID) -> NSRect? {
         guard let collection, let path = collection.sidebar?.path(for: id),
@@ -27,6 +35,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
     let rail: Bool
     let peek: Bool
     let expandedWidth: CGFloat
+    var overflowing = true
     let searchRequest: ProfileScoped<SidebarTabQuery>?
     var searching: Bool { searchRequest != nil }
     let confirmClose: (UUID, Bool) -> Void
@@ -77,7 +86,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
         list.userInterfaceLayoutDirection = direction
         let iconLayout = rail || peek
         scroll.usesIconLayout = iconLayout
-        scroll.scrollerStyle = iconLayout ? .overlay : NSScroller.preferredScrollerStyle
+        scroll.scrollerStyle = (iconLayout || !overflowing) ? .overlay : NSScroller.preferredScrollerStyle
         scroll.hasVerticalScroller = !iconLayout
         handle.collection = list
         let profileChanged = context.coordinator.controller.map { $0 !== controller } ?? false
@@ -88,7 +97,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
-            fade.duration = 0.15
+            fade.duration = OrivMacV3.Motion.reducedDuration
             fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
             scroll.layer?.add(fade, forKey: "profileRailFade")
         }
@@ -173,7 +182,7 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
         let edge = icons ? MacBrowserLayout.railInset : 0
         let rowWidth = data.isRail ? MacBrowserLayout.railItemWidth : max(0, width - 2 * edge)
         let rowHeight = data.rowHeight
-        let rowSpacing = icons ? OrivSpacing.small : OrivSpacing.xxs
+        let rowSpacing = icons ? OrivSpacing.small : OrivMacV3.SidebarLayout.tabRowGap
         let pinGrid = SidebarTabs.PinGrid(availableWidth: rowWidth)
         let rtl = list.userInterfaceLayoutDirection == .rightToLeft
         let sections = data.sections
@@ -192,16 +201,37 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
                 y += header.height
                 let top = y
                 let columns = group.grid ? pinGrid.columns : 1
-                let height = group.grid ? OrivLayout.sidebarPinHeight : rowHeight
-                let spacing = group.grid ? OrivLayout.sidebarPinGap : rowSpacing
+                let height = group.grid ? OrivMacV3.SidebarLayout.pinHeight : rowHeight
+                let spacing = group.grid ? OrivMacV3.SidebarLayout.pinGap : rowSpacing
                 let widthOfItem = group.grid ? pinGrid.tileWidth : rowWidth
-                y += CGFloat((count + columns - 1) / columns) * (height + spacing)
-                if icons && !group.grid && count > 0 { y -= spacing }
+                if count > 0 {
+                    let rows = CGFloat((count + columns - 1) / columns)
+                    if group.grid {
+                        let hasFollowing = sections.dropFirst(index + 1).enumerated().contains { offset, later in
+                            let laterIndex = index + 1 + offset
+                            let laterCount = later.tabs.count - (source?.section == laterIndex ? 1 : 0) + (gap?.section == laterIndex ? 1 : 0)
+                            return laterCount > 0 || later.headerHeight > 0
+                        }
+                        y += rows * (height + spacing) - spacing + (hasFollowing ? OrivMacV3.SidebarLayout.pinBottomMargin : rowSpacing)
+                    } else {
+                        y += rows * (height + spacing)
+                        if icons {
+                            y -= spacing
+                        } else if group.kind == .regular {
+                            let hasFollowing = sections.dropFirst(index + 1).enumerated().contains { offset, later in
+                                let laterIndex = index + 1 + offset
+                                let laterCount = later.tabs.count - (source?.section == laterIndex ? 1 : 0) + (gap?.section == laterIndex ? 1 : 0)
+                                return laterCount > 0 || later.headerHeight > 0
+                            }
+                            if hasFollowing { y += OrivSpacing.medium - spacing }
+                        }
+                    }
+                }
                 geometry.append(SectionGeometry(header: header, itemsTop: top, end: y, count: count,
                                                 columns: columns, x: group.grid ? (rtl ? width - widthOfItem : 0) : edge,
                                                 width: widthOfItem, height: height, spacing: spacing, rtl: group.grid && rtl))
             }
-            return y + (icons ? 0 : 9)
+            return y
         }
 
         let baseHeight = makeGeometry(&base, source: nil, gap: nil)
@@ -221,6 +251,7 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
         // Removing a tile can close a grid row. Keep the scroll extent stable
         // until the drag ends, so the clip view cannot push the pointer to a new slot.
         contentSize = NSSize(width: width, height: max(baseHeight, height))
+        data.publishContentHeight(contentSize.height)
     }
 
     override var collectionViewContentSize: NSSize { contentSize }
@@ -283,7 +314,7 @@ private final class SidebarTabLayout: NSCollectionViewLayout {
     // halves of adjacent cells map to one gap, which avoids redundant reflow.
     func drop(at point: NSPoint, retaining current: Drop? = nil) -> Drop? {
         guard let data = (collectionView as? SidebarTabCollection)?.sidebar,
-              point.x >= 0, point.x < contentSize.width, point.y >= 0,
+              point.x >= 0, point.x <= contentSize.width, point.y >= 0,
               let index = base.firstIndex(where: { point.y < $0.end }) ??
                 base.lastIndex(where: { $0.count > 0 || !$0.header.isEmpty }) else { return nil }
         // Opening a new pinned row can put the visible gap over the old Tabs
@@ -367,8 +398,7 @@ private struct SidebarSection {
     var headerHeight: CGFloat {
         if separator { return 25 }
         switch heading {
-        case "Pinned", "Pin tab": return OrivLayout.sidebarSectionHeight
-        case "Private", "Tabs", "Unpin tab": return OrivLayout.sidebarSectionHeight + OrivSpacing.xs
+        case "Pinned", "Pin tab", "Private", "Tabs", "Unpin tab": return OrivMacV3.SidebarLayout.sectionTotalHeight
         case .some: return 40
         case nil: return 0
         }
@@ -382,6 +412,9 @@ private struct SidebarSection {
     private var configuration: NativeSidebarTabs?
     fileprivate private(set) var sections: [SidebarSection] = []
     private var environment = EnvironmentValues()
+    private var rowEnvironment = EnvironmentValues()
+    private var cachedStyle: SidebarChromaticStyle?
+    private var cachedMode: OrivMacV3.AppearanceMode = .light
     private var activeID: UUID?
     private(set) var hovered: IndexPath?
     private var hoveredAccessory: SidebarRowAccessory?
@@ -399,8 +432,19 @@ private struct SidebarSection {
     var isSearching: Bool { configuration?.searching == true }
     var isIconLayout: Bool { isRail || configuration?.peek == true }
     var rowHeight: CGFloat {
-        if isIconLayout { return OrivTarget.macRail.height }
-        return environment.dynamicTypeSize.isAccessibilitySize ? OrivLayout.sidebarAccessibilityRowHeight : OrivLayout.tabRowHeight
+        if isIconLayout { return MacBrowserLayout.railItemHeight }
+        return environment.dynamicTypeSize.isAccessibilitySize ? OrivLayout.sidebarAccessibilityRowHeight : OrivMacV3.SidebarLayout.tabRowHeight
+    }
+
+    private var lastPublishedHeight: CGFloat?
+
+    fileprivate func publishContentHeight(_ height: CGFloat) {
+        guard !isIconLayout, let handle = configuration?.handle else { return }
+        if let last = lastPublishedHeight, abs(last - height) <= 0.5 { return }
+        lastPublishedHeight = height
+        DispatchQueue.main.async { [weak handle] in
+            handle?.updateContentHeight(height)
+        }
     }
 
     private enum DragUpdate {
@@ -417,7 +461,7 @@ private struct SidebarSection {
         let unpinningRegular = pinDrag?.isPinned == true && pinDrag?.isPrivate == false
         let unpinningPrivate = pinDrag?.isPinned == true && pinDrag?.isPrivate == true
         let icons = configuration.rail || configuration.peek
-        let privateHeading = configuration.controller.profile == nil ? nil : "Private"
+        let privateHeading: String? = "Private"
         var hasVisibleSection = false
         let groups: [(SidebarSection.Kind, [BrowserTab], String?, String, Bool)] = [
             (.pinned, pinned, "Pinned", "Pin tab", pinning),
@@ -455,7 +499,7 @@ private struct SidebarSection {
         switch group.kind {
         case .pinned: heading = "Pinned"
         case .regular: heading = "Tabs"
-        case .privateTabs: heading = controller?.profile == nil ? nil : "Private"
+        case .privateTabs: heading = "Private"
         case .empty: heading = nil
         }
         return SidebarSection(kind: group.kind, tabs: [], heading: isIconLayout ? nil : heading,
@@ -494,6 +538,14 @@ private struct SidebarSection {
         if dragUpdate == nil { awaitingDropUpdate = false }
         configuration = value
         self.environment = environment
+        var rowEnv = environment
+        rowEnv.sidebarDefersIconHydration = { [weak self] url in self?.deferIconHydration(url) == true }
+        rowEnvironment = rowEnv
+        let resolvedStyle = environment.sidebarStyle
+        cachedStyle = resolvedStyle
+        cachedMode = OrivMacV3.AppearanceMode.resolve(theme: environment.browserTheme,
+                                                      colorScheme: environment.colorScheme,
+                                                      isPrivateWindow: environment.v3AppearanceMode == .private)
         activeID = newActive
 
         let needsLayout = changesLayout || changesContent || old?.expandedWidth != value.expandedWidth ||
@@ -644,6 +696,7 @@ private struct SidebarSection {
         } else {
             list.scrollToVisible(frame)
         }
+        list.layoutSubtreeIfNeeded()
     }
 
     func focus(_ id: UUID?) {
@@ -724,6 +777,13 @@ private struct SidebarSection {
         return item
     }
 
+    func collectionView(_ collectionView: NSCollectionView, didEndDisplaying item: NSCollectionViewItem,
+                        forRepresentedObjectAt indexPath: IndexPath) {
+        #if DEBUG
+        item.view.identifier = nil
+        #endif
+    }
+
     private func configure(_ item: SidebarCollectionItem, at path: IndexPath, keepArtwork: Bool = false) {
         guard let configuration, let tab = tab(at: path) else { return }
         let started = list?.dragWorkStart ?? 0
@@ -756,10 +816,17 @@ private struct SidebarSection {
         let accessory = self.hovered == path ? hoveredAccessory : nil
         let artwork = artwork(for: tab, in: configuration, grid: grid, hovered: hovered, accessory: accessory)
         item.artwork = { artwork($0, false) }
-        let style = environment.sidebarStyle
-        let radius = grid || icons ? OrivLayout.sidebarPinRadius : OrivLayout.sidebarSelectionRadius
-        (item.view as? SidebarAccessibleRow)?.setSelectionShadow(active && !style.opaque ? NSColor(style.glow) : nil,
-                                                                radius: radius)
+        let style = cachedStyle ?? environment.sidebarStyle
+        let mode = cachedMode
+        let radius = OrivMacV3.Radius.row
+        let shadowColor: NSColor? = if active && !style.opaque {
+            if mode == .private || mode == .black || style.isGraphite {
+                OrivMacV3.Sidebar.activeShadow(mode).primary.map { NSColor($0.color) }
+            } else {
+                NSColor(style.glow)
+            }
+        } else { nil }
+        (item.view as? SidebarAccessibleRow)?.setSelectionShadow(shadowColor, radius: radius)
         item.refresh()
     }
 
@@ -768,15 +835,17 @@ private struct SidebarSection {
         // A host subtitle only helps when it says something the title doesn't.
         let subtitle = configuration.duplicateTitles.contains(tab.displayTitle)
             ? tab.url?.host.flatMap { $0.caseInsensitiveCompare(tab.displayTitle) == .orderedSame ? nil : $0 } : nil
-        var environment = self.environment
-        environment.sidebarDefersIconHydration = { [weak self] url in self?.deferIconHydration(url) == true }
+        let environment = self.rowEnvironment
         let active = activeID == tab.id
         let icons = configuration.rail || configuration.peek
         let peek = configuration.peek
+        let style = cachedStyle
+        let mode = cachedMode
         return { selected, preview in
             var content = SidebarTabArtwork(tab: tab, selected: selected, active: active, tile: grid,
                                             rail: icons, peek: peek, hovered: hovered,
-                                            hoveredAccessory: accessory, subtitle: subtitle)
+                                            hoveredAccessory: accessory, subtitle: subtitle,
+                                            resolvedStyle: style, resolvedMode: mode)
             content.drawsSelectionGlow = preview
             if preview {
                 // ImageRenderer only needs the current profile's in-memory favicon.
@@ -1713,7 +1782,7 @@ private final class SidebarInsertionMarker: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor(Theme.sidebarKeyboardFocus).setStroke()
         let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2),
-                                   xRadius: OrivRadius.control, yRadius: OrivRadius.control)
+                                   xRadius: OrivMacV3.Radius.row, yRadius: OrivMacV3.Radius.row)
         outline.lineWidth = OrivOutline.focus
         outline.setLineDash([4, 4], count: 2, phase: 0)
         outline.stroke()
@@ -1742,7 +1811,7 @@ struct SidebarReflowMotion {
     let end: CGPoint
     let velocity: CGPoint
     let begin: CFTimeInterval
-    static let duration = 0.15
+    static let duration = OrivMacV3.Motion.reflowDuration
 
     func sample(at time: CFTimeInterval) -> (position: CGPoint, velocity: CGPoint) {
         let t = min(1, max(0, (time - begin) / Self.duration))
@@ -1857,6 +1926,9 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
     override func prepareForReuse() {
         super.prepareForReuse()
         dragImages = nil
+        #if DEBUG
+        view.identifier = nil
+        #endif
         (view as? SidebarReflowView)?.clearReflow()
     }
 
@@ -1889,17 +1961,23 @@ private final class SidebarCollectionItem: NSCollectionViewItem {
         guard !iconOnly, let tab else { return nil }
         let rtl = collectionView?.userInterfaceLayoutDirection == .rightToLeft
         let trailing = rtl ? point.x - view.bounds.minX : view.bounds.maxX - point.x
-        let slot = OrivLayout.sidebarAccessoryWidth
         if isPinTile {
             let fromTop = view.bounds.maxY - point.y
-            return includesClose && (0..<OrivLayout.sidebarPinCloseWidth).contains(trailing) &&
-                (0..<OrivLayout.sidebarPinCloseHeight).contains(fromTop)
+            return includesClose && (0..<OrivMacV3.SidebarLayout.pinCloseWidth).contains(trailing) &&
+                (0..<OrivMacV3.SidebarLayout.pinCloseHeight).contains(fromTop)
                 ? .close : nil
         }
-        let insetTrailing = trailing - MacBrowserLayout.sidebarRowInset
-        guard insetTrailing >= 0, abs(point.y - view.bounds.midY) <= OrivTarget.macMinimum.height / 2 else { return nil }
-        if insetTrailing < slot { return includesClose ? .close : nil }
-        if insetTrailing < 2 * slot, tab.mediaSuspended || tab.isAudioMuted || tab.isPlayingAudio { return .audio }
+        let hasAudio = tab.mediaSuspended || tab.isAudioMuted || tab.isPlayingAudio
+        guard includesClose || hasAudio else { return nil }
+        let slot = OrivMacV3.SidebarLayout.accessoryHitTarget
+        let insetTrailing = trailing - OrivMacV3.SidebarLayout.tabRowPaddingHorizontal
+        guard insetTrailing >= 0, abs(point.y - view.bounds.midY) <= slot / 2 else { return nil }
+        if includesClose {
+            if insetTrailing < slot { return .close }
+            if hasAudio && insetTrailing < 2 * slot { return .audio }
+        } else if hasAudio && insetTrailing < slot {
+            return .audio
+        }
         return nil
     }
 
@@ -1961,8 +2039,7 @@ private final class SidebarAccessibleRow: SidebarReflowView {
 
     override var focusRingMaskBounds: NSRect { showsFocusRing ? bounds.insetBy(dx: OrivOutline.focusInset, dy: OrivOutline.focusInset) : .zero }
     var focusRadius: CGFloat {
-        if item?.isPinTile == true || item?.iconOnly == true { return OrivLayout.sidebarPinRadius }
-        return item?.active == true ? OrivLayout.sidebarSelectionRadius : OrivRadius.control
+        OrivMacV3.Radius.row
     }
 
     override func accessibilityChildren() -> [Any]? { [] }

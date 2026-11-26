@@ -29,7 +29,7 @@ struct SidebarTransition: Equatable { let width: CGFloat; let peeking: Bool }
     var reservesRail: Bool { preferredRail || automaticRail }
     var overlay: Bool { peeking || narrowOverlay }
     var reservation: CGFloat {
-        webpageFullscreen ? 0 : (reservesRail ? MacBrowserLayout.railWidth : expandedWidth)
+        webpageFullscreen ? 0 : (reservesRail ? MacBrowserLayout.railReservation : MacBrowserLayout.expandedReservation(sidebarWidth: expandedWidth))
     }
     var width: CGFloat { rail ? MacBrowserLayout.railWidth : expandedWidth }
 
@@ -226,10 +226,14 @@ struct SidebarWindowEvents: NSViewRepresentable {
                     if controller.tabSearchPanel, let content = self.window?.contentView {
                         let insidePanel = self.target(at: event.locationInWindow, in: content) { $0 == .searchPanel } != nil
                         if !insidePanel { self.dismiss?() }
-                    } else if controller.sidebar.overlay, let width = self.window?.contentView?.bounds.width {
+                    } else if controller.sidebar.overlay, let bounds = self.window?.contentView?.bounds {
                         let x = event.locationInWindow.x
-                        let leading = self.layoutDirection == .rightToLeft ? width - x : x
-                        if leading > controller.sidebar.width { self.dismiss?() }
+                        let y = event.locationInWindow.y
+                        let leading = self.layoutDirection == .rightToLeft ? bounds.width - x : x
+                        let inset = MacBrowserLayout.windowInset
+                        if leading < inset || leading > inset + controller.sidebar.width || y < inset || y > bounds.height - inset {
+                            self.dismiss?()
+                        }
                     }
                 }
                 if event.type == .otherMouseUp, event.buttonNumber == 2,
@@ -283,7 +287,7 @@ struct SidebarLabelFade: ViewModifier {
     @State private var visible = false
     func body(content: Content) -> some View {
         content.opacity(visible || reduceMotion ? 1 : 0)
-            .onAppear { withAnimation(reduceMotion ? nil : OrivMotion.quick) { visible = true } }
+            .onAppear { withAnimation(OrivMacV3.Motion.quick(reduceMotion: reduceMotion)) { visible = true } }
     }
 }
 

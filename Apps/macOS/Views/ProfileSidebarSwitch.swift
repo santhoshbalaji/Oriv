@@ -785,7 +785,7 @@ private final class ProfileSidebarOverlay: NSView {
 
     func fadeOut(completion: @escaping @MainActor () -> Void) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
+            context.duration = OrivMacV3.Motion.reducedDuration
             animator().alphaValue = 0
         } completionHandler: {
             DispatchQueue.main.async { completion() }
@@ -858,7 +858,7 @@ private final class ProfileSidebarOverlay: NSView {
             if step == 0 { fadeStep = outgoingFadeStep }
             for (index, piece) in images {
                 let fade = CABasicAnimation(keyPath: "opacity")
-                fade.duration = 0.15
+                fade.duration = OrivMacV3.Motion.reducedDuration
                 fade.fromValue = old[index]
                 fade.toValue = piece.opacity
                 piece.add(fade, forKey: "settle")
@@ -867,10 +867,10 @@ private final class ProfileSidebarOverlay: NSView {
             let start = strip.presentation()?.transform ?? strip.transform
             apply(end)
             let spring = CASpringAnimation(keyPath: "transform")
-            spring.mass = 1
-            spring.stiffness = 320
-            spring.damping = 34
-            spring.duration = 0.30
+            spring.mass = OrivMacV3.Motion.profileSettleMass
+            spring.stiffness = OrivMacV3.Motion.profileSettleStiffness
+            spring.damping = OrivMacV3.Motion.profileSettleDamping
+            spring.duration = OrivMacV3.Motion.profileSettleDuration
             spring.fromValue = NSValue(caTransform3D: start)
             spring.toValue = NSValue(caTransform3D: strip.transform)
             strip.add(spring, forKey: "settle")

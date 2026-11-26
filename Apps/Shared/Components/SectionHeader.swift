@@ -21,10 +21,18 @@ struct SectionHeader: View {
                 Image(systemName: symbol).foregroundStyle(iconColor).accessibilityHidden(true)
             }
             Text(title).font(font).foregroundStyle(ink ?? theme.textSecondary)
+                #if os(macOS)
+                .tracking(kind == .sidebar ? OrivMacV3.Typography.labelTracking : .zero)
+                #endif
                 .accessibilityAddTraits(.isHeader)
             if kind != .suggestions { Spacer(minLength: 0) }
             if let count, count > 0 {
-                Text(count.formatted()).font(OrivType.caption.monospacedDigit())
+                Text(count.formatted())
+                    #if os(macOS)
+                    .font(kind == .sidebar ? OrivMacV3.Typography.sectionCount : OrivType.caption.monospacedDigit())
+                    #else
+                    .font(OrivType.caption.monospacedDigit())
+                    #endif
                     .foregroundStyle(countInk ?? theme.textSecondary)
             }
             if let showAll {
@@ -51,7 +59,7 @@ struct SectionHeader: View {
         switch kind {
         case .sidebar:
             #if os(macOS)
-            OrivType.sectionLabel
+            OrivMacV3.Typography.sectionLabel
             #else
             OrivType.title
             #endif

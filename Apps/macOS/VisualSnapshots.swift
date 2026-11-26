@@ -83,6 +83,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "design-system" { await renderDesignSystem(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-contrast" { await renderSidebarContrastScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-v3" { await renderSidebarV3(into: directory) }
+        else if environment["ORIV_GLASS_SCENE"] == "private-v3" { await renderPrivateV3(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-pins" { await renderSidebarV3(into: directory, pinsOnly: true) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-width" { await renderSidebarWidthScenes(into: directory) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
@@ -292,6 +293,7 @@ import WebKit
                               key: false, settle: 350, toolbarStyle: .preference, appearance: appearance, applyBrowserAppearance: false) {
                     AppearanceSettings(appearance: .constant(appearance), controller: controller,
                                        profiles: profiles, initialPane: pane)
+                        .environment(\.snapshotUnscrolled, true)
                 }
             }
             await capture("\(prefix)-website-data", directory, CGSize(width: 600, height: 520), key: false, settle: 500, appearance: appearance) {
@@ -310,10 +312,10 @@ import WebKit
                 PrivacyAcknowledgements()
             }
             await capture("\(prefix)-site-privacy-popover", directory, CGSize(width: 360, height: 620), key: false, settle: 350, appearance: appearance, fitHeight: true) {
-                AdBlockingPopover(session: session)
+                AdBlockingPopover(session: session).environment(\.snapshotUnscrolled, true)
             }
             await capture("\(prefix)-password-help-popover", directory, CGSize(width: 340, height: 620), key: false, settle: 350, appearance: appearance, fitHeight: true) {
-                PasswordsGuide(compact: true)
+                PasswordsGuide(compact: true).environment(\.snapshotUnscrolled, true)
             }
             for section in LibrarySection.allCases {
                 await capture("\(prefix)-library-\(section.id.lowercased())", directory, CGSize(width: 760, height: 540),
@@ -371,11 +373,13 @@ import WebKit
             for variant in ["standard", "reduced", "increased"] {
                 for page in DesignSystemGallery.Page.allCases {
                     let suffix = page == .foundations ? "" : "-\(page.rawValue)"
+                    let size = page == .designV3 ? CGSize(width: 1180, height: 920) : CGSize(width: 560, height: 660)
                     await capture("mac-glass-design-system-\(name)-\(variant)\(suffix)", directory,
-                                  CGSize(width: 560, height: 660), key: false, appearance: appearance) {
-                        DesignSystemGallery(page: page)
+                                  size, key: false, settle: 100, appearance: appearance) {
+                        DesignSystemGallery(page: page, scrollable: false)
                             .environment(\.chromeContrastOverride, variant == "increased" ? .increased : nil)
-                            .environment(\.chromeReduceTransparencyOverride, variant == "reduced" || BackgroundUIMode.isEnabled)
+                            .environment(\.chromeReduceTransparencyOverride,
+                                         page == .designV3 ? (variant == "reduced") : (variant == "reduced" || BackgroundUIMode.isEnabled))
                     }
                 }
             }
@@ -490,11 +494,11 @@ import WebKit
         let suggestionProfiles = seededProfiles()
         let session = suggestionProfiles.controller.session
         for (query, index, name) in [("dev", 1, "mac-08-suggestions-keyboard"), ("docs", nil, "mac-09-suggestions-similar")] as [(String, Int?, String)] {
-            await capture(name, directory, CGSize(width: 760, height: 320), key: activate) {
+            await capture(name, directory, CGSize(width: 760, height: 460), key: activate) {
                 AddressSuggestionList(suggestions: session.suggestions(for: query, isPrivate: false), selectedIndex: index,
                                       address: query, engine: session.settings.searchEngine, isPrivate: false,
                                       choose: { _ in }, submit: {})
-                    .frame(width: 720).padding(20).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .frame(width: OrivMacV3.ToolbarLayout.suggestionsWidth).padding(20).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .background(Theme.t3Code.canvas)
             }
         }
@@ -979,6 +983,80 @@ import WebKit
         }
     }
 
+    // Phase 7: Private Browsing (Amethyst Dusk chrome + external-private handoff bar + Q5 mixed window).
+    private static func renderPrivateV3(into directory: URL) async {
+        let size = CGSize(width: 1250, height: 820)
+        let profiles = seededProfiles()
+        defer { profiles.shutdown() }
+        _ = try? profiles.create(name: "Work", color: .ocean, symbol: .work)
+
+        // 1. Standalone Private window in Light, Dark, and Black appearances + Rail.
+        let privateID = profiles.createPrivateWindow()
+        if let privateController = profiles.privateWindows[privateID] {
+            let secondTab = privateController.session.addTab(url: nil, isPrivate: true, select: false, load: false)
+            secondTab.webView.loadHTMLString(fixturePage(scheme: "https"), baseURL: URL(string: "https://fixture.example/private-doc"))
+            try? await Task.sleep(for: .milliseconds(500))
+            for (name, appearance) in [("window-light", BrowserAppearance.light), ("window-dark", .dark), ("window-black", .t3Code)] {
+                privateController.appearance = appearance
+                privateController.compactSidebar = false
+                await capture("mac-glass-private-v3-\(name)", directory, size, key: false, appearance: appearance) {
+                    BrowserWindow(controller: privateController)
+                }
+            }
+            privateController.appearance = .dark
+            privateController.compactSidebar = true
+            await capture("mac-glass-private-v3-rail", directory, size, key: false, appearance: .dark) {
+                BrowserWindow(controller: privateController)
+            }
+            privateController.compactSidebar = false
+        } else {
+            manifest.failures.append("Private v3 standalone private window missing")
+        }
+
+        // 2. External-private window: fresh context per scene so each WKWebView sizes cleanly to its window.
+        let externalSpecs: [(String, CGSize, String?, Bool, Bool)] = [
+            ("external-dark", size, "Slack", false, false),
+            ("external-reduced", size, "Slack", true, false),
+            ("external-increased", size, "Slack", false, true),
+            ("external-narrow", CGSize(width: 760, height: 680), "Very Long Messenger Application", false, false),
+            ("external-ultranarrow", CGSize(width: 580, height: 640), "Very Long Messenger Application", false, false),
+            ("external-unknown-source", size, nil, false, false),
+        ]
+        let darkHTML = ChromeVisualFixture.html(dark: true)
+        for (sceneName, sceneSize, sourceName, reduced, increased) in externalSpecs {
+            let extProfiles = BrowserProfiles(testing: true)
+            _ = try? extProfiles.create(name: "Work", color: .ocean, symbol: .work)
+            extProfiles.handleIncomingURL(URL(string: "https://fixture.example/external")!, sourceName: sourceName)
+            if let external = extProfiles.externalPrivate, let privateTab = external.session.selectedTab {
+                privateTab.webView.loadHTMLString(darkHTML, baseURL: URL(string: "https://fixture.example/external"))
+                try? await Task.sleep(for: .milliseconds(800))
+                await capture("mac-glass-private-v3-\(sceneName)", directory, sceneSize, key: false,
+                              compositeWeb: privateTab.webView, appearance: .dark) {
+                    BrowserWindow(controller: external, profiles: extProfiles)
+                        .environment(\.chromeReduceTransparencyOverride, reduced)
+                        .environment(\.chromeContrastOverride, increased ? .increased : nil)
+                        .environment(\.sidebarCaptureContrast, increased ? .increased : nil)
+                }
+            } else {
+                manifest.failures.append("Private v3 external-private window missing for \(sceneName)")
+            }
+            extProfiles.shutdown()
+        }
+
+        // 3. Q5: Regular Light & Dark windows with a private tab selected (profile chrome stays, only purple pill shows).
+        let mixed = seededProfiles()
+        defer { mixed.shutdown() }
+        let mixedPrivate = mixed.controller.session.addTab(isPrivate: true, select: true, load: false)
+        mixedPrivate.webView.loadHTMLString(fixturePage(scheme: "https"), baseURL: URL(string: "https://fixture.example/mixed-private"))
+        try? await Task.sleep(for: .milliseconds(700))
+        for (name, appearance) in [("mixed-light", BrowserAppearance.light), ("mixed-dark", .dark)] {
+            mixed.controller.appearance = appearance
+            await capture("mac-glass-private-v3-\(name)", directory, size, key: false, compositeWeb: mixedPrivate.webView, appearance: appearance) {
+                BrowserWindow(controller: mixed.controller, profiles: mixed)
+            }
+        }
+    }
+
     /// Same real-window fixture before and after the sidebar change. Sleeping tabs
     /// are metadata only; generated local icons go through the production cache.
     private static func renderSidebarV3(into directory: URL, pinsOnly: Bool = false) async {
@@ -1105,6 +1183,114 @@ import WebKit
             await scene("dark-white-\(opacity.rawValue.lowercased())", controller, .dark,
                         opacity: opacity, hovered: records.first?.id)
         }
+
+        // Phase 4: Audio, muted, loading, quiet rows, and monochrome pinned marks.
+        do {
+            let audioRoot = directory.appendingPathComponent("sidebar-v3-audio-fixture")
+            let audioRecords = [
+                TabRecord(title: "GitHub", url: URL(string: "https://github.com"), isPinned: true),
+                TabRecord(title: "Apple", url: URL(string: "https://apple.com"), isPinned: true),
+                TabRecord(title: "Wikipedia", url: URL(string: "https://wikipedia.org"), isPinned: true),
+                TabRecord(title: "Swift", url: URL(string: "https://swift.org"), isPinned: true),
+                TabRecord(title: "Designing calm interfaces", url: URL(string: "https://fieldnotes.example/calm")),
+                TabRecord(title: "Floating Points — Live", url: URL(string: "https://nts.example/live")),
+                TabRecord(title: "Podcast — Muted Episode", url: URL(string: "https://audio.example/muted")),
+                TabRecord(title: "WebKit Feature Status", url: URL(string: "https://webkit.org/status")),
+                TabRecord(title: "A little room to think without trailing slot waste", url: URL(string: "https://essays.example/room")),
+            ]
+            try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: audioRoot).appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: audioRecords, selectedTabID: audioRecords[4].id))
+            let iconDisk = SiteIconDiskCache(directory: BrowserProfile.personal.directory(in: audioRoot).appendingPathComponent("Favicons"))
+            for (url, symbol) in [(audioRecords[0].url!, "chevron.left.forwardslash.chevron.right"), (audioRecords[1].url!, "apple.logo")] {
+                let renderer = ImageRenderer(content: Image(systemName: symbol)
+                    .font(.system(size: 20, weight: .semibold)).foregroundStyle(.black).frame(width: 32, height: 32))
+                renderer.scale = 2
+                if let cg = renderer.cgImage,
+                   let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]),
+                   let icon = await iconDisk.decode(png),
+                   let key = SiteIconStore.key(url, isPrivate: false) {
+                    await iconDisk.write(icon, key: key)
+                }
+            }
+            let audioProfiles = BrowserProfiles(rootDirectory: audioRoot, testing: true)
+            defer { audioProfiles.shutdown() }
+            try audioProfiles.update(audioProfiles.active.id, name: "Personal", color: .mulberry, symbol: .person)
+            _ = try audioProfiles.create(name: "Work", color: .ocean, symbol: .work)
+            _ = try audioProfiles.create(name: "Reading", color: .fern, symbol: .study)
+            let audioController = audioProfiles.controller
+            audioController.downloads.items.append(DownloadItem())
+            for tab in audioController.session.tabs where tab.id == audioRecords[6].id {
+                tab.toggleAudioMute()
+            }
+            for url in [audioRecords[0].url!, audioRecords[1].url!] {
+                await audioController.session.siteIcons.loadCached(url)
+            }
+            if let activeTab = audioController.session.selectedTab {
+                activeTab.webView.loadHTMLString("""
+                    <title>Designing calm interfaces</title>
+                    <body style="margin:0;background:#FBFBF9;color:#111;font:20px -apple-system,serif;padding:56px 72px">
+                    <h1 style="font:600 40px Georgia,serif;margin:0 0 12px">Designing calm interfaces</h1>
+                    <p style="font:16px/1.6 -apple-system,sans-serif;color:#555;max-width:540px">Make room for what matters. A practical reflection on clarity, attention, and the spaces between.</p></body>
+                    """, baseURL: audioRecords[4].url)
+                for _ in 0..<120 {
+                    if activeTab.webView.title == "Designing calm interfaces" && !activeTab.webView.isLoading { break }
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
+            }
+            for (appearance, mode) in [(BrowserAppearance.light, "light"), (.dark, "dark")] {
+                audioController.appearance = appearance
+                let name = "mac-glass-sidebar-v3-\(mode)-audio-states"
+                await capture(name, directory, CGSize(width: 1120, height: 650), key: false, settle: 280,
+                              appearance: appearance, prepare: { window in
+                    writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+                }) {
+                    BrowserWindow(controller: audioController, profiles: audioProfiles)
+                        .environment(\.sidebarCaptureBackdrop, appearance == .light ? Color(white: 0.88) : Color(white: 0.18))
+                        .environment(\.sidebarCaptureState, SidebarCaptureState(loading: audioRecords[7].id, audio: audioRecords[5].id))
+                }
+            }
+        } catch { manifest.failures.append("Sidebar v3 audio fixture: \(error)") }
+
+        // Phase 4 (Q4): Overflowing tab list with sticky New Tab pinned above profile dots.
+        do {
+            let overflowRoot = directory.appendingPathComponent("sidebar-v3-overflow-fixture")
+            let overflowRecords = (0..<4).map { index in
+                TabRecord(title: sites[index], url: urls[index], isPinned: true)
+            } + (1...24).map { index in
+                TabRecord(title: "Overflow tab \(index) — Reading notes", url: URL(string: "https://tab\(index).example/notes"))
+            }
+            try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: overflowRoot).appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: overflowRecords, selectedTabID: overflowRecords[4].id))
+            let overflowProfiles = BrowserProfiles(rootDirectory: overflowRoot, testing: true)
+            defer { overflowProfiles.shutdown() }
+            try overflowProfiles.update(overflowProfiles.active.id, name: "Personal", color: .mulberry, symbol: .person)
+            _ = try overflowProfiles.create(name: "Work", color: .ocean, symbol: .work)
+            _ = try overflowProfiles.create(name: "Reading", color: .fern, symbol: .study)
+            let overflowController = overflowProfiles.controller
+            if let activeTab = overflowController.session.selectedTab {
+                activeTab.webView.loadHTMLString("""
+                    <title>Overflow tab 1 — Reading notes</title>
+                    <body style="margin:0;background:#FBFBF9;color:#111;font:20px -apple-system,serif;padding:56px 72px">
+                    <h1 style="font:600 36px Georgia,serif;margin:0 0 12px">Overflow tab 1 — Reading notes</h1>
+                    <p style="font:16px/1.6 -apple-system,sans-serif;color:#555">Twenty-four tabs open to verify sticky New Tab above the profile dots.</p></body>
+                    """, baseURL: overflowRecords[4].url)
+                for _ in 0..<120 {
+                    if activeTab.webView.title == "Overflow tab 1 — Reading notes" && !activeTab.webView.isLoading { break }
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
+            }
+            for (appearance, mode) in [(BrowserAppearance.light, "light"), (.dark, "dark")] {
+                overflowController.appearance = appearance
+                let name = "mac-glass-sidebar-v3-\(mode)-overflow-sticky"
+                await capture(name, directory, CGSize(width: 1120, height: 650), key: false, settle: 280,
+                              appearance: appearance, prepare: { window in
+                    writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+                }) {
+                    BrowserWindow(controller: overflowController, profiles: overflowProfiles)
+                        .environment(\.sidebarCaptureBackdrop, appearance == .light ? Color(white: 0.88) : Color(white: 0.18))
+                }
+            }
+        } catch { manifest.failures.append("Sidebar v3 overflow fixture: \(error)") }
 
         func scene(_ label: String, _ active: BrowserController, _ appearance: BrowserAppearance,
                    increased: Bool = false, reduced: Bool = false, rtl: Bool = false,
@@ -1329,9 +1515,10 @@ import WebKit
                 other.webView.loadHTMLString("<title>\(name)</title><body>Example</body>", baseURL: URL(string: "https://fixture.example/other"))
             }
             try? await Task.sleep(for: .milliseconds(700))
+            let appearance: BrowserAppearance = mode == "light" ? .light : .dark
             await capture("mac-glass-sidebar-\(mode)", directory,
                 mode == "minimum" || mode == "rtl-largest" ? CGSize(width: 760, height: 520) : (mode.hasPrefix("fullscreen") && !BackgroundUIMode.foregroundAllowed ? CGSize(width: 1800, height: 1152) : CGSize(width: 1250, height: 815.625)),
-                key: activate && mode != "inactive", compositeWeb: tab.webView, covered: mode == "covered", prepare: { window in
+                key: activate && mode != "inactive", compositeWeb: tab.webView, appearance: appearance, covered: mode == "covered", prepare: { window in
                     window.makeFirstResponder(tab.webView)
                     if mode.hasPrefix("fullscreen") {
                         if BackgroundUIMode.foregroundAllowed {
@@ -1359,7 +1546,7 @@ import WebKit
                     }
                 }) {
                     BrowserWindow(controller: controller, profiles: profiles)
-                        .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled || mode == "reduced")
+                        .environment(\.chromeReduceTransparencyOverride, mode == "reduced")
                         .environment(\.layoutDirection, mode == "rtl-largest" ? .rightToLeft : .leftToRight)
                         .dynamicTypeSize(mode == "rtl-largest" ? .accessibility5 : .large)
             }
@@ -1500,7 +1687,17 @@ import WebKit
 
     private static func renderGlassScenes(into directory: URL, activate: Bool) async {
         let requested = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"] ?? "all"
-        for mode in ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "menu-dark", "menu-private", "menu-narrow", "private", "reduced", "insecure"] where (requested == "all" && !mode.hasPrefix("menu-")) || mode == requested || (requested == "page-menu" && mode.hasPrefix("menu")) {
+        let startModes = ["start-light", "start-dark", "start-private", "start-focused",
+                          "start-narrow-772", "start-narrow-600", "start-short"]
+        let allModes = ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled",
+                        "focused", "focused-dark", "focused-completion", "focused-completion-dark",
+                        "menu", "menu-dark", "menu-private", "menu-narrow", "private", "reduced", "insecure"]
+            + startModes
+        for mode in allModes where (requested == "all" && !mode.hasPrefix("menu-")) || mode == requested || (requested == "page-menu" && mode.hasPrefix("menu")) || (requested == "start-page" && mode.hasPrefix("start-")) {
+            if mode.hasPrefix("start-") {
+                await renderStartPageGlassScene(mode: mode, into: directory, activate: activate)
+                continue
+            }
             let profiles = BrowserProfiles(testing: true)
             var controller = profiles.controller
             if mode == "private" || mode == "menu-private" {
@@ -1508,12 +1705,36 @@ import WebKit
                 controller = profiles.externalPrivate!
             }
             let tab = controller.session.selectedTab!
+            let isCompletionScene = mode == "focused-completion" || mode == "focused-completion-dark"
+            let isFocusedScene = mode == "focused" || mode == "focused-dark" || isCompletionScene
+            let isDarkScene = mode.hasPrefix("dark") || mode.hasPrefix("theme") || mode == "private"
+                || mode == "menu-dark" || mode == "menu-private"
+                || mode == "focused-dark" || mode == "focused-completion-dark"
             let address = "\(mode == "insecure" ? "http" : "https")://docs.example.com/designing-calm-interfaces"
-            var html = ChromeVisualFixture.html(dark: mode.hasPrefix("dark") || mode.hasPrefix("theme") || mode == "private" || mode == "menu-dark" || mode == "menu-private")
+            var html = ChromeVisualFixture.html(dark: isDarkScene)
             if mode.hasPrefix("theme") { html = html.replacingOccurrences(of: "#111111", with: "#1F6F5C") }
             if mode == "private" || mode == "menu-private" { html = html.replacingOccurrences(of: "#111111", with: "#000000") }
             tab.webView.loadHTMLString(html, baseURL: URL(string: address))
-            if mode != "private" && mode != "menu-private" {
+            if isCompletionScene {
+                // Seed grouped Tab / Bookmark / History matches matching neon-03 ("dev" -> "developer.apple.com").
+                let devTabURL = URL(string: "https://developer.apple.com/documentation/swiftui/liquid-glass")!
+                let devTab = controller.session.addTab(url: devTabURL, select: false, load: false)
+                devTab.webView.loadHTMLString("<html><head><title>Apple Developer Documentation</title></head><body>Docs</body></html>", baseURL: devTabURL)
+                let now = Date()
+                do {
+                    try controller.session.applyContinuity(
+                        bookmarks: [
+                            Bookmark(title: "MDN Web Docs — CSS backdrop-filter", url: URL(string: "https://developer.mozilla.org/en-US/docs/Web/CSS/backdrop-filter")!, createdAt: now),
+                        ],
+                        history: [
+                            HistoryEntry(title: "WebKit Blog — Developing for macOS Tahoe", url: URL(string: "https://webkit.org/blog/16420/developing-for-macos-tahoe/")!, visitedAt: now),
+                            HistoryEntry(title: "Swift.org — Package Development Guide", url: URL(string: "https://swift.org/documentation/package-manager/")!, visitedAt: now.addingTimeInterval(-600)),
+                        ]
+                    )
+                } catch {
+                    manifest.failures.append("\(mode): seed data failed: \(error)")
+                }
+            } else if mode != "private" && mode != "menu-private" {
                 for (card, path) in [(1, "room"), (2, "materials")] {
                     let url = URL(string: "https://docs.example.com/\(path)")!
                     let backgroundTab = controller.session.addTab(url: url, select: false, load: false)
@@ -1521,20 +1742,42 @@ import WebKit
                 }
             }
             try? await Task.sleep(for: .milliseconds(900))
+            let sceneAppearance: BrowserAppearance = isDarkScene ? .dark : .light
             await capture("mac-glass-\(mode)", directory, CGSize(width: mode == "menu-narrow" ? 760 : 1440, height: 848), key: activate, settle: 1_400, compositeWeb: tab.webView,
-                          expectedFields: ["addressField": mode == "focused" ? address : "docs.example.com"],
+                          expectedFields: ["addressField": isCompletionScene ? "developer.apple.com" : (isFocusedScene ? address : "docs.example.com")],
+                          appearance: sceneAppearance,
                           prepare: { window in
                 if mode.hasSuffix("scrolled") {
                     _ = try? await tab.webView.evaluateJavaScript("window.scrollTo(0, 560)")
                     try? await Task.sleep(for: .milliseconds(500))
                 }
-                if mode == "focused" {
+                if isFocusedScene {
                     // Exercise the same focus request as the real Command-L menu item.
                     controller.focusAddress()
                     try? await Task.sleep(for: .milliseconds(500))
-                    if let editor = window.firstResponder as? NSTextView,
-                       editor.string == address, editor.selectedRange() == NSRange(location: 0, length: (address as NSString).length) {} else {
-                        manifest.failures.append("focused address did not select the complete URL")
+                    if isCompletionScene {
+                        if let editor = window.firstResponder as? NSTextView {
+                            editor.insertText("dev", replacementRange: editor.selectedRange())
+                            let deadline = ContinuousClock.now + .seconds(4)
+                            while ContinuousClock.now < deadline {
+                                if editor.string == "developer.apple.com",
+                                   editor.selectedRange() == NSRange(location: 3, length: 16),
+                                   controller.profileUI.addressMatches.rows.count >= 2 { break }
+                                try? await Task.sleep(for: .milliseconds(40))
+                            }
+                            if editor.string != "developer.apple.com" || editor.selectedRange() != NSRange(location: 3, length: 16) {
+                                manifest.failures.append("\(mode): inline completion did not populate developer.apple.com")
+                            }
+                            // Highlight the Bookmarks row (index 1) while preserving the inline completion.
+                            controller.profileUI.addressMatches.move(1)
+                            controller.profileUI.addressMatches.move(1)
+                            try? await Task.sleep(for: .milliseconds(250))
+                        } else {
+                            manifest.failures.append("\(mode): address editor did not become first responder")
+                        }
+                    } else if let editor = window.firstResponder as? NSTextView,
+                              editor.string == address, editor.selectedRange() == NSRange(location: 0, length: (address as NSString).length) {} else {
+                        manifest.failures.append("\(mode): focused address did not select the complete URL")
                     }
                 }
                 let geometry = (try? await tab.webView.evaluateJavaScript("({scrollY:window.scrollY,headerTop:document.querySelector('header').getBoundingClientRect().top})")) as? [String: Any] ?? [:]
@@ -1551,13 +1794,110 @@ import WebKit
                 }
             }) {
                 BrowserWindow(controller: controller, profiles: profiles)
-                    .environment(\.chromeReduceTransparencyOverride, BackgroundUIMode.isEnabled || mode == "reduced")
+                    .environment(\.chromeReduceTransparencyOverride, mode == "reduced")
             }
             if mode.hasPrefix("menu") {
                 manifest.skipped.append("mac-glass-\(mode)-expanded: native Menu is a separate AppKit tracking window, constrained to a display. Opening it would violate the background-only policy. Toolbar/layout evidence only.")
             }
             profiles.shutdown()
         }
+    }
+
+    private static func renderStartPageGlassScene(mode: String, into directory: URL, activate: Bool) async {
+        let isPrivateScene = mode == "start-private"
+        let isDarkScene = mode == "start-dark" || isPrivateScene
+        let isFocusedScene = mode == "start-focused"
+        let sceneSize: CGSize = switch mode {
+        case "start-narrow-772": CGSize(width: 980, height: 848)
+        case "start-narrow-600": CGSize(width: 820, height: 848)
+        case "start-short": CGSize(width: 1280, height: 600)
+        default: CGSize(width: 1440, height: 848)
+        }
+
+        if isPrivateScene {
+            let privateController = BrowserController(profile: nil, testing: true)
+            let initialRegularIDs = privateController.session.tabs.filter { !$0.isPrivate }.map(\.id)
+            if privateController.session.selectedTab?.isPrivate != true {
+                privateController.newTab(isPrivate: true)
+            }
+            for id in initialRegularIDs { privateController.session.closeTab(id) }
+            await capture("mac-glass-\(mode)", directory, sceneSize, key: activate, settle: 900,
+                          expectedFields: ["addressField": ""],
+                          appearance: .dark) {
+                BrowserWindow(controller: privateController, profiles: nil)
+            }
+            privateController.shutdown()
+            return
+        }
+
+        let now = Date()
+        let bookmarkSites: [(String, String)] = [
+            ("Apple Developer", "https://developer.apple.com/documentation/"),
+            ("WebKit", "https://webkit.org/blog/"),
+            ("Swift.org", "https://www.swift.org/documentation/"),
+            ("Wikipedia", "https://en.wikipedia.org/wiki/Main_Page"),
+            ("GitHub", "https://github.com/"),
+            ("MDN Web Docs", "https://developer.mozilla.org/en-US/"),
+            ("Hacker News", "https://news.ycombinator.com/"),
+            ("Fieldnotes", "https://fieldnotes.example/"),
+        ]
+        let frequentSites: [(String, String)] = [
+            ("Docs – Install guide", "https://docs.example.com/guide/install"),
+            ("Night Radio – Live", "https://radio.example.org/live"),
+            ("Web browser", "https://en.wikipedia.org/wiki/Web_browser"),
+            ("CSS backdrop-filter", "https://developer.mozilla.org/en-US/docs/Web/CSS/backdrop-filter"),
+            ("A little room to think", "https://fieldnotes.example/room"),
+            ("The Swift Programming Language", "https://docs.swift.org/swift-book/"),
+        ]
+        let bookmarks = bookmarkSites.enumerated().map { index, site in
+            Bookmark(title: site.0, url: URL(string: site.1)!, createdAt: now.addingTimeInterval(Double(index)))
+        }
+        let history = frequentSites.enumerated().map { index, site in
+            HistoryEntry(title: site.0, url: URL(string: site.1)!, visitedAt: now.addingTimeInterval(Double(-index * 600)), visitCount: 8 - index)
+        }
+        // Seed through a session file so history counts as local visits, which is
+        // what Frequently Visited ranks (continuity history is shared-only).
+        let root = URL.temporaryDirectory.appendingPathComponent("start-\(mode)-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            let store = SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+            try store.save(BrowserSnapshot(bookmarks: bookmarks, history: history, legacyBookmarksImported: true))
+        } catch { manifest.failures.append("\(mode): seed data failed: \(error)") }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        let controller = profiles.controller
+        let session = controller.session
+        if isFocusedScene {
+            let devTabURL = URL(string: "https://developer.apple.com/documentation/swiftui/liquid-glass")!
+            let devTab = session.addTab(url: devTabURL, select: false, load: false)
+            devTab.webView.loadHTMLString("<html><head><title>Apple Developer Documentation</title></head><body>Docs</body></html>", baseURL: devTabURL)
+        }
+        let sceneAppearance: BrowserAppearance = isDarkScene ? .dark : .light
+        await capture("mac-glass-\(mode)", directory, sceneSize, key: activate, settle: 1_100,
+                      expectedFields: ["addressField": isFocusedScene ? "developer.apple.com" : ""],
+                      appearance: sceneAppearance,
+                      prepare: { window in
+            if isFocusedScene {
+                controller.focusAddress()
+                try? await Task.sleep(for: .milliseconds(450))
+                if let editor = window.firstResponder as? NSTextView {
+                    editor.insertText("dev", replacementRange: editor.selectedRange())
+                    let deadline = ContinuousClock.now + .seconds(4)
+                    while ContinuousClock.now < deadline {
+                        if editor.string == "developer.apple.com",
+                           editor.selectedRange() == NSRange(location: 3, length: 16),
+                           controller.profileUI.addressMatches.rows.count >= 2 { break }
+                        try? await Task.sleep(for: .milliseconds(40))
+                    }
+                    controller.profileUI.addressMatches.move(1)
+                    try? await Task.sleep(for: .milliseconds(250))
+                } else {
+                    manifest.failures.append("\(mode): start-page big field editor did not become first responder")
+                }
+            }
+        }) {
+            BrowserWindow(controller: controller, profiles: profiles)
+        }
+        profiles.shutdown()
     }
 
     /// Opt-in network evidence in the isolated snapshot app. Third-party images
@@ -1903,6 +2243,7 @@ import WebKit
             else { content() }
         }
         let hosting = NSHostingController(rootView: rootView())
+        if !fitHeight { hosting.sizingOptions = [] }
         hosting.sceneBridgingOptions = [.toolbars, .title]
         let liveGlass = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"]?.isEmpty == false || ProcessInfo.processInfo.environment["ORIV_LIVE_SITES"]?.isEmpty == false
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
@@ -1914,7 +2255,7 @@ import WebKit
         // Capture stable geometry, without an inferred WindowServer opening animation.
         window.animationBehavior = .none
         window.toolbarStyle = toolbarStyle
-        if name.hasPrefix("mac-glass-sidebar-contrast-") || name.hasPrefix("mac-glass-sidebar-v3-") {
+        if name.hasPrefix("mac-glass-sidebar-contrast-") || name.hasPrefix("mac-glass-sidebar-v3-") || name.hasPrefix("mac-glass-design-system-") {
             // Direct hosting avoids scene toolbar/title bridging, whose remote
             // layer tree is absent from AppKit's off-screen bitmap cache.
             window.contentView = NSHostingView(rootView: content().browserAppearance(appearance))
@@ -2013,13 +2354,12 @@ import WebKit
         frame.cacheDisplay(in: frame.bounds, to: bitmap)
         var note: String?
         if let webView {
-            if webView.window === window, let image = try? await webView.takeSnapshot(configuration: nil) {
-                let rect = webView.convert(webView.bounds, to: frame)
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-                NSBezierPath(rect: rect.intersection(frame.convert(window.contentLayoutRect, from: nil))).addClip()
-                image.draw(in: rect)
-                NSGraphicsContext.restoreGraphicsState()
+            let scrollY = ((try? await webView.evaluateJavaScript("window.scrollY")) as? NSNumber)?.doubleValue ?? 0
+            let configuration = WKSnapshotConfiguration()
+            configuration.rect = NSRect(x: 0, y: scrollY > 1 ? 0 : -webView.obscuredContentInsets.top,
+                                        width: webView.bounds.width, height: webView.bounds.height)
+            if webView.window === window, let image = try? await webView.takeSnapshot(configuration: configuration) {
+                compositeWebSnapshot(image, for: webView, onto: bitmap, in: frame, window: window)
                 note = "web content composited from WKWebView.takeSnapshot"
             } else {
                 note = "web content not rendered"
@@ -2052,8 +2392,11 @@ import WebKit
         }
         var pageImage: NSImage?
         if let webView {
+            let scrollY = ((try? await webView.evaluateJavaScript("window.scrollY")) as? NSNumber)?.doubleValue ?? 0
             let configuration = WKSnapshotConfiguration()
-            configuration.rect = NSRect(origin: .zero, size: webView.superview?.bounds.size ?? webView.bounds.size)
+            let snapshotSize = webView.superview?.bounds.size ?? webView.bounds.size
+            configuration.rect = NSRect(x: 0, y: scrollY > 1 ? 0 : -webView.obscuredContentInsets.top,
+                                        width: snapshotSize.width, height: snapshotSize.height)
             configuration.afterScreenUpdates = true
             for _ in 0..<3 {
                 if let candidate = try? await webView.takeSnapshot(configuration: configuration),
@@ -2077,7 +2420,8 @@ import WebKit
         } else if webView != nil { manifest.skipped.append("\(name)-page: visual-foreground-only; off-screen WebKit fixture stayed blank after three in-process snapshot attempts") }
         let contrastFixture = name.hasPrefix("mac-glass-sidebar-contrast-")
         let sidebarV3 = name.hasPrefix("mac-glass-sidebar-v3-")
-        let target = contrastFixture || sidebarV3 ? window.contentView : window.contentView?.superview
+        let designSystem = name.hasPrefix("mac-glass-design-system-")
+        let target = contrastFixture || sidebarV3 || designSystem ? window.contentView : window.contentView?.superview
         if let frame = target, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
             frame.layoutSubtreeIfNeeded()
             frame.needsDisplay = true
@@ -2089,27 +2433,8 @@ import WebKit
             if name.hasPrefix("mac-glass-menu"), let raw = bitmap.representation(using: .png, properties: [:]) {
                 save(raw, suffix: "chrome", note: "Uncomposited off-screen cacheDisplay of the real window; WebKit and glass may be blank. Preserves overlays that page compositing would cover.")
             }
-            if let pageImage, let host = webView?.superview {
-                var rect = host.convert(host.bounds, to: frame)
-                if frame.isFlipped { rect.origin.y = frame.bounds.maxY - rect.maxY }
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-                NSBezierPath(rect: rect).addClip()
-                // Page snapshots are painted behind real chrome overlays.
-                func overlays(_ view: NSView) -> [NSView] {
-                    let own = ["browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry"].contains(view.identifier?.rawValue ?? "") ? [view] : []
-                    return own + view.subviews.flatMap(overlays)
-                }
-                if let content = window.contentView {
-                    for overlay in overlays(content) {
-                        var excluded = overlay.convert(overlay.bounds, to: frame)
-                        if frame.isFlipped { excluded.origin.y = frame.bounds.maxY - excluded.maxY }
-                        let clip = NSBezierPath(rect: rect)
-                        clip.appendRect(excluded.intersection(rect)); clip.windingRule = .evenOdd; clip.addClip()
-                    }
-                }
-                pageImage.draw(in: rect)
-                NSGraphicsContext.restoreGraphicsState()
+            if let pageImage, let webView {
+                compositeWebSnapshot(pageImage, for: webView, onto: bitmap, in: frame, window: window)
             }
             if let data = bitmap.representation(using: .png, properties: [:]) {
                 if sidebarV3 {
@@ -2125,6 +2450,109 @@ import WebKit
                 }
             }
         }
+    }
+
+    /// Draws the WKWebView snapshot inside the rounded page card behind floating
+    /// chrome: excludes the full toolbar band only on solid-edge paths (RT/IC/Black),
+    /// and excludes only the floating toolbar capsules (+ focus halo) on translucent
+    /// paths so scrolled page content visibly passes beneath the toolbar.
+    private static func compositeWebSnapshot(_ pageImage: NSImage, for webView: WKWebView,
+                                             onto bitmap: NSBitmapImageRep, in frame: NSView, window: NSWindow) {
+        let targetView = webView.superview ?? webView
+        func frameRect(_ view: NSView) -> NSRect {
+            var rect = view.convert(view.bounds, to: frame)
+            if frame.isFlipped { rect.origin.y = frame.bounds.maxY - rect.maxY }
+            return rect
+        }
+        let rect = frameRect(targetView)
+        let cardRect = snapshotMarker("browserPageCardGeometry", in: window.contentView).map(frameRect) ?? rect
+        let content = window.contentView
+        let solidToolbar = content.flatMap { snapshotMarker("browserSolidScrollEdgeGeometry", in: $0) } != nil
+        let softEdgeRect = content.flatMap { snapshotMarker("browserSoftScrollEdgeGeometry", in: $0) }.map(frameRect)
+        let scrimRect = content.flatMap { snapshotMarker("browserAddressScrimGeometry", in: $0) }.map(frameRect)
+        let addressFocused = content.flatMap { snapshotMarker("browserAddressFocusedGeometry", in: $0) } != nil
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        NSBezierPath(roundedRect: cardRect, xRadius: OrivMacV3.Radius.pageCard, yRadius: OrivMacV3.Radius.pageCard).addClip()
+        NSBezierPath(rect: rect).addClip()
+
+        if let content {
+            let rectNames: Set<String> = solidToolbar
+                ? ["browserTopBarGeometry", "browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry"]
+                : ["browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry"]
+            let pillNames: Set<String> = solidToolbar
+                ? []
+                : ["browserNavGroupGeometry", "browserAddressGeometry", "browserActionsGroupGeometry"]
+
+            func matching(_ view: NSView, in names: Set<String>) -> [NSView] {
+                let id = view.identifier?.rawValue ?? ""
+                return (names.contains(id) ? [view] : []) + view.subviews.flatMap { matching($0, in: names) }
+            }
+
+            for overlay in matching(content, in: rectNames) {
+                let excluded = frameRect(overlay).intersection(rect)
+                if !excluded.isEmpty {
+                    let clip = NSBezierPath(rect: rect)
+                    clip.appendRect(excluded)
+                    clip.windingRule = .evenOdd
+                    clip.addClip()
+                }
+            }
+            for popover in matching(content, in: ["browserAddressSuggestionsGeometry"]) {
+                let excluded = frameRect(popover)
+                if excluded.intersects(rect) {
+                    let radius = OrivMacV3.Radius.sidebar
+                    let clip = NSBezierPath(rect: rect)
+                    clip.append(NSBezierPath(roundedRect: excluded, xRadius: radius, yRadius: radius))
+                    clip.windingRule = .evenOdd
+                    clip.addClip()
+                }
+            }
+            for pill in matching(content, in: pillNames) {
+                var excluded = frameRect(pill)
+                if pill.identifier?.rawValue == "browserAddressGeometry", addressFocused {
+                    let pad = OrivMacV3.Focus.addressHaloWidth
+                    excluded = excluded.insetBy(dx: -pad, dy: -pad)
+                }
+                if excluded.intersects(rect) {
+                    let radius = min(excluded.width, excluded.height) / 2
+                    let clip = NSBezierPath(rect: rect)
+                    clip.append(NSBezierPath(roundedRect: excluded, xRadius: radius, yRadius: radius))
+                    clip.windingRule = .evenOdd
+                    clip.addClip()
+                }
+            }
+        }
+
+        pageImage.draw(in: rect)
+
+        // Re-apply the page scrim over composited web content while suggestions are visible (outside excluded pills/popover).
+        if let scrimRect, scrimRect.intersects(rect) {
+            let isDark = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let scrimColor = NSColor(OrivMacV3.Suggestions.scrim(isDark ? .dark : .light))
+            scrimColor.setFill()
+            scrimRect.intersection(rect).fill(using: .sourceOver)
+        }
+
+        // Re-apply the soft scroll-edge fade over scrolled page pixels (outside the excluded capsules).
+        if let softEdgeRect, !solidToolbar, softEdgeRect.intersects(rect) {
+            let sampleY = max(0, min(bitmap.pixelsHigh - 1, Int((frame.bounds.height - cardRect.maxY + 2) * CGFloat(bitmap.pixelsHigh) / frame.bounds.height)))
+            let sampleX = max(0, min(bitmap.pixelsWide - 1, Int((cardRect.minX + 6) * CGFloat(bitmap.pixelsWide) / frame.bounds.width)))
+            let sampled = bitmap.colorAt(x: sampleX, y: sampleY)?.usingColorSpace(.sRGB)
+            let isDark = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let base = sampled ?? (isDark ? NSColor(OrivMacV3.Card.fillDark) : NSColor(OrivMacV3.Card.fillLight))
+            let topAlpha: CGFloat = isDark ? 0.80 : 0.88
+            let midAlpha: CGFloat = isDark ? 0.48 : 0.66
+            if let gradient = NSGradient(colorsAndLocations:
+                (base.withAlphaComponent(topAlpha), 0.0),
+                (base.withAlphaComponent(midAlpha), 0.54),
+                (base.withAlphaComponent(0.0), 1.0)) {
+                gradient.draw(in: softEdgeRect, angle: -90)
+            }
+        }
+
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 /// Keeps capture windows off every display, even when they become key (AppKit would otherwise

@@ -237,7 +237,9 @@ import XCTest
             try await settle()
             XCTAssertFalse(controller.compactSidebar)
             let all = views(try XCTUnwrap(window.contentView))
-            XCTAssertEqual(all.filter { $0.identifier?.rawValue.hasPrefix("sidebarClose-") == true }.count, 4)
+            // Phase 4: only selected/active/hovered rows mount a close accessory; quiet rows waste no trailing slot.
+            XCTAssertEqual(all.filter { $0.identifier?.rawValue.hasPrefix("sidebarClose-") == true }.count, 1)
+            XCTAssertNotNil(all.first { $0.identifier?.rawValue == "sidebarClose-\(selected)" })
         }
     }
 
@@ -404,20 +406,31 @@ import XCTest
         XCTAssertNil(marker("sidebarHost", unique.id))
         for record in [first, second, unique] {
             let row = try XCTUnwrap(marker("sidebarItem", record.id))
-            XCTAssertEqual(row.bounds.height, OrivLayout.tabRowHeight, accuracy: 1)
+            XCTAssertEqual(row.bounds.height, OrivMacV3.SidebarLayout.tabRowHeight, accuracy: 1)
             XCTAssertEqual(row.accessibilityLabel()?.contains(record.url!.host!), true)
+            XCTAssertNil(marker("sidebarClose", record.id), "Quiet rows must not mount or reserve a close slot")
             if record.id != unique.id {
                 let host = try XCTUnwrap(marker("sidebarHost", record.id))
-                let close = try XCTUnwrap(marker("sidebarClose", record.id))
                 let hostFrame = host.convert(host.bounds, to: row)
-                let closeFrame = close.convert(close.bounds, to: row)
-                XCTAssertGreaterThan(hostFrame.width, 100)
+                XCTAssertGreaterThan(hostFrame.width, 150, "Quiet rows let text use the full trailing width")
                 XCTAssertTrue(row.bounds.contains(hostFrame))
-                XCTAssertTrue(row.bounds.contains(closeFrame))
-                XCTAssertLessThanOrEqual(hostFrame.maxX, closeFrame.minX)
             }
         }
         let list = try XCTUnwrap(w.contentView.flatMap { views($0).compactMap { $0 as? SidebarTabCollection }.first })
+        let firstPath = try XCTUnwrap(list.sidebar?.path(for: first.id))
+        list.sidebar?.setHovered(firstPath)
+        try await waitUntil("Hovered row mounts close accessory") { marker("sidebarClose", first.id) != nil }
+        do {
+            let row = try XCTUnwrap(marker("sidebarItem", first.id))
+            let host = try XCTUnwrap(marker("sidebarHost", first.id))
+            let close = try XCTUnwrap(marker("sidebarClose", first.id))
+            let hostFrame = host.convert(host.bounds, to: row)
+            let closeFrame = close.convert(close.bounds, to: row)
+            XCTAssertTrue(row.bounds.contains(hostFrame))
+            XCTAssertTrue(row.bounds.contains(closeFrame))
+            XCTAssertLessThanOrEqual(hostFrame.maxX, closeFrame.minX)
+        }
+        list.sidebar?.setHovered(nil)
         c.tabSearch = "beta.research"
         try await waitUntil("The native list contains only the matching result") {
             list.sidebar?.path(for: first.id) == nil && list.sidebar?.path(for: second.id) != nil

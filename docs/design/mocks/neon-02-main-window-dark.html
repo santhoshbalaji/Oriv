@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1470, initial-scale=1.0" />
+<title>Oriv — Main Window (Dark · Liquid Glass + Scroll Edge Proposal)</title>
+<style>
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+    --font-serif: "New York", "Iowan Old Style", Georgia, serif;
+    --radius-sidebar: 14px;
+    --radius-viewport: 12px;
+    --radius-row: 10px;
+    --radius-tile: 10px;
+    --accent: #3B82F6;
+    --text-primary: #F5F6FA;
+    --text-secondary: #B4BAC7;
+    --text-tertiary: #7E8594;
+    --sep-subtle: rgba(255, 255, 255, 0.09);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 1470px;
+    height: 919px;
+    overflow: hidden;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    color: var(--text-primary);
+    background: #10131C;
+  }
+
+  /* Deep nocturnal macOS Tahoe wallpaper refracting subtly through dark Liquid Glass */
+  .window {
+    position: relative;
+    width: 1470px;
+    height: 919px;
+    display: flex;
+    padding: 8px;
+    gap: 8px;
+    background:
+      radial-gradient(ellipse 62% 52% at 10% 16%, rgba(62, 108, 198, 0.52), transparent 62%),
+      radial-gradient(ellipse 50% 56% at 16% 84%, rgba(110, 68, 182, 0.44), transparent 60%),
+      radial-gradient(ellipse 40% 38% at 24% 48%, rgba(44, 128, 146, 0.34), transparent 56%),
+      linear-gradient(155deg, #111521 0%, #151822 50%, #0F121B 100%);
+  }
+
+  /* Floating Dark Liquid Glass Sidebar */
+  .sidebar {
+    width: 256px;
+    height: 100%;
+    flex-shrink: 0;
+    border-radius: var(--radius-sidebar);
+    background: linear-gradient(180deg, rgba(36, 42, 58, 0.56) 0%, rgba(25, 30, 42, 0.62) 100%);
+    backdrop-filter: blur(44px) saturate(190%);
+    -webkit-backdrop-filter: blur(44px) saturate(190%);
+    border: 0.5px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -0.5px 0 rgba(0, 0, 0, 0.35),
+      0 10px 30px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    padding: 0 8px 8px;
+  }
+
+  .sidebar-titlebar {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px 0 6px;
+    flex-shrink: 0;
+  }
+
+  .traffic-lights { display: flex; gap: 8px; align-items: center; }
+  .light { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.28); }
+  .light.close { background: #FF5F57; }
+  .light.min { background: #FEBC2E; }
+  .light.zoom { background: #28C840; }
+
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.14);
+  }
+
+  .profile-row {
+    height: 34px;
+    padding: 0 8px;
+    border-radius: var(--radius-row);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .profile-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    background: linear-gradient(145deg, rgba(168, 85, 247, 0.30), rgba(139, 92, 246, 0.20));
+    color: #E5B8FF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.20);
+  }
+  .profile-name { font-size: 13px; font-weight: 600; flex: 1; }
+  .chevron-dual { color: var(--text-tertiary); }
+
+  .sidebar-search {
+    height: 30px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.065);
+    box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.09), 0 0.5px 1px rgba(0,0,0,0.22);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 9px;
+    margin-bottom: 14px;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+  .sidebar-search .placeholder { flex: 1; }
+  .kbd { font-size: 10.5px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+  .section-head {
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    margin-bottom: 5px;
+  }
+  .section-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.02em; }
+  .section-count { font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+  .pins-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .pin-tile {
+    height: 40px;
+    border-radius: var(--radius-tile);
+    background: rgba(255, 255, 255, 0.075);
+    border: 0.5px solid rgba(255, 255, 255, 0.13);
+    box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.16), 0 2px 6px rgba(0,0,0,0.18);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .tab-list { display: flex; flex-direction: column; gap: 2px; }
+  .tab-row {
+    height: 34px;
+    border-radius: var(--radius-row);
+    padding: 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    color: rgba(245, 246, 250, 0.90);
+  }
+  .tab-row.active {
+    background: linear-gradient(180deg, rgba(78, 134, 224, 0.40) 0%, rgba(54, 102, 178, 0.34) 100%);
+    color: #FFFFFF;
+    font-weight: 600;
+    border: 0.5px solid rgba(153, 199, 255, 0.34);
+    box-shadow:
+      inset 0 1px 0 rgba(190, 220, 255, 0.32),
+      0 3px 12px rgba(59, 130, 246, 0.22);
+  }
+  .tab-favicon {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tab-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab-accessory {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.72);
+    flex-shrink: 0;
+  }
+  .tab-accessory.audio { color: #7CC0FF; }
+
+  .new-tab-btn {
+    margin-top: 6px;
+    height: 34px;
+    border-radius: var(--radius-row);
+    padding: 0 9px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .new-tab-btn span.label { flex: 1; }
+
+  .sidebar-spacer { flex: 1; }
+
+  .profile-dots { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px 0 8px; }
+  .p-dot { width: 7px; height: 7px; border-radius: 50%; opacity: 0.52; }
+  .p-dot.active { opacity: 1; box-shadow: 0 0 0 2px rgba(25,30,42,0.9), 0 0 0 3px rgba(229, 184, 255, 0.78); }
+
+  .sidebar-footer {
+    border-top: 0.5px solid var(--sep-subtle);
+    padding-top: 6px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .footer-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+  }
+
+  /* Dark Inset Web Viewport */
+  .viewport {
+    flex: 1;
+    height: 100%;
+    border-radius: var(--radius-viewport);
+    background: #17181C;
+    overflow: hidden;
+    position: relative;
+    border: 0.5px solid rgba(255, 255, 255, 0.085);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.42);
+  }
+
+  /* Floating Scroll-Edge Glass Toolbar (showing scrolled artwork softly refracting underneath!) */
+  .toolbar-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+  }
+  .scroll-edge-blur {
+    position: absolute;
+    inset: 0 0 -22px 0;
+    background: linear-gradient(180deg, rgba(23, 24, 28, 0.80) 0%, rgba(23, 24, 28, 0.48) 54%, rgba(23, 24, 28, 0) 100%);
+    backdrop-filter: blur(22px) saturate(165%);
+    -webkit-backdrop-filter: blur(22px) saturate(165%);
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 60%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 0%, #000 60%, transparent 100%);
+    z-index: -1;
+  }
+
+  .toolbar-inner {
+    width: 100%;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+  }
+
+  .glass-group {
+    height: 34px;
+    border-radius: 999px;
+    padding: 3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background: rgba(40, 44, 54, 0.62);
+    backdrop-filter: blur(32px) saturate(185%);
+    -webkit-backdrop-filter: blur(32px) saturate(185%);
+    border: 0.5px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 4px 14px rgba(0, 0, 0, 0.32);
+  }
+  .glass-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(245, 246, 250, 0.92);
+    position: relative;
+  }
+  .glass-btn.disabled { opacity: 0.30; }
+  .glass-btn .shield-dot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #4ADE80;
+    box-shadow: 0 0 0 1.5px rgba(34, 38, 48, 0.95);
+  }
+  .glass-divider {
+    width: 0.5px;
+    height: 14px;
+    background: rgba(255, 255, 255, 0.12);
+    margin: 0 1px;
+  }
+
+  .address-capsule {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 520px;
+    height: 34px;
+    border-radius: 999px;
+    padding: 0 5px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    overflow: hidden;
+    background: rgba(42, 46, 56, 0.64);
+    backdrop-filter: blur(34px) saturate(190%);
+    -webkit-backdrop-filter: blur(34px) saturate(190%);
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.19),
+      0 4px 16px rgba(0, 0, 0, 0.34);
+  }
+  /* Subtle integrated loading shimmer tucked inside address capsule bottom */
+  .capsule-progress {
+    position: absolute;
+    bottom: 0;
+    left: 16px;
+    width: 310px;
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, rgba(96, 165, 250, 0.15), #60A5FA 70%, #93C5FD 100%);
+    box-shadow: 0 0 8px rgba(96, 165, 250, 0.65);
+  }
+  .addr-side { width: 48px; display: flex; align-items: center; }
+  .addr-side.right { justify-content: flex-end; }
+  .addr-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+  }
+  .addr-host { font-size: 13px; font-weight: 500; color: #F5F6FA; letter-spacing: -0.005em; }
+
+  /* Dark Scrolled Article Content (hero image passes softly under the glass toolbar!) */
+  .page-scroll {
+    width: 100%;
+    height: 100%;
+    padding: 0 96px;
+    overflow: hidden;
+  }
+  .article {
+    max-width: 720px;
+    margin: -72px auto 0; /* Scrolled state so artwork passes beneath scroll-edge toolbar! */
+  }
+  .hero-figure {
+    width: 100%;
+    height: 300px;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 14px;
+    box-shadow: 0 4px 22px rgba(0, 0, 0, 0.42);
+  }
+  .caption {
+    font-size: 12.5px;
+    color: #8E95A4;
+    margin-bottom: 38px;
+  }
+  .article h2 {
+    font-family: var(--font-serif);
+    font-size: 34px;
+    font-weight: 700;
+    color: #F5F6FA;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+  }
+  .article p {
+    font-size: 17px;
+    line-height: 1.68;
+    color: #C7CCD7;
+    margin-bottom: 22px;
+  }
+  .pullquote {
+    border-left: 2.5px solid #60A5FA;
+    padding: 4px 0 4px 22px;
+    margin: 34px 0;
+    font-family: var(--font-serif);
+    font-size: 26px;
+    line-height: 1.36;
+    color: #F0F3FA;
+  }
+</style>
+</head>
+<body>
+  <div class="window">
+    <!-- Floating Dark Liquid Glass Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-titlebar">
+        <div class="traffic-lights">
+          <div class="light close"></div>
+          <div class="light min"></div>
+          <div class="light zoom"></div>
+        </div>
+        <div class="icon-btn">
+          <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="14" height="12" rx="2.5"/>
+            <line x1="6.5" y1="3" x2="6.5" y2="15"/>
+            <line x1="4.2" y1="6.2" x2="4.6" y2="6.2"/>
+            <line x1="4.2" y1="8.8" x2="4.6" y2="8.8"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="profile-row">
+        <div class="profile-avatar">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="8" cy="5.2" r="2.7"/>
+            <path d="M3 13.4c0-2.5 2.2-4.2 5-4.2s5 1.7 5 4.2v.6H3v-.6z"/>
+          </svg>
+        </div>
+        <span class="profile-name">Personal</span>
+        <svg class="chevron-dual" width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4.5 5.2L7 2.7l2.5 2.5M4.5 8.8L7 11.3l2.5-2.5"/>
+        </svg>
+      </div>
+
+      <div class="sidebar-search">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="7" cy="7" r="4.6"/>
+          <line x1="10.6" y1="10.6" x2="14" y2="14"/>
+        </svg>
+        <span class="placeholder">Search tabs</span>
+        <span class="kbd">⇧⌘A</span>
+      </div>
+
+      <div class="section-head">
+        <span class="section-title">Pinned</span>
+        <span class="section-count">4</span>
+      </div>
+      <div class="pins-grid">
+        <div class="pin-tile">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#F5F6FA">
+            <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.53 2.87 8.37 6.84 9.73.5.09.68-.22.68-.49 0-.24-.01-.88-.01-1.72-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.63.07-.63 1 .07 1.53 1.05 1.53 1.05.9 1.57 2.36 1.12 2.94.86.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.38 9.38 0 0112 6.84c.85 0 1.71.12 2.51.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.8-4.57 5.05.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.59.69.49A10.26 10.26 0 0022 12.26C22 6.58 17.52 2 12 2z"/>
+          </svg>
+        </div>
+        <!-- Crisp white Apple glyph on dark glass (solving the white-disc bug!) -->
+        <div class="pin-tile">
+          <svg width="16" height="18" viewBox="0 0 18 22" fill="#F5F6FA">
+            <path d="M14.7 11.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.8-3.5.8-.7 0-1.9-.8-3.1-.8-1.6 0-3 .9-3.8 2.4-1.7 2.9-.4 7.1 1.2 9.4.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7 1.4 0 1.8.7 3 .7 1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.4-.9-2.4-3.8zM12.3 4.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-.9 2.9 1 .1 2-.5 2.6-1.3z"/>
+          </svg>
+        </div>
+        <div class="pin-tile">
+          <span style="font-family:var(--font-serif);font-size:15px;font-weight:700;color:#F5F6FA;">W</span>
+        </div>
+        <div class="pin-tile">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <rect width="24" height="24" rx="6" fill="url(#swiftD)"/>
+            <path d="M17.2 14.3c.7-1.9.3-4.6-1.8-6.8 1.1 2.2.7 4.4-.5 5.4-2-1.2-4.4-3.3-6.4-5.2 1 1.8 2.6 3.8 4.4 5.2-1.8-.6-4-2.1-5.6-3.7 1.2 2.2 3.4 4.4 6 5.4-1.7.7-3.9.4-5.6-.7 1.7 2.3 4.9 3.4 7.8 2.4 1.2-.4 2.2.2 3.1 1.1.4-1.2.1-2.5-1.4-3.1z" fill="#fff"/>
+            <defs><linearGradient id="swiftD" x1="0" y1="0" x2="24" y2="24"><stop stop-color="#FF7A3D"/><stop offset="1" stop-color="#F04425"/></linearGradient></defs>
+          </svg>
+        </div>
+      </div>
+
+      <div class="section-head">
+        <span class="section-title">Tabs</span>
+        <span class="section-count">4</span>
+      </div>
+      <div class="tab-list">
+        <div class="tab-row active">
+          <div class="tab-favicon" style="background:linear-gradient(145deg,#4A80A4,#77A8B0);color:#fff;font-family:var(--font-serif);font-size:11px;font-weight:700;">F</div>
+          <span class="tab-title">Designing calm interfaces</span>
+          <div class="tab-accessory">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="tab-row">
+          <div class="tab-favicon" style="background:rgba(255,255,255,0.14);color:#fff;font-size:9px;font-weight:700;">NTS</div>
+          <span class="tab-title">Floating Points — Live</span>
+          <div class="tab-accessory audio">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M2.5 6.2h2.4l3.3-2.8v9.2L4.9 9.8H2.5a.8.8 0 01-.8-.8V7c0-.44.36-.8.8-.8zm8.3-.6a.65.65 0 01.92.04 3.8 3.8 0 010 4.72.65.65 0 01-.96-.88 2.5 2.5 0 000-2.96.65.65 0 01.04-.92zm2.1-1.7a.65.65 0 01.92.04 6.2 6.2 0 010 8.12.65.65 0 01-.96-.88 4.9 4.9 0 000-6.36.65.65 0 01.04-.92z"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="tab-row">
+          <div class="tab-favicon" style="background:rgba(255,255,255,0.11);color:#D5DCE8;font-family:var(--font-serif);font-size:11px;font-weight:700;">F</div>
+          <span class="tab-title">A little room to think</span>
+        </div>
+
+        <div class="tab-row">
+          <div class="tab-favicon" style="background:rgba(255,255,255,0.11);color:#D5DCE8;font-family:var(--font-serif);font-size:11px;font-weight:700;">F</div>
+          <span class="tab-title">Materials and meaning</span>
+        </div>
+      </div>
+
+      <div class="new-tab-btn">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
+          <path d="M7 2.2v9.6M2.2 7h9.6"/>
+        </svg>
+        <span class="label">New Tab</span>
+        <span class="kbd">⌘T</span>
+      </div>
+
+      <div class="sidebar-spacer"></div>
+
+      <div class="profile-dots">
+        <div class="p-dot active" style="background:#D8B4FE;"></div>
+        <div class="p-dot" style="background:#7DD3FC;"></div>
+        <div class="p-dot" style="background:#6EE7B7;"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="footer-btn">
+          <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4.5 3h9a1 1 0 011 1v11.5L9 12.2l-5.5 3.3V4a1 1 0 011-1z"/>
+          </svg>
+        </div>
+        <div class="footer-btn">
+          <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.2 9a5.8 5.8 0 101.6-4L3 6.6"/>
+            <path d="M3 3.4v3.2h3.2"/>
+            <path d="M9 5.8v3.4l2.4 1.4"/>
+          </svg>
+        </div>
+        <div class="footer-btn">
+          <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="9" cy="9" r="6.4"/>
+            <path d="M9 5.8v5.8M6.6 9.6L9 12l2.4-2.4"/>
+          </svg>
+        </div>
+        <div class="footer-btn">
+          <svg width="16" height="16" viewBox="0 0 20 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3.5" width="10.5" height="8" rx="1.4"/>
+            <path d="M1 13.5h12"/>
+            <rect x="14.2" y="5.5" width="4.5" height="8.2" rx="1.1"/>
+          </svg>
+        </div>
+        <div style="flex:1;"></div>
+        <div class="footer-btn">
+          <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="9" cy="9" r="2.5"/>
+            <path d="M14.7 9a5.8 5.8 0 00-.1-1l1.5-1.2-1.4-2.4-1.8.6a5.7 5.7 0 00-1.7-1L10.8 2h-3.6l-.4 2a5.7 5.7 0 00-1.7 1l-1.8-.6L1.9 6.8 3.4 8a5.8 5.8 0 000 2l-1.5 1.2 1.4 2.4 1.8-.6a5.7 5.7 0 001.7 1l.4 2h3.6l.4-2a5.7 5.7 0 001.7-1l1.8.6 1.4-2.4-1.5-1.2c.06-.33.1-.66.1-1z"/>
+          </svg>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Dark Inset Rounded Web Viewport (Scrolled beneath translucent glass toolbar) -->
+    <main class="viewport">
+      <header class="toolbar-overlay">
+        <div class="scroll-edge-blur"></div>
+        <div class="toolbar-inner">
+          <div class="glass-group">
+            <div class="glass-btn">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.2 3.2L5.4 8l4.8 4.8"/>
+              </svg>
+            </div>
+            <div class="glass-divider"></div>
+            <div class="glass-btn disabled">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5.8 3.2L10.6 8l-4.8 4.8"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="address-capsule">
+            <div class="addr-side">
+              <div class="addr-icon">
+                <svg width="11" height="13" viewBox="0 0 12 14" fill="currentColor">
+                  <path d="M3.2 5.8V4.2a2.8 2.8 0 015.6 0v1.6h.8A1.4 1.4 0 0111 7.2v4.6a1.4 1.4 0 01-1.4 1.4H2.4A1.4 1.4 0 011 11.8V7.2a1.4 1.4 0 011.4-1.4h.8zm1.3 0h3V4.2a1.5 1.5 0 00-3 0v1.6z"/>
+                </svg>
+              </div>
+            </div>
+            <span class="addr-host">docs.example.com</span>
+            <div class="addr-side right">
+              <div class="addr-icon">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 8a5 5 0 11-1.4-3.5L13 6"/>
+                  <path d="M13 2.8V6H9.8"/>
+                </svg>
+              </div>
+            </div>
+            <!-- Integrated subtle loading progress shimmer -->
+            <div class="capsule-progress"></div>
+          </div>
+
+          <div class="glass-group">
+            <div class="glass-btn">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M8 1.8L2.8 3.8v4c0 3.3 2.2 5.7 5.2 6.5 3-.8 5.2-3.2 5.2-6.5v-4L8 1.8z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+                <path d="M8 1.8v12.5c-3-.8-5.2-3.2-5.2-6.5v-4L8 1.8z" fill="currentColor"/>
+              </svg>
+              <span class="shield-dot"></span>
+            </div>
+            <div class="glass-divider"></div>
+            <div class="glass-btn">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 2.2v7.2M5.2 4.8L8 2l2.8 2.8"/>
+                <path d="M4.2 7.5H3.5A1.5 1.5 0 002 9v4a1.5 1.5 0 001.5 1.5h9A1.5 1.5 0 0014 13V9a1.5 1.5 0 00-1.5-1.5h-.7"/>
+              </svg>
+            </div>
+            <div class="glass-divider"></div>
+            <div class="glass-btn">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <circle cx="3.5" cy="8" r="1.25"/>
+                <circle cx="8" cy="8" r="1.25"/>
+                <circle cx="12.5" cy="8" r="1.25"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Scrolled Article Content passing smoothly beneath the glass toolbar -->
+      <div class="page-scroll">
+        <article class="article">
+          <div class="hero-figure">
+            <svg width="100%" height="100%" viewBox="0 0 720 300" preserveAspectRatio="xMidYMid slice">
+              <defs>
+                <linearGradient id="skyD" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#3C5874"/>
+                  <stop offset="55%" stop-color="#58717C"/>
+                  <stop offset="100%" stop-color="#2D4356"/>
+                </linearGradient>
+                <radialGradient id="sunD" cx="72%" cy="28%" r="42%">
+                  <stop offset="0%" stop-color="#F1BE75" stop-opacity="0.88"/>
+                  <stop offset="52%" stop-color="#C89B6E" stop-opacity="0.40"/>
+                  <stop offset="100%" stop-color="#3C5874" stop-opacity="0"/>
+                </radialGradient>
+                <linearGradient id="dune1D" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#33485E"/>
+                  <stop offset="100%" stop-color="#202F3F"/>
+                </linearGradient>
+                <linearGradient id="dune2D" x1="0" y1="0" x2="1" y2="0.8">
+                  <stop offset="0%" stop-color="#6B8388"/>
+                  <stop offset="100%" stop-color="#435761"/>
+                </linearGradient>
+              </defs>
+              <rect width="720" height="300" fill="url(#skyD)"/>
+              <rect width="720" height="300" fill="url(#sunD)"/>
+              <path d="M-20 300 C 80 120, 420 110, 740 245 L 740 300 Z" fill="url(#dune1D)"/>
+              <path d="M220 300 C 200 185, 450 135, 740 215 L 740 300 Z" fill="url(#dune2D)"/>
+            </svg>
+          </div>
+          <div class="caption">A study in light, space, and quiet contrast.</div>
+
+          <h2>Clarity begins with less</h2>
+          <p>A calm interface gives every element a reason to be there. It lets the page lead, while navigation stays familiar and close at hand. The best details are often the ones we stop noticing.</p>
+          <p>Space is more than an absence of content. It gives an idea time to settle, separates one thought from the next, and helps us find our place without having to search.</p>
+
+          <blockquote class="pullquote">Let the content be the destination. Let the interface be the way.</blockquote>
+
+          <h2>A material with a purpose</h2>
+          <p>Translucent controls can preserve a sense of context as a page moves underneath them. Used with restraint, Liquid Glass makes the relationship between the page and its navigation unmistakable.</p>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

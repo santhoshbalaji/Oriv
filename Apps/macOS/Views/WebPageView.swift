@@ -19,7 +19,7 @@ struct WebPageView: NSViewRepresentable {
         host.switchCover.reduceMotion = reduceMotion
         host.setTab(tab, profileEpoch: profileEpoch)
         host.headerInset = headerInset; host.onGeometryChange = { chrome?.requestSample() }
-        host.clipsToBounds = !contentUnderChrome; host.attachIfWindowed(); host.needsLayout = true
+        host.clipsToBounds = headerInset > 0 || !contentUnderChrome; host.attachIfWindowed(); host.needsLayout = true
     }
 }
 
@@ -126,16 +126,20 @@ final class WebViewHost: NSView {
         defer { CATransaction.commit() }
         if let window {
             let rect = convert(bounds, to: nil)
-            // Keep SwiftUI's native toolbar in its own layout region. Extending the
-            // entire SwiftUI page with ignoresSafeArea puts its layer ABOVE NSToolbar
-            // on macOS 27. Extend WebKit's child instead, beneath the native chrome.
-            let extensionHeight = headerInset > 0
-                ? (abs(rect.maxY - (window.frame.height - headerInset)) < 1 ? headerInset : 0)
-                : (abs(rect.maxY - window.contentLayoutRect.maxY) < 1
-                ? max(0, window.contentView!.bounds.height - window.contentLayoutRect.maxY) : 0)
+            let extensionHeight: CGFloat
+            let top: CGFloat
+            if headerInset > 0 {
+                // In v3 the page card clips both the toolbar band and WebViewHost.
+                // WebViewHost already fills the card; never extend webView above the card clip.
+                extensionHeight = 0
+                top = headerInset
+            } else {
+                extensionHeight = abs(rect.maxY - window.contentLayoutRect.maxY) < 1
+                    ? max(0, window.contentView!.bounds.height - window.contentLayoutRect.maxY) : 0
+                top = max(0, rect.maxY + extensionHeight - window.contentLayoutRect.maxY)
+            }
             let frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height + extensionHeight)
             if webView.frame != frame { webView.frame = frame; onGeometryChange?() }
-            let top = headerInset > 0 ? extensionHeight : max(0, rect.maxY + extensionHeight - window.contentLayoutRect.maxY)
             if abs(webView.obscuredContentInsets.top - top) > 0.1 {
                 webView.obscuredContentInsets = NSEdgeInsets(top: top, left: 0, bottom: 0, right: 0)
                 onGeometryChange?()
@@ -173,7 +177,7 @@ struct HomeProfileFade: NSViewRepresentable {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue = 0
-        fade.duration = reduceMotion ? 0.15 : 0.20
+        fade.duration = OrivMacV3.Motion.caFadeDuration(reduceMotion: reduceMotion)
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         layer.add(fade, forKey: "profileFade")
         CATransaction.commit()
@@ -226,7 +230,7 @@ struct BrowserToolbarBackdrop: NSViewRepresentable {
                         fill.layer?.backgroundColor = target
                         if !reduceMotion, let previous {
                             let animation = CABasicAnimation(keyPath:"backgroundColor")
-                            animation.fromValue = previous; animation.toValue = target; animation.duration = 0.2
+                            animation.fromValue = previous; animation.toValue = target; animation.duration = OrivMacV3.Motion.standardDuration
                             fill.layer?.add(animation,forKey:"pageTint")
                         }
                     }
