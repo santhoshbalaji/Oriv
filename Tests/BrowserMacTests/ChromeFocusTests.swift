@@ -1211,6 +1211,18 @@ import XCTest
         let reload = XCTNSNotificationExpectation(name: BrowserTab.navigationStarted, object: tab.webView)
         // While focused the trailing slot shows Clear; Reload returns once the blur lands.
         try await wait("Reload did not return after the address lost focus") { self.marker("browserReloadGeometry", in: w) != nil }
+        // The capsule springs back from its focused size; click once the reload slot stops moving.
+        var lastReloadFrame: NSRect?
+        var stablePolls = 0
+        try await wait("Reload did not settle after the address lost focus") {
+            w.contentView?.layoutSubtreeIfNeeded()
+            guard let reloadMarker = self.marker("browserReloadGeometry", in: w) else { lastReloadFrame = nil; return false }
+            let frame = reloadMarker.convert(reloadMarker.bounds, to: nil)
+            stablePolls = frame == lastReloadFrame ? stablePolls + 1 : 0
+            lastReloadFrame = frame
+            // Five unchanged 20 ms polls: the focus spring has finished.
+            return stablePolls >= 5 && !address.convert(address.bounds, to: nil).intersects(frame)
+        }
         try click("browserReloadGeometry", in: w)
         await fulfillment(of: [reload], timeout: 5)
         XCTAssertEqual(c.addressFocusRequest, focusRequest)
