@@ -3557,16 +3557,13 @@ enum OrivMacV3 {
         static let standard = Animation.easeInOut(duration: standardDuration)
         static let standardReduced = Animation.easeInOut(duration: reducedDuration)
         static let addressFocus = Animation.spring(response: 0.24, dampingFraction: 0.88)
-        /// Start page <-> toolbar travel: a fixed-length strong ease-out. It leaves fast and
-        /// lands exactly at 0.22 s; a spring's asymptotic tail read as a slow crawl on 120 Hz.
-        static let addressMorphDuration: TimeInterval = 0.22
-        static let addressMorph = Animation.timingCurve(0.2, 0.85, 0.25, 1.0, duration: addressMorphDuration)
-        /// The start page's content fades with the field's travel instead of popping in.
-        static let startPageFade = Animation.easeOut(duration: addressMorphDuration)
-        static let startPageFadeReduced = Animation.easeInOut(duration: 0.12)
-        static func startPageFade(reduceMotion: Bool) -> Animation { reduceMotion ? startPageFadeReduced : startPageFade }
-        /// How long after a start/page switch a late slot measurement still joins the travel.
-        static let addressMorphRetargetWindow: TimeInterval = 0.5
+        /// Start page <-> toolbar: the capsule moves home in one frame, then fades in from
+        /// this opacity, with the start page fading in on the same curve.
+        static let addressSwitchStartOpacity: Double = 0.35
+        static let addressSwitchFade = Animation.easeOut(duration: 0.14)
+        static let addressSwitchFadeReduced = Animation.easeOut(duration: 0.1)
+        static func addressSwitchFade(reduceMotion: Bool) -> Animation { reduceMotion ? addressSwitchFadeReduced : addressSwitchFade }
+        static let addressMorph = Animation.timingCurve(0.2, 0.85, 0.25, 1.0, duration: 0.22)
         static let addressMorphReduced = Animation.easeInOut(duration: reducedDuration)
         static let popover = Animation.spring(response: 0.22, dampingFraction: 0.92)
         static let popoverReduced = Animation.easeInOut(duration: popoverReducedDuration)

@@ -1177,7 +1177,7 @@ import XCTest
         XCTAssertNil(list.insertionMarkerFrame)
     }
 
-    func testStartPageAddressMorphTravelsWithoutJumpsAndClosingEndsEditing() async throws {
+    func testStartPageAddressMovesInOneFrameAndClosingEndsEditing() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let tab = try XCTUnwrap(c.session.selectedTab)
         let url = try XCTUnwrap(URL(string: "http://127.0.0.1:18768/morph/article"))
@@ -1214,6 +1214,10 @@ import XCTest
         }
         func assertMonotonic(_ frames: [NSRect], _ label: String) {
             guard let first = frames.first, let last = frames.last else { return XCTFail("\(label): no frames") }
+            // The capsule moves home in a single frame: a main-thread-driven travel stuttered
+            // under real pages, so any in-between position is a regression.
+            let positions = frames.reduce(into: [CGFloat]()) { if $0.last != $1.minY { $0.append($1.minY) } }
+            XCTAssertLessThanOrEqual(positions.count, 2, "\(label) passed through in-between positions: \(positions)")
             let down = last.minY < first.minY
             for (previous, next) in zip(frames, frames.dropFirst()) {
                 // Window coordinates: travelling down the card lowers minY. A slot correction
