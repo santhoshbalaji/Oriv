@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OrivPopover<Content: View>: View {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.snapshotUnscrolled) private var unscrolled
     @State private var contentHeight: CGFloat?
     let title: String
     var symbol: String? = nil
@@ -12,7 +13,7 @@ struct OrivPopover<Content: View>: View {
 
     var body: some View {
         Group {
-            if let maximumHeight {
+            if let maximumHeight, !unscrolled {
                 // Measure the same content that users interact with. A second
                 // layout candidate would register another set of focus targets.
                 ScrollView {

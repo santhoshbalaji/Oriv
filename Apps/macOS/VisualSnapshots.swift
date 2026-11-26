@@ -293,6 +293,7 @@ import WebKit
                               key: false, settle: 350, toolbarStyle: .preference, appearance: appearance, applyBrowserAppearance: false) {
                     AppearanceSettings(appearance: .constant(appearance), controller: controller,
                                        profiles: profiles, initialPane: pane)
+                        .environment(\.snapshotUnscrolled, true)
                 }
             }
             await capture("\(prefix)-website-data", directory, CGSize(width: 600, height: 520), key: false, settle: 500, appearance: appearance) {
@@ -311,10 +312,10 @@ import WebKit
                 PrivacyAcknowledgements()
             }
             await capture("\(prefix)-site-privacy-popover", directory, CGSize(width: 360, height: 620), key: false, settle: 350, appearance: appearance, fitHeight: true) {
-                AdBlockingPopover(session: session)
+                AdBlockingPopover(session: session).environment(\.snapshotUnscrolled, true)
             }
             await capture("\(prefix)-password-help-popover", directory, CGSize(width: 340, height: 620), key: false, settle: 350, appearance: appearance, fitHeight: true) {
-                PasswordsGuide(compact: true)
+                PasswordsGuide(compact: true).environment(\.snapshotUnscrolled, true)
             }
             for section in LibrarySection.allCases {
                 await capture("\(prefix)-library-\(section.id.lowercased())", directory, CGSize(width: 760, height: 540),

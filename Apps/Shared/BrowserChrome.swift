@@ -833,6 +833,9 @@ struct BrowserGlass: ViewModifier {
 private struct ChromeReduceTransparencyKey: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
     @Entry var chromeContrastOverride: ColorSchemeContrast? = nil
+    /// Snapshot-only: lay scrolling forms and popovers out flat, because an off-screen
+    /// bitmap cache cannot draw a SwiftUI scroll view's contents.
+    @Entry var snapshotUnscrolled = false
 
     /// Snapshot-only mirror; the real accessibility preference always takes precedence.
     var chromeReduceTransparencyOverride: Bool {

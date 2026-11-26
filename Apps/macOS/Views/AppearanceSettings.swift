@@ -375,21 +375,31 @@ struct AppearanceSettings: View {
 
 struct SettingsForm<Content: View>: View {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.snapshotUnscrolled) private var unscrolled
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: MacSettingsLayout.groupGap, content: content)
-                .padding(.horizontal, MacSettingsLayout.formHorizontalInset)
-                .padding(.vertical, MacSettingsLayout.formVerticalInset)
+        Group {
+            if unscrolled {
+                // Natural height, as inside the scroll view; overflow is clipped, not squeezed.
+                form.fixedSize(horizontal: false, vertical: true)
+                    .frame(maxHeight: .infinity, alignment: .top).clipped()
+            } else {
+                ScrollView { form }.scrollEdgeEffectStyle(.soft, for: .top)
+            }
         }
-        .scrollEdgeEffectStyle(.soft, for: .top)
         .font(OrivType.body)
         .foregroundStyle(theme.text)
         .tint(theme.accent)
         .labeledContentStyle(SettingsLabelStyle())
         .toggleStyle(SettingsToggleStyle())
         .pickerStyle(.menu)
+    }
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: MacSettingsLayout.groupGap, content: content)
+            .padding(.horizontal, MacSettingsLayout.formHorizontalInset)
+            .padding(.vertical, MacSettingsLayout.formVerticalInset)
     }
 }
 
