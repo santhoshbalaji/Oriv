@@ -177,7 +177,7 @@ struct HomeProfileFade: NSViewRepresentable {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue = 0
-        fade.duration = reduceMotion ? 0.15 : 0.20
+        fade.duration = OrivMacV3.Motion.caFadeDuration(reduceMotion: reduceMotion)
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         layer.add(fade, forKey: "profileFade")
         CATransaction.commit()
@@ -230,7 +230,7 @@ struct BrowserToolbarBackdrop: NSViewRepresentable {
                         fill.layer?.backgroundColor = target
                         if !reduceMotion, let previous {
                             let animation = CABasicAnimation(keyPath:"backgroundColor")
-                            animation.fromValue = previous; animation.toValue = target; animation.duration = 0.2
+                            animation.fromValue = previous; animation.toValue = target; animation.duration = OrivMacV3.Motion.standardDuration
                             fill.layer?.add(animation,forKey:"pageTint")
                         }
                     }

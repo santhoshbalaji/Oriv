@@ -32,6 +32,7 @@ struct ToolbarButtonStyle: ButtonStyle {
         @Environment(\.v3AppearanceMode) private var v3Mode
         @Environment(\.colorSchemeContrast) private var contrast
         @Environment(\.chromeContrastOverride) private var captureContrast
+        @Environment(\.browserReduceMotion) private var reduceMotion
         @State private var hovered = false
         let configuration: Configuration
         let active: Bool
@@ -48,6 +49,7 @@ struct ToolbarButtonStyle: ButtonStyle {
                     }
                 }
                 .opacity(enabled ? 1 : OrivMacV3.Toolbar.disabledOpacity(v3Mode, increasedContrast: increased))
+                .animation(OrivMacV3.Motion.quick(reduceMotion: reduceMotion), value: highlighted)
                 .onHover { hovered = $0 }
         }
     }

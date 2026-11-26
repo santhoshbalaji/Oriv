@@ -320,6 +320,7 @@ private struct MacHandoffMoveButtonStyle: ButtonStyle {
     }
 
     private struct Face: View {
+        @Environment(\.browserReduceMotion) private var reduceMotion
         let configuration: Configuration
         let solid: Bool
         let increasedContrast: Bool
@@ -356,6 +357,7 @@ private struct MacHandoffMoveButtonStyle: ButtonStyle {
                             .allowsHitTesting(false)
                     }
                 }
+                .animation(OrivMacV3.Motion.quick(reduceMotion: reduceMotion), value: hovered)
                 .onHover { hovered = $0 }
         }
     }
@@ -369,6 +371,7 @@ private struct MacHandoffKeepButtonStyle: ButtonStyle {
     }
 
     private struct Face: View {
+        @Environment(\.browserReduceMotion) private var reduceMotion
         let configuration: Configuration
         let increasedContrast: Bool
         @State private var hovered = false
@@ -389,6 +392,7 @@ private struct MacHandoffKeepButtonStyle: ButtonStyle {
                             .allowsHitTesting(false)
                     }
                 }
+                .animation(OrivMacV3.Motion.quick(reduceMotion: reduceMotion), value: hovered)
                 .onHover { hovered = $0 }
         }
     }

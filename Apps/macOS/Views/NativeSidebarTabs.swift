@@ -97,7 +97,7 @@ struct NativeSidebarTabs: NSViewRepresentable {
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
-            fade.duration = 0.15
+            fade.duration = OrivMacV3.Motion.reducedDuration
             fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
             scroll.layer?.add(fade, forKey: "profileRailFade")
         }
@@ -1811,7 +1811,7 @@ struct SidebarReflowMotion {
     let end: CGPoint
     let velocity: CGPoint
     let begin: CFTimeInterval
-    static let duration = 0.15
+    static let duration = OrivMacV3.Motion.reflowDuration
 
     func sample(at time: CFTimeInterval) -> (position: CGPoint, velocity: CGPoint) {
         let t = min(1, max(0, (time - begin) / Self.duration))

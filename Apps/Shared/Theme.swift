@@ -3526,24 +3526,38 @@ enum OrivMacV3 {
 
     // MARK: - 4.2 Motion
     enum Motion {
-        static let quick = Animation.easeOut(duration: 0.10)
-        static let standard = Animation.easeInOut(duration: 0.20)
-        static let standardReduced = Animation.easeInOut(duration: 0.15)
+        static let quickDuration: TimeInterval = 0.10
+        static let standardDuration: TimeInterval = 0.20
+        static let reducedDuration: TimeInterval = 0.15
+        static let popoverReducedDuration: TimeInterval = 0.12
+        static let progressFinishDelayMilliseconds: Int = 220
+        static let profileSettleDuration: TimeInterval = 0.30
+        static let profileSettleMass: CGFloat = 1
+        static let profileSettleStiffness: CGFloat = 320
+        static let profileSettleDamping: CGFloat = 34
+        static let reflowDuration: TimeInterval = 0.15
+
+        static let quick = Animation.easeOut(duration: quickDuration)
+        static let standard = Animation.easeInOut(duration: standardDuration)
+        static let standardReduced = Animation.easeInOut(duration: reducedDuration)
         static let addressFocus = Animation.spring(response: 0.24, dampingFraction: 0.88)
         static let addressMorph = Animation.spring(response: 0.34, dampingFraction: 0.90)
-        static let addressMorphReduced = Animation.easeInOut(duration: 0.15)
+        static let addressMorphReduced = Animation.easeInOut(duration: reducedDuration)
         static let popover = Animation.spring(response: 0.22, dampingFraction: 0.92)
-        static let popoverReduced = Animation.easeInOut(duration: 0.12)
+        static let popoverReduced = Animation.easeInOut(duration: popoverReducedDuration)
         static let progressShimmer = Animation.easeOut(duration: 0.18)
         static let tabLoading = Animation.linear(duration: 0.90).repeatForever(autoreverses: false)
 
         static func quick(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : quick }
         static func standard(reduceMotion: Bool) -> Animation { reduceMotion ? standardReduced : standard }
+        static func standardGeometry(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : standard }
         static func addressFocus(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : addressFocus }
         static func addressMorph(reduceMotion: Bool) -> Animation { reduceMotion ? addressMorphReduced : addressMorph }
+        static func addressMorphGeometry(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : addressMorph }
         static func popover(reduceMotion: Bool) -> Animation { reduceMotion ? popoverReduced : popover }
         static func progressShimmer(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : progressShimmer }
         static func tabLoading(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : tabLoading }
+        static func caFadeDuration(reduceMotion: Bool) -> TimeInterval { reduceMotion ? reducedDuration : standardDuration }
     }
 }
 
