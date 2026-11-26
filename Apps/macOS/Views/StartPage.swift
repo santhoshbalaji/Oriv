@@ -77,7 +77,7 @@ struct StartPage: View {
                 .accessibilityAddTraits(.isHeader)
             // Reserved slot: the window's single AddressField capsule is
             // positioned over this rect, so the text field is never re-created.
-            Color.clear
+            OrivMacV3.Card.fillStartPage
                 .frame(width: columnWidth, height: OrivMacV3.StartLayout.bigFieldSize.height)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.viewportSpace)) } action: { rect in
                     guard rect.width > 0, rect.height > 0 else { return }
