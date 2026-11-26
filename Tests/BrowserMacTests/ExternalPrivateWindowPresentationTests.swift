@@ -231,28 +231,61 @@ import XCTest
         XCTAssertLessThanOrEqual(webFrame.maxY, barFrame.minY + 1, "Page content must start below the handoff bar")
         XCTAssertEqual(toolbarFrame.height, OrivMacV3.ToolbarLayout.overlayHeight, accuracy: 1, "Handoff bar must not push or resize toolbar")
 
-        let wideKeepWidth = try markerFrame("keepExternalPrivateGeometry").width
+        let wideBarFrame = try markerFrame("externalPrivateBarGeometry")
+        let wideControlWidths = try ["externalMoveProfileGeometry", "moveExternalPageGeometry", "keepExternalPrivateGeometry"]
+            .map { try markerFrame($0).width }
+        XCTAssertEqual(barFrame.height, wideBarFrame.height)
+        XCTAssertEqual(try markerFrame("keepExternalPrivateGeometry").height, OrivMacV3.ToolbarLayout.handoffControlHeight, accuracy: 1)
+        XCTAssertEqual(try markerFrame("moveExternalPageGeometry").height, OrivMacV3.ToolbarLayout.handoffControlHeight, accuracy: 1)
 
-        // Narrow window (580 pt): stays single-line 44 pt, secondary text collapses, buttons stay unclipped inside bar bounds.
-        profiles.externalSourceName = "Very Long Messenger Application Name"
-        window.setContentSize(NSSize(width: 580, height: 640))
+        let wideNoticeWidth = try markerFrame("externalPrivateNoticeGeometry").width
+        func assertSingleLineBar(_ context: String) throws -> NSRect {
+            let bar = try markerFrame("externalPrivateBarGeometry")
+            XCTAssertEqual(bar.height, OrivMacV3.ToolbarLayout.handoffHeight, accuracy: 1, "\(context): bar stays single-line 44 pt")
+            XCTAssertLessThanOrEqual(bar.maxY, try markerFrame("browserTopBarGeometry").minY + 1, "\(context): bar never overlaps the toolbar")
+            XCTAssertEqual(try markerFrame("browserTopBarGeometry").height, OrivMacV3.ToolbarLayout.overlayHeight, accuracy: 1)
+            XCTAssertLessThanOrEqual(tab.webView.convert(tab.webView.bounds, to: nil).maxY, bar.minY + 1, "\(context): page starts below the bar")
+            var previousMaxX = bar.minX
+            for id in ["externalPrivateNoticeGeometry", "externalMoveProfileGeometry", "moveExternalPageGeometry", "keepExternalPrivateGeometry"] {
+                let rect = try markerFrame(id)
+                XCTAssertGreaterThanOrEqual(rect.width, OrivMacV3.ToolbarLayout.handoffControlHeight - 1, "\(context): \(id) stays visible")
+                XCTAssertGreaterThanOrEqual(rect.minX, previousMaxX - 1, "\(context): \(id) must not overlap its leading neighbour")
+                XCTAssertLessThanOrEqual(rect.maxX, bar.maxX + 1, "\(context): \(id) must not clip past the trailing bar edge")
+                XCTAssertGreaterThanOrEqual(rect.minY, bar.minY - 1); XCTAssertLessThanOrEqual(rect.maxY, bar.maxY + 1)
+                previousMaxX = rect.maxX
+            }
+            return bar
+        }
+        _ = try assertSingleLineBar("wide")
+
+        // A long source name in a medium window: only the label truncates; every button keeps its full width.
+        profiles.externalSourceName = "Very Long Messenger Application Name For Handoff Testing"
+        window.setContentSize(NSSize(width: 1000, height: 680))
+        try await eventually("medium handoff layout", timeout: 4, poll: .milliseconds(25)) {
+            window.contentView?.layoutSubtreeIfNeeded()
+            guard abs((window.contentView?.bounds.width ?? 0) - 1000) <= 1,
+                  let bar = marker("externalPrivateBarGeometry") else { return false }
+            return bar.convert(bar.bounds, to: nil).width < wideBarFrame.width - 50
+        }
+        _ = try assertSingleLineBar("medium")
+        for (id, wideWidth) in zip(["externalMoveProfileGeometry", "moveExternalPageGeometry", "keepExternalPrivateGeometry"], wideControlWidths) {
+            XCTAssertEqual(try markerFrame(id).width, wideWidth, accuracy: 1, "\(id) keeps its full width; the label truncates first")
+        }
+        XCTAssertLessThan(try markerFrame("externalPrivateNoticeGeometry").width, wideNoticeWidth + 200,
+                          "The long source name is truncated rather than widening the bar")
+
+        // Narrowest app window (760 pt, PersonalBrowserApp minWidth): still one 44 pt line, nothing clipped;
+        // the profile picker and Move keep their full labels.
+        window.setContentSize(NSSize(width: 760, height: 640))
         try await eventually("narrow handoff layout", timeout: 4, poll: .milliseconds(25)) {
             window.contentView?.layoutSubtreeIfNeeded()
-            guard abs((window.contentView?.bounds.width ?? 0) - 580) <= 1,
-                  let bar = marker("externalPrivateBarGeometry"),
-                  let keep = marker("keepExternalPrivateGeometry") else { return false }
-            let barW = bar.convert(bar.bounds, to: nil).width
-            let keepW = keep.convert(keep.bounds, to: nil).width
-            return barW < 500 && keepW < wideKeepWidth - 20
+            guard abs((window.contentView?.bounds.width ?? 0) - 760) <= 1,
+                  let bar = marker("externalPrivateBarGeometry") else { return false }
+            return bar.convert(bar.bounds, to: nil).width < wideBarFrame.width - 200
         }
-        let narrowBarFrame = try markerFrame("externalPrivateBarGeometry")
-        XCTAssertEqual(narrowBarFrame.height, OrivMacV3.ToolbarLayout.handoffHeight, accuracy: 1, "Narrow window handoff bar stays 44 pt")
-        for id in ["externalPrivateNoticeGeometry", "externalMoveProfileGeometry", "moveExternalPageGeometry", "keepExternalPrivateGeometry"] {
-            let rect = try markerFrame(id)
-            XCTAssertGreaterThan(rect.width, 16, "\(id) must remain visible without collapsing to zero width")
-            XCTAssertGreaterThanOrEqual(rect.minX, narrowBarFrame.minX - 1, "\(id) must not clip past leading bar edge")
-            XCTAssertLessThanOrEqual(rect.maxX, narrowBarFrame.maxX + 1, "\(id) must not clip past trailing bar edge")
-        }
+        _ = try assertSingleLineBar("narrow")
+        XCTAssertEqual(try markerFrame("externalMoveProfileGeometry").width, wideControlWidths[0], accuracy: 1)
+        XCTAssertEqual(try markerFrame("moveExternalPageGeometry").width, wideControlWidths[1], accuracy: 1)
 
         // Nil sourceName fallback renders cleanly without crashing or dropping the notice.
         profiles.externalSourceName = nil
@@ -355,6 +388,15 @@ import XCTest
         XCTAssertLessThan(luminance(privateBackdrop), 0.15, "Private window backdrop must be dark Amethyst Dusk")
         XCTAssertLessThan(luminance(privateSidebar), 0.15, "Private window sidebar must be dark Amethyst Dusk")
         XCTAssertGreaterThan(privateSidebar.blueComponent, privateSidebar.greenComponent, "Private window sidebar must carry Amethyst Dusk purple hue")
+
+        // Private windows draw their traffic lights for the dark Amethyst chrome; the regular window keeps the app appearance.
+        try await eventually("window control appearance", timeout: 3, poll: .milliseconds(25)) {
+            privateWindow.standardWindowButton(.closeButton)?.appearance?.name == .darkAqua
+        }
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            XCTAssertEqual(privateWindow.standardWindowButton(type)?.appearance?.name, .darkAqua)
+            XCTAssertNil(regularWindow.standardWindowButton(type)?.appearance, "Q5: a private tab never restyles regular window controls")
+        }
     }
 
     private final class MiniaturizedWindow: BackgroundUIMode.Window {

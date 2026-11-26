@@ -982,81 +982,81 @@ import WebKit
         }
     }
 
-        // Phase 7: Private Browsing (Amethyst Dusk chrome + external-private handoff bar + Q5 mixed window).
-        private static func renderPrivateV3(into directory: URL) async {
-            let size = CGSize(width: 1250, height: 820)
-            let profiles = seededProfiles()
-            defer { profiles.shutdown() }
-            _ = try? profiles.create(name: "Work", color: .ocean, symbol: .work)
+    // Phase 7: Private Browsing (Amethyst Dusk chrome + external-private handoff bar + Q5 mixed window).
+    private static func renderPrivateV3(into directory: URL) async {
+        let size = CGSize(width: 1250, height: 820)
+        let profiles = seededProfiles()
+        defer { profiles.shutdown() }
+        _ = try? profiles.create(name: "Work", color: .ocean, symbol: .work)
 
-            // 1. Standalone Private window in Light, Dark, and Black appearances + Rail.
-            let privateID = profiles.createPrivateWindow()
-            if let privateController = profiles.privateWindows[privateID] {
-                let secondTab = privateController.session.addTab(url: nil, isPrivate: true, select: false, load: false)
-                secondTab.webView.loadHTMLString(fixturePage(scheme: "https"), baseURL: URL(string: "https://fixture.example/private-doc"))
-                try? await Task.sleep(for: .milliseconds(500))
-                for (name, appearance) in [("window-light", BrowserAppearance.light), ("window-dark", .dark), ("window-black", .t3Code)] {
-                    privateController.appearance = appearance
-                    privateController.compactSidebar = false
-                    await capture("mac-glass-private-v3-\(name)", directory, size, key: false, appearance: appearance) {
-                        BrowserWindow(controller: privateController)
-                    }
-                }
-                privateController.appearance = .dark
-                privateController.compactSidebar = true
-                await capture("mac-glass-private-v3-rail", directory, size, key: false, appearance: .dark) {
+        // 1. Standalone Private window in Light, Dark, and Black appearances + Rail.
+        let privateID = profiles.createPrivateWindow()
+        if let privateController = profiles.privateWindows[privateID] {
+            let secondTab = privateController.session.addTab(url: nil, isPrivate: true, select: false, load: false)
+            secondTab.webView.loadHTMLString(fixturePage(scheme: "https"), baseURL: URL(string: "https://fixture.example/private-doc"))
+            try? await Task.sleep(for: .milliseconds(500))
+            for (name, appearance) in [("window-light", BrowserAppearance.light), ("window-dark", .dark), ("window-black", .t3Code)] {
+                privateController.appearance = appearance
+                privateController.compactSidebar = false
+                await capture("mac-glass-private-v3-\(name)", directory, size, key: false, appearance: appearance) {
                     BrowserWindow(controller: privateController)
                 }
-                privateController.compactSidebar = false
-            } else {
-                manifest.failures.append("Private v3 standalone private window missing")
             }
-
-            // 2. External-private window: fresh context per scene so each WKWebView sizes cleanly to its window.
-            let externalSpecs: [(String, CGSize, String?, Bool, Bool)] = [
-                ("external-dark", size, "Slack", false, false),
-                ("external-reduced", size, "Slack", true, false),
-                ("external-increased", size, "Slack", false, true),
-                ("external-narrow", CGSize(width: 760, height: 680), "Very Long Messenger Application", false, false),
-                ("external-ultranarrow", CGSize(width: 580, height: 640), "Very Long Messenger Application", false, false),
-                ("external-unknown-source", size, nil, false, false),
-            ]
-            let darkHTML = ChromeVisualFixture.html(dark: true)
-            for (sceneName, sceneSize, sourceName, reduced, increased) in externalSpecs {
-                let extProfiles = BrowserProfiles(testing: true)
-                _ = try? extProfiles.create(name: "Work", color: .ocean, symbol: .work)
-                extProfiles.handleIncomingURL(URL(string: "https://fixture.example/external")!, sourceName: sourceName)
-                if let external = extProfiles.externalPrivate, let privateTab = external.session.selectedTab {
-                    privateTab.webView.loadHTMLString(darkHTML, baseURL: URL(string: "https://fixture.example/external"))
-                    try? await Task.sleep(for: .milliseconds(800))
-                    await capture("mac-glass-private-v3-\(sceneName)", directory, sceneSize, key: false,
-                                  compositeWeb: privateTab.webView, appearance: .dark) {
-                        BrowserWindow(controller: external, profiles: extProfiles)
-                            .environment(\.chromeReduceTransparencyOverride, reduced)
-                            .environment(\.chromeContrastOverride, increased ? .increased : nil)
-                            .environment(\.sidebarCaptureContrast, increased ? .increased : nil)
-                    }
-                } else {
-                    manifest.failures.append("Private v3 external-private window missing for \(sceneName)")
-                }
-                extProfiles.shutdown()
+            privateController.appearance = .dark
+            privateController.compactSidebar = true
+            await capture("mac-glass-private-v3-rail", directory, size, key: false, appearance: .dark) {
+                BrowserWindow(controller: privateController)
             }
-
-            // 3. Q5: Regular Light & Dark windows with a private tab selected (profile chrome stays, only purple pill shows).
-            let mixed = seededProfiles()
-            defer { mixed.shutdown() }
-            let mixedPrivate = mixed.controller.session.addTab(isPrivate: true, select: true, load: false)
-            mixedPrivate.webView.loadHTMLString(fixturePage(scheme: "https"), baseURL: URL(string: "https://fixture.example/mixed-private"))
-            try? await Task.sleep(for: .milliseconds(700))
-            for (name, appearance) in [("mixed-light", BrowserAppearance.light), ("mixed-dark", .dark)] {
-                mixed.controller.appearance = appearance
-                await capture("mac-glass-private-v3-\(name)", directory, size, key: false, compositeWeb: mixedPrivate.webView, appearance: appearance) {
-                    BrowserWindow(controller: mixed.controller, profiles: mixed)
-                }
-            }
+            privateController.compactSidebar = false
+        } else {
+            manifest.failures.append("Private v3 standalone private window missing")
         }
 
-        /// Same real-window fixture before and after the sidebar change. Sleeping tabs
+        // 2. External-private window: fresh context per scene so each WKWebView sizes cleanly to its window.
+        let externalSpecs: [(String, CGSize, String?, Bool, Bool)] = [
+            ("external-dark", size, "Slack", false, false),
+            ("external-reduced", size, "Slack", true, false),
+            ("external-increased", size, "Slack", false, true),
+            ("external-narrow", CGSize(width: 760, height: 680), "Very Long Messenger Application", false, false),
+            ("external-ultranarrow", CGSize(width: 580, height: 640), "Very Long Messenger Application", false, false),
+            ("external-unknown-source", size, nil, false, false),
+        ]
+        let darkHTML = ChromeVisualFixture.html(dark: true)
+        for (sceneName, sceneSize, sourceName, reduced, increased) in externalSpecs {
+            let extProfiles = BrowserProfiles(testing: true)
+            _ = try? extProfiles.create(name: "Work", color: .ocean, symbol: .work)
+            extProfiles.handleIncomingURL(URL(string: "https://fixture.example/external")!, sourceName: sourceName)
+            if let external = extProfiles.externalPrivate, let privateTab = external.session.selectedTab {
+                privateTab.webView.loadHTMLString(darkHTML, baseURL: URL(string: "https://fixture.example/external"))
+                try? await Task.sleep(for: .milliseconds(800))
+                await capture("mac-glass-private-v3-\(sceneName)", directory, sceneSize, key: false,
+                              compositeWeb: privateTab.webView, appearance: .dark) {
+                    BrowserWindow(controller: external, profiles: extProfiles)
+                        .environment(\.chromeReduceTransparencyOverride, reduced)
+                        .environment(\.chromeContrastOverride, increased ? .increased : nil)
+                        .environment(\.sidebarCaptureContrast, increased ? .increased : nil)
+                }
+            } else {
+                manifest.failures.append("Private v3 external-private window missing for \(sceneName)")
+            }
+            extProfiles.shutdown()
+        }
+
+        // 3. Q5: Regular Light & Dark windows with a private tab selected (profile chrome stays, only purple pill shows).
+        let mixed = seededProfiles()
+        defer { mixed.shutdown() }
+        let mixedPrivate = mixed.controller.session.addTab(isPrivate: true, select: true, load: false)
+        mixedPrivate.webView.loadHTMLString(fixturePage(scheme: "https"), baseURL: URL(string: "https://fixture.example/mixed-private"))
+        try? await Task.sleep(for: .milliseconds(700))
+        for (name, appearance) in [("mixed-light", BrowserAppearance.light), ("mixed-dark", .dark)] {
+            mixed.controller.appearance = appearance
+            await capture("mac-glass-private-v3-\(name)", directory, size, key: false, compositeWeb: mixedPrivate.webView, appearance: appearance) {
+                BrowserWindow(controller: mixed.controller, profiles: mixed)
+            }
+        }
+    }
+
+    /// Same real-window fixture before and after the sidebar change. Sleeping tabs
     /// are metadata only; generated local icons go through the production cache.
     private static func renderSidebarV3(into directory: URL, pinsOnly: Bool = false) async {
         manifest.limitations.append("The sidebar and toolbar are rendered from the actual browser window off-screen. Standard scenes use a synthetic flat glass input. No native compositor, pointer ergonomics or animation evidence.")

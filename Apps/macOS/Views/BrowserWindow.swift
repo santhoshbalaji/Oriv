@@ -366,6 +366,7 @@ struct BrowserWindow: View {
         .navigationTitle(session.isExternalPrivate ? "Oriv — Private" : profiles.map { "\(AppIdentity.name) — \($0.active.name)" } ?? AppIdentity.name)
         .background(BrowserWindowChrome(windowContext: windowContext, compact: controller.sidebar.reservesRail, sidebarWidth: controller.sidebar.width,
             backdrop: OrivMacV3.Backdrop.reduced(v3Mode), usesWindowMaterial: usesWindowMaterial,
+            darkWindowControls: isPrivateWindow,
             initialContentFocus: tab?.url != nil || tab?.hasLoaded == true ? tab?.webView : nil,
             shouldApplyProfileSwitchFocus: profileSwitchFocus, profileEpoch: controller.sidebarDragID,
             externalPresentationRequest: session.isExternalPrivate ? profiles?.externalPresentationRequest : nil,

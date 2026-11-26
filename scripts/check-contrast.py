@@ -682,6 +682,38 @@ v3_surface_pairs = [
     ("v3 Handoff Move button solid", "ink", "FFFFFF", v3_hex("moveButtonSolidHex"), 4.5),
     ("v3 Toolbar Private IC", "border", v3_hex("rimICPrivateHex"), v3_hex("solidPrivateHex"), 3.0),
     ("v3 Address Private pill IC", "border", v3_hex("rimICPrivateHex"), v3_hex("privatePillSolidFillHex"), 3.0),
+    ("v3 Address Private pill IC", "ink", v3_hex("privatePillSolidInkHex"), v3_hex("privatePillSolidFillHex"), 4.5),
+]
+# Phase 7 Amethyst Dusk chrome over the private card fill (toolbar groups, address
+# capsule, private pill and handoff bar sit inside the card, never over web pixels
+# while the handoff bar is shown). Live tints use the §6.3 glass recipes over both
+# card gradient stops; RT/IC use the solid fallbacks above.
+for card_stop in (v3_hex("fillPrivateTopHex"), v3_hex("fillPrivateHex")):
+    toolbar_live = composite("342250", card_stop, 0.32)
+    address_live = composite("362354", card_stop, 0.34)
+    pill_live = composite("C084FC", address_live, 0.24)
+    handoff_live = composite("161020", composite("3C265E", card_stop, 0.34), 0.14)
+    v3_surface_pairs += [
+        (f"v3 Toolbar Private live over #{card_stop}", "primary", v3_hex("primaryPrivateHex"), toolbar_live, 4.5),
+        (f"v3 Toolbar Private live over #{card_stop}", "secondary", v3_hex("secondaryPrivateHex"), toolbar_live, 4.5),
+        (f"v3 Address Private live over #{card_stop}", "primary", v3_hex("primaryPrivateHex"), address_live, 4.5),
+        (f"v3 Address Private live over #{card_stop}", "secondary", v3_hex("secondaryPrivateHex"), address_live, 4.5),
+        (f"v3 Address Private pill live over #{card_stop}", "ink", v3_hex("privatePillInkHex"), pill_live, 4.5),
+        (f"v3 Handoff Private live over #{card_stop}", "message", v3_hex("messageInkHex"), handoff_live, 4.5),
+        (f"v3 Handoff Private live over #{card_stop}", "app name", v3_hex("primaryPrivateHex"), handoff_live, 4.5),
+        (f"v3 Handoff Private live over #{card_stop}", "glasses icon", v3_hex("privateAccentDarkHex"), handoff_live, 3.0),
+        (f"v3 Handoff Private live over #{card_stop}", "keep private", v3_hex("secondaryPrivateHex"), handoff_live, 4.5),
+        (f"v3 Handoff Picker live over #{card_stop}", "label", v3_hex("primaryPrivateHex"), composite("FFFFFF", handoff_live, 0.08), 4.5),
+        (f"v3 Handoff Picker live over #{card_stop}", "chevron", v3_hex("secondaryPrivateHex"), composite("FFFFFF", handoff_live, 0.08), 3.0),
+    ]
+# Q5: a private tab in a regular window keeps profile chrome; its pill is always the
+# solid Amethyst pill, which must stay legible and distinct on every regular capsule.
+for mode_name in ("Light", "Dark", "Black"):
+    v3_surface_pairs.append((f"v3 Address {mode_name} rest private pill", "ink",
+                             v3_hex("privatePillSolidInkHex"), v3_hex("privatePillSolidFillHex"), 4.5))
+    v3_surface_pairs.append((f"v3 Address {mode_name} rest private pill IC", "border",
+                             v3_hex(f"rimIC{mode_name}Hex"), v3_hex(f"restSolid{mode_name}Hex"), 3.0))
+v3_surface_pairs += [
     # Start Page big field & private card solid fallbacks
     ("v3 StartPage Light bigField", "primary", v3_hex("primaryLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
     ("v3 StartPage Light bigField", "tertiary", v3_hex("tertiaryCardLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),

@@ -137,6 +137,13 @@ struct ExternalPrivateBar: View {
                            minLabelWidth: OrivMacV3.ToolbarLayout.handoffMessageMinWidth,
                            idealLabelWidth: OrivMacV3.ToolbarLayout.handoffMessageIdealWidth,
                            compactMove: false, compactKeep: false)
+            // Narrow windows truncate the source label first; buttons keep their
+            // full labels until the label is already at its compact minimum.
+            macHandoffPill(horizontalInset: OrivMacV3.ToolbarLayout.paddingHorizontal,
+                           spacing: OrivMacV3.ToolbarLayout.handoffCompactGap,
+                           minLabelWidth: OrivMacV3.ToolbarLayout.handoffCompactMessageMinWidth,
+                           idealLabelWidth: OrivMacV3.ToolbarLayout.handoffCompactMessageIdealWidth,
+                           compactMove: false, compactKeep: false)
             macHandoffPill(horizontalInset: OrivMacV3.ToolbarLayout.paddingHorizontal,
                            spacing: OrivMacV3.ToolbarLayout.handoffCompactGap,
                            minLabelWidth: OrivMacV3.ToolbarLayout.handoffCompactMessageMinWidth,
