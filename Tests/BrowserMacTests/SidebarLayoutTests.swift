@@ -26,6 +26,9 @@ import XCTest
     private func marker(_ name: String, in window: NSWindow) -> NSView? {
         window.contentView.flatMap { descendants($0).first { $0.identifier?.rawValue == name } }
     }
+    private func markers(_ name: String, in window: NSWindow) -> [NSView] {
+        window.contentView.map { descendants($0).filter { $0.identifier?.rawValue == name } } ?? []
+    }
     private func address(in window: NSWindow) -> NSTextField? {
         window.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "addressField" } }
     }
@@ -431,11 +434,66 @@ import XCTest
                 XCTAssertTrue(toolbar.contains(try frame(name, in: window)))
             }
             let address = try frame("browserAddressGeometry", in: window)
-            let expectedWidth = marker("browserAddressFocusedGeometry", in: window) != nil
-                ? OrivMacV3.ToolbarLayout.addressFocusWidth
-                : OrivMacV3.ToolbarLayout.addressRestWidth
+            let card = try frame("browserPageCardGeometry", in: window)
+            let expectedWidth = OrivMacV3.StartLayout.columnWidth(for: card.width)
             XCTAssertEqual(address.width, expectedWidth, accuracy: 1)
+            XCTAssertEqual(address.height, OrivMacV3.StartLayout.bigFieldSize.height, accuracy: 1)
             XCTAssertEqual(address.midX, toolbar.midX, accuracy: 1)
+            XCTAssertLessThan(address.maxY, toolbar.minY, "Start page renders the address field in-page below the toolbar")
+        }
+    }
+
+    func testStartPageResponsiveBreakpointsWrapBookmarksAndCollapseCards() async throws {
+        let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SessionFileStore(fileURL: BrowserProfile.personal.directory(in: root).appendingPathComponent("session.json"))
+        let now = Date()
+        let bookmarks = (1...8).map { i in
+            Bookmark(title: "Site \(i)", url: URL(string: "https://site\(i).example")!, createdAt: now.addingTimeInterval(Double(i)))
+        }
+        let history = (1...6).map { i in
+            HistoryEntry(title: "Frequent \(i)", url: URL(string: "https://freq\(i).example")!, visitedAt: now, visitCount: 5)
+        }
+        try store.save(BrowserSnapshot(bookmarks: bookmarks, history: history, legacyBookmarksImported: true))
+        let controller = BrowserController(rootDirectory: root, testing: true)
+        let window = makeWindow(controller, width: 1280, largestText: false)
+        window.setContentSize(NSSize(width: 1280, height: 860))
+        defer { window.close(); controller.shutdown() }
+        try await eventually("start page tiles mounted") {
+            self.markers("homeBookmarks-tile", in: window).count == 8
+                && self.markers("homeFrequent-tile", in: window).count == 6
+        }
+        // Wide card (>= 772 pt): 8 bookmarks in 1 row, 6 frequent sites in 2 columns (3 rows).
+        let wideBookmarkYs = Set(markers("homeBookmarks-tile", in: window).map { Int($0.convert($0.bounds, to: nil).midY.rounded()) })
+        let wideFrequentXs = Set(markers("homeFrequent-tile", in: window).map { Int($0.convert($0.bounds, to: nil).minX.rounded()) })
+        XCTAssertEqual(wideBookmarkYs.count, 1, "8 bookmarks stay in a single row when card >= 772 pt")
+        XCTAssertEqual(wideFrequentXs.count, 2, "Frequently Visited uses 2 columns when card >= 600 pt")
+
+        // Narrow card (< 772 pt, >= 600 pt): bookmarks wrap to 4 × 2, Frequently Visited stays 2 columns.
+        window.setContentSize(NSSize(width: 980, height: 860))
+        try await eventually("bookmarks wrapped to 2 rows") {
+            guard let card = self.marker("browserPageCardGeometry", in: window) else { return false }
+            let ys = Set(self.markers("homeBookmarks-tile", in: window).map { Int($0.convert($0.bounds, to: nil).midY.rounded()) })
+            return card.bounds.width < OrivMacV3.StartLayout.bookmarkWrapCardWidth
+                && card.bounds.width >= OrivMacV3.StartLayout.frequentCollapseCardWidth
+                && ys.count == 2
+        }
+        let midFrequentXs = Set(markers("homeFrequent-tile", in: window).map { Int($0.convert($0.bounds, to: nil).minX.rounded()) })
+        XCTAssertEqual(midFrequentXs.count, 2, "Frequently Visited stays 2 columns above 600 pt card width")
+
+        // Extra-narrow card (< 600 pt): Frequently Visited collapses to 1 column.
+        window.setContentSize(NSSize(width: 820, height: 860))
+        try await eventually("frequent card collapsed to 1 column") {
+            guard let card = self.marker("browserPageCardGeometry", in: window) else { return false }
+            let xs = Set(self.markers("homeFrequent-tile", in: window).map { Int($0.convert($0.bounds, to: nil).minX.rounded()) })
+            return card.bounds.width < OrivMacV3.StartLayout.frequentCollapseCardWidth && xs.count == 1
+        }
+
+        // Private start page card shows on private tab and hides regular tiles.
+        controller.newTab(isPrivate: true)
+        try await eventually("private start card mounted") {
+            self.marker("homePrivateCard", in: window) != nil
+                && self.marker("homeBookmarks", in: window) == nil
         }
     }
 
@@ -647,9 +705,16 @@ import XCTest
             let row = try frame("sidebarItem-\(tab.id)", in: window)
             let icon = try frame("sidebarFavicon-\(tab.id)", in: window)
             let field = try XCTUnwrap(address(in: window))
+            let card = try frame("browserPageCardGeometry", in: window)
+            let topBar = try frame("browserTopBarGeometry", in: window)
+            let addressCapsule = try frame("browserAddressGeometry", in: window)
+            let fieldRect = field.convert(field.bounds, to: nil)
             XCTAssertTrue(sidebar.contains(row))
             XCTAssertTrue(row.contains(icon))
-            XCTAssertTrue((try frame("browserTopBarGeometry", in: window)).contains(field.convert(field.bounds, to: nil)))
+            XCTAssertTrue(card.contains(addressCapsule), "Start-page address capsule sits inside the RTL page card")
+            XCTAssertTrue(addressCapsule.contains(fieldRect), "Start-page address field sits inside its capsule")
+            XCTAssertEqual(addressCapsule.midX, topBar.midX, accuracy: 1, "Start-page address capsule stays centered in the RTL page card")
+            XCTAssertLessThanOrEqual(addressCapsule.maxY, topBar.minY, "Start-page address capsule renders below the RTL toolbar")
             if rail {
                 XCTAssertEqual(icon.midX, row.midX, accuracy: 1)
             } else {
@@ -667,6 +732,11 @@ import XCTest
             baseURL: URL(string: "http://127.0.0.1:18768/rtl-page"))
         try await eventually("LTR document displayed in RTL chrome") {
             tab.hasRenderedContent && tab.webView.window === window && !tab.isLoading
+        }
+        let loadedField = try XCTUnwrap(address(in: window))
+        try await eventually("Loaded page address field moves into RTL toolbar") {
+            guard let bar = self.geometry("browserTopBarGeometry", in: window) else { return false }
+            return bar.contains(loadedField.convert(loadedField.bounds, to: nil))
         }
         let result = try await tab.webView.evaluateJavaScript("getComputedStyle(document.documentElement).direction")
         XCTAssertEqual(result as? String, "ltr")

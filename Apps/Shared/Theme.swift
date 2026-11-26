@@ -2099,6 +2099,7 @@ enum OrivMacV3 {
         static let inlineCompletionVerticalPadding: CGFloat = 1
         static let inlineCompletionCaretWidth: CGFloat = 1.5
         static let inlineCompletionCaretHeight: CGFloat = 15
+        static let bigFieldInlineCompletionCaretHeight: CGFloat = 19
 
         static func inlineCompletionBg(_ mode: AppearanceMode) -> Color {
             switch mode {
@@ -2140,6 +2141,7 @@ enum OrivMacV3 {
         @MainActor static var focusedNSFont: NSFont { NSFont.systemFont(ofSize: 13.5) }
         @MainActor static var focusedTypedNSFont: NSFont { NSFont.systemFont(ofSize: 13.5, weight: .medium) }
         @MainActor static var restNSFont: NSFont { NSFont.systemFont(ofSize: 13, weight: .medium) }
+        @MainActor static var bigFieldNSFont: NSFont { NSFont.systemFont(ofSize: 16, weight: .regular) }
 
         static let tabHintSolidLightHex: UInt32 = 0xF1F1F2
         static let tabHintSolidDarkHex: UInt32 = 0x363A43
@@ -2657,27 +2659,68 @@ enum OrivMacV3 {
             }
         }
 
-        static func engineChipFill(_ mode: AppearanceMode) -> Color {
+        static let engineChipSolidLightHex: UInt32 = 0xF1F1F1
+        static let engineChipSolidDarkHex: UInt32 = 0x3F3F41
+        static let engineChipSolidBlackHex: UInt32 = 0x242428
+        static let engineChipSolidPrivateHex: UInt32 = 0x3C2F4B
+
+        static func engineChipFill(_ mode: AppearanceMode, solid: Bool = false) -> Color {
+            if solid {
+                switch mode {
+                case .light: return Theme.hex(engineChipSolidLightHex)
+                case .dark: return Theme.hex(engineChipSolidDarkHex)
+                case .black: return Theme.hex(engineChipSolidBlackHex)
+                case .private: return Theme.hex(engineChipSolidPrivateHex)
+                }
+            }
             switch mode {
-            case .light: rgba(0x000000, 0.055)
-            case .dark, .private: rgba(0xFFFFFF, 0.08)
-            case .black: Theme.hex(0x242428)
+            case .light: return rgba(0x000000, 0.055)
+            case .dark, .private: return rgba(0xFFFFFF, 0.08)
+            case .black: return Theme.hex(engineChipSolidBlackHex)
             }
         }
+
+        static func bigFieldPlaceholderInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return Ink.secondary(mode, increasedContrast: true) }
+            switch mode {
+            case .light: return Ink.tertiary(.light)
+            case .dark, .black, .private: return Ink.secondary(mode)
+            }
+        }
+
+        static let linkLightHex: UInt32 = 0x0058C2
+        static let linkDarkHex: UInt32 = 0x60A5FA
+        static let linkICLightHex: UInt32 = 0x0046A0
+        static let linkICDarkHex: UInt32 = 0x93C5FD
+
+        static func linkInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            switch (mode, increasedContrast) {
+            case (.light, false): Theme.hex(linkLightHex)
+            case (.light, true): Theme.hex(linkICLightHex)
+            case (.private, _): Semantic.privateAccent(.private, increasedContrast: increasedContrast)
+            case (_, false): Theme.hex(linkDarkHex)
+            case (_, true): Theme.hex(linkICDarkHex)
+            }
+        }
+
+        static let tileHoverSolidLightHex: UInt32 = 0xFFFFFF
+        static let tileHoverSolidDarkHex: UInt32 = 0x2E323D
+        static let tileHoverSolidBlackHex: UInt32 = 0x1C1C1C
+        static let tileHoverSolidPrivateHex: UInt32 = 0x33263D
 
         static func tileHoverFill(_ mode: AppearanceMode, solid: Bool = false) -> Color {
             if solid {
                 switch mode {
-                case .light: return Theme.hex(0xFFFFFF)
-                case .dark: return Theme.hex(0x2E323D)
-                case .black: return Theme.hex(0x1C1C1C)
-                case .private: return Theme.hex(0x33263D)
+                case .light: return Theme.hex(tileHoverSolidLightHex)
+                case .dark: return Theme.hex(tileHoverSolidDarkHex)
+                case .black: return Theme.hex(tileHoverSolidBlackHex)
+                case .private: return Theme.hex(tileHoverSolidPrivateHex)
                 }
             }
             switch mode {
             case .light: return rgba(0xFFFFFF, 0.86)
             case .dark: return rgba(0xFFFFFF, 0.16)
-            case .black: return Theme.hex(0x1C1C1C)
+            case .black: return Theme.hex(tileHoverSolidBlackHex)
             case .private: return rgba(0xD5AAF8, 0.20)
             }
         }
@@ -2712,19 +2755,55 @@ enum OrivMacV3 {
             mode == .light ? rgba(0x000000, 0.08) : rgba(0xFFFFFF, 0.12)
         }
 
+        static let frequentCardSolidLightHex: UInt32 = 0xFFFFFF
+        static let frequentCardSolidDarkHex: UInt32 = 0x24262E
+        static let frequentCardSolidBlackHex: UInt32 = 0x111111
+        static let frequentCardSolidPrivateHex: UInt32 = 0x23192E
+
         static func frequentCardFill(_ mode: AppearanceMode, solid: Bool = false) -> Color {
             if solid {
                 switch mode {
-                case .light: return Theme.hex(0xFFFFFF)
-                case .dark: return Theme.hex(0x24262E)
-                case .black: return Theme.hex(0x111111)
-                case .private: return Theme.hex(0x23192E)
+                case .light: return Theme.hex(frequentCardSolidLightHex)
+                case .dark: return Theme.hex(frequentCardSolidDarkHex)
+                case .black: return Theme.hex(frequentCardSolidBlackHex)
+                case .private: return Theme.hex(frequentCardSolidPrivateHex)
                 }
             }
             switch mode {
             case .light: return rgba(0xFFFFFF, 0.86)
             case .dark, .private: return rgba(0xFFFFFF, 0.07)
-            case .black: return Theme.hex(0x111111)
+            case .black: return Theme.hex(frequentCardSolidBlackHex)
+            }
+        }
+
+        static let frequentHostLightHex: UInt32 = 0x5E6370
+        static let frequentHostDarkHex: UInt32 = 0x9EA5B5
+        static let frequentHostBlackHex: UInt32 = 0x949494
+
+        static func frequentHostInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return Ink.secondary(mode, increasedContrast: true) }
+            switch mode {
+            case .light: return Theme.hex(frequentHostLightHex)
+            case .dark: return Theme.hex(frequentHostDarkHex)
+            case .black: return Theme.hex(frequentHostBlackHex)
+            case .private: return Ink.secondary(.private)
+            }
+        }
+
+        static func frequentRowHover(_ mode: AppearanceMode, solid: Bool = false) -> Color {
+            if solid {
+                switch mode {
+                case .light: return Theme.hex(0xF0F2F6)
+                case .dark: return Theme.hex(0x2F323E)
+                case .black: return Theme.hex(0x1C1C1E)
+                case .private: return Theme.hex(0x332442)
+                }
+            }
+            switch mode {
+            case .light: return rgba(0x000000, 0.05)
+            case .dark: return rgba(0xFFFFFF, 0.08)
+            case .black: return Theme.hex(0x1C1C1E)
+            case .private: return rgba(0xD5AAF8, 0.12)
             }
         }
 
@@ -2749,15 +2828,79 @@ enum OrivMacV3 {
         static let privateCardSolidFill = Theme.hex(privateCardSolidFillHex)
         static let privateCardSolidBorder = Theme.hex(privateCardSolidBorderHex)
 
-        static func keycapFill(_ mode: AppearanceMode) -> Color {
+        static let footerLightHex: UInt32 = 0x505562
+        static let footerDarkHex: UInt32 = 0x9AA2B2
+        static let footerBlackHex: UInt32 = 0x949494
+        static let footerPrivateHex: UInt32 = 0xB4A2CE
+
+        static func footerInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return Ink.secondary(mode, increasedContrast: true) }
             switch mode {
-            case .light: rgba(0x000000, 0.055)
-            case .dark, .private: rgba(0xFFFFFF, 0.08)
-            case .black: Theme.hex(0x1C1C1E)
+            case .light: return Theme.hex(footerLightHex)
+            case .dark: return Theme.hex(footerDarkHex)
+            case .black: return Theme.hex(footerBlackHex)
+            case .private: return Theme.hex(footerPrivateHex)
             }
         }
 
-        static let appIconOnColor = Theme.hex(0xFFFFFF)
+        static let keycapSolidLightHex: UInt32 = 0xE7E8EC
+        static let keycapSolidDarkHex: UInt32 = 0x282A34
+        static let keycapSolidBlackHex: UInt32 = 0x1C1C1E
+        static let keycapSolidPrivateHex: UInt32 = 0x28232C
+
+        static func keycapFill(_ mode: AppearanceMode, solid: Bool = false) -> Color {
+            if solid {
+                switch mode {
+                case .light: return Theme.hex(keycapSolidLightHex)
+                case .dark: return Theme.hex(keycapSolidDarkHex)
+                case .black: return Theme.hex(keycapSolidBlackHex)
+                case .private: return Theme.hex(keycapSolidPrivateHex)
+                }
+            }
+            switch mode {
+            case .light: return rgba(0x000000, 0.055)
+            case .dark, .private: return rgba(0xFFFFFF, 0.08)
+            case .black: return Theme.hex(keycapSolidBlackHex)
+            }
+        }
+
+        static func keycapInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            Ink.secondary(mode, increasedContrast: increasedContrast)
+        }
+
+        static func profileChipGradient(_ color: ProfileColor) -> LinearGradient {
+            let pair: (UInt32, UInt32) = switch color {
+            case .mulberry: (0xB35EC4, 0x843394)
+            case .ocean: (0x2D7BE0, 0x195BB5)
+            case .fern: (0x2D8A56, 0x1E683E)
+            case .amber: (0xC97416, 0x9C530A)
+            case .slate: (0x5D6E82, 0x3F4F61)
+            }
+            return LinearGradient(colors: [Theme.hex(pair.0), Theme.hex(pair.1)],
+                                  startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+
+        static let appIconOnColorHex: UInt32 = 0xFFFFFF
+        static let appIconOnColor = Theme.hex(appIconOnColorHex)
+
+        // Contrast-verified (>= 4.5:1 with white ink) macOS app-icon squircle gradients for bookmark & frequent monograms.
+        static let appIconPalette: [(top: UInt32, bottom: UInt32)] = [
+            (0x6E6E73, 0x48484A), // Graphite
+            (0x1B72DB, 0x1452A8), // Cobalt
+            (0xD4441A, 0xB83015), // Vermilion
+            (0x24292F, 0x17161C), // Charcoal
+            (0x5D7383, 0x3E5466), // Slate
+            (0x1F7E60, 0x166149), // Emerald
+            (0x6B4ED6, 0x5134B8), // Indigo
+            (0xC2560E, 0x993D06), // Amber
+        ]
+
+        static func appIconGradient(for host: String) -> LinearGradient {
+            let hash = host.unicodeScalars.reduce(UInt64(5381)) { (($0 << 5) &+ $0) &+ UInt64($1.value) }
+            let pair = appIconPalette[Int(hash % UInt64(appIconPalette.count))]
+            return LinearGradient(colors: [Theme.hex(pair.top), Theme.hex(pair.bottom)],
+                                  startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
 
         static func sampleAppIconGradient(_ index: Int) -> LinearGradient {
             switch index {
@@ -3058,9 +3201,12 @@ enum OrivMacV3 {
     // MARK: - 3.5 Start Page Geometry (Mac-only; Q8 applied)
     enum StartLayout {
         static let columnWidth: CGFloat = 724
+        static let columnMinWidth: CGFloat = 280
         static let columnMinHorizontalMargin: CGFloat = 24
         static let headerTopMargin: CGFloat = 150
+        static let headerMinTopMargin: CGFloat = 68
         static let shortWindowHeightThreshold: CGFloat = 760
+        static let shortWindowMinHeight: CGFloat = 520
         static let profileChipAvatar: CGFloat = 18
         static let profileChipGap: CGFloat = 8
         static let titleTopGap: CGFloat = 8
@@ -3069,6 +3215,7 @@ enum OrivMacV3 {
         static let bigFieldLeadingPadding: CGFloat = 18
         static let bigFieldTrailingPadding: CGFloat = 10
         static let bigFieldGap: CGFloat = 12
+        static let bigFieldTextHeight: CGFloat = 26
         static let engineChipHeight: CGFloat = 32
         static let engineChipPaddingHorizontal: CGFloat = 12
         static let engineChipGap: CGFloat = 6
@@ -3077,6 +3224,7 @@ enum OrivMacV3 {
         static let sectionContentTopGap: CGFloat = 10
         static let bookmarkColumns: Int = 8
         static let bookmarkCompactColumns: Int = 4
+        static let bookmarkAccessibilityColumns: Int = 2
         static let bookmarkWrapCardWidth: CGFloat = 772
         static let bookmarkGap: CGFloat = 8
         static let bookmarkIconSize: CGFloat = 52
@@ -3085,6 +3233,7 @@ enum OrivMacV3 {
         static let bookmarkTilePaddingBottom: CGFloat = 10
         static let bookmarkTileGap: CGFloat = 8
         static let frequentCardPadding: CGFloat = 6
+        static let frequentCardRowGap: CGFloat = 2
         static let frequentColumns: Int = 2
         static let frequentCollapseCardWidth: CGFloat = 600
         static let frequentRowHeight: CGFloat = 40
@@ -3098,13 +3247,37 @@ enum OrivMacV3 {
         static let privateCardColumns: Int = 2
         static let privateCardRowGap: CGFloat = 10
         static let privateCardColumnGap: CGFloat = 34
+        static let privateCardHeadingBottomGap: CGFloat = 4
         static let privateCardItemTopMargin: CGFloat = 8
+        static let privateCardItemGap: CGFloat = 10
+        static let privateCardItemTextGap: CGFloat = 2
         static let privateCardIconSize: CGFloat = 16
+        static let emptyStatePaddingVertical: CGFloat = 28
+        static let emptyStatePaddingHorizontal: CGFloat = 24
         static let footerBottomInset: CGFloat = 22
         static let footerGap: CGFloat = 22
+        static let footerCompactGap: CGFloat = 14
+        static let footerWrapCardWidth: CGFloat = 560
         static let keycapPaddingVertical: CGFloat = 1
         static let keycapPaddingHorizontal: CGFloat = 5
         static let keycapTrailingMargin: CGFloat = 5
+
+        static func columnWidth(for cardWidth: CGFloat) -> CGFloat {
+            let available = max(0, cardWidth - 2 * columnMinHorizontalMargin)
+            return min(columnWidth, max(min(columnMinWidth, available), available))
+        }
+
+        static func headerTopMargin(for cardHeight: CGFloat, hasTopBars: Bool = false) -> CGFloat {
+            let base: CGFloat
+            if cardHeight >= shortWindowHeightThreshold {
+                base = headerTopMargin
+            } else {
+                let span = max(1, shortWindowHeightThreshold - shortWindowMinHeight)
+                let fraction = max(0, min(1, (cardHeight - shortWindowMinHeight) / span))
+                base = headerMinTopMargin + (headerTopMargin - headerMinTopMargin) * fraction
+            }
+            return hasTopBars ? max(OrivSpacing.xl, base - ToolbarLayout.overlayHeight) : base
+        }
     }
 
     // MARK: - 4.1 Typography
@@ -3135,6 +3308,13 @@ enum OrivMacV3 {
         static let suggestionSearchSymbol: Font = .system(size: 13, weight: .medium)
         static let suggestionEnginePill: Font = .system(size: 11, weight: .regular)
         static let addressFocusSearchIcon: Font = .system(size: 14, weight: .medium)
+        static let startBigFieldSearchIcon: Font = .system(size: 16, weight: .regular)
+        static let startProfileChipSymbol: Font = .system(size: 10, weight: .semibold)
+        static let startPrivateChipIcon: Font = .system(size: 15, weight: .medium)
+        static let startPrivateCardIcon: Font = .system(size: 15, weight: .regular)
+        static let startFooter: Font = .system(size: 11, weight: .regular)
+        static let startKeycap: Font = .system(size: 11, weight: .medium).monospacedDigit()
+        static let frequentFaviconMonogram: Font = .system(size: 11, weight: .bold)
         static let appIconMonogram: Font = .system(size: 28, weight: .bold)
         static let tightTracking: CGFloat = -0.065
         static let labelTracking: CGFloat = 0.22

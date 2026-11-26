@@ -301,6 +301,12 @@ assert "OrivMacV3.Address.focusFill(" in mac
 assert "OrivMacV3.Popover.glassFill(" in mac
 assert "OrivMacV3.Suggestions.scrim(" in mac
 assert "OrivMacV3.Suggestions.selectedFill(" in mac
+assert "OrivMacV3.StartPage.bigFieldFill(" in mac
+assert "startAddressSlot" in mac
+start_page_src = (ROOT / "Apps/macOS/Views/StartPage.swift").read_text()
+assert "OrivMacV3.StartPage." in start_page_src
+assert "OrivMacV3.StartLayout." in start_page_src
+assert "onAddressSlotChange" in start_page_src
 assert "ConnectionCue(" in mac and "cue.color(theme)" in mac
 assert ".scrollEdgeEffectStyle(.soft, for: .top)" in mac
 assert "MacAddressPalette" not in mac
@@ -614,16 +620,86 @@ v3_surface_pairs = [
     ("v3 Handoff Move button top", "ink", "FFFFFF", v3_hex("moveButtonTopHex"), 4.5),
     ("v3 Handoff Move button bottom", "ink", "FFFFFF", v3_hex("moveButtonBottomHex"), 4.5),
     ("v3 Handoff Move button solid", "ink", "FFFFFF", v3_hex("moveButtonSolidHex"), 4.5),
-    # Start Page big field & private card solid fallbacks
+    # Start Page big field, engine chip, title, secondary, links, bookmark tiles, frequent rows, footer/keycaps, and private card
+    # over solid start-page backdrop fallbacks in Light, Dark, Black, Private, RT and IC.
     ("v3 StartPage Light bigField", "primary", v3_hex("primaryLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
-    ("v3 StartPage Light bigField", "tertiary", v3_hex("tertiaryCardLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
+    ("v3 StartPage Light bigField", "placeholder", v3_hex("tertiaryCardLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
+    ("v3 StartPage Light bigField IC", "placeholder IC", v3_hex("secondaryICLightHex"), v3_hex("bigFieldSolidLightHex"), 4.5),
+    ("v3 StartPage Light engineChip", "chip", v3_hex("secondaryLightHex"), v3_hex("engineChipSolidLightHex"), 4.5),
+    ("v3 StartPage Light engineChip IC", "chip IC", v3_hex("secondaryICLightHex"), v3_hex("engineChipSolidLightHex"), 4.5),
     ("v3 StartPage Dark bigField", "primary", v3_hex("primaryDarkHex"), v3_hex("bigFieldSolidDarkHex"), 4.5),
-    ("v3 StartPage Dark bigField", "secondary", v3_hex("secondaryDarkHex"), v3_hex("bigFieldSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark bigField", "placeholder", v3_hex("secondaryDarkHex"), v3_hex("bigFieldSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark bigField IC", "placeholder IC", v3_hex("secondaryICDarkHex"), v3_hex("bigFieldSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark engineChip", "chip", v3_hex("secondaryDarkHex"), v3_hex("engineChipSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark engineChip IC", "chip IC", v3_hex("secondaryICDarkHex"), v3_hex("engineChipSolidDarkHex"), 4.5),
     ("v3 StartPage Black bigField", "primary", v3_hex("primaryBlackHex"), v3_hex("bigFieldSolidBlackHex"), 4.5),
+    ("v3 StartPage Black bigField", "placeholder", v3_hex("secondaryBlackHex"), v3_hex("bigFieldSolidBlackHex"), 4.5),
+    ("v3 StartPage Black bigField IC", "placeholder IC", v3_hex("secondaryICBlackHex"), v3_hex("bigFieldSolidBlackHex"), 4.5),
+    ("v3 StartPage Black engineChip", "chip", v3_hex("secondaryBlackHex"), v3_hex("engineChipSolidBlackHex"), 4.5),
+    ("v3 StartPage Black engineChip IC", "chip IC", v3_hex("secondaryICBlackHex"), v3_hex("engineChipSolidBlackHex"), 4.5),
     ("v3 StartPage Private bigField", "primary", v3_hex("primaryPrivateHex"), v3_hex("bigFieldSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private bigField", "placeholder", v3_hex("secondaryPrivateHex"), v3_hex("bigFieldSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private bigField IC", "placeholder IC", v3_hex("secondaryICPrivateHex"), v3_hex("bigFieldSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private engineChip", "chip", v3_hex("secondaryPrivateHex"), v3_hex("engineChipSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private engineChip IC", "chip IC", v3_hex("secondaryICPrivateHex"), v3_hex("engineChipSolidPrivateHex"), 4.5),
+    # Title, secondary, Show All link, tile labels, footer and keycaps over start-page solid backings
+    ("v3 StartPage Light backdrop", "title", v3_hex("primaryLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "secondary", v3_hex("secondaryLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "secondary IC", v3_hex("secondaryICLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "link", v3_hex("linkLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "link IC", v3_hex("linkICLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light backdrop", "footer", v3_hex("footerLightHex"), v3_hex("startSolidLightHex"), 4.5),
+    ("v3 StartPage Light keycap", "keycap", v3_hex("secondaryLightHex"), v3_hex("keycapSolidLightHex"), 4.5),
+    ("v3 StartPage Light keycap IC", "keycap IC", v3_hex("secondaryICLightHex"), v3_hex("keycapSolidLightHex"), 4.5),
+    ("v3 StartPage Light tileHover", "tile label", v3_hex("primaryLightHex"), v3_hex("tileHoverSolidLightHex"), 4.5),
+    ("v3 StartPage Light frequent", "row title", v3_hex("primaryLightHex"), v3_hex("frequentCardSolidLightHex"), 4.5),
+    ("v3 StartPage Light frequent", "row host", v3_hex("frequentHostLightHex"), v3_hex("frequentCardSolidLightHex"), 4.5),
+    ("v3 StartPage Light frequent IC", "row host IC", v3_hex("secondaryICLightHex"), v3_hex("frequentCardSolidLightHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "title", v3_hex("primaryDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "secondary", v3_hex("secondaryDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "secondary IC", v3_hex("secondaryICDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "link", v3_hex("linkDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "link IC", v3_hex("linkICDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark backdrop", "footer", v3_hex("footerDarkHex"), v3_hex("startSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark keycap", "keycap", v3_hex("secondaryDarkHex"), v3_hex("keycapSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark keycap IC", "keycap IC", v3_hex("secondaryICDarkHex"), v3_hex("keycapSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark tileHover", "tile label", v3_hex("primaryDarkHex"), v3_hex("tileHoverSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark frequent", "row title", v3_hex("primaryDarkHex"), v3_hex("frequentCardSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark frequent", "row host", v3_hex("frequentHostDarkHex"), v3_hex("frequentCardSolidDarkHex"), 4.5),
+    ("v3 StartPage Dark frequent IC", "row host IC", v3_hex("secondaryICDarkHex"), v3_hex("frequentCardSolidDarkHex"), 4.5),
+    ("v3 StartPage Black backdrop", "title", v3_hex("primaryBlackHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "secondary", v3_hex("secondaryBlackHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "secondary IC", v3_hex("secondaryICBlackHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "link", v3_hex("linkDarkHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "link IC", v3_hex("linkICDarkHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black backdrop", "footer", v3_hex("footerBlackHex"), v3_hex("startSolidBlackHex"), 4.5),
+    ("v3 StartPage Black keycap", "keycap", v3_hex("secondaryBlackHex"), v3_hex("keycapSolidBlackHex"), 4.5),
+    ("v3 StartPage Black keycap IC", "keycap IC", v3_hex("secondaryICBlackHex"), v3_hex("keycapSolidBlackHex"), 4.5),
+    ("v3 StartPage Black tileHover", "tile label", v3_hex("primaryBlackHex"), v3_hex("tileHoverSolidBlackHex"), 4.5),
+    ("v3 StartPage Black frequent", "row title", v3_hex("primaryBlackHex"), v3_hex("frequentCardSolidBlackHex"), 4.5),
+    ("v3 StartPage Black frequent", "row host", v3_hex("frequentHostBlackHex"), v3_hex("frequentCardSolidBlackHex"), 4.5),
+    ("v3 StartPage Black frequent IC", "row host IC", v3_hex("secondaryICBlackHex"), v3_hex("frequentCardSolidBlackHex"), 4.5),
+    ("v3 StartPage Private backdrop", "chip", v3_hex("privateAccentDarkHex"), v3_hex("startSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private backdrop", "chip IC", v3_hex("privateAccentICDarkHex"), v3_hex("startSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private backdrop", "title", v3_hex("primaryPrivateHex"), v3_hex("startSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private backdrop", "footer", v3_hex("footerPrivateHex"), v3_hex("startSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private keycap", "keycap", v3_hex("secondaryPrivateHex"), v3_hex("keycapSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private keycap IC", "keycap IC", v3_hex("secondaryICPrivateHex"), v3_hex("keycapSolidPrivateHex"), 4.5),
+    ("v3 StartPage Private card", "heading", v3_hex("privateAccentDarkHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    ("v3 StartPage Private card", "heading IC", v3_hex("privateAccentICDarkHex"), v3_hex("privateCardSolidFillHex"), 4.5),
     ("v3 StartPage Private card", "primary", v3_hex("primaryPrivateHex"), v3_hex("privateCardSolidFillHex"), 4.5),
     ("v3 StartPage Private card", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    ("v3 StartPage Private card", "secondary IC", v3_hex("secondaryICPrivateHex"), v3_hex("privateCardSolidFillHex"), 4.5),
+    ("v3 StartPage Private card translucent", "heading", v3_hex("privateAccentDarkHex"), composite("D5AAF8", v3_hex("startSolidPrivateHex"), 0.09), 4.5),
+    ("v3 StartPage Private card translucent", "primary", v3_hex("primaryPrivateHex"), composite("D5AAF8", v3_hex("startSolidPrivateHex"), 0.09), 4.5),
+    ("v3 StartPage Private card translucent", "secondary", v3_hex("secondaryPrivateHex"), composite("D5AAF8", v3_hex("startSolidPrivateHex"), 0.09), 4.5),
     # Focus rings & IC borders (>= 3.0:1)
+    ("v3 Focus bigField Light", "focus ring", v3_hex("linkLightHex"), v3_hex("bigFieldSolidLightHex"), 3.0),
+    ("v3 Focus bigField Dark", "focus ring", "3B9BFF", v3_hex("bigFieldSolidDarkHex"), 3.0),
+    ("v3 Focus bigField Private", "focus ring", "C792F5", v3_hex("bigFieldSolidPrivateHex"), 3.0),
+    ("v3 IC border StartPage Light", "ic border", v3_hex("rimICLightHex"), v3_hex("startSolidLightHex"), 3.0),
+    ("v3 IC border StartPage Dark", "ic border", v3_hex("rimICDarkHex"), v3_hex("startSolidDarkHex"), 3.0),
+    ("v3 IC border StartPage Private card", "ic border", v3_hex("rimICPrivateHex"), v3_hex("privateCardSolidFillHex"), 3.0),
     ("v3 Focus address Light", "focus ring", v3_hex("accentLightHex"), v3_hex("focusSolidLightHex"), 3.0),
     ("v3 Focus address Light card", "focus ring", v3_hex("accentLightHex"), v3_hex("fillLightHex"), 3.0),
     ("v3 Focus address Dark", "focus ring", v3_hex("accentDarkHex"), v3_hex("focusSolidDarkHex"), 3.0),
@@ -644,6 +720,33 @@ v3_surface_pairs = [
 ]
 for label, role, fg, bg, minimum in v3_surface_pairs:
     v3_checks.append((label, role, fg, "solid", bg, minimum))
+
+# Verify start-page app-icon squircle monogram gradients meet >= 4.5:1 with white ink.
+app_icon_block = re.search(r"static let appIconPalette:.*?=\s*\[([\s\S]+?)\n        \]", v3_block)
+assert app_icon_block, "Missing OrivMacV3.StartPage.appIconPalette"
+app_icon_stops = re.findall(r"\(0x([0-9A-Fa-f]{6}),\s*0x([0-9A-Fa-f]{6})\)", app_icon_block.group(1))
+assert len(app_icon_stops) >= 6, "Expected at least 6 app-icon palette stops"
+for idx, (top_hex, bot_hex) in enumerate(app_icon_stops):
+    v3_checks.append((f"v3 StartPage appIcon #{idx} top", "monogram", v3_hex("appIconOnColorHex"), "squircle", top_hex.upper(), 4.5))
+    v3_checks.append((f"v3 StartPage appIcon #{idx} bottom", "monogram", v3_hex("appIconOnColorHex"), "squircle", bot_hex.upper(), 4.5))
+
+# Verify start-page inks also pass over peak start-page radial glows.
+for gh, gop in v3_glows("startLightAmbient"):
+    glow_bg = composite(gh, v3_hex("startLightBaseHex"), gop)
+    v3_checks.append((f"v3 StartPage Light glow #{gh}", "title", v3_hex("primaryLightHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Light glow #{gh}", "secondary", v3_hex("secondaryLightHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Light glow #{gh}", "link", v3_hex("linkLightHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Light glow #{gh}", "footer", v3_hex("footerLightHex"), "glow", glow_bg, 4.5))
+for gh, gop in (("3E6CC6", 0.38), ("2C8092", 0.30)):
+    glow_bg = composite(gh, v3_hex("startDarkBaseHex"), gop)
+    v3_checks.append((f"v3 StartPage Dark glow #{gh}", "title", v3_hex("primaryDarkHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Dark glow #{gh}", "secondary", v3_hex("secondaryDarkHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Dark glow #{gh}", "footer", v3_hex("footerDarkHex"), "glow", glow_bg, 4.5))
+for gh, gop in v3_glows("startPrivateAmbient"):
+    glow_bg = composite(gh, v3_hex("startPrivateBaseHex"), gop)
+    v3_checks.append((f"v3 StartPage Private glow #{gh}", "title", v3_hex("primaryPrivateHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Private glow #{gh}", "chip", v3_hex("privateAccentDarkHex"), "glow", glow_bg, 4.5))
+    v3_checks.append((f"v3 StartPage Private glow #{gh}", "footer", v3_hex("footerPrivateHex"), "glow", glow_bg, 4.5))
 
 checks.extend(v3_checks)
 

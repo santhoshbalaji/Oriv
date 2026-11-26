@@ -45,6 +45,7 @@ struct AddressScrimHitArea: NSViewRepresentable {
 struct AddressField: NSViewRepresentable {
     static let font = OrivMacV3.Address.focusedNSFont
     static let restFont = OrivMacV3.Address.restNSFont
+    static let bigFieldFont = OrivMacV3.Address.bigFieldNSFont
     @Environment(\.browserTheme) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.v3AppearanceMode) private var v3Mode
@@ -55,6 +56,7 @@ struct AddressField: NSViewRepresentable {
     var placeholder = OrivStrings.addressPlaceholder
     var displayText: String? = nil
     var foreground: Color? = nil
+    var isBigField = false
     var showsNativePlaceholder = true
     let focusRequest: Int
     var profileEpoch: UUID? = nil
@@ -100,16 +102,19 @@ struct AddressField: NSViewRepresentable {
         field.placeholderString = showsNativePlaceholder ? placeholder : nil
         field.setAccessibilityPlaceholderValue(placeholder)
         (field as? FocusAwareAddressField)?.editingText = text
+        let targetEditingFont = isBigField ? Self.bigFieldFont : Self.font
+        (field as? FocusAwareAddressField)?.editingFont = targetEditingFont
         let editor = field.currentEditor() as? NSTextView
         let showingCompact = editor == nil && displayText != nil
-        let targetFont = showingCompact ? Self.restFont : Self.font
+        let targetFont = showingCompact ? Self.restFont : targetEditingFont
         if field.font != targetFont { field.font = targetFont }
         field.alignment = showingCompact ? .center : .natural
         let increasedContrast = (captureContrast ?? systemContrast) == .increased
         if let editor {
-            if editor.font != Self.font { editor.font = Self.font }
+            if editor.font != targetEditingFont { editor.font = targetEditingFont }
             editor.insertionPointColor = field.textColor ?? .labelColor
             let privacyEditor = editor as? PrivacyAddressEditor
+            privacyEditor?.isBigField = isBigField
             privacyEditor?.onInlineCompletionDismissed = { [weak coordinator = context.coordinator] in
                 coordinator?.reportInlineCompletion(false)
             }
@@ -185,7 +190,8 @@ struct AddressField: NSViewRepresentable {
             if let field = notification.object as? NSTextField {
                 (field.currentEditor() as? PrivacyAddressEditor)?.clearInlineCompletion()
                 field.stringValue = parent.displayText ?? parent.text
-                field.font = parent.displayText == nil ? AddressField.font : AddressField.restFont
+                let editingFont = parent.isBigField ? AddressField.bigFieldFont : AddressField.font
+                field.font = parent.displayText == nil ? editingFont : AddressField.restFont
                 field.alignment = parent.displayText == nil ? .natural : .center
             }
         }
@@ -261,12 +267,13 @@ final class FocusAwareAddressField: NSTextField {
     @objc private func copyOriginalLink() { if let url = URL(string: editingText) { PrivacyPasteboard.copy(url, original: true) } }
 
     var editingText = ""
+    var editingFont: NSFont = AddressField.font
     var focusBegan: (() -> Void)?
     override func becomeFirstResponder() -> Bool {
         // Restore the complete address before AppKit creates its field editor.
         // Merely selecting the compact host would make a click edit the wrong URL.
         stringValue = editingText
-        font = AddressField.font
+        font = editingFont
         alignment = .natural
         let accepted = super.becomeFirstResponder()
         if accepted {
@@ -292,6 +299,7 @@ final class FocusAwareAddressField: NSTextField {
     private(set) var inlineCompletionRange: NSRange?
     private var inlineCompletionMode: OrivMacV3.AppearanceMode = .light
     private var usesHighContrastSelection = false
+    var isBigField = false
     var onInlineCompletionDismissed: (() -> Void)?
 
     func updateInlineCompletion(range: NSRange?, mode: OrivMacV3.AppearanceMode, increasedContrast: Bool) {
@@ -379,7 +387,10 @@ final class FocusAwareAddressField: NSTextField {
                     NSBezierPath(roundedRect: local, xRadius: corner, yRadius: corner).fill()
 
                     let caretWidth = OrivMacV3.Address.inlineCompletionCaretWidth
-                    let caretHeight = min(OrivMacV3.Address.inlineCompletionCaretHeight, local.height)
+                    let targetCaretHeight = isBigField
+                        ? OrivMacV3.Address.bigFieldInlineCompletionCaretHeight
+                        : OrivMacV3.Address.inlineCompletionCaretHeight
+                    let caretHeight = min(targetCaretHeight, local.height)
                     let caretRect = NSRect(
                         x: max(bounds.minX, boundaryX - caretWidth / 2),
                         y: local.midY - caretHeight / 2,

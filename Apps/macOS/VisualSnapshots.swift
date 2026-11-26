@@ -1503,10 +1503,17 @@ import WebKit
 
     private static func renderGlassScenes(into directory: URL, activate: Bool) async {
         let requested = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"] ?? "all"
+        let startModes = ["start-light", "start-dark", "start-private", "start-focused",
+                          "start-narrow-772", "start-narrow-600", "start-short"]
         let allModes = ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled",
                         "focused", "focused-dark", "focused-completion", "focused-completion-dark",
                         "menu", "menu-dark", "menu-private", "menu-narrow", "private", "reduced", "insecure"]
-        for mode in allModes where (requested == "all" && !mode.hasPrefix("menu-")) || mode == requested || (requested == "page-menu" && mode.hasPrefix("menu")) {
+            + startModes
+        for mode in allModes where (requested == "all" && !mode.hasPrefix("menu-")) || mode == requested || (requested == "page-menu" && mode.hasPrefix("menu")) || (requested == "start-page" && mode.hasPrefix("start-")) {
+            if mode.hasPrefix("start-") {
+                await renderStartPageGlassScene(mode: mode, into: directory, activate: activate)
+                continue
+            }
             let profiles = BrowserProfiles(testing: true)
             var controller = profiles.controller
             if mode == "private" || mode == "menu-private" {
@@ -1610,6 +1617,97 @@ import WebKit
             }
             profiles.shutdown()
         }
+    }
+
+    private static func renderStartPageGlassScene(mode: String, into directory: URL, activate: Bool) async {
+        let isPrivateScene = mode == "start-private"
+        let isDarkScene = mode == "start-dark" || isPrivateScene
+        let isFocusedScene = mode == "start-focused"
+        let sceneSize: CGSize = switch mode {
+        case "start-narrow-772": CGSize(width: 980, height: 848)
+        case "start-narrow-600": CGSize(width: 820, height: 848)
+        case "start-short": CGSize(width: 1280, height: 600)
+        default: CGSize(width: 1440, height: 848)
+        }
+
+        if isPrivateScene {
+            let privateController = BrowserController(profile: nil, testing: true)
+            let initialRegularIDs = privateController.session.tabs.filter { !$0.isPrivate }.map(\.id)
+            if privateController.session.selectedTab?.isPrivate != true {
+                privateController.newTab(isPrivate: true)
+            }
+            for id in initialRegularIDs { privateController.session.closeTab(id) }
+            await capture("mac-glass-\(mode)", directory, sceneSize, key: activate, settle: 900,
+                          expectedFields: ["addressField": ""],
+                          appearance: .dark) {
+                BrowserWindow(controller: privateController, profiles: nil)
+            }
+            privateController.shutdown()
+            return
+        }
+
+        let profiles = BrowserProfiles(testing: true)
+        let controller = profiles.controller
+        let session = controller.session
+        let now = Date()
+        let bookmarkSites: [(String, String)] = [
+            ("Apple Developer", "https://developer.apple.com/documentation/"),
+            ("WebKit", "https://webkit.org/blog/"),
+            ("Swift.org", "https://www.swift.org/documentation/"),
+            ("Wikipedia", "https://en.wikipedia.org/wiki/Main_Page"),
+            ("GitHub", "https://github.com/"),
+            ("MDN Web Docs", "https://developer.mozilla.org/en-US/"),
+            ("Hacker News", "https://news.ycombinator.com/"),
+            ("Fieldnotes", "https://fieldnotes.example/"),
+        ]
+        let frequentSites: [(String, String)] = [
+            ("Docs – Install guide", "https://docs.example.com/guide/install"),
+            ("Night Radio – Live", "https://radio.example.org/live"),
+            ("Web browser", "https://en.wikipedia.org/wiki/Web_browser"),
+            ("CSS backdrop-filter", "https://developer.mozilla.org/en-US/docs/Web/CSS/backdrop-filter"),
+            ("A little room to think", "https://fieldnotes.example/room"),
+            ("The Swift Programming Language", "https://docs.swift.org/swift-book/"),
+        ]
+        let bookmarks = bookmarkSites.enumerated().map { index, site in
+            Bookmark(title: site.0, url: URL(string: site.1)!, createdAt: now.addingTimeInterval(Double(index)))
+        }
+        let history = frequentSites.enumerated().map { index, site in
+            HistoryEntry(title: site.0, url: URL(string: site.1)!, visitedAt: now.addingTimeInterval(Double(-index * 600)), visitCount: 8 - index)
+        }
+        do { try session.applyContinuity(bookmarks: bookmarks, history: history) }
+        catch { manifest.failures.append("\(mode): seed data failed: \(error)") }
+        if isFocusedScene {
+            let devTabURL = URL(string: "https://developer.apple.com/documentation/swiftui/liquid-glass")!
+            let devTab = session.addTab(url: devTabURL, select: false, load: false)
+            devTab.webView.loadHTMLString("<html><head><title>Apple Developer Documentation</title></head><body>Docs</body></html>", baseURL: devTabURL)
+        }
+        let sceneAppearance: BrowserAppearance = isDarkScene ? .dark : .light
+        await capture("mac-glass-\(mode)", directory, sceneSize, key: activate, settle: 1_100,
+                      expectedFields: ["addressField": isFocusedScene ? "developer.apple.com" : ""],
+                      appearance: sceneAppearance,
+                      prepare: { window in
+            if isFocusedScene {
+                controller.focusAddress()
+                try? await Task.sleep(for: .milliseconds(450))
+                if let editor = window.firstResponder as? NSTextView {
+                    editor.insertText("dev", replacementRange: editor.selectedRange())
+                    let deadline = ContinuousClock.now + .seconds(4)
+                    while ContinuousClock.now < deadline {
+                        if editor.string == "developer.apple.com",
+                           editor.selectedRange() == NSRange(location: 3, length: 16),
+                           controller.profileUI.addressMatches.rows.count >= 2 { break }
+                        try? await Task.sleep(for: .milliseconds(40))
+                    }
+                    controller.profileUI.addressMatches.move(1)
+                    try? await Task.sleep(for: .milliseconds(250))
+                } else {
+                    manifest.failures.append("\(mode): start-page big field editor did not become first responder")
+                }
+            }
+        }) {
+            BrowserWindow(controller: controller, profiles: profiles)
+        }
+        profiles.shutdown()
     }
 
     /// Opt-in network evidence in the isolated snapshot app. Third-party images
@@ -1955,6 +2053,7 @@ import WebKit
             else { content() }
         }
         let hosting = NSHostingController(rootView: rootView())
+        if !fitHeight { hosting.sizingOptions = [] }
         hosting.sceneBridgingOptions = [.toolbars, .title]
         let liveGlass = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"]?.isEmpty == false || ProcessInfo.processInfo.environment["ORIV_LIVE_SITES"]?.isEmpty == false
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]

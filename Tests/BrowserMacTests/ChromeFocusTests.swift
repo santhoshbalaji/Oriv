@@ -1223,6 +1223,14 @@ import XCTest
         try click("privateAddressPillGeometry", in: w)
         XCTAssertEqual(c.addressFocusRequest, privateFocusRequest, "The Private badge keeps its own hit region")
         XCTAssertNil(address.currentEditor())
+        try click("startPageEngineChipGeometry", in: w)
+        try await wait("Clicking the private big field engine chip did not focus the address field") { address.currentEditor() != nil }
+
+        _ = c.session.addTab(isPrivate: false, load: false)
+        try await wait("Regular start-page search icon did not mount") {
+            self.marker("browserAddressSearchIconGeometry", in: w) != nil
+        }
+        w.makeFirstResponder(nil)
         try click("browserAddressSearchIconGeometry", in: w)
         try await wait("The search icon did not focus the address field") { address.currentEditor() != nil }
     }
@@ -1342,10 +1350,14 @@ import XCTest
 
             _ = c.session.addTab(isPrivate: true, load: false)
             try await wait("Private address did not mount") {
-                self.marker("privateAddressPillGeometry", in: w) != nil &&
-                    self.marker("browserAddressPlaceholderGeometry", in: w) != nil
+                guard self.marker("privateAddressPillGeometry", in: w) != nil,
+                      self.marker("browserAddressPlaceholderGeometry", in: w) != nil,
+                      let current = self.marker("browserAddressGeometry", in: w) else { return false }
+                return abs(current.bounds.height - OrivMacV3.StartLayout.bigFieldSize.height) <= 1
             }
-            XCTAssertEqual(try frame("privateAddressPillGeometry").midY, capsule.midY, accuracy: 1)
+            let privateStartCapsule = try frame("browserAddressGeometry")
+            XCTAssertEqual(privateStartCapsule.height, OrivMacV3.StartLayout.bigFieldSize.height, accuracy: 1)
+            XCTAssertEqual(try frame("privateAddressPillGeometry").midY, privateStartCapsule.midY, accuracy: 1)
             let content = try XCTUnwrap(w.contentView)
             let hint = content.convert(try frame("browserAddressPlaceholderGeometry"), from: nil)
             let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: hint))
@@ -1439,6 +1451,93 @@ import XCTest
         try await wait("Address progress line did not hide on completion") {
             self.marker("browserAddressProgressGeometry", in: w) == nil
         }
+    }
+
+    func testSingleAddressFieldPersistsAcrossStartPageAndWebNavigation() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let startTab = try XCTUnwrap(c.session.selectedTab)
+        let now = Date()
+        try c.session.applyContinuity(
+            bookmarks: [
+                Bookmark(title: "Apple Developer", url: URL(string: "https://developer.apple.com/documentation/")!, createdAt: now),
+            ],
+            history: [
+                HistoryEntry(title: "MDN Web Docs", url: URL(string: "https://developer.mozilla.org/en-US/")!, visitedAt: now),
+            ]
+        )
+        let w = host(c, appearance: .light); defer { w.close() }
+        w.setContentSize(NSSize(width: 1280, height: 820))
+        func allAddressFields() -> [FocusAwareAddressField] {
+            w.contentView.map { views($0).compactMap { $0 as? FocusAwareAddressField } } ?? []
+        }
+        func frame(_ name: String) throws -> NSRect {
+            let view = try XCTUnwrap(marker(name, in: w), name)
+            return view.convert(view.bounds, to: nil)
+        }
+
+        // 1. Start page renders the single 724 × 52 in-page big field with 16 pt font and engine chip.
+        try await wait("Start page big field did not mount") {
+            guard allAddressFields().count == 1,
+                  let current = self.marker("browserAddressGeometry", in: w),
+                  self.marker("startPageEngineChipGeometry", in: w) != nil else { return false }
+            let rect = current.convert(current.bounds, to: nil)
+            return abs(rect.width - OrivMacV3.StartLayout.columnWidth) <= 1
+                && abs(rect.height - OrivMacV3.StartLayout.bigFieldSize.height) <= 1
+        }
+        let fieldOnStart = try XCTUnwrap(allAddressFields().first)
+        XCTAssertEqual(allAddressFields().count, 1)
+        XCTAssertEqual(fieldOnStart.font?.pointSize ?? 0, 16, accuracy: 0.5)
+        let startFieldFrame = try frame("browserAddressGeometry")
+        let topBarFrame = try frame("browserTopBarGeometry")
+        XCTAssertLessThan(startFieldFrame.maxY, topBarFrame.minY, "Big field sits in-page below the toolbar")
+
+        // 2. Typing on the start page attaches suggestions (matching 724 pt width) and scrim below the big field.
+        c.focusAddress()
+        try await wait("Start page field editor did not focus") { fieldOnStart.currentEditor() != nil }
+        let editor = try XCTUnwrap(fieldOnStart.currentEditor() as? NSTextView)
+        editor.insertText("dev", replacementRange: editor.selectedRange())
+        try await wait("Start page suggestions did not attach") {
+            self.marker("browserAddressSuggestionsGeometry", in: w) != nil
+                && self.marker("browserAddressScrimGeometry", in: w) != nil
+        }
+        let startSuggestionsFrame = try frame("browserAddressSuggestionsGeometry")
+        XCTAssertEqual(startSuggestionsFrame.width, startFieldFrame.width, accuracy: 1)
+        XCTAssertEqual(startFieldFrame.minY - startSuggestionsFrame.maxY, OrivMacV3.ToolbarLayout.suggestionsTopGap, accuracy: 1)
+
+        // 3. Navigating to a web page moves the EXACT same NSTextField instance into the toolbar capsule.
+        let webURL = try XCTUnwrap(URL(string: "https://docs.example.com/start-transition"))
+        startTab.webView.loadHTMLString("<body>Loaded page</body>", baseURL: webURL)
+        try await wait("Toolbar address capsule did not mount after navigation") {
+            guard !startTab.webView.isLoading, startTab.url == webURL,
+                  let current = self.marker("browserAddressGeometry", in: w) else { return false }
+            let rect = current.convert(current.bounds, to: nil)
+            return abs(rect.height - OrivMacV3.ToolbarLayout.addressRestHeight) <= 1
+                || abs(rect.height - OrivMacV3.ToolbarLayout.addressFocusHeight) <= 1
+        }
+        let fieldsOnWeb = allAddressFields()
+        XCTAssertEqual(fieldsOnWeb.count, 1, "Must keep strictly one AddressField on web page")
+        XCTAssertTrue(fieldsOnWeb.first === fieldOnStart, "NSTextField instance must be identical on web page")
+        w.makeFirstResponder(nil)
+        try await wait("Toolbar capsule did not settle to rest state") {
+            guard let current = self.marker("browserAddressGeometry", in: w) else { return false }
+            return abs(current.bounds.height - OrivMacV3.ToolbarLayout.addressRestHeight) <= 1
+                && abs(current.bounds.width - OrivMacV3.ToolbarLayout.addressRestWidth) <= 1
+        }
+        XCTAssertEqual(fieldOnStart.font?.pointSize ?? 0, 13, accuracy: 0.5)
+
+        // 4. Returning to a start page moves the EXACT same NSTextField instance back to the 724 × 52 big field.
+        c.newTab(isPrivate: false)
+        try await wait("Start page big field did not return on new tab") {
+            guard let current = self.marker("browserAddressGeometry", in: w),
+                  self.marker("startPageEngineChipGeometry", in: w) != nil else { return false }
+            let rect = current.convert(current.bounds, to: nil)
+            return abs(rect.width - OrivMacV3.StartLayout.columnWidth) <= 1
+                && abs(rect.height - OrivMacV3.StartLayout.bigFieldSize.height) <= 1
+        }
+        let fieldsBackOnStart = allAddressFields()
+        XCTAssertEqual(fieldsBackOnStart.count, 1, "Must keep strictly one AddressField back on start page")
+        XCTAssertTrue(fieldsBackOnStart.first === fieldOnStart, "NSTextField instance must be identical back on start page")
+        XCTAssertEqual(fieldOnStart.font?.pointSize ?? 0, 16, accuracy: 0.5)
     }
 }
 

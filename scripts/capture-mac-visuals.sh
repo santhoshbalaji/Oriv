@@ -80,6 +80,7 @@ else
 fi
 PID=$!
 DEFAULT_TICKS=540
+if [[ "$GLASS" == 1 ]]; then DEFAULT_TICKS=900; fi
 if [[ "${ORIV_GLASS_SCENE:-}" == design-system ]]; then DEFAULT_TICKS=540; fi
 for _ in $(seq 1 "${ORIV_CAPTURE_TICKS:-$DEFAULT_TICKS}"); do
   kill -0 $PID 2>/dev/null || break
@@ -137,8 +138,10 @@ expected = {
 }
 if os.environ.get("ORIV_BATCH_VISUALS") == "1":
     expected = {"mac-batch-" + part + "-" + mode for part in ("sidebar", "suggestions") for mode in ("light", "dark")}
-if sys.argv[4] == "1": expected = {"mac-glass-" + mode for mode in ("light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "focused-dark", "focused-completion", "focused-completion-dark", "menu", "private", "reduced", "insecure")}
+if sys.argv[4] == "1": expected = {"mac-glass-" + mode for mode in ("light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "focused-dark", "focused-completion", "focused-completion-dark", "menu", "private", "reduced", "insecure", "start-light", "start-dark", "start-private", "start-focused", "start-narrow-772", "start-narrow-600", "start-short")}
 if sys.argv[4] == "1" and os.environ.get("ORIV_GLASS_SCENE", "all") != "all": expected = {"mac-glass-" + os.environ["ORIV_GLASS_SCENE"]}
+if os.environ.get("ORIV_GLASS_SCENE") == "start-page":
+    expected = {"mac-glass-" + mode for mode in ("start-light", "start-dark", "start-private", "start-focused", "start-narrow-772", "start-narrow-600", "start-short")}
 if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":
     expected = {"mac-glass-" + mode for mode in ("menu", "menu-dark", "menu-private", "menu-narrow")}
 if os.environ.get("ORIV_GLASS_SCENE") == "sidebar":
