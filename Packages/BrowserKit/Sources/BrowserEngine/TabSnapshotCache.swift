@@ -15,9 +15,13 @@ import Observation
         /// Original WebKit viewport in points, independent of JPEG pixels and
         /// display scale. Presentation must never fit these pixels to a new size.
         public let pointSize: CGSize
-        init(jpeg: Data, width: Int, height: Int, pointSize: CGSize? = nil) {
+        /// The web view's obscured top inset at capture. WebKit snapshots start at the
+        /// content's top, which sits this far below the view's top edge on screen.
+        public let topInset: CGFloat
+        init(jpeg: Data, width: Int, height: Int, pointSize: CGSize? = nil, topInset: CGFloat = 0) {
             self.jpeg = jpeg; self.width = width; self.height = height
             self.pointSize = pointSize ?? CGSize(width: width, height: height)
+            self.topInset = topInset
         }
         // Allow for the snapshot metadata, cache key and collection storage.
         var cost: Int { jpeg.count + 256 }
@@ -81,7 +85,7 @@ import Observation
     }
     private func cancelCapture() { captureID = nil; deadline?.cancel(); deadline = nil }
 
-    static func compress(_ source: CGImage, pointSize: CGSize? = nil) -> Snapshot? {
+    static func compress(_ source: CGImage, pointSize: CGSize? = nil, topInset: CGFloat = 0) -> Snapshot? {
         let scale = min(1, CGFloat(maximumDimension) / CGFloat(max(source.width, source.height)))
         let width = max(1, Int(CGFloat(source.width) * scale)), height = max(1, Int(CGFloat(source.height) * scale))
         guard let context = CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,
@@ -106,6 +110,7 @@ import Observation
         guard let destination = CGImageDestinationCreateWithData(data,"public.jpeg" as CFString,1,nil) else { return nil }
         CGImageDestinationAddImage(destination,image,[kCGImageDestinationLossyCompressionQuality:0.65] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
-        return Snapshot(jpeg:data as Data,width:width,height:height,pointSize:pointSize ?? CGSize(width:source.width,height:source.height))
+        return Snapshot(jpeg:data as Data,width:width,height:height,pointSize:pointSize ?? CGSize(width:source.width,height:source.height),
+                        topInset:topInset)
     }
 }

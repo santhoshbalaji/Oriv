@@ -1250,6 +1250,39 @@ import XCTest
         XCTAssertEqual(try XCTUnwrap(reopening.last).minY, start.minY, accuracy: 1)
     }
 
+    func testTabSwitchCoverAlignsTheSnapshotWithThePageBelowTheToolbar() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let first = try XCTUnwrap(c.session.selectedTab)
+        let page = "<html><body style='margin:0;background:#00f'><div style='height:24px;background:#f00'></div><div style='height:3000px'></div></body></html>"
+        let firstURL = try XCTUnwrap(URL(string: "http://127.0.0.1:18768/cover/first"))
+        first.webView.loadHTMLString(page, baseURL: firstURL)
+        let w = host(c); defer { w.close() }
+        try await wait("First page did not paint") { first.url == firstURL && first.hasRenderedContent && !first.webView.isLoading }
+        try await Task.sleep(for: .milliseconds(300))
+        let inset = first.webView.obscuredContentInsets.top
+        XCTAssertGreaterThan(inset, 0, "The page scrolls under the floating toolbar")
+
+        let second = c.session.addTab(url: nil, select: true, load: false)
+        second.webView.loadHTMLString(page, baseURL: URL(string: "http://127.0.0.1:18768/cover/second"))
+        try await wait("Leaving the first tab did not store its snapshot") { first.switchSnapshot != nil }
+        XCTAssertEqual(try XCTUnwrap(first.switchSnapshot).topInset, inset, accuracy: 0.5)
+
+        c.session.selectTab(first.id)
+        w.contentView?.layoutSubtreeIfNeeded()
+        let cover = try XCTUnwrap(w.contentView.flatMap { views($0).compactMap { $0 as? TabSwitchCover }.first { !$0.isHidden && $0.containsSnapshot } },
+                                  "Returning to the tab shows its snapshot cover")
+        let rep = try XCTUnwrap(cover.bitmapImageRepForCachingDisplay(in: cover.bounds))
+        cover.cacheDisplay(in: cover.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsHigh) / cover.bounds.height
+        let redTop = (0..<Int(cover.bounds.height)).first { y in
+            guard let color = rep.colorAt(x: Int(40 * scale), y: Int(CGFloat(y) * scale))?.usingColorSpace(.sRGB) else { return false }
+            return color.redComponent > 0.8 && color.blueComponent < 0.3
+        }
+        // The live page draws its top at the obscured inset; the cover must match it.
+        XCTAssertEqual(CGFloat(try XCTUnwrap(redTop, "The snapshot's red band is visible")), inset, accuracy: 2,
+                       "The snapshot sits where the live page draws, not a toolbar higher")
+    }
+
     func testAddressCapsulePaddingSelectsFullURLAndSiteInfoKeepsItsAction() async throws {
         let c = BrowserController(testing: true); defer { c.shutdown() }
         let tab = try XCTUnwrap(c.session.selectedTab)
@@ -1749,3 +1782,4 @@ import XCTest
     }
     func resetSpringLoading() {}
 }
+

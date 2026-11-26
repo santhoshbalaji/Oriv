@@ -951,11 +951,13 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         let generation = snapshotGeneration, revision = documentRevision
         let viewport = view.bounds
         #if os(macOS)
+        let topInset = view.obscuredContentInsets.top
         let scale = view.window?.backingScaleFactor ?? 2
         let color = view.underPageBackgroundColor.usingColorSpace(.sRGB)
         if let color { lastPageBackground = ChromeColor(color.redComponent,color.greenComponent,color.blueComponent) }
         #else
         let scale = view.traitCollection.displayScale
+        let topInset: CGFloat = 0
         var r:CGFloat = 0, g:CGFloat = 0, b:CGFloat = 0, a:CGFloat = 0
         if view.underPageBackgroundColor.getRed(&r,green:&g,blue:&b,alpha:&a) { lastPageBackground = ChromeColor(r,g,b) }
         #endif
@@ -974,7 +976,7 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
             #else
             let cg = image.cgImage
             #endif
-            if let cg, let snapshot = TabSnapshotCache.compress(cg, pointSize: viewport.size) { cache.insert(snapshot,for:self.id) }
+            if let cg, let snapshot = TabSnapshotCache.compress(cg, pointSize: viewport.size, topInset: topInset) { cache.insert(snapshot,for:self.id) }
         }
     }
 
