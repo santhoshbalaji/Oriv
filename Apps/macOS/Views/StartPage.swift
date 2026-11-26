@@ -21,6 +21,15 @@ struct StartPage: View {
     let openLibrary: (LibrarySection) -> Void
     var onAddressSlotChange: (CGRect) -> Void = { _ in }
     @State private var formattedDate = Self.formatDate(.now)
+    @State private var loadedFrequentQuery: StartFrequentQuery?
+    @State private var frequent: [HistoryEntry] = []
+
+    /// Frequently Visited lives here, not in the sites view, so it survives the
+    /// fit/scroll layout switch on short or narrow windows without reloading.
+    private var frequentQuery: StartFrequentQuery {
+        StartFrequentQuery(session: ObjectIdentifier(session), revision: session.historyRevision,
+                           bookmarkURLs: Set(session.bookmarks.prefix(OrivMacV3.StartLayout.bookmarkColumns).map(\.url)))
+    }
 
     private var mode: OrivMacV3.AppearanceMode { isPrivate ? .private : windowMode }
     private var contrast: ColorSchemeContrast { captureContrast ?? systemContrast }
@@ -47,12 +56,19 @@ struct StartPage: View {
             let cardHeight = proxy.size.height
             // Render without a scroll view whenever the page fits (the normal
             // case); fall back to scrolling only on short windows.
+            let regularMargin = OrivMacV3.StartLayout.headerTopMargin(for: cardHeight, hasTopBars: hasTopBars)
+            let compactMargin = OrivMacV3.StartLayout.headerTopMargin(for: .zero, hasTopBars: hasTopBars)
             ViewThatFits(in: .vertical) {
-                pageContent(cardWidth: cardWidth, cardHeight: cardHeight)
+                pageContent(cardWidth: cardWidth, topMargin: regularMargin)
+                    .frame(width: max(1, cardWidth))
+                    .frame(minHeight: max(1, cardHeight), alignment: .top)
+                // Narrow cards wrap bookmarks and stack the cards; tighten the top
+                // margin before resorting to scrolling.
+                pageContent(cardWidth: cardWidth, topMargin: compactMargin)
                     .frame(width: max(1, cardWidth))
                     .frame(minHeight: max(1, cardHeight), alignment: .top)
                 ScrollView(.vertical) {
-                    pageContent(cardWidth: cardWidth, cardHeight: cardHeight)
+                    pageContent(cardWidth: cardWidth, topMargin: compactMargin)
                         .frame(width: max(1, cardWidth))
                 }
                 .scrollIndicators(.automatic)
@@ -60,13 +76,20 @@ struct StartPage: View {
             }
         }
         .coordinateSpace(name: Self.viewportSpace)
+        .task(id: isPrivate ? nil : frequentQuery) {
+            guard !isPrivate else { return }
+            let query = frequentQuery
+            let entries = await session.frequentHistory(excluding: query.bookmarkURLs, isPrivate: false)
+            guard !Task.isCancelled else { return }
+            frequent = entries
+            loadedFrequentQuery = query
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(isPrivate ? "Private Browsing Start Page" : "Start Page")
     }
 
-    private func pageContent(cardWidth: CGFloat, cardHeight: CGFloat) -> some View {
+    private func pageContent(cardWidth: CGFloat, topMargin: CGFloat) -> some View {
         let columnWidth = OrivMacV3.StartLayout.columnWidth(for: cardWidth)
-        let topMargin = OrivMacV3.StartLayout.headerTopMargin(for: cardHeight, hasTopBars: hasTopBars)
         return VStack(spacing: .zero) {
             headerChip
             Text(isPrivate ? "Private Browsing" : "Where to?")
@@ -91,6 +114,7 @@ struct StartPage: View {
             } else {
                 MacStartPageSites(
                     session: session,
+                    frequent: loadedFrequentQuery == frequentQuery ? frequent : [],
                     mode: mode,
                     cardWidth: cardWidth,
                     columnWidth: columnWidth,
@@ -277,10 +301,17 @@ struct StartPage: View {
     }
 }
 
+struct StartFrequentQuery: Equatable {
+    let session: ObjectIdentifier
+    let revision: Int
+    let bookmarkURLs: Set<URL>
+}
+
 /// Mac-only Fable bookmarks row + Frequently Visited card (iPhone keeps `StartPageSites` untouched).
 private struct MacStartPageSites: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let session: BrowserSession
+    let frequent: [HistoryEntry]
     let mode: OrivMacV3.AppearanceMode
     let cardWidth: CGFloat
     let columnWidth: CGFloat
@@ -289,15 +320,6 @@ private struct MacStartPageSites: View {
     let open: (URL) -> Void
     let showBookmarks: () -> Void
     let showHistory: () -> Void
-
-    private struct Query: Equatable {
-        let session: ObjectIdentifier
-        let revision: Int
-        let bookmarkURLs: Set<URL>
-    }
-
-    @State private var loadedQuery: Query?
-    @State private var frequent: [HistoryEntry] = []
 
     private var bookmarkColumnCount: Int {
         if typeSize.isAccessibilitySize { return OrivMacV3.StartLayout.bookmarkAccessibilityColumns }
@@ -315,12 +337,7 @@ private struct MacStartPageSites: View {
 
     var body: some View {
         let bookmarks = Array(session.bookmarks.prefix(OrivMacV3.StartLayout.bookmarkColumns))
-        let query = Query(
-            session: ObjectIdentifier(session),
-            revision: session.historyRevision,
-            bookmarkURLs: Set(bookmarks.map(\.url))
-        )
-        let suggestions = loadedQuery == query ? frequent : []
+        let suggestions = frequent
         VStack(alignment: .leading, spacing: .zero) {
             if bookmarks.isEmpty && suggestions.isEmpty {
                 emptyState
@@ -337,12 +354,6 @@ private struct MacStartPageSites: View {
             }
         }
         .frame(width: columnWidth, alignment: .leading)
-        .task(id: query) {
-            let entries = await session.frequentHistory(excluding: query.bookmarkURLs, isPrivate: false)
-            guard !Task.isCancelled else { return }
-            frequent = entries
-            loadedQuery = query
-        }
     }
 
     private var emptyState: some View {
