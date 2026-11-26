@@ -521,6 +521,7 @@ struct Theme {
 /// Resolves the panel and the tab treatments from the same appearance and glass level.
 struct SidebarChromaticStyle: Equatable {
     let tokens: Theme.SidebarChromaticTokens
+    let isGraphite: Bool
     let dark: Bool
     let black: Bool
     let level: SidebarGlassOpacity
@@ -564,6 +565,13 @@ struct SidebarChromaticStyle: Equatable {
     var glow: Color { Theme.hex(dark ? tokens.bloom : tokens.rim).opacity(dark ? 0.13 : 0.09) }
     var iconEdge: Color { dark ? .white.opacity(0.20) : .black.opacity(0.14) }
 
+    func v3ActiveInk(mode: OrivMacV3.AppearanceMode) -> Color {
+        if mode == .private || mode == .black || isGraphite {
+            return OrivMacV3.Sidebar.activeInk(mode)
+        }
+        return ink
+    }
+
     func cushion(light: Bool) -> Color {
         Self.color(Self.cushion(light: light, bloom: tokens.bloom))
     }
@@ -579,7 +587,9 @@ struct SidebarChromaticStyle: Equatable {
         let increased = environment.sidebarContrast == .increased
         let opaque = environment.sidebarNeedsOpaqueChrome || level == .solid
         let tokens = Theme.SidebarChromaticTokens.resolve(color, profile: profile, dark: dark, black: black)
+        let effective = color.effective(profileColor: profile, isT3Code: black)
         self.tokens = tokens
+        self.isGraphite = black || effective == .graphite || (effective == .profile && profile == nil)
         self.level = level
         self.dark = dark
         self.black = black
@@ -777,13 +787,22 @@ struct SiteIdentity: View {
     var previewIcons: [String: SiteIcon]? = nil
     var sidebarSelectedInk: Color? = nil
     #if os(macOS)
+    var sidebarMode: OrivMacV3.AppearanceMode? = nil
+    var sidebarStyle: SidebarChromaticStyle? = nil
     @Environment(\.self) private var environment
 
+    private var resolvedSidebarMode: OrivMacV3.AppearanceMode {
+        sidebarMode ?? OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: environment.colorScheme,
+                                                        isPrivateWindow: environment.v3AppearanceMode == .private)
+    }
+
     @ViewBuilder private func sidebarArtwork(_ icon: SiteIcon) -> some View {
-        let style = environment.sidebarStyle
+        let style = sidebarStyle ?? environment.sidebarStyle
+        let mode = resolvedSidebarMode
         let backing = isSelected ? style.activePanel : environment.sidebarRowHovered ? style.hoveredPanel : style.panel
         let image = Image(decorative: icon.image, scale: 2).resizable()
-        let shape = RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+        let cornerRadius = min(OrivMacV3.Radius.sidebarFavicon, size * 0.28)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         switch icon.treatment(on: backing) {
         case .fullBleed(let hairline):
             image.scaledToFit().clipShape(shape).overlay {
@@ -793,7 +812,7 @@ struct SiteIdentity: View {
             image.scaledToFit()
         case .ink:
             image.renderingMode(.template).scaledToFit()
-                .foregroundStyle(isSelected ? style.ink : theme.text)
+                .foregroundStyle(sidebarSelectedInk ?? (isSelected ? style.v3ActiveInk(mode: mode) : OrivMacV3.Ink.primary(mode)))
         case .cushion(let light):
             image.scaledToFit().padding(SidebarChromaticStyle.cushionInset)
                 .background(style.cushion(light: light), in: shape)
@@ -841,19 +860,48 @@ struct SiteIdentity: View {
         return icons?.icon(for: url, isPrivate: isPrivate)
     }
 
+    @ViewBuilder private var fallbackBadge: some View {
+        #if os(macOS)
+        if sidebarIcon {
+            let mode = resolvedSidebarMode
+            let opaque = sidebarStyle?.opaque ?? environment.sidebarNeedsOpaqueChrome
+            RoundedRectangle(cornerRadius: min(OrivMacV3.Radius.sidebarFavicon, size * 0.28), style: .continuous)
+                .fill(OrivMacV3.Sidebar.faviconFallbackBg(mode, selected: isSelected, solid: opaque))
+        } else {
+            RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
+        }
+        #else
+        RoundedRectangle(cornerRadius: size * 0.27).fill(theme.field)
+        #endif
+    }
+
+    private var fallbackForeground: Color {
+        #if os(macOS)
+        if sidebarIcon {
+            let mode = resolvedSidebarMode
+            if isPrivate {
+                let increased = sidebarStyle?.increased ?? (environment.sidebarContrast == .increased)
+                return OrivMacV3.Semantic.privateAccent(mode, increasedContrast: increased)
+            }
+            return sidebarSelectedInk ?? OrivMacV3.Sidebar.faviconFallbackInk(mode, selected: isSelected)
+        }
+        #endif
+        return isPrivate ? theme.privateAccent : (sidebarSelectedInk ?? (isSelected ? theme.text : theme.secondaryText))
+    }
+
     var body: some View {
         let artwork = icon
         return ZStack {
             if let icon = artwork {
                 favicon(icon)
             } else if let symbol {
-                RoundedRectangle(cornerRadius: size * (sidebarIcon ? 0.2 : 0.27)).fill(theme.field)
-                Image(systemName: symbol).font(.system(size: size * 0.42, weight: .medium))
+                fallbackBadge
+                Image(systemName: symbol).font(.system(size: size * 0.44, weight: .medium))
             } else {
-                RoundedRectangle(cornerRadius: size * (sidebarIcon ? 0.2 : 0.27)).fill(theme.field)
+                fallbackBadge
                 Text(String(host.prefix(1)).uppercased())
                     #if os(macOS)
-                    .font(.system(size: size * 0.46, weight: .semibold, design: .rounded))
+                    .font(.system(size: size * 0.48, weight: .semibold, design: .rounded))
                     #else
                     .font(.system(.footnote, design: .rounded, weight: .semibold))
                     // Decorative identity stays within its icon; readable row text scales separately.
@@ -861,7 +909,7 @@ struct SiteIdentity: View {
                     #endif
             }
         }
-        .foregroundStyle(isPrivate ? theme.privateAccent : (sidebarSelectedInk ?? (isSelected ? theme.text : theme.secondaryText)))
+        .foregroundStyle(fallbackForeground)
         .frame(width: size, height: size)
         #if os(macOS)
         .overlay(alignment: .topTrailing) {
@@ -1624,6 +1672,25 @@ enum OrivMacV3 {
             }
         }
 
+        static func pinHoverFill(_ mode: AppearanceMode, solid: Bool = false) -> Color {
+            if solid && mode == .black { return Theme.hex(0x222226) }
+            switch mode {
+            case .light: return rgba(0xFFFFFF, 0.74)
+            case .dark: return rgba(0xFFFFFF, 0.13)
+            case .black: return Theme.hex(0x222226)
+            case .private: return rgba(0xD8B4FE, 0.16)
+            }
+        }
+
+        static func pinTopHighlight(_ mode: AppearanceMode) -> Color? {
+            switch mode {
+            case .light: rgba(0xFFFFFF, 0.85)
+            case .dark: rgba(0xFFFFFF, 0.16)
+            case .black: nil
+            case .private: rgba(0xE9D5FF, 0.20)
+            }
+        }
+
         static func pinBorder(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
             if increasedContrast { return Card.rimIncreasedContrast(mode) }
             switch mode {
@@ -1741,12 +1808,99 @@ enum OrivMacV3 {
             }
         }
 
+        // Light audio ink uses #0066D6 so all 13 Light tints clear 3.0:1 non-text contrast.
+        static let audioInkLightHex: UInt32 = 0x0066D6
+        static let audioInkDarkHex: UInt32 = 0x7CC0FF
+        static let audioInkPrivateHex: UInt32 = 0xD8B4FE
+
         static func audioInk(_ mode: AppearanceMode) -> Color {
             switch mode {
-            case .light: rgba(0x007AFF, 0.92)
-            case .dark, .black: Theme.hex(0x7CC0FF)
-            case .private: Theme.hex(0xD8B4FE)
+            case .light: Theme.hex(audioInkLightHex)
+            case .dark, .black: Theme.hex(audioInkDarkHex)
+            case .private: Theme.hex(audioInkPrivateHex)
             }
+        }
+
+        static func closeAccessoryOpacity(_ mode: AppearanceMode, active: Bool, increasedContrast: Bool) -> Double {
+            if increasedContrast { return 1.0 }
+            if active { return mode == .light ? 0.72 : 0.78 }
+            return 1.0
+        }
+
+        static func faviconFallbackBg(_ mode: AppearanceMode, selected: Bool, solid: Bool = false) -> Color {
+            if mode == .black { return Theme.hex(selected ? 0x353B47 : 0x1E1E22) }
+            if solid {
+                switch mode {
+                case .light: return rgba(0x141A28, selected ? 0.09 : 0.07)
+                case .dark: return rgba(0xFFFFFF, selected ? 0.16 : 0.12)
+                case .black: return Theme.hex(0x1E1E22)
+                case .private: return rgba(0xD8B4FE, selected ? 0.20 : 0.14)
+                }
+            }
+            switch mode {
+            case .light: return rgba(0x141A28, selected ? 0.08 : 0.065)
+            case .dark: return rgba(0xFFFFFF, selected ? 0.15 : 0.11)
+            case .black: return Theme.hex(0x1E1E22)
+            case .private: return rgba(0xD8B4FE, selected ? 0.18 : 0.13)
+            }
+        }
+
+        static func faviconFallbackInk(_ mode: AppearanceMode, selected: Bool) -> Color {
+            if selected { return activeInk(mode) }
+            switch mode {
+            case .light: return Ink.secondary(.light)
+            case .dark: return Theme.hex(0xD5DCE8)
+            case .black: return Ink.primary(.black)
+            case .private: return Ink.primary(.private)
+            }
+        }
+
+        static func loadingRingTrack(_ mode: AppearanceMode) -> Color {
+            switch mode {
+            case .light: rgba(Semantic.accentLightHex, 0.18)
+            case .dark, .black: rgba(Semantic.accentDarkHex, 0.24)
+            case .private: rgba(Semantic.privateAccentStrongHex, 0.24)
+            }
+        }
+
+        static func profileAvatarRim(_ mode: AppearanceMode) -> Color? {
+            switch mode {
+            case .light: rgba(0xFFFFFF, 0.70)
+            case .dark: rgba(0xFFFFFF, 0.20)
+            case .black: nil
+            case .private: rgba(0xE9D5FF, 0.24)
+            }
+        }
+
+        static func profileDotFill(_ profile: ProfileColor, mode: AppearanceMode) -> Color {
+            if mode.isDark {
+                switch profile {
+                case .mulberry: return Theme.hex(0xD8B4FE)
+                case .ocean: return Theme.hex(0x7DD3FC)
+                case .fern: return Theme.hex(0x6EE7B7)
+                case .amber: return Theme.hex(0xFCD34D)
+                case .slate: return Theme.hex(0xCBD5E1)
+                }
+            }
+            return profileDotColor(profile)
+        }
+
+        static func profileDotInactiveOpacity(_ mode: AppearanceMode) -> Double {
+            mode.isDark ? 0.52 : 0.55
+        }
+
+        static func profileDotRingInner(_ mode: AppearanceMode) -> Color {
+            switch mode {
+            case .light: rgba(0xFFFFFF, 0.88)
+            case .dark: rgba(0x191E2A, 0.92)
+            case .black: Theme.hex(0x0A0A0A)
+            case .private: Theme.hex(0x1E1232)
+            }
+        }
+
+        static func profileDotHalo(_ profile: ProfileColor, mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return Ink.primary(mode) }
+            return profileDotFill(profile, mode: mode).opacity(mode.isDark ? 0.78 : 0.58)
         }
 
         static func profileAvatarBg(_ mode: AppearanceMode, profile: ProfileColor = .mulberry) -> LinearGradient {
@@ -2955,12 +3109,14 @@ enum OrivMacV3 {
         static let profileHeight: CGFloat = 34
         static let profileBottomMargin: CGFloat = 6
         static let profileAvatarSize: CGFloat = 22
+        static let profileAvatarSymbolSize: CGFloat = 12
         static let searchHeight: CGFloat = 30
         static let searchBottomMargin: CGFloat = 14
         static let searchPaddingHorizontal: CGFloat = 9
         static let searchInnerGap: CGFloat = 7
         static let sectionHeight: CGFloat = 22
         static let sectionBottomMargin: CGFloat = 5
+        static let sectionTotalHeight: CGFloat = sectionHeight + sectionBottomMargin
         static let sectionPaddingHorizontal: CGFloat = 8
         // Q3: Adaptive columns with 52 pt minimum tile width and 40 pt height (4 cols at 256 pt, up to 6 at 360 pt).
         static let pinMinWidth: CGFloat = 52
@@ -2971,17 +3127,24 @@ enum OrivMacV3 {
         static let pinBottomMargin: CGFloat = 16
         static let pinIconSize: CGFloat = 18
         static let pinIconMaxSize: CGFloat = 20
+        static let pinCloseWidth: CGFloat = 20
+        static let pinCloseHeight: CGFloat = pinHeight / 2
         static let tabRowHeight: CGFloat = 34
         static let tabRowGap: CGFloat = 2
         static let tabRowPaddingHorizontal: CGFloat = 8
         static let tabRowInnerGap: CGFloat = 9
         static let tabFaviconSize: CGFloat = 18
+        static let loadingRingSize: CGFloat = 16
         static let accessoryVisual: CGFloat = 20
         static let accessoryHitTarget: CGFloat = 24
         static let newTabHeight: CGFloat = 34
         static let newTabTopMargin: CGFloat = 6
+        static let newTabLeadingPadding: CGFloat = 8
         static let profileDotSize: CGFloat = 7
+        static let profileDotInnerRingSize: CGFloat = 11
+        static let profileDotHaloSize: CGFloat = 13
         static let profileDotGap: CGFloat = 10
+        static let profileDotItemWidth: CGFloat = 18
         static let profileDotsPaddingTop: CGFloat = 6
         static let profileDotsPaddingBottom: CGFloat = 8
         static let profileDotHitTarget: CGFloat = 24
@@ -2989,7 +3152,10 @@ enum OrivMacV3 {
         static let footerPaddingTop: CGFloat = 6
         static let footerGap: CGFloat = 4
         static let footerButtonSize: CGFloat = 32
+        static let footerIconSize: CGFloat = 15
         static let downloadDotSize: CGFloat = 6
+        static let downloadDotRingWidth: CGFloat = 1.5
+        static let downloadDotInset: CGFloat = 5
         static let railItemSize = CGSize(width: 42, height: 36)
         static let railFaviconSize: CGFloat = 22
     }

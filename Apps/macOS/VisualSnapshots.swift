@@ -1108,6 +1108,114 @@ import WebKit
                         opacity: opacity, hovered: records.first?.id)
         }
 
+        // Phase 4: Audio, muted, loading, quiet rows, and monochrome pinned marks.
+        do {
+            let audioRoot = directory.appendingPathComponent("sidebar-v3-audio-fixture")
+            let audioRecords = [
+                TabRecord(title: "GitHub", url: URL(string: "https://github.com"), isPinned: true),
+                TabRecord(title: "Apple", url: URL(string: "https://apple.com"), isPinned: true),
+                TabRecord(title: "Wikipedia", url: URL(string: "https://wikipedia.org"), isPinned: true),
+                TabRecord(title: "Swift", url: URL(string: "https://swift.org"), isPinned: true),
+                TabRecord(title: "Designing calm interfaces", url: URL(string: "https://fieldnotes.example/calm")),
+                TabRecord(title: "Floating Points — Live", url: URL(string: "https://nts.example/live")),
+                TabRecord(title: "Podcast — Muted Episode", url: URL(string: "https://audio.example/muted")),
+                TabRecord(title: "WebKit Feature Status", url: URL(string: "https://webkit.org/status")),
+                TabRecord(title: "A little room to think without trailing slot waste", url: URL(string: "https://essays.example/room")),
+            ]
+            try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: audioRoot).appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: audioRecords, selectedTabID: audioRecords[4].id))
+            let iconDisk = SiteIconDiskCache(directory: BrowserProfile.personal.directory(in: audioRoot).appendingPathComponent("Favicons"))
+            for (url, symbol) in [(audioRecords[0].url!, "chevron.left.forwardslash.chevron.right"), (audioRecords[1].url!, "apple.logo")] {
+                let renderer = ImageRenderer(content: Image(systemName: symbol)
+                    .font(.system(size: 20, weight: .semibold)).foregroundStyle(.black).frame(width: 32, height: 32))
+                renderer.scale = 2
+                if let cg = renderer.cgImage,
+                   let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]),
+                   let icon = await iconDisk.decode(png),
+                   let key = SiteIconStore.key(url, isPrivate: false) {
+                    await iconDisk.write(icon, key: key)
+                }
+            }
+            let audioProfiles = BrowserProfiles(rootDirectory: audioRoot, testing: true)
+            defer { audioProfiles.shutdown() }
+            try audioProfiles.update(audioProfiles.active.id, name: "Personal", color: .mulberry, symbol: .person)
+            _ = try audioProfiles.create(name: "Work", color: .ocean, symbol: .work)
+            _ = try audioProfiles.create(name: "Reading", color: .fern, symbol: .study)
+            let audioController = audioProfiles.controller
+            audioController.downloads.items.append(DownloadItem())
+            for tab in audioController.session.tabs where tab.id == audioRecords[6].id {
+                tab.toggleAudioMute()
+            }
+            for url in [audioRecords[0].url!, audioRecords[1].url!] {
+                await audioController.session.siteIcons.loadCached(url)
+            }
+            if let activeTab = audioController.session.selectedTab {
+                activeTab.webView.loadHTMLString("""
+                    <title>Designing calm interfaces</title>
+                    <body style="margin:0;background:#FBFBF9;color:#111;font:20px -apple-system,serif;padding:56px 72px">
+                    <h1 style="font:600 40px Georgia,serif;margin:0 0 12px">Designing calm interfaces</h1>
+                    <p style="font:16px/1.6 -apple-system,sans-serif;color:#555;max-width:540px">Make room for what matters. A practical reflection on clarity, attention, and the spaces between.</p></body>
+                    """, baseURL: audioRecords[4].url)
+                for _ in 0..<120 {
+                    if activeTab.webView.title == "Designing calm interfaces" && !activeTab.webView.isLoading { break }
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
+            }
+            for (appearance, mode) in [(BrowserAppearance.light, "light"), (.dark, "dark")] {
+                audioController.appearance = appearance
+                let name = "mac-glass-sidebar-v3-\(mode)-audio-states"
+                await capture(name, directory, CGSize(width: 1120, height: 650), key: false, settle: 280,
+                              appearance: appearance, prepare: { window in
+                    writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+                }) {
+                    BrowserWindow(controller: audioController, profiles: audioProfiles)
+                        .environment(\.sidebarCaptureBackdrop, appearance == .light ? Color(white: 0.88) : Color(white: 0.18))
+                        .environment(\.sidebarCaptureState, SidebarCaptureState(loading: audioRecords[7].id, audio: audioRecords[5].id))
+                }
+            }
+        } catch { manifest.failures.append("Sidebar v3 audio fixture: \(error)") }
+
+        // Phase 4 (Q4): Overflowing tab list with sticky New Tab pinned above profile dots.
+        do {
+            let overflowRoot = directory.appendingPathComponent("sidebar-v3-overflow-fixture")
+            let overflowRecords = (0..<4).map { index in
+                TabRecord(title: sites[index], url: urls[index], isPinned: true)
+            } + (1...24).map { index in
+                TabRecord(title: "Overflow tab \(index) — Reading notes", url: URL(string: "https://tab\(index).example/notes"))
+            }
+            try SessionFileStore(fileURL: BrowserProfile.personal.directory(in: overflowRoot).appendingPathComponent("session.json"))
+                .save(BrowserSnapshot(tabs: overflowRecords, selectedTabID: overflowRecords[4].id))
+            let overflowProfiles = BrowserProfiles(rootDirectory: overflowRoot, testing: true)
+            defer { overflowProfiles.shutdown() }
+            try overflowProfiles.update(overflowProfiles.active.id, name: "Personal", color: .mulberry, symbol: .person)
+            _ = try overflowProfiles.create(name: "Work", color: .ocean, symbol: .work)
+            _ = try overflowProfiles.create(name: "Reading", color: .fern, symbol: .study)
+            let overflowController = overflowProfiles.controller
+            if let activeTab = overflowController.session.selectedTab {
+                activeTab.webView.loadHTMLString("""
+                    <title>Overflow tab 1 — Reading notes</title>
+                    <body style="margin:0;background:#FBFBF9;color:#111;font:20px -apple-system,serif;padding:56px 72px">
+                    <h1 style="font:600 36px Georgia,serif;margin:0 0 12px">Overflow tab 1 — Reading notes</h1>
+                    <p style="font:16px/1.6 -apple-system,sans-serif;color:#555">Twenty-four tabs open to verify sticky New Tab above the profile dots.</p></body>
+                    """, baseURL: overflowRecords[4].url)
+                for _ in 0..<120 {
+                    if activeTab.webView.title == "Overflow tab 1 — Reading notes" && !activeTab.webView.isLoading { break }
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
+            }
+            for (appearance, mode) in [(BrowserAppearance.light, "light"), (.dark, "dark")] {
+                overflowController.appearance = appearance
+                let name = "mac-glass-sidebar-v3-\(mode)-overflow-sticky"
+                await capture(name, directory, CGSize(width: 1120, height: 650), key: false, settle: 280,
+                              appearance: appearance, prepare: { window in
+                    writeSidebarGeometry(window, to: directory.appendingPathComponent(name + "-geometry.json"))
+                }) {
+                    BrowserWindow(controller: overflowController, profiles: overflowProfiles)
+                        .environment(\.sidebarCaptureBackdrop, appearance == .light ? Color(white: 0.88) : Color(white: 0.18))
+                }
+            }
+        } catch { manifest.failures.append("Sidebar v3 overflow fixture: \(error)") }
+
         func scene(_ label: String, _ active: BrowserController, _ appearance: BrowserAppearance,
                    increased: Bool = false, reduced: Bool = false, rtl: Bool = false,
                    opacity: SidebarGlassOpacity = .balanced, hovered: UUID? = nil) async {
