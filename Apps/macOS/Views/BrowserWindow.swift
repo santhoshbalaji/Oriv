@@ -29,6 +29,9 @@ struct BrowserWindow: View {
     @State private var addressHovered = false
     @State private var inlineCompletionActive = false
     @State private var startAddressSlot: CGRect? = nil
+    @State private var addressMorphOpacity: Double = 1
+    @State private var addressMorphFadeTask: Task<Void, Never>?
+    @Namespace private var addressMorphNamespace
     @State private var passwordGuideFallback = false
     @State private var requestingPassword = false
     @FocusState private var findFocused: Bool
@@ -162,6 +165,23 @@ struct BrowserWindow: View {
             }
             .onChange(of: isStartPage) { _, onStart in
                 if !onStart { startAddressSlot = nil }
+                addressMorphFadeTask?.cancel()
+                addressMorphFadeTask = nil
+                if reduceMotion && !BackgroundUIMode.isEnabled {
+                    // Snap geometry without travel, then run the <= 0.15 s reduced opacity fade.
+                    var instant = Transaction()
+                    instant.animation = nil
+                    withTransaction(instant) { addressMorphOpacity = 0.2 }
+                    addressMorphFadeTask = Task { @MainActor in
+                        await Task.yield()
+                        guard !Task.isCancelled else { return }
+                        withAnimation(OrivMacV3.Motion.addressMorph(reduceMotion: true)) {
+                            addressMorphOpacity = 1
+                        }
+                    }
+                } else if addressMorphOpacity != 1 {
+                    addressMorphOpacity = 1
+                }
             }
             .onChange(of: addressFocused) { _, focused in
                 if !focused { inlineCompletionActive = false }
@@ -198,7 +218,11 @@ struct BrowserWindow: View {
             .task(id: controller.scoped(selectedPage)) { observeSelectedPage() }
             .onChange(of: controller.scoped(emptyPageColor), initial: true) { _, color in pageChrome.setEmptyPageColor(color.value) }
             .onChange(of: colorScheme) { _, _ in pageChrome.requestSample() }
-            .onDisappear { pageChrome.observe(nil) }
+            .onDisappear {
+                addressMorphFadeTask?.cancel()
+                addressMorphFadeTask = nil
+                pageChrome.observe(nil)
+            }
     }
 
     private struct GlyphRequest: Equatable {
@@ -333,13 +357,21 @@ struct BrowserWindow: View {
                         }
                         return (MacBrowserLayout.headerHeight - targetHeight) / 2
                     }()
-                    addressCapsule(isBigField: useStartSlot, width: targetWidth, height: targetHeight)
-                        .padding(.leading, max(0, leading))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .offset(y: top)
-                        .opacity(webpageFullscreen ? 0 : 1)
-                        .allowsHitTesting(!webpageFullscreen)
-                        .accessibilityHidden(webpageFullscreen)
+                    GlassEffectContainer(spacing: OrivMacV3.ToolbarLayout.groupGap) {
+                        addressCapsule(isBigField: useStartSlot, width: targetWidth, height: targetHeight)
+                            .glassEffectID("addressCapsule", in: addressMorphNamespace)
+                            .glassEffectTransition(reduceMotion ? .identity : .matchedGeometry)
+                            .padding(.leading, max(0, leading))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .offset(y: top)
+                            .opacity(webpageFullscreen ? 0 : addressMorphOpacity)
+                            .allowsHitTesting(!webpageFullscreen)
+                            .accessibilityHidden(webpageFullscreen)
+                            // Key morph travel strictly on `isStartPage` so start-page layout and
+                            // window resizing never lag; under Reduce Motion geometry snaps instantly.
+                            .animation(OrivMacV3.Motion.addressMorphGeometry(reduceMotion: reduceMotion), value: isStartPage)
+                            .animation(OrivMacV3.Motion.addressFocus(reduceMotion: reduceMotion), value: addressFocused)
+                    }
                 }
             }
             .animation(OrivMacV3.Motion.standard(reduceMotion: reduceMotion), value: showsAddressSuggestions)
@@ -400,8 +432,12 @@ struct BrowserWindow: View {
             if let windowSidebarWidth { controller.sidebar.setExpandedWidth(windowSidebarWidth) }
         }
         .onChange(of: controller.scoped(controller.sidebar.transition)) { previous, next in
-            withAnimation(reduceMotion || controller.sidebar.isResizing || previous.owner != next.owner
-                          ? nil : (previous.value.peeking || next.value.peeking ? OrivMotion.quick : OrivMotion.standard)) {
+            let sidebarAnimation: Animation? = controller.sidebar.isResizing || previous.owner != next.owner
+                ? nil
+                : (previous.value.peeking || next.value.peeking
+                   ? OrivMacV3.Motion.quick(reduceMotion: reduceMotion)
+                   : OrivMacV3.Motion.standardGeometry(reduceMotion: reduceMotion))
+            withAnimation(sidebarAnimation) {
                 sidebarClipWidth = next.value.width
             }
         }
@@ -457,8 +493,10 @@ struct BrowserWindow: View {
                     .frame(width: min(360, windowWidth - 16), height: min(420, (windowContext.window?.contentView?.bounds.height ?? 600) - 32))
                     .padding(.leading, min(MacBrowserLayout.railReservation, max(MacBrowserLayout.windowInset, windowWidth - 376)))
                     .padding(.top, MacBrowserLayout.windowInset + MacBrowserLayout.sidebarTitlebarHeight + OrivSpacing.large)
+                    .transition(.opacity)
             }
         }
+        .animation(OrivMacV3.Motion.popover(reduceMotion: reduceMotion), value: controller.tabSearchPanel)
         .overlayPreferenceValue(MacAddressBounds.self) { anchor in
             GeometryReader { geometry in
                 if let anchor, showsAddressSuggestions {
@@ -753,7 +791,6 @@ struct BrowserWindow: View {
         .orivV3Shadow(shadow)
         .environment(\.v3AppearanceMode, mode)
         .environment(\.colorScheme, mode.isDark ? .dark : colorScheme)
-        .animation(OrivMacV3.Motion.addressFocus(reduceMotion: reduceMotion), value: addressFocused)
         .onHover { addressHovered = $0 }
         .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
         .browserGeometryMarker("browserAddressGeometry")
@@ -1057,34 +1094,38 @@ struct BrowserWindow: View {
         @Bindable var ui = self.ui
         let topInset = webpageFullscreen ? 0 : MacBrowserLayout.headerHeight
         return VStack(spacing: 0) {
-                if hasPageTopBars {
-                    VStack(spacing: .zero) {
-                        if showsExternalPrivateBar, let profiles {
-                            ExternalPrivateBar(sourceName: profiles.externalSourceName, profiles: profiles.available,
-                                selection: Binding(get: { profiles.externalMoveProfileID }, set: { profiles.externalMoveProfileID = $0 }),
-                                canMove: ExternalLinkRouting.movableURL(tab?.url) != nil,
-                                move: { profiles.perform { try profiles.moveExternalTab() } }, dismiss: { profiles.externalBannerVisible = false })
+                VStack(spacing: .zero) {
+                    if showsExternalPrivateBar, let profiles {
+                        ExternalPrivateBar(sourceName: profiles.externalSourceName, profiles: profiles.available,
+                            selection: Binding(get: { profiles.externalMoveProfileID }, set: { profiles.externalMoveProfileID = $0 }),
+                            canMove: ExternalLinkRouting.movableURL(tab?.url) != nil,
+                            move: { profiles.perform { try profiles.moveExternalTab() } }, dismiss: { profiles.externalBannerVisible = false })
+                            .transition(.opacity)
+                    }
+                    if session.canUndoBookmarkRemoval {
+                        OrivBanner(message: "Bookmark removed", dismiss: { session.dismissBookmarkUndo() }) {
+                            Button("Undo") { session.undoBookmarkRemoval() }.orivButton(.link)
                         }
-                        if session.canUndoBookmarkRemoval {
-                            OrivBanner(message: "Bookmark removed", dismiss: { session.dismissBookmarkUndo() }) {
-                                Button("Undo") { session.undoBookmarkRemoval() }.orivButton(.link)
-                            }
-                        }
-                        if let notice = profiles?.continuity.notice { ContinuityNotice(text: notice) }
-                        if let notice = controller.browserNotice {
-                            OrivBanner(notice, tone: .success, dismiss: { controller.browserNotice = nil })
-                        }
-                        if let notice = session.persistenceNotice {
-                            OrivBanner(notice, tone: .warning, symbol: "externaldrive.badge.exclamationmark",
-                                       dismiss: session.canPersist ? { session.dismissNotice() } : nil)
-                        }
-                        if ui.showFind {
+                    }
+                    if let notice = profiles?.continuity.notice { ContinuityNotice(text: notice) }
+                    if let notice = controller.browserNotice {
+                        OrivBanner(notice, tone: .success, dismiss: { controller.browserNotice = nil })
+                    }
+                    if let notice = session.persistenceNotice {
+                        OrivBanner(notice, tone: .warning, symbol: "externaldrive.badge.exclamationmark",
+                                   dismiss: session.canPersist ? { session.dismissNotice() } : nil)
+                    }
+                    if ui.showFind {
+                        VStack(spacing: .zero) {
                             findBar
                             Divider()
                         }
+                        .transition(.opacity)
                     }
-                    .padding(.top, topInset)
                 }
+                .padding(.top, hasPageTopBars ? topInset : .zero)
+                .animation(OrivMacV3.Motion.popover(reduceMotion: reduceMotion), value: showsExternalPrivateBar)
+                .animation(OrivMacV3.Motion.standard(reduceMotion: reduceMotion), value: ui.showFind)
                 if let tab {
                     ZStack(alignment: .top) {
                         tabContent(tab)
@@ -1314,7 +1355,7 @@ private struct AddressProgressBar: View {
                     opacity = 0
                 }
                 hideTask = Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(220))
+                    try? await Task.sleep(for: .milliseconds(OrivMacV3.Motion.progressFinishDelayMilliseconds))
                     guard !Task.isCancelled, !isLoading else { return }
                     visible = false
                     displayedProgress = 0
@@ -1589,6 +1630,7 @@ private struct BrowserPopover<Content: View>: NSViewRepresentable {
 
     func updateNSView(_ anchor: Anchor, context: Context) {
         anchor.isPresented = $isPresented
+        anchor.reduceMotion = context.environment.browserReduceMotion
         let root = AnyView(content().environment(\.self, context.environment))
         anchor.update(root)
     }
@@ -1597,6 +1639,9 @@ private struct BrowserPopover<Content: View>: NSViewRepresentable {
 
     final class Anchor: NSView, NSPopoverDelegate {
         var isPresented: Binding<Bool> = .constant(false)
+        var reduceMotion = false {
+            didSet { popover?.animates = !BackgroundUIMode.isEnabled && !reduceMotion }
+        }
         private var root: AnyView?
         private var host: NSHostingController<AnyView>?
         private var popover: NSPopover?
@@ -1651,7 +1696,7 @@ private struct BrowserPopover<Content: View>: NSViewRepresentable {
                 let popover = NSPopover()
                 popover.behavior = .transient
                 popover.appearance = window.effectiveAppearance
-                popover.animates = !BackgroundUIMode.isEnabled
+                popover.animates = !BackgroundUIMode.isEnabled && !reduceMotion
                 popover.contentViewController = host
                 popover.delegate = self
                 self.host = host

@@ -287,7 +287,7 @@ struct SidebarLabelFade: ViewModifier {
     @State private var visible = false
     func body(content: Content) -> some View {
         content.opacity(visible || reduceMotion ? 1 : 0)
-            .onAppear { withAnimation(reduceMotion ? nil : OrivMotion.quick) { visible = true } }
+            .onAppear { withAnimation(OrivMacV3.Motion.quick(reduceMotion: reduceMotion)) { visible = true } }
     }
 }
 

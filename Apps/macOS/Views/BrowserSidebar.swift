@@ -980,10 +980,14 @@ struct SidebarTabArtwork: View {
     }
 }
 
-private struct SidebarLoadingRing: View {
+struct SidebarLoadingRing: View {
+    @Environment(\.browserReduceMotion) private var reduceMotion
     let mode: OrivMacV3.AppearanceMode
+    @State private var spinning = false
 
     var body: some View {
+        let animates = Self.animatesRotation(reduceMotion: reduceMotion)
+        let rotating = animates && spinning
         ZStack {
             Circle()
                 .stroke(OrivMacV3.Sidebar.loadingRingTrack(mode), lineWidth: OrivOutline.focus)
@@ -991,10 +995,24 @@ private struct SidebarLoadingRing: View {
                 .trim(from: .zero, to: 0.25)
                 .stroke(OrivMacV3.Semantic.accent(mode),
                         style: StrokeStyle(lineWidth: OrivOutline.focus, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+                .rotationEffect(.degrees(rotating ? 270 : -90))
+                .animation(OrivMacV3.Motion.tabLoading(reduceMotion: reduceMotion), value: rotating)
         }
         .frame(width: OrivMacV3.SidebarLayout.loadingRingSize, height: OrivMacV3.SidebarLayout.loadingRingSize)
+        .browserGeometryMarker("sidebarLoadingRingStatic", when: !animates)
+        .browserGeometryMarker("sidebarLoadingRingSpinning", when: rotating)
+        .onAppear { syncSpinning() }
+        .onChange(of: reduceMotion) { _, _ in syncSpinning() }
+        .onDisappear { spinning = false }
         .accessibilityHidden(true)
+    }
+
+    private func syncSpinning() {
+        spinning = Self.animatesRotation(reduceMotion: reduceMotion)
+    }
+
+    static func animatesRotation(reduceMotion: Bool) -> Bool {
+        !reduceMotion && OrivMacV3.Motion.tabLoading(reduceMotion: reduceMotion) != nil
     }
 }
 

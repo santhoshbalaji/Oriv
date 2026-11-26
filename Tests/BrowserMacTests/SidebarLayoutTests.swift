@@ -939,4 +939,43 @@ import XCTest
         }
     }
 
+    func testSidebarLoadingRingSpinsNormallyAndStaysStaticUnderReduceMotion() async throws {
+        XCTAssertTrue(SidebarLoadingRing.animatesRotation(reduceMotion: false))
+        XCTAssertFalse(SidebarLoadingRing.animatesRotation(reduceMotion: true))
+
+        for reduceMotion in [false, true] {
+            let controller = BrowserController(testing: true); defer { controller.shutdown() }
+            let tab = try XCTUnwrap(controller.session.selectedTab)
+            let capture = SidebarCaptureState(loading: tab.id)
+            let root = BrowserWindow(controller: controller)
+                .browserAppearance(.light)
+                .environment(\.sidebarCaptureState, capture)
+                .environment(\.sidebarCaptureReduceMotion, reduceMotion)
+            let host = NSHostingController(rootView: root)
+            let window = BackgroundUIMode.Window(contentRect: NSRect(x: 60, y: 60, width: 1000, height: 600),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentViewController = host
+            window.setContentSize(NSSize(width: 1000, height: 600))
+            BackgroundUIMode.show(window, key: false, activate: false)
+            defer { window.close() }
+
+            let expectedMarker = reduceMotion ? "sidebarLoadingRingStatic" : "sidebarLoadingRingSpinning"
+            let unexpectedMarker = reduceMotion ? "sidebarLoadingRingSpinning" : "sidebarLoadingRingStatic"
+            try await eventually("sidebar loading indicator (reduceMotion=\(reduceMotion))") {
+                self.marker("sidebarFavicon-\(tab.id)", in: window) != nil
+                    && self.marker("sidebarItem-\(tab.id)", in: window) != nil
+                    && self.marker(expectedMarker, in: window) != nil
+            }
+            XCTAssertNil(marker(unexpectedMarker, in: window),
+                         "Loading indicator rotation state must match reduceMotion=\(reduceMotion)")
+            let row = try frame("sidebarItem-\(tab.id)", in: window)
+            XCTAssertEqual(row.height, OrivMacV3.SidebarLayout.tabRowHeight, accuracy: 1,
+                           "Loading tab row must keep 34 pt height")
+            let favicon = try frame("sidebarFavicon-\(tab.id)", in: window)
+            XCTAssertEqual(favicon.width, OrivMacV3.SidebarLayout.tabFaviconSize, accuracy: 1)
+            XCTAssertEqual(favicon.height, OrivMacV3.SidebarLayout.tabFaviconSize, accuracy: 1)
+        }
+    }
+
 }

@@ -1545,6 +1545,80 @@ import XCTest
         XCTAssertTrue(fieldsBackOnStart.first === fieldOnStart, "NSTextField instance must be identical back on start page")
         XCTAssertEqual(fieldOnStart.font?.pointSize ?? 0, 16, accuracy: 0.5)
     }
+
+    func testAddressMorphUsesReducedMotionAndPreservesAddressFieldIdentityAcrossStartPageTransitions() async throws {
+        // Motion tokens must drop springs/spins/shimmers under Reduce Motion to nil or <= 0.15 s fades.
+        XCTAssertEqual(OrivMacV3.Motion.addressMorph(reduceMotion: false), OrivMacV3.Motion.addressMorph)
+        XCTAssertEqual(OrivMacV3.Motion.addressMorph(reduceMotion: true), OrivMacV3.Motion.addressMorphReduced)
+        XCTAssertEqual(OrivMacV3.Motion.addressMorphGeometry(reduceMotion: false), OrivMacV3.Motion.addressMorph)
+        XCTAssertNil(OrivMacV3.Motion.addressMorphGeometry(reduceMotion: true),
+                     "Reduce Motion must snap address morph geometry without travel")
+        XCTAssertLessThanOrEqual(OrivMacV3.Motion.reducedDuration, 0.15)
+        XCTAssertLessThanOrEqual(OrivMacV3.Motion.popoverReducedDuration, 0.15)
+        XCTAssertLessThanOrEqual(OrivMacV3.Motion.caFadeDuration(reduceMotion: true), 0.15)
+        XCTAssertNil(OrivMacV3.Motion.addressFocus(reduceMotion: true))
+        XCTAssertNil(OrivMacV3.Motion.quick(reduceMotion: true))
+        XCTAssertNil(OrivMacV3.Motion.standardGeometry(reduceMotion: true))
+        XCTAssertNil(OrivMacV3.Motion.progressShimmer(reduceMotion: true))
+        XCTAssertNil(OrivMacV3.Motion.tabLoading(reduceMotion: true))
+        XCTAssertEqual(OrivMacV3.Motion.tabLoading(reduceMotion: false), OrivMacV3.Motion.tabLoading)
+
+        for reduceMotion in [false, true] {
+            let c = BrowserController(testing: true); defer { c.shutdown() }
+            let startTab = try XCTUnwrap(c.session.selectedTab)
+            let w = host(c, appearance: .light, reduceMotion: reduceMotion); defer { w.close() }
+            w.setContentSize(NSSize(width: 1280, height: 820))
+            func allAddressFields() -> [FocusAwareAddressField] {
+                w.contentView.map { views($0).compactMap { $0 as? FocusAwareAddressField } } ?? []
+            }
+
+            try await wait("Start page big field did not mount (reduceMotion=\(reduceMotion))") {
+                guard allAddressFields().count == 1,
+                      let current = self.marker("browserAddressGeometry", in: w) else { return false }
+                let rect = current.convert(current.bounds, to: nil)
+                return abs(rect.width - OrivMacV3.StartLayout.columnWidth) <= 1
+                    && abs(rect.height - OrivMacV3.StartLayout.bigFieldSize.height) <= 1
+            }
+            let originalField = try XCTUnwrap(allAddressFields().first)
+
+            // Type in the start page field before transitioning to a web page; the field must survive.
+            c.focusAddress()
+            try await wait("Start field editor did not activate (reduceMotion=\(reduceMotion))") {
+                originalField.currentEditor() != nil
+            }
+            let editor = try XCTUnwrap(originalField.currentEditor() as? NSTextView)
+            editor.insertText("example.org", replacementRange: editor.selectedRange())
+            XCTAssertEqual(c.profileUI.address, "example.org")
+
+            let webURL = try XCTUnwrap(URL(string: "https://docs.example.com/morph-check"))
+            startTab.webView.loadHTMLString("<body>Morph target</body>", baseURL: webURL)
+            try await wait("Toolbar address capsule did not settle on web page (reduceMotion=\(reduceMotion))") {
+                guard !startTab.webView.isLoading, startTab.url == webURL,
+                      let current = self.marker("browserAddressGeometry", in: w) else { return false }
+                let rect = current.convert(current.bounds, to: nil)
+                return abs(rect.height - OrivMacV3.ToolbarLayout.addressRestHeight) <= 1
+                    || abs(rect.height - OrivMacV3.ToolbarLayout.addressFocusHeight) <= 1
+            }
+            XCTAssertEqual(allAddressFields().count, 1)
+            XCTAssertTrue(allAddressFields().first === originalField,
+                          "NSTextField instance must survive start->page transition (reduceMotion=\(reduceMotion))")
+            XCTAssertEqual(c.profileUI.address, "example.org",
+                           "Typed address text must survive while focused across start->page transition")
+
+            // Return to a start page (new tab) and confirm the exact same NSTextField returns to the big-field slot.
+            c.newTab(isPrivate: false)
+            try await wait("Start page big field did not return (reduceMotion=\(reduceMotion))") {
+                guard let current = self.marker("browserAddressGeometry", in: w),
+                      self.marker("startPageEngineChipGeometry", in: w) != nil else { return false }
+                let rect = current.convert(current.bounds, to: nil)
+                return abs(rect.width - OrivMacV3.StartLayout.columnWidth) <= 1
+                    && abs(rect.height - OrivMacV3.StartLayout.bigFieldSize.height) <= 1
+            }
+            XCTAssertEqual(allAddressFields().count, 1)
+            XCTAssertTrue(allAddressFields().first === originalField,
+                          "NSTextField instance must survive page->start transition (reduceMotion=\(reduceMotion))")
+        }
+    }
 }
 
 
