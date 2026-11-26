@@ -482,6 +482,30 @@ import XCTest
         }
     }
 
+    func testStartPageAddressFieldFollowsItsSlotBelowTopBars() async throws {
+        let controller = BrowserController(testing: true)
+        try controller.session.applyContinuity(bookmarks: [Bookmark(title: "Example", url: URL(string: "https://example.com")!, createdAt: .now)], history: [])
+        let window = makeWindow(controller, width: 1280, largestText: false)
+        window.setContentSize(NSSize(width: 1280, height: 860))
+        defer { window.close(); controller.shutdown() }
+        func gap() async throws -> CGFloat {
+            try await eventually("start page address and bookmarks") {
+                self.marker("homeBookmarks", in: window) != nil && self.marker("browserAddressGeometry", in: window) != nil
+            }
+            let address = try frame("browserAddressGeometry", in: window)
+            let bookmarks = try frame("homeBookmarks", in: window)
+            XCTAssertEqual(address.height, OrivMacV3.StartLayout.bigFieldSize.height, accuracy: 1)
+            return bookmarks.maxY - address.minY
+        }
+        let plain = try await gap()
+        controller.profileUI.showFind = true
+        try await eventually("find bar shown") { self.marker("browserFindBarGeometry", in: window) != nil }
+        try await Task.sleep(for: .milliseconds(400))
+        // AppKit's y axis points up: the field keeps its place relative to the page content.
+        let withFindBar = try await gap()
+        XCTAssertEqual(withFindBar, plain, accuracy: 1, "The start-page field stays in its slot when a bar pushes the page down")
+    }
+
     func testStartPageResponsiveBreakpointsWrapBookmarksAndCollapseCards() async throws {
         let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

@@ -69,6 +69,7 @@ struct BrowserWindow: View {
     private var activeProfileColor: ProfileColor { controller.sidebarProfileColor(in: profiles) ?? .mulberry }
     private var webpageFullscreen: Bool { controller.sidebar.webpageFullscreen }
     private var cardInset: CGFloat { webpageFullscreen ? OrivMacV3.Frame.webpageFullscreenInset : MacBrowserLayout.windowInset }
+    private static let pageCardSpace = "browserPageCard"
     private var hasPageTopBars: Bool {
         showsExternalPrivateBar
             || session.canUndoBookmarkRemoval
@@ -296,6 +297,9 @@ struct BrowserWindow: View {
                     .allowsHitTesting(!webpageFullscreen)
                     .accessibilityHidden(webpageFullscreen)
             }
+            // The start page reports its address slot in this space, which is the
+            // overlay's own origin, so top bars above the start page are included.
+            .coordinateSpace(name: Self.pageCardSpace)
             .overlay {
                 GeometryReader { cardProxy in
                     let startRect = startAddressSlot
@@ -1147,7 +1151,7 @@ struct BrowserWindow: View {
         else {
             StartPage(session: session, isPrivate: tab.isPrivate, profile: profiles?.active ?? controller.profile, hasTopBars: hasPageTopBars, openLibrary: { controller.library = $0 }, onAddressSlotChange: { rect in
                 if startAddressSlot != rect { startAddressSlot = rect }
-            })
+            }, addressSlotSpace: Self.pageCardSpace)
                 .overlay {
                     HomeProfileFade(epoch: controller.sidebarDragID,
                                     color: OrivMacV3.Card.fillStartPageSolid(startPageMode),

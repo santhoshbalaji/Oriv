@@ -20,6 +20,9 @@ struct StartPage: View {
     var hasTopBars: Bool = false
     let openLibrary: (LibrarySection) -> Void
     var onAddressSlotChange: (CGRect) -> Void = { _ in }
+    /// The coordinate space the slot is reported in. The window passes its page-card
+    /// space so banners and the find bar above the start page are accounted for.
+    var addressSlotSpace: String? = nil
     @State private var formattedDate = Self.formatDate(.now)
     @State private var loadedFrequentQuery: StartFrequentQuery?
     @State private var frequent: [HistoryEntry] = []
@@ -101,7 +104,7 @@ struct StartPage: View {
             // positioned over this rect, so the text field is never re-created.
             OrivMacV3.Card.fillStartPage
                 .frame(width: columnWidth, height: OrivMacV3.StartLayout.bigFieldSize.height)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.viewportSpace)) } action: { rect in
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(addressSlotSpace ?? Self.viewportSpace)) } action: { rect in
                     guard rect.width > 0, rect.height > 0 else { return }
                     onAddressSlotChange(rect)
                 }
