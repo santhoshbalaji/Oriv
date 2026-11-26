@@ -80,7 +80,7 @@ else
 fi
 PID=$!
 DEFAULT_TICKS=240
-if [[ "${ORIV_GLASS_SCENE:-}" == design-system ]]; then DEFAULT_TICKS=480; fi
+if [[ "${ORIV_GLASS_SCENE:-}" == design-system || "${ORIV_GLASS_SCENE:-}" == sidebar-v3 ]]; then DEFAULT_TICKS=480; fi
 for _ in $(seq 1 "${ORIV_CAPTURE_TICKS:-$DEFAULT_TICKS}"); do
   kill -0 $PID 2>/dev/null || break
   if [[ "$GLASS" == 1 && -f "$SRC/capture-request.json" ]]; then
@@ -149,7 +149,8 @@ if os.environ.get("ORIV_GLASS_SCENE") == "sidebar-v3":
                 for layout in ("expanded", "rail")}
     expected |= {"mac-glass-sidebar-v3-" + name for name in ("light-graphite-220", "light-graphite-360",
                  "mixed-private", "private-rail", "increased-contrast", "rtl-360",
-                 "dark-white-pins-220", "dark-white-pins-256", "dark-white-pins-360", "dark-white-high", "dark-white-solid")}
+                 "dark-white-pins-220", "dark-white-pins-256", "dark-white-pins-360", "dark-white-high", "dark-white-solid",
+                 "light-audio-states", "dark-audio-states", "light-overflow-sticky", "dark-overflow-sticky")}
     if m.get("backgroundUI", {}).get("enabled", False):
         evidence = {scene["name"] for scene in m.get("evidence", [])}
         missing = {name + "-synthetic-composite" for name in expected} - evidence

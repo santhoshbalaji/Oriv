@@ -59,10 +59,11 @@ struct SidebarSearchScope: View {
         let tileWidth: CGFloat
 
         init(availableWidth: CGFloat) {
-            let gap = OrivLayout.sidebarPinGap
-            let width = OrivLayout.sidebarPinWidth
-            columns = min(6, max(4, Int((availableWidth + gap) / (width + gap))))
-            tileWidth = max(0, min(width, (availableWidth - CGFloat(columns - 1) * gap) / CGFloat(columns)))
+            let gap = OrivMacV3.SidebarLayout.pinGap
+            let minWidth = OrivMacV3.SidebarLayout.pinMinWidth
+            columns = min(OrivMacV3.SidebarLayout.pinMaxColumns,
+                          max(OrivMacV3.SidebarLayout.pinColumns, Int((availableWidth + gap) / (minWidth + gap))))
+            tileWidth = max(0, (availableWidth - CGFloat(columns - 1) * gap) / CGFloat(columns))
         }
     }
 
@@ -138,6 +139,8 @@ struct BrowserSidebar: View {
     @Environment(\.browserTheme) private var theme
     @Environment(\.sidebarContrast) private var contrast
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.v3AppearanceMode) private var v3Mode
+    @Environment(\.dynamicTypeSize) private var textSize
     @Bindable var controller: BrowserController
     var profiles: BrowserProfiles? = nil
     @State var tabList = SidebarListHandle()
@@ -149,28 +152,26 @@ struct BrowserSidebar: View {
     private var compact: Bool { controller.sidebar.rail }
     private var peeking: Bool { controller.sidebar.peeking }
     private var railLayout: Bool { compact || peeking }
-
+    private var mode: OrivMacV3.AppearanceMode {
+        OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: scheme, isPrivateWindow: privateWindow || v3Mode == .private)
+    }
 
     var body: some View {
         let request = !compact && (searchFocused || controller.tabSearchIsFiltering) ? controller.tabSearchRequest : nil
         let tabs = request.map(controller.tabSearchResults) ?? session.orderedTabs
-        return VStack(spacing: railLayout ? 6 : 0) {
-            VStack(spacing: railLayout ? 6 : 0) {
+        let secondary = OrivMacV3.Ink.secondary(mode, increasedContrast: contrast == .increased)
+        return VStack(spacing: railLayout ? OrivMacV3.SidebarLayout.pinGap : .zero) {
+            VStack(spacing: railLayout ? OrivMacV3.SidebarLayout.pinGap : .zero) {
                 profileHeader
                 searchField(firstResult: request == nil ? nil : tabs.first?.id)
                 if !railLayout && (searchFocused || request != nil) {
-                    SidebarSearchScope(controller: controller).padding(.bottom, OrivSpacing.xs)
+                    SidebarSearchScope(controller: controller).padding(.bottom, OrivSpacing.small)
                 }
                 if railLayout { newTab }
                 if let notice = profiles?.notice, !session.isExternalPrivate, !compact {
-                    Text(notice).font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)).padding(.horizontal, OrivSpacing.large)
+                    Text(notice).font(OrivType.caption).foregroundStyle(secondary).padding(.horizontal, OrivSpacing.large)
                 }
-                NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs, duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
-                                  expandedWidth: controller.sidebar.expandedWidth, searchRequest: request) { id, right in
-                    controller.profileUI.closeToRight = right
-                    controller.profileUI.closeOthers = id
-                }
-                if !railLayout { newTab.padding(.bottom, MacBrowserLayout.sidebarFooterGap) }
+                tabArea(tabs: tabs, request: request)
             }
             .modifier(SidebarProfileCover(switcher: !railLayout && !privateWindow ? profiles?.sidebarSwitch : nil))
             .background {
@@ -187,15 +188,15 @@ struct BrowserSidebar: View {
             }
             footer
         }
-        .padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarInset)
-        .padding(.bottom, railLayout ? 0 : MacBrowserLayout.sidebarInset)
+        .padding(.horizontal, railLayout ? .zero : MacBrowserLayout.sidebarInset)
+        .padding(.bottom, railLayout ? .zero : MacBrowserLayout.sidebarInset)
         .background {
             if !railLayout, let profiles, profiles.canSwitchProfiles(from: controller) {
                 ProfileSidebarSwipeRegion(switcher: profiles.sidebarSwitch, controller: controller, kind: .sidebar)
             }
         }
         .font(OrivType.body)
-        .foregroundStyle(theme.text)
+        .foregroundStyle(OrivMacV3.Ink.primary(mode))
         .transformPreference(SidebarKeyboardFocusKey.self) { $0 = $0 || searchFocused || utilityFocus != nil || tabList.hasFocus }
         .onChange(of: controller.scoped(controller.tabSearchFocusRequest)) { old, new in
             if old.owner == new.owner, !controller.tabSearchPanel { searchFocused = true }
@@ -218,6 +219,76 @@ struct BrowserSidebar: View {
         } message: { Text("Pinned tabs and tabs in the other privacy group stay open. Unsaved website forms in closed tabs may be lost.") }
     }
 
+    private func tabArea(tabs: [BrowserTab], request: ProfileScoped<SidebarTabQuery>?) -> some View {
+        GeometryReader { proxy in
+            let newTabGap = OrivMacV3.SidebarLayout.newTabTopMargin - OrivMacV3.SidebarLayout.tabRowGap
+            let newTabBlock = newTabGap + OrivMacV3.SidebarLayout.newTabHeight + MacBrowserLayout.sidebarFooterGap
+            let availableList = max(.zero, proxy.size.height - newTabBlock)
+            let estimated = estimatedTabListHeight(tabs: tabs, searching: request != nil, width: proxy.size.width)
+            let _ = { tabList.fallbackHeight = estimated }()
+            let measured = tabList.contentHeight ?? estimated
+            let overflowing = !railLayout && measured > availableList + OrivOutline.hairline
+            let listHeight = railLayout ? proxy.size.height : min(measured, availableList)
+            VStack(spacing: .zero) {
+                NativeSidebarTabs(controller: controller, profiles: profiles, handle: tabList, tabs: tabs,
+                                  duplicateTitles: SidebarTabs.duplicateTitles(in: tabs), rail: compact, peek: peeking,
+                                  expandedWidth: controller.sidebar.expandedWidth, overflowing: overflowing,
+                                  searchRequest: request) { id, right in
+                    controller.profileUI.closeToRight = right
+                    controller.profileUI.closeOthers = id
+                }
+                .frame(height: listHeight)
+                if !railLayout {
+                    newTab
+                        .padding(.top, newTabGap)
+                        .padding(.bottom, MacBrowserLayout.sidebarFooterGap)
+                        .overlay(alignment: .top) {
+                            if overflowing {
+                                Rectangle()
+                                    .fill(OrivMacV3.Sidebar.footerSeparator(mode, increasedContrast: contrast == .increased))
+                                    .frame(height: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                    Spacer(minLength: .zero)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+        }
+    }
+
+    private func estimatedTabListHeight(tabs: [BrowserTab], searching: Bool, width: CGFloat) -> CGFloat {
+        let rowHeight = textSize.isAccessibilitySize ? OrivLayout.sidebarAccessibilityRowHeight : OrivMacV3.SidebarLayout.tabRowHeight
+        let rowPitch = rowHeight + OrivMacV3.SidebarLayout.tabRowGap
+        if tabs.isEmpty { return OrivMacV3.SidebarLayout.pinHeight }
+        let pins = tabs.filter(\.isPinned)
+        let regular = tabs.filter { !$0.isPinned && !$0.isPrivate }
+        let privateTabs = tabs.filter { $0.isPrivate && !$0.isPinned }
+        var height: CGFloat = .zero
+        if !pins.isEmpty {
+            height += OrivMacV3.SidebarLayout.sectionTotalHeight
+            if searching {
+                height += CGFloat(pins.count) * rowPitch
+            } else {
+                let grid = SidebarTabs.PinGrid(availableWidth: max(.zero, width))
+                let rows = (pins.count + grid.columns - 1) / grid.columns
+                let hasFollowing = !regular.isEmpty || !privateTabs.isEmpty
+                height += CGFloat(rows) * (OrivMacV3.SidebarLayout.pinHeight + OrivMacV3.SidebarLayout.pinGap)
+                    - OrivMacV3.SidebarLayout.pinGap
+                    + (hasFollowing ? OrivMacV3.SidebarLayout.pinBottomMargin : OrivMacV3.SidebarLayout.tabRowGap)
+            }
+        }
+        if !regular.isEmpty {
+            height += OrivMacV3.SidebarLayout.sectionTotalHeight + CGFloat(regular.count) * rowPitch
+            if !privateTabs.isEmpty { height += OrivSpacing.medium - OrivMacV3.SidebarLayout.tabRowGap }
+        }
+        if !privateTabs.isEmpty {
+            if controller.profile != nil { height += OrivMacV3.SidebarLayout.sectionTotalHeight }
+            height += CGFloat(privateTabs.count) * rowPitch
+        }
+        return height
+    }
+
     private var profileHeader: some View {
         Group {
             if let profiles, !privateWindow {
@@ -234,15 +305,17 @@ struct BrowserSidebar: View {
         .frame(maxWidth: .infinity, alignment: railLayout ? .center : .leading)
         .browserGeometryMarker("sidebarProfileGeometry")
         .padding(.trailing, profileTrailingInset)
-        .padding(.vertical, OrivSpacing.xs)
+        .padding(.top, !railLayout && profileTrailingInset > .zero ? OrivSpacing.xs : .zero)
+        .padding(.bottom, railLayout ? .zero : OrivMacV3.SidebarLayout.profileBottomMargin)
     }
 
     @ViewBuilder private func searchField(firstResult: UUID?) -> some View {
         let request = controller.tabSearchRequest
+        let secondary = OrivMacV3.Ink.secondary(mode, increasedContrast: contrast == .increased)
         if railLayout {
             Button { controller.searchTabs() } label: {
                 HStack(spacing: OrivSpacing.small) {
-                    Image(systemName: "magnifyingglass").frame(width: 42, height: 36)
+                    Image(systemName: "magnifyingglass").frame(width: MacBrowserLayout.railItemWidth, height: MacBrowserLayout.railItemHeight)
                     if peeking { Text(OrivStrings.searchTabs).modifier(SidebarLabelFade()); Spacer() }
                 }
             }.frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
@@ -253,10 +326,10 @@ struct BrowserSidebar: View {
                 .padding(.horizontal, MacBrowserLayout.railInset)
         } else {
             OrivSearchField(text: $controller.tabSearch, shortcut: "⇧⌘A", sidebar: true,
-                            focused: searchFocused, ink: theme.sidebarSecondaryText(contrast),
+                            focused: searchFocused, ink: secondary,
                             clearLabel: "Clear tab search", onClear: { searchFocused = true }) {
                 TextField(OrivStrings.searchTabs, text: $controller.tabSearch,
-                          prompt: Text(OrivStrings.searchTabs).foregroundStyle(theme.sidebarSecondaryText(contrast)))
+                          prompt: Text(OrivStrings.searchTabs).foregroundStyle(secondary))
                     .focused($searchFocused).accessibilityLabel(OrivStrings.searchTabs).accessibilityIdentifier("tabSearchField")
                     .accessibilityHint("Press Shift-Command-A to focus Search tabs.")
                     .onExitCommand { controller.dismissTabSearch(); focusTabAfterSearch(session.selectedTabID) }
@@ -277,7 +350,8 @@ struct BrowserSidebar: View {
                 }
             }
             .browserGeometryMarker("sidebarSearchGeometry")
-            .padding(.bottom, OrivSpacing.small)
+            .padding(.bottom, (searchFocused || controller.tabSearchIsFiltering) && controller.tabSearchHasBothScopes
+                     ? OrivSpacing.xs : OrivMacV3.SidebarLayout.searchBottomMargin)
         }
     }
 
@@ -290,41 +364,73 @@ struct BrowserSidebar: View {
     private var newTab: some View {
         let isPrivate = session.selectedTab?.isPrivate ?? session.isExternalPrivate
         let title = isPrivate ? "New Private Tab" : "New Tab"
+        let secondary = OrivMacV3.Ink.secondary(mode, increasedContrast: contrast == .increased)
+        let tertiary = OrivMacV3.Ink.tertiary(mode, onSidebar: true, increasedContrast: contrast == .increased)
         return Button { controller.newTab(isPrivate: isPrivate) } label: {
-            HStack(spacing: OrivSpacing.small) {
-                Image(systemName: "plus").frame(width: railLayout ? 42 : 19)
+            HStack(spacing: railLayout ? OrivSpacing.small : OrivMacV3.SidebarLayout.tabRowInnerGap) {
+                Image(systemName: "plus")
+                    .font(railLayout ? OrivType.body : OrivMacV3.Typography.detailSemibold)
+                    .frame(width: railLayout ? MacBrowserLayout.railItemWidth : OrivMacV3.SidebarLayout.tabFaviconSize)
                 if peeking { Text(title).modifier(SidebarLabelFade()); Spacer() }
-                if !railLayout { Text(title); Spacer(); Text("⌘T").font(OrivType.caption).foregroundStyle(theme.sidebarSecondaryText(contrast)) }
-            }.font(OrivType.body).padding(.horizontal, railLayout ? 0 : MacBrowserLayout.sidebarRowInset).frame(maxWidth: .infinity, minHeight: 36).contentShape(Rectangle())
-        }.buttonStyle(SidebarToneButtonStyle()).frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
-            .padding(.horizontal, peeking ? MacBrowserLayout.railInset : 0)
-            .browserGeometryMarker("sidebarNewTabGeometry")
-            .focused($utilityFocus, equals: "new-tab")
-            .accessibilityLabel(title).accessibilityIdentifier(railLayout ? "railNewTabButton" : "newTabButton").help("\(title) (⌘T)")
+                if !railLayout {
+                    Text(title)
+                    Spacer(minLength: .zero)
+                    Text("⌘T")
+                        .font(OrivMacV3.Typography.shortcutHint)
+                        .tracking(OrivMacV3.Typography.labelTracking)
+                        .foregroundStyle(tertiary)
+                }
+            }
+            .font(railLayout ? OrivType.body : OrivMacV3.Typography.sidebarNewTab)
+            .foregroundStyle(railLayout ? OrivMacV3.Ink.primary(mode) : secondary)
+            .padding(.horizontal, railLayout ? .zero : OrivMacV3.SidebarLayout.newTabLeadingPadding)
+            .frame(maxWidth: .infinity,
+                   minHeight: railLayout ? MacBrowserLayout.railItemHeight : OrivMacV3.SidebarLayout.newTabHeight,
+                   maxHeight: railLayout ? MacBrowserLayout.railItemHeight : OrivMacV3.SidebarLayout.newTabHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(SidebarToneButtonStyle(radius: railLayout ? OrivMacV3.Radius.control : OrivMacV3.Radius.row))
+        .frame(width: compact ? MacBrowserLayout.railItemWidth : nil)
+        .padding(.horizontal, peeking ? MacBrowserLayout.railInset : .zero)
+        .browserGeometryMarker("sidebarNewTabGeometry")
+        .focused($utilityFocus, equals: "new-tab")
+        .modifier(SidebarFocusRing(visible: utilityFocus == "new-tab" && controller.sidebar.showsUtilityKeyboardFocus,
+                                   radius: railLayout ? OrivMacV3.Radius.control : OrivMacV3.Radius.row))
+        .accessibilityLabel(title).accessibilityIdentifier(railLayout ? "railNewTabButton" : "newTabButton").help("\(title) (⌘T)")
     }
 
     private func profileDots(_ profiles: BrowserProfiles) -> some View {
         let available = profiles.available
         let centeredID = utilityFocus.flatMap(UUID.init(uuidString:)) ?? profiles.active.id
         let indexToCenter = available.firstIndex { $0.id == centeredID } ?? 0
+        let increased = contrast == .increased
         return ProfileDotsScroll(profiles: profiles, count: available.count, indexToCenter: indexToCenter) {
-            HStack(spacing: 0) {
+            HStack(spacing: .zero) {
                 ForEach(Array(available.enumerated()), id: \.element.id) { index, profile in
                     let selected = profile.id == profiles.active.id
+                    let dotColor = OrivMacV3.Sidebar.profileDotFill(profile.color, mode: mode)
                     Button {
                         profiles.switchFromSidebar(profile.id, source: controller)
                     } label: {
-                        Circle()
-                            .fill(profile.color.sidebarInk(dark: scheme == .dark))
-                            .frame(width: OrivSpacing.small, height: OrivSpacing.small)
-                            .padding(OrivSpacing.xxs)
-                            .overlay {
-                                if selected || contrast == .increased {
-                                    Circle().strokeBorder(theme.text, lineWidth: OrivOutline.hairline)
-                                }
+                        ZStack {
+                            if selected || increased {
+                                Circle()
+                                    .strokeBorder(OrivMacV3.Sidebar.profileDotHalo(profile.color, mode: mode, increasedContrast: increased),
+                                                  lineWidth: increased ? OrivOutline.enhanced : OrivOutline.hairline * 2)
+                                    .frame(width: OrivMacV3.SidebarLayout.profileDotHaloSize,
+                                           height: OrivMacV3.SidebarLayout.profileDotHaloSize)
+                                Circle()
+                                    .fill(OrivMacV3.Sidebar.profileDotRingInner(mode))
+                                    .frame(width: OrivMacV3.SidebarLayout.profileDotInnerRingSize,
+                                           height: OrivMacV3.SidebarLayout.profileDotInnerRingSize)
                             }
-                            .frame(width: ProfileDotsScrollMetrics.itemWidth, height: OrivTarget.macMinimum.height)
-                            .contentShape(Rectangle())
+                            Circle()
+                                .fill(dotColor)
+                                .opacity(selected || increased ? 1 : OrivMacV3.Sidebar.profileDotInactiveOpacity(mode))
+                                .frame(width: OrivMacV3.SidebarLayout.profileDotSize, height: OrivMacV3.SidebarLayout.profileDotSize)
+                        }
+                        .frame(width: ProfileDotsScrollMetrics.itemWidth, height: OrivMacV3.SidebarLayout.profileDotHitTarget)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain).focusable().focused($utilityFocus, equals: profile.id.uuidString)
                     .help(profile.name)
@@ -334,25 +440,29 @@ struct BrowserSidebar: View {
                 }
             }.frame(maxWidth: .infinity)
         }
-        .frame(height: OrivTarget.macMinimum.height)
+        .frame(height: OrivMacV3.SidebarLayout.profileDotHitTarget)
         .browserGeometryMarker("sidebarProfileDotsGeometry")
     }
 
     private var footer: some View {
-        VStack(spacing: OrivSpacing.xs) {
-            Rectangle().fill(contrast == .increased ? theme.text : theme.separator)
-                .frame(height: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
+        let increased = contrast == .increased
+        return VStack(spacing: .zero) {
+            Rectangle().fill(OrivMacV3.Sidebar.footerSeparator(mode, increasedContrast: increased))
+                .frame(height: increased ? OrivOutline.enhanced : OrivOutline.hairline)
                 .accessibilityHidden(true)
             if railLayout {
                 VStack(spacing: OrivSpacing.xxs) { footerButtons }
+                    .padding(.top, OrivSpacing.xs)
                     .padding(.bottom, OrivSpacing.small)
             } else {
-                HStack(spacing: OrivSpacing.xs) { footerButtons }
-                    .frame(height: OrivLayout.sidebarFooterHeight)
+                HStack(spacing: OrivMacV3.SidebarLayout.footerGap) { footerButtons }
+                    .padding(.top, OrivMacV3.SidebarLayout.footerPaddingTop)
+                    .frame(height: OrivMacV3.SidebarLayout.footerHeight - (increased ? OrivOutline.enhanced : OrivOutline.hairline),
+                           alignment: .center)
             }
         }
-        .padding(.horizontal, railLayout ? MacBrowserLayout.railInset : 0)
-        .foregroundStyle(theme.sidebarSecondaryText(contrast))
+        .padding(.horizontal, railLayout ? MacBrowserLayout.railInset : .zero)
+        .foregroundStyle(OrivMacV3.Ink.secondary(mode, increasedContrast: increased))
         .browserGeometryMarker("sidebarFooterGeometry")
     }
 
@@ -369,7 +479,7 @@ struct BrowserSidebar: View {
             .help(section.title)
             .browserGeometryMarker("sidebarFooter-\(section.rawValue)")
         }
-        if !railLayout { Spacer(minLength: 0) }
+        if !railLayout { Spacer(minLength: .zero) }
         SettingsLink { footerLabel("Settings", symbol: "gearshape") }
             .buttonStyle(SidebarToneButtonStyle())
             .focused($utilityFocus, equals: "settings")
@@ -380,18 +490,23 @@ struct BrowserSidebar: View {
 
     private func footerLabel(_ title: String, symbol: String, activeDownload: Bool = false) -> some View {
         HStack(spacing: OrivSpacing.small) {
-            Image(systemName: symbol).font(.system(size: OrivIcon.footer))
-                .frame(width: railLayout ? MacBrowserLayout.railItemWidth : OrivLayout.controlHeight,
-                       height: railLayout ? MacBrowserLayout.railItemHeight : OrivLayout.controlHeight)
+            Image(systemName: symbol).font(.system(size: OrivMacV3.SidebarLayout.footerIconSize))
+                .frame(width: railLayout ? MacBrowserLayout.railItemWidth : OrivMacV3.SidebarLayout.footerButtonSize,
+                       height: railLayout ? MacBrowserLayout.railItemHeight : OrivMacV3.SidebarLayout.footerButtonSize)
                 .overlay(alignment: .topTrailing) {
                     if activeDownload {
-                        Circle().fill(theme.accent)
-                            .frame(width: OrivLayout.sidebarDownloadBadgeSize, height: OrivLayout.sidebarDownloadBadgeSize)
-                            .padding(OrivSpacing.xs)
+                        Circle()
+                            .fill(OrivMacV3.Semantic.accent(mode))
+                            .overlay {
+                                Circle().stroke(OrivMacV3.Sidebar.downloadDotRing(mode),
+                                                lineWidth: OrivMacV3.SidebarLayout.downloadDotRingWidth)
+                            }
+                            .frame(width: OrivMacV3.SidebarLayout.downloadDotSize, height: OrivMacV3.SidebarLayout.downloadDotSize)
+                            .padding(OrivMacV3.SidebarLayout.downloadDotInset)
                             .accessibilityHidden(true)
                     }
                 }
-            if peeking { Text(title).modifier(SidebarLabelFade()); Spacer(minLength: 0) }
+            if peeking { Text(title).modifier(SidebarLabelFade()); Spacer(minLength: .zero) }
         }
         .contentShape(Rectangle())
     }
@@ -399,7 +514,7 @@ struct BrowserSidebar: View {
 }
 
 private enum ProfileDotsScrollMetrics {
-    static let itemWidth = OrivTarget.macMinimum.width
+    static let itemWidth = OrivMacV3.SidebarLayout.profileDotItemWidth
 }
 
 /// Hosts the existing dot buttons in a scroll view with the same gesture
@@ -466,19 +581,24 @@ private struct ProfileDotsScroll<Content: View>: NSViewRepresentable {
 struct SidebarSectionHeading: View {
     @Environment(\.sidebarContrast) private var contrast
     @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.v3AppearanceMode) private var v3Mode
     let title: String
     let count: Int
     var marksGeometry = true
     var body: some View {
-        let secondary = theme.sidebarSecondaryText(contrast)
+        let mode = OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: scheme,
+                                                    isPrivateWindow: v3Mode == .private)
+        let increased = contrast == .increased
         SectionHeader(title: title, kind: .sidebar, count: count,
                       symbol: title == "Private" ? "eyeglasses" : nil,
-                      symbolInk: theme.sidebarPrivateAccent,
-                      ink: secondary,
-                      countInk: secondary)
+                      symbolInk: OrivMacV3.Semantic.privateAccent(mode, increasedContrast: increased),
+                      ink: OrivMacV3.Ink.secondary(mode, increasedContrast: increased),
+                      countInk: OrivMacV3.Ink.tertiary(mode, onSidebar: true, increasedContrast: increased))
         .browserGeometryMarker("sidebarSection-\(title)", when: marksGeometry)
-        .padding(.horizontal, MacBrowserLayout.sidebarRowInset).frame(height: OrivLayout.sidebarSectionHeight)
-        .padding(.top, title == "Pinned" || title == "Pin tab" ? 0 : OrivSpacing.xs)
+        .padding(.horizontal, OrivMacV3.SidebarLayout.sectionPaddingHorizontal)
+        .frame(height: OrivMacV3.SidebarLayout.sectionHeight)
+        .padding(.bottom, OrivMacV3.SidebarLayout.sectionBottomMargin)
     }
 }
 
@@ -487,23 +607,45 @@ struct SidebarToneSurface: ViewModifier {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.self) private var environment
     @Environment(\.sidebarContrast) private var contrast
+    @Environment(\.v3AppearanceMode) private var v3Mode
     let tone: Theme.SidebarTone?
-    var radius = OrivRadius.control
+    var radius: CGFloat? = nil
     var drawsRim = true
 
     func body(content: Content) -> some View {
         let opaque = environment.sidebarChromaticStyle?.opaque ?? environment.sidebarNeedsOpaqueChrome
         let dark = scheme == .dark
-        let shape = RoundedRectangle(cornerRadius: radius)
+        let increased = contrast == .increased
+        let mode = OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: scheme,
+                                                    isPrivateWindow: v3Mode == .private)
+        let effectiveRadius = radius ?? (tone == .search ? OrivMacV3.Radius.sidebarSearch : OrivMacV3.Radius.control)
+        let shape = RoundedRectangle(cornerRadius: effectiveRadius, style: .continuous)
         content.background {
             if let tone {
-                shape.fill(tone.fill(in: theme, dark: dark, opaque: opaque))
-                    .overlay {
-                        if drawsRim {
-                            shape.strokeBorder(theme.sidebarRim(dark: dark, opaque: opaque),
-                                               lineWidth: contrast == .increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                switch tone {
+                case .search:
+                    shape.fill(OrivMacV3.Sidebar.searchFill(mode, solid: mode == .black))
+                        .overlay {
+                            if drawsRim && !increased {
+                                shape.strokeBorder(OrivMacV3.Sidebar.searchInnerRim(mode), lineWidth: OrivOutline.hairline)
+                            }
                         }
-                    }
+                case .hover:
+                    shape.fill(OrivMacV3.Sidebar.rowHover(mode, solid: mode == .black))
+                        .overlay {
+                            if drawsRim && increased {
+                                shape.strokeBorder(OrivMacV3.Card.rimIncreasedContrast(mode), lineWidth: OrivOutline.enhanced)
+                            }
+                        }
+                case .selection:
+                    shape.fill(tone.fill(in: theme, dark: dark, opaque: opaque))
+                        .overlay {
+                            if drawsRim {
+                                shape.strokeBorder(theme.sidebarRim(dark: dark, opaque: opaque),
+                                                   lineWidth: increased ? OrivOutline.enhanced : OrivOutline.hairline)
+                            }
+                        }
+                }
             }
         }
     }
@@ -514,13 +656,42 @@ struct SidebarSelectionSurface: ViewModifier {
     let radius: CGFloat
     var drawsGlow = true
     @Environment(\.self) private var environment
+    @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.v3AppearanceMode) private var v3Mode
 
     func body(content: Content) -> some View {
         content.background {
             if active {
                 let style = environment.sidebarStyle
-                let shape = RoundedRectangle(cornerRadius: radius)
-                if style.opaque {
+                let mode = OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: scheme,
+                                                            isPrivateWindow: v3Mode == .private)
+                let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+                let useV3Neutral = mode == .private || mode == .black || style.isGraphite
+                if useV3Neutral {
+                    let pill = shape
+                        .fill(OrivMacV3.Sidebar.activeFill(mode, solid: style.opaque))
+                        .overlay {
+                            if !style.increased, let specular = OrivMacV3.Sidebar.activeTopHighlight(mode) {
+                                shape.inset(by: OrivOutline.hairline)
+                                    .stroke(
+                                        LinearGradient(colors: [specular, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.25)),
+                                        lineWidth: OrivOutline.hairline * 2
+                                    )
+                            }
+                        }
+                        .overlay {
+                            shape.strokeBorder(
+                                OrivMacV3.Sidebar.activeBorder(mode, increasedContrast: style.increased),
+                                lineWidth: style.increased ? OrivOutline.focus : OrivOutline.hairline
+                            )
+                        }
+                    if drawsGlow && !style.opaque {
+                        pill.orivV3Shadow(OrivMacV3.Sidebar.activeShadow(mode))
+                    } else {
+                        pill
+                    }
+                } else if style.opaque {
                     shape.fill(style.fill).overlay {
                         shape.strokeBorder(style.increased ? style.ink : style.rimBottom,
                                            lineWidth: style.increased ? OrivOutline.focus : OrivOutline.hairline)
@@ -540,20 +711,23 @@ struct SidebarSelectionSurface: ViewModifier {
 
 struct SidebarToneButtonStyle: ButtonStyle {
     var active = false
+    var radius: CGFloat? = nil
 
     func makeBody(configuration: Configuration) -> some View {
-        Face(configuration: configuration, active: active)
+        Face(configuration: configuration, active: active, radius: radius)
     }
 
     private struct Face: View {
         let configuration: Configuration
         let active: Bool
+        let radius: CGFloat?
         @State private var hovered = false
 
         var body: some View {
             configuration.label
                 .environment(\.sidebarRowHovered, !active && hovered)
-                .modifier(SidebarToneSurface(tone: active ? nil : configuration.isPressed ? .selection : hovered ? .hover : nil))
+                .modifier(SidebarToneSurface(tone: active ? nil : configuration.isPressed ? .selection : hovered ? .hover : nil,
+                                             radius: radius))
                 .onHover { hovered = $0 }
         }
     }
@@ -561,11 +735,12 @@ struct SidebarToneButtonStyle: ButtonStyle {
 
 struct SidebarFocusRing: ViewModifier {
     var visible: Bool
+    var radius: CGFloat = OrivMacV3.Radius.control
 
     func body(content: Content) -> some View {
         content.focusEffectDisabled().overlay {
             if visible {
-                RoundedRectangle(cornerRadius: OrivRadius.control)
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .strokeBorder(Theme.sidebarKeyboardFocus, lineWidth: OrivOutline.focus)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -598,15 +773,19 @@ struct SidebarTabArtwork: View {
     let subtitle: String?
     var previewIcons: [String: SiteIcon]? = nil
     var drawsSelectionGlow = true
+    var resolvedStyle: SidebarChromaticStyle? = nil
+    var resolvedMode: OrivMacV3.AppearanceMode? = nil
     #if DEBUG
     @Environment(\.sidebarCaptureState) private var captureState
     #endif
 
     init(tab: BrowserTab, selected: Bool, active: Bool, tile: Bool, rail: Bool, peek: Bool,
-         hovered: Bool, hoveredAccessory: SidebarRowAccessory? = nil, subtitle: String?) {
+         hovered: Bool, hoveredAccessory: SidebarRowAccessory? = nil, subtitle: String?,
+         resolvedStyle: SidebarChromaticStyle? = nil, resolvedMode: OrivMacV3.AppearanceMode? = nil) {
         self.tab = tab; id = tab.id; record = nil; previewIsPrivate = false
         self.selected = selected; self.active = active; self.tile = tile; self.rail = rail
         self.peek = peek; self.hovered = hovered; self.hoveredAccessory = hoveredAccessory; self.subtitle = subtitle
+        self.resolvedStyle = resolvedStyle; self.resolvedMode = resolvedMode
     }
 
     init(record: TabRecord, selected: Bool, tile: Bool, subtitle: String?, icons: [String: SiteIcon],
@@ -637,28 +816,36 @@ struct SidebarTabArtwork: View {
     }
 
     var body: some View {
-        let style = environment.sidebarStyle
-        let selectedInk = active ? style.ink : nil
-        let secondaryInk = style.black || style.increased
-            ? theme.sidebarSecondaryText(contrast) : SidebarChromaticStyle.secondaryInk
-        return HStack(spacing: OrivSpacing.small) {
+        let style = resolvedStyle ?? environment.sidebarStyle
+        let mode = resolvedMode ?? OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: environment.colorScheme,
+                                                                    isPrivateWindow: environment.v3AppearanceMode == .private)
+        let selectedInk = active ? style.v3ActiveInk(mode: mode) : nil
+        let primaryInk = OrivMacV3.Ink.primary(mode)
+        let secondaryInk = OrivMacV3.Ink.secondary(mode, increasedContrast: style.increased)
+        let showsClose = hovered || selected || active
+        return HStack(spacing: rail ? OrivSpacing.small : OrivMacV3.SidebarLayout.tabRowInnerGap) {
             if rail {
-                favicon(selectedInk: selectedInk).frame(width: 42, height: 36)
+                favicon(mode: mode, style: style, selectedInk: selectedInk).frame(width: MacBrowserLayout.railItemWidth, height: MacBrowserLayout.railItemHeight)
                     .overlay(alignment: .bottomTrailing) {
                         if let mediaSymbol { badge(mediaSymbol) }
                     }
                 if peek {
-                    Text(title).font(active ? OrivType.headline : OrivType.body).lineLimit(1)
-                    Spacer(minLength: 0)
+                    Text(title)
+                        .font(active ? OrivMacV3.Typography.sidebarRowActive : OrivMacV3.Typography.sidebarRow)
+                        .tracking(active ? OrivMacV3.Typography.tightTracking : .zero)
+                        .lineLimit(1)
+                    Spacer(minLength: .zero)
                 }
             } else if tile {
-                favicon(selectedInk: selectedInk)
+                favicon(mode: mode, style: style, selectedInk: selectedInk)
             } else {
-                favicon(selectedInk: selectedInk)
-                VStack(alignment: .leading, spacing: 0) {
+                favicon(mode: mode, style: style, selectedInk: selectedInk)
+                VStack(alignment: .leading, spacing: .zero) {
                     Text(title)
                         .font(textSize.isAccessibilitySize ? .system(size: 26, weight: active ? .semibold : .regular)
-                              : (active ? OrivType.headline : OrivType.body))
+                              : (active ? OrivMacV3.Typography.sidebarRowActive : OrivMacV3.Typography.sidebarRow))
+                        .tracking(!textSize.isAccessibilitySize && active ? OrivMacV3.Typography.tightTracking : .zero)
+                        .foregroundStyle(selectedInk ?? (loading ? secondaryInk : primaryInk))
                         .lineLimit(subtitle == nil && textSize.isAccessibilitySize ? 2 : 1)
                     if let subtitle {
                         Text(subtitle)
@@ -668,75 +855,142 @@ struct SidebarTabArtwork: View {
                             .browserGeometryMarker("sidebarHost-\(id)", when: previewIcons == nil)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 0) {
-                    if tab != nil {
-                        accessory(mediaSymbol, kind: .audio, ink: selectedInk ?? secondaryInk)
-                            .browserGeometryMarker("sidebarMedia-\(id)", when: mediaSymbol != nil)
+                if mediaSymbol != nil || showsClose {
+                    HStack(spacing: OrivSpacing.xxs) {
+                        if let mediaSymbol {
+                            accessory(mediaSymbol, kind: .audio, ink: selectedInk ?? OrivMacV3.Sidebar.audioInk(mode))
+                                .browserGeometryMarker("sidebarMedia-\(id)", when: previewIcons == nil)
+                        }
+                        if showsClose {
+                            accessory("xmark", kind: .close,
+                                      ink: (selectedInk ?? secondaryInk)
+                                        .opacity(OrivMacV3.Sidebar.closeAccessoryOpacity(mode, active: active, increasedContrast: style.increased)))
+                                .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
+                        }
                     }
-                    accessory(hovered || selected || active ? "xmark" : nil, kind: .close, ink: selectedInk ?? secondaryInk)
-                        .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
                 }
             }
         }
-        .padding(.horizontal, rail ? 0 : MacBrowserLayout.sidebarRowInset)
+        .padding(.horizontal, rail ? .zero : OrivMacV3.SidebarLayout.tabRowPaddingHorizontal)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .foregroundStyle(selectedInk ?? (style.black ? theme.text : SidebarChromaticStyle.primaryInk))
-        .modifier(SidebarToneSurface(tone: !active && hovered ? .hover : nil, radius: radius))
-        .modifier(SidebarSelectionSurface(active: active, radius: radius, drawsGlow: drawsSelectionGlow))
-        .environment(\.sidebarChromaticStyle, style)
+        .foregroundStyle(selectedInk ?? primaryInk)
+        .background {
+            if active {
+                Rectangle().opacity(0)
+                    .modifier(SidebarSelectionSurface(active: active, radius: radius, drawsGlow: drawsSelectionGlow))
+                    .environment(\.sidebarChromaticStyle, style)
+            } else if tile {
+                pinTileSurface(mode: mode, style: style)
+            } else if hovered {
+                Rectangle().opacity(0)
+                    .modifier(SidebarToneSurface(tone: !tile && !active && hovered ? .hover : nil, radius: radius))
+            }
+        }
         .browserGeometryMarker("sidebarSelection-\(id)", when: active && previewIcons == nil)
         .overlay(alignment: .topTrailing) {
             if tile && hovered {
                 Image(systemName: "xmark").font(OrivIcon.close)
                     .foregroundStyle(selectedInk ?? secondaryInk)
                     .padding(.trailing, OrivSpacing.xxs)
-                    .frame(width: OrivLayout.sidebarPinCloseWidth, height: OrivLayout.sidebarPinCloseHeight, alignment: .trailing)
-                    .modifier(SidebarToneSurface(tone: hoveredAccessory == .close ? .hover : nil, drawsRim: false))
+                    .frame(width: OrivMacV3.SidebarLayout.pinCloseWidth, height: OrivMacV3.SidebarLayout.pinCloseHeight, alignment: .trailing)
+                    .modifier(SidebarToneSurface(tone: hoveredAccessory == .close ? .hover : nil,
+                                                 radius: OrivMacV3.Radius.accessory, drawsRim: false))
                     .browserGeometryMarker("sidebarClose-\(id)", when: previewIcons == nil)
             }
         }
         .overlay {
             if tile && !active && hovered && contrast == .increased {
-                RoundedRectangle(cornerRadius: radius).strokeBorder(theme.text, lineWidth: OrivOutline.focus)
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(theme.text, lineWidth: OrivOutline.focus)
             }
+        }
+    }
+
+    @ViewBuilder private func pinTileSurface(mode: OrivMacV3.AppearanceMode, style: SidebarChromaticStyle) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let tileFill = hovered
+            ? OrivMacV3.Sidebar.pinHoverFill(mode, solid: style.opaque)
+            : OrivMacV3.Sidebar.pinFill(mode, solid: style.opaque && style.black)
+        let tile = shape
+            .fill(tileFill)
+            .overlay {
+                if !style.increased, let specular = OrivMacV3.Sidebar.pinTopHighlight(mode) {
+                    shape.inset(by: OrivOutline.hairline)
+                        .stroke(
+                            LinearGradient(colors: [specular, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.25)),
+                            lineWidth: OrivOutline.hairline
+                        )
+                }
+            }
+            .overlay {
+                shape.strokeBorder(
+                    OrivMacV3.Sidebar.pinBorder(mode, increasedContrast: style.increased),
+                    lineWidth: style.increased ? OrivOutline.enhanced : OrivOutline.hairline
+                )
+            }
+        if style.opaque {
+            tile
+        } else {
+            tile.orivV3Shadow(OrivMacV3.Sidebar.pinShadow(mode))
         }
     }
 
     private var radius: CGFloat {
-        if tile || rail { return OrivLayout.sidebarPinRadius }
-        return active ? OrivLayout.sidebarSelectionRadius : OrivRadius.control
+        OrivMacV3.Radius.row
     }
 
-    private func accessory(_ symbol: String?, kind: SidebarRowAccessory, ink: Color) -> some View {
-        ZStack {
-            if let symbol {
-                Image(systemName: symbol).font(kind == .close ? OrivIcon.close : OrivType.caption)
-                    .foregroundStyle(ink)
-            }
-        }
-        .frame(width: OrivLayout.sidebarAccessoryWidth, height: OrivTarget.macMinimum.height)
-        .modifier(SidebarToneSurface(tone: hoveredAccessory == kind ? .hover : nil, drawsRim: !tile))
+    private func accessory(_ symbol: String, kind: SidebarRowAccessory, ink: Color) -> some View {
+        Image(systemName: symbol)
+            .font(kind == .close ? OrivIcon.close : OrivType.caption)
+            .foregroundStyle(ink)
+            .frame(width: OrivMacV3.SidebarLayout.accessoryVisual, height: OrivMacV3.SidebarLayout.accessoryVisual)
+            .modifier(SidebarToneSurface(tone: hoveredAccessory == kind ? .hover : nil,
+                                         radius: OrivMacV3.Radius.accessory, drawsRim: !tile))
     }
 
     private func badge(_ symbol: String) -> some View {
-        Image(systemName: symbol).font(.system(size: 10, weight: .bold)).frame(width: 12, height: 12)
+        Image(systemName: symbol).font(.system(size: 10, weight: .bold)).frame(width: OrivLayout.sidebarBadgeSize, height: OrivLayout.sidebarBadgeSize)
             .foregroundStyle(theme.text)
             .background(theme.surface, in: Circle())
     }
 
-    private func favicon(selectedInk: Color?) -> some View {
-        let size = rail ? OrivLayout.sidebarRailFaviconSize
-            : (tile ? OrivLayout.sidebarPinIconSize : OrivLayout.sidebarFaviconSize)
-        return ZStack {
-            SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true,
-                         showsSidebarPrivateBadge: rail || tile, previewIcons: previewIcons, sidebarSelectedInk: selectedInk)
-                .environment(\.sidebarRowHovered, hovered && !active)
-                .browserGeometryMarker("sidebarFavicon-\(id)", when: previewIcons == nil)
+    @ViewBuilder private func favicon(mode: OrivMacV3.AppearanceMode, style: SidebarChromaticStyle, selectedInk: Color?) -> some View {
+        let size = rail ? OrivMacV3.SidebarLayout.railFaviconSize
+            : (tile ? OrivMacV3.SidebarLayout.pinIconSize : OrivMacV3.SidebarLayout.tabFaviconSize)
+        Group {
             if loading {
-                Circle().trim(from: 0, to: 0.75).stroke(theme.accent, lineWidth: 2)
-                    .frame(width: rail ? 26 : 24, height: rail ? 26 : 24)
+                SidebarLoadingRing(mode: mode)
+            } else if hovered && !active {
+                SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true,
+                             showsSidebarPrivateBadge: rail || tile, previewIcons: previewIcons,
+                             sidebarSelectedInk: selectedInk, sidebarMode: mode, sidebarStyle: style)
+                    .environment(\.sidebarRowHovered, true)
+            } else {
+                SiteIdentity(url: url, size: size, isPrivate: isPrivate, isSelected: active, sidebarIcon: true,
+                             showsSidebarPrivateBadge: rail || tile, previewIcons: previewIcons,
+                             sidebarSelectedInk: selectedInk, sidebarMode: mode, sidebarStyle: style)
             }
-        }.frame(width: size, height: size)
+        }
+        .frame(width: size, height: size)
+        .browserGeometryMarker("sidebarFavicon-\(id)", when: previewIcons == nil)
+    }
+}
+
+private struct SidebarLoadingRing: View {
+    let mode: OrivMacV3.AppearanceMode
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(OrivMacV3.Sidebar.loadingRingTrack(mode), lineWidth: OrivOutline.focus)
+            Circle()
+                .trim(from: .zero, to: 0.25)
+                .stroke(OrivMacV3.Semantic.accent(mode),
+                        style: StrokeStyle(lineWidth: OrivOutline.focus, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: OrivMacV3.SidebarLayout.loadingRingSize, height: OrivMacV3.SidebarLayout.loadingRingSize)
+        .accessibilityHidden(true)
     }
 }
 

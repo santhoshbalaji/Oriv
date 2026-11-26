@@ -67,7 +67,10 @@ assert "content.environment(\\.sidebarChromaticStyle, style)" in sidebar_source
 assert "OrivMacV3.Sidebar.chromaticSwatches(" in sidebar_source
 assert "orivV3Glass(recipe, in: shape, forceSolid: effectiveOpacity == .solid)" in sidebar_source
 assert "OrivMacV3.Radius.sidebar" in sidebar_source
-assert "tone: !active && hovered ? .hover : nil" in sidebar_source
+assert "tone: !tile && !active && hovered ? .hover : nil" in sidebar_source
+assert "OrivMacV3.Sidebar.activeFill(" in sidebar_source
+assert "OrivMacV3.Sidebar.pinFill(" in sidebar_source
+assert "OrivMacV3.Sidebar.audioInk(" in sidebar_source
 assert "shape.fill(style.fill)" in sidebar_source
 assert "accessibilityReduceTransparency || chromeReduceTransparencyOverride || sidebarContrast == .increased" in sidebar_source
 assert "tone.fill(in: theme, dark: dark, opaque: opaque)" in sidebar_source
@@ -446,6 +449,16 @@ for (key, mode, tint_top, tint_bot, guard_col, solid_top, solid_bot,
     hover_a = 0.08 if mode == "private" else (0.06 if mode != "light" else 0.05)
     search_col = hover_col
     search_a = 0.075 if mode == "private" else (0.065 if mode != "light" else 0.055)
+    pin_col = "D8B4FE" if mode == "private" else ("171717" if mode == "black" else "FFFFFF")
+    pin_a = 0.10 if mode == "private" else (1.0 if mode == "black" else (0.075 if mode == "dark" else 0.52))
+    pin_hover_a = 0.16 if mode == "private" else (1.0 if mode == "black" else (0.13 if mode == "dark" else 0.74))
+    pin_hover_col = "222226" if mode == "black" else pin_col
+    audio_ink = v3_hex("audioInkPrivateHex") if mode == "private" else (
+        v3_hex("audioInkDarkHex") if mode != "light" else v3_hex("audioInkLightHex"))
+    close_active_a = 0.72 if mode == "light" else 0.78
+    fallback_col = "D8B4FE" if mode == "private" else ("1E1E22" if mode == "black" else ("FFFFFF" if mode == "dark" else "141A28"))
+    fallback_a = 0.14 if mode == "private" else (1.0 if mode == "black" else (0.12 if mode == "dark" else 0.07))
+    fallback_ink = primary if mode in ("black", "private") else ("D5DCE8" if mode == "dark" else secondary)
     for step in ("balanced", "high", "solid", "reduce transparency", "increase contrast"):
         opaque = step in ("solid", "reduce transparency", "increase contrast") or mode == "black"
         tint_a = v3_tint_pair[1] if step == "high" else v3_tint_pair[0]
@@ -460,19 +473,48 @@ for (key, mode, tint_top, tint_bot, guard_col, solid_top, solid_bot,
         sec_ink = sec_ic if step == "increase contrast" else secondary
         ter_ink = sec_ic if step == "increase contrast" else tertiary
         for panel in surfaces:
-            hover = composite(hover_col, panel, hover_a)
-            search = composite(search_col, panel, search_a)
+            hover = "171717" if mode == "black" else composite(hover_col, panel, hover_a)
+            search = "1E1E1E" if mode == "black" else composite(search_col, panel, search_a)
+            pin_bg = pin_col if mode == "black" else composite(pin_col, panel, pin_a)
+            pin_hover_bg = pin_hover_col if mode == "black" else composite(pin_hover_col, panel, pin_hover_a)
+            fallback_bg = fallback_col if mode == "black" else composite(fallback_col, panel, fallback_a)
             for state, bg in (("panel", panel), ("hover", hover), ("search", search)):
                 v3_record(step, label, "primary", primary, state, bg, 4.5)
                 v3_record(step, label, "secondary", sec_ink, state, bg, 4.5)
                 v3_record(step, label, "tertiary", ter_ink, state, bg, 4.5)
+            # Phase 4 sidebar controls: audio accessory, pin tiles, fallback favicon marks, profile avatars
+            for state, bg in (("panel", panel), ("hover", hover)):
+                v3_record(step, label, "audio accessory", audio_ink, state, bg, 3.0)
+            for state, bg in (("pin tile", pin_bg), ("pin tile hover", pin_hover_bg)):
+                v3_record(step, label, "pin icon", primary, state, bg, 4.5)
+            v3_record(step, label, "fallback favicon", fallback_ink, "fallback badge", fallback_bg, 4.5)
             act_surfaces = [act_solid] if opaque else [composite(act_top, panel, act_alpha), composite(act_bot, panel, act_alpha)]
             for act_bg in act_surfaces:
                 v3_record(step, label, "active", act_ink, "active row", act_bg, 4.5)
+                close_ink = act_ink if step == "increase contrast" else composite(act_ink, act_bg, close_active_a)
+                v3_record(step, label, "active close", close_ink, "active row", act_bg, 3.0)
                 v3_record(step, label, "focus ring", focus_ring, "active row", act_bg, 3.0)
             v3_record(step, label, "focus ring", focus_ring, "panel", panel, 3.0)
             if step == "increase contrast":
                 v3_record(step, label, "ic border", ic_border, "panel", panel, 3.0)
+                v3_record(step, label, "ic border", ic_border, "pin tile", pin_bg, 3.0)
+        # Profile avatar ink over profile avatar background on solid sidebar fallback
+        if opaque and mode != "private":
+            avatar_specs = [
+                ("mulberry", "A855F7" if mode != "light" else "8B5CF6", "E5B8FF" if mode != "light" else "6B21A8"),
+                ("ocean", "3B82F6", "95C8FF" if mode != "light" else "215B9A"),
+                ("fern", "22C55E", "A3D79A" if mode != "light" else "346738"),
+                ("amber", "F59E0B", "F4C17E" if mode != "light" else "845214"),
+                ("slate", "64748B", "B5C7D9" if mode != "light" else "4B5D70"),
+            ]
+            for prof_name, prof_base, prof_ink in avatar_specs:
+                for panel in (solid_top, solid_bot):
+                    if mode == "black":
+                        av_bgs = ("242428", "1B1B1F")
+                    else:
+                        av_bgs = (composite(prof_base, panel, 0.20), composite(prof_base, panel, 0.30))
+                    for av_bg in av_bgs:
+                        v3_record(step, label, f"profile avatar ({prof_name})", prof_ink, "avatar", av_bg, 3.0)
 
 for step, minima in v3_sidebar_minima.items():
     roles = ("primary", "secondary", "tertiary", "active", "focus ring")

@@ -51,8 +51,8 @@ struct ProfileMenu: View {
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
         .focused($focused)
-        .modifier(SidebarFocusRing(visible: focused && showsKeyboardFocus))
-        .modifier(SidebarToneSurface(tone: hovered ? .hover : nil))
+        .modifier(SidebarFocusRing(visible: focused && showsKeyboardFocus, radius: OrivMacV3.Radius.row))
+        .modifier(SidebarToneSurface(tone: hovered ? .hover : nil, radius: OrivMacV3.Radius.row))
         .onHover { hovered = $0 }
         .transformPreference(SidebarKeyboardFocusKey.self) { $0 = $0 || focused }
         .accessibilityLabel("Profile: \(profiles.active.name)")
@@ -65,30 +65,49 @@ struct ProfileHeaderArtwork: View {
     @Environment(\.sidebarContrast) private var contrast
     @Environment(\.browserTheme) private var theme
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.v3AppearanceMode) private var v3Mode
     let profile: BrowserProfile?
     let tabCount: Int
     var iconOnly = false
     var marksGeometry = true
 
     var body: some View {
+        let mode = OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: scheme,
+                                                    isPrivateWindow: v3Mode == .private)
+        let increased = contrast == .increased
+        let avatarShape = RoundedRectangle(cornerRadius: OrivMacV3.Radius.profileAvatar, style: .continuous)
+        let profileColor = profile?.color ?? .mulberry
         HStack(spacing: OrivSpacing.small) {
-            Image(systemName: profile?.symbol.rawValue ?? "eyeglasses").font(OrivIcon.toolbarFont)
-                .foregroundStyle(profile?.color.sidebarInk(dark: scheme == .dark) ?? theme.sidebarPrivateAccent)
-                .frame(width: OrivLayout.sidebarProfileIconSize, height: OrivLayout.sidebarProfileIconSize)
-                .accessibilityHidden(true)
+            ZStack {
+                avatarShape.fill(OrivMacV3.Sidebar.profileAvatarBg(mode, profile: profileColor))
+                if !increased, let rim = OrivMacV3.Sidebar.profileAvatarRim(mode) {
+                    avatarShape.strokeBorder(rim, lineWidth: OrivOutline.hairline)
+                } else if increased {
+                    avatarShape.strokeBorder(OrivMacV3.Card.rimIncreasedContrast(mode), lineWidth: OrivOutline.hairline)
+                }
+                Image(systemName: profile?.symbol.rawValue ?? "eyeglasses")
+                    .font(OrivMacV3.Typography.detailSemibold)
+                    .foregroundStyle(OrivMacV3.Sidebar.profileAvatarInk(mode, profile: profileColor))
+            }
+            .frame(width: OrivMacV3.SidebarLayout.profileAvatarSize, height: OrivMacV3.SidebarLayout.profileAvatarSize)
+            .accessibilityHidden(true)
             if !iconOnly {
-                Text(profile?.name ?? "Private").font(OrivType.headline).lineLimit(1)
+                Text(profile?.name ?? "Private")
+                    .font(OrivMacV3.Typography.sidebarProfile)
+                    .tracking(OrivMacV3.Typography.tightTracking)
+                    .lineLimit(1)
                     .browserGeometryMarker("sidebarProfileNameGeometry", when: marksGeometry)
-                Text(tabCount.formatted()).font(OrivType.caption.monospacedDigit())
-                    .foregroundStyle(theme.sidebarSecondaryText(contrast))
-                    .browserGeometryMarker("sidebarProfileCountGeometry", when: marksGeometry)
                 Spacer(minLength: 0)
-                if profile != nil { Image(systemName: "chevron.up.chevron.down").font(OrivIcon.close) }
+                if profile != nil {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(OrivMacV3.Typography.shortcutHint)
+                        .foregroundStyle(OrivMacV3.Ink.tertiary(mode, onSidebar: true, increasedContrast: increased))
+                }
             }
         }
-        .foregroundStyle(theme.text)
-        .padding(.horizontal, OrivSpacing.small)
-        .frame(height: OrivLayout.sidebarProfileHeight)
+        .foregroundStyle(OrivMacV3.Ink.primary(mode))
+        .padding(.horizontal, OrivMacV3.SidebarLayout.tabRowPaddingHorizontal)
+        .frame(height: OrivMacV3.SidebarLayout.profileHeight)
         .contentShape(Rectangle())
     }
 }
