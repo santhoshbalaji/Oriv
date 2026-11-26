@@ -492,11 +492,11 @@ import WebKit
         let suggestionProfiles = seededProfiles()
         let session = suggestionProfiles.controller.session
         for (query, index, name) in [("dev", 1, "mac-08-suggestions-keyboard"), ("docs", nil, "mac-09-suggestions-similar")] as [(String, Int?, String)] {
-            await capture(name, directory, CGSize(width: 760, height: 320), key: activate) {
+            await capture(name, directory, CGSize(width: 760, height: 460), key: activate) {
                 AddressSuggestionList(suggestions: session.suggestions(for: query, isPrivate: false), selectedIndex: index,
                                       address: query, engine: session.settings.searchEngine, isPrivate: false,
                                       choose: { _ in }, submit: {})
-                    .frame(width: 720).padding(20).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .frame(width: OrivMacV3.ToolbarLayout.suggestionsWidth).padding(20).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .background(Theme.t3Code.canvas)
             }
         }
@@ -1503,7 +1503,10 @@ import WebKit
 
     private static func renderGlassScenes(into directory: URL, activate: Bool) async {
         let requested = ProcessInfo.processInfo.environment["ORIV_GLASS_SCENE"] ?? "all"
-        for mode in ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "menu", "menu-dark", "menu-private", "menu-narrow", "private", "reduced", "insecure"] where (requested == "all" && !mode.hasPrefix("menu-")) || mode == requested || (requested == "page-menu" && mode.hasPrefix("menu")) {
+        let allModes = ["light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled",
+                        "focused", "focused-dark", "focused-completion", "focused-completion-dark",
+                        "menu", "menu-dark", "menu-private", "menu-narrow", "private", "reduced", "insecure"]
+        for mode in allModes where (requested == "all" && !mode.hasPrefix("menu-")) || mode == requested || (requested == "page-menu" && mode.hasPrefix("menu")) {
             let profiles = BrowserProfiles(testing: true)
             var controller = profiles.controller
             if mode == "private" || mode == "menu-private" {
@@ -1511,12 +1514,36 @@ import WebKit
                 controller = profiles.externalPrivate!
             }
             let tab = controller.session.selectedTab!
+            let isCompletionScene = mode == "focused-completion" || mode == "focused-completion-dark"
+            let isFocusedScene = mode == "focused" || mode == "focused-dark" || isCompletionScene
+            let isDarkScene = mode.hasPrefix("dark") || mode.hasPrefix("theme") || mode == "private"
+                || mode == "menu-dark" || mode == "menu-private"
+                || mode == "focused-dark" || mode == "focused-completion-dark"
             let address = "\(mode == "insecure" ? "http" : "https")://docs.example.com/designing-calm-interfaces"
-            var html = ChromeVisualFixture.html(dark: mode.hasPrefix("dark") || mode.hasPrefix("theme") || mode == "private" || mode == "menu-dark" || mode == "menu-private")
+            var html = ChromeVisualFixture.html(dark: isDarkScene)
             if mode.hasPrefix("theme") { html = html.replacingOccurrences(of: "#111111", with: "#1F6F5C") }
             if mode == "private" || mode == "menu-private" { html = html.replacingOccurrences(of: "#111111", with: "#000000") }
             tab.webView.loadHTMLString(html, baseURL: URL(string: address))
-            if mode != "private" && mode != "menu-private" {
+            if isCompletionScene {
+                // Seed grouped Tab / Bookmark / History matches matching neon-03 ("dev" -> "developer.apple.com").
+                let devTabURL = URL(string: "https://developer.apple.com/documentation/swiftui/liquid-glass")!
+                let devTab = controller.session.addTab(url: devTabURL, select: false, load: false)
+                devTab.webView.loadHTMLString("<html><head><title>Apple Developer Documentation</title></head><body>Docs</body></html>", baseURL: devTabURL)
+                let now = Date()
+                do {
+                    try controller.session.applyContinuity(
+                        bookmarks: [
+                            Bookmark(title: "MDN Web Docs — CSS backdrop-filter", url: URL(string: "https://developer.mozilla.org/en-US/docs/Web/CSS/backdrop-filter")!, createdAt: now),
+                        ],
+                        history: [
+                            HistoryEntry(title: "WebKit Blog — Developing for macOS Tahoe", url: URL(string: "https://webkit.org/blog/16420/developing-for-macos-tahoe/")!, visitedAt: now),
+                            HistoryEntry(title: "Swift.org — Package Development Guide", url: URL(string: "https://swift.org/documentation/package-manager/")!, visitedAt: now.addingTimeInterval(-600)),
+                        ]
+                    )
+                } catch {
+                    manifest.failures.append("\(mode): seed data failed: \(error)")
+                }
+            } else if mode != "private" && mode != "menu-private" {
                 for (card, path) in [(1, "room"), (2, "materials")] {
                     let url = URL(string: "https://docs.example.com/\(path)")!
                     let backgroundTab = controller.session.addTab(url: url, select: false, load: false)
@@ -1524,22 +1551,42 @@ import WebKit
                 }
             }
             try? await Task.sleep(for: .milliseconds(900))
-            let sceneAppearance: BrowserAppearance = mode.hasPrefix("dark") || mode.hasPrefix("theme") || mode == "private" || mode == "menu-dark" || mode == "menu-private" ? .dark : .light
+            let sceneAppearance: BrowserAppearance = isDarkScene ? .dark : .light
             await capture("mac-glass-\(mode)", directory, CGSize(width: mode == "menu-narrow" ? 760 : 1440, height: 848), key: activate, settle: 1_400, compositeWeb: tab.webView,
-                          expectedFields: ["addressField": mode == "focused" ? address : "docs.example.com"],
+                          expectedFields: ["addressField": isCompletionScene ? "developer.apple.com" : (isFocusedScene ? address : "docs.example.com")],
                           appearance: sceneAppearance,
                           prepare: { window in
                 if mode.hasSuffix("scrolled") {
                     _ = try? await tab.webView.evaluateJavaScript("window.scrollTo(0, 560)")
                     try? await Task.sleep(for: .milliseconds(500))
                 }
-                if mode == "focused" {
+                if isFocusedScene {
                     // Exercise the same focus request as the real Command-L menu item.
                     controller.focusAddress()
                     try? await Task.sleep(for: .milliseconds(500))
-                    if let editor = window.firstResponder as? NSTextView,
-                       editor.string == address, editor.selectedRange() == NSRange(location: 0, length: (address as NSString).length) {} else {
-                        manifest.failures.append("focused address did not select the complete URL")
+                    if isCompletionScene {
+                        if let editor = window.firstResponder as? NSTextView {
+                            editor.insertText("dev", replacementRange: editor.selectedRange())
+                            let deadline = ContinuousClock.now + .seconds(4)
+                            while ContinuousClock.now < deadline {
+                                if editor.string == "developer.apple.com",
+                                   editor.selectedRange() == NSRange(location: 3, length: 16),
+                                   controller.profileUI.addressMatches.rows.count >= 2 { break }
+                                try? await Task.sleep(for: .milliseconds(40))
+                            }
+                            if editor.string != "developer.apple.com" || editor.selectedRange() != NSRange(location: 3, length: 16) {
+                                manifest.failures.append("\(mode): inline completion did not populate developer.apple.com")
+                            }
+                            // Highlight the Bookmarks row (index 1) while preserving the inline completion.
+                            controller.profileUI.addressMatches.move(1)
+                            controller.profileUI.addressMatches.move(1)
+                            try? await Task.sleep(for: .milliseconds(250))
+                        } else {
+                            manifest.failures.append("\(mode): address editor did not become first responder")
+                        }
+                    } else if let editor = window.firstResponder as? NSTextView,
+                              editor.string == address, editor.selectedRange() == NSRange(location: 0, length: (address as NSString).length) {} else {
+                        manifest.failures.append("\(mode): focused address did not select the complete URL")
                     }
                 }
                 let geometry = (try? await tab.webView.evaluateJavaScript("({scrollY:window.scrollY,headerTop:document.querySelector('header').getBoundingClientRect().top})")) as? [String: Any] ?? [:]
@@ -2133,6 +2180,7 @@ import WebKit
         let content = window.contentView
         let solidToolbar = content.flatMap { snapshotMarker("browserSolidScrollEdgeGeometry", in: $0) } != nil
         let softEdgeRect = content.flatMap { snapshotMarker("browserSoftScrollEdgeGeometry", in: $0) }.map(frameRect)
+        let scrimRect = content.flatMap { snapshotMarker("browserAddressScrimGeometry", in: $0) }.map(frameRect)
         let addressFocused = content.flatMap { snapshotMarker("browserAddressFocusedGeometry", in: $0) } != nil
 
         NSGraphicsContext.saveGraphicsState()
@@ -2142,8 +2190,8 @@ import WebKit
 
         if let content {
             let rectNames: Set<String> = solidToolbar
-                ? ["browserTopBarGeometry", "browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry", "browserAddressSuggestionsGeometry"]
-                : ["browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry", "browserAddressSuggestionsGeometry"]
+                ? ["browserTopBarGeometry", "browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry"]
+                : ["browserSidebarGeometry", "sidebarSearchPanel", "sidebarTooltipGeometry"]
             let pillNames: Set<String> = solidToolbar
                 ? []
                 : ["browserNavGroupGeometry", "browserAddressGeometry", "browserActionsGroupGeometry"]
@@ -2158,6 +2206,16 @@ import WebKit
                 if !excluded.isEmpty {
                     let clip = NSBezierPath(rect: rect)
                     clip.appendRect(excluded)
+                    clip.windingRule = .evenOdd
+                    clip.addClip()
+                }
+            }
+            for popover in matching(content, in: ["browserAddressSuggestionsGeometry"]) {
+                let excluded = frameRect(popover)
+                if excluded.intersects(rect) {
+                    let radius = OrivMacV3.Radius.sidebar
+                    let clip = NSBezierPath(rect: rect)
+                    clip.append(NSBezierPath(roundedRect: excluded, xRadius: radius, yRadius: radius))
                     clip.windingRule = .evenOdd
                     clip.addClip()
                 }
@@ -2179,6 +2237,14 @@ import WebKit
         }
 
         pageImage.draw(in: rect)
+
+        // Re-apply the page scrim over composited web content while suggestions are visible (outside excluded pills/popover).
+        if let scrimRect, scrimRect.intersects(rect) {
+            let isDark = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let scrimColor = NSColor(OrivMacV3.Suggestions.scrim(isDark ? .dark : .light))
+            scrimColor.setFill()
+            scrimRect.intersection(rect).fill(using: .sourceOver)
+        }
 
         // Re-apply the soft scroll-edge fade over scrolled page pixels (outside the excluded capsules).
         if let softEdgeRect, !solidToolbar, softEdgeRect.intersects(rect) {

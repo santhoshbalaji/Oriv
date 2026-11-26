@@ -2089,6 +2089,17 @@ enum OrivMacV3 {
             }
         }
 
+        static let inlineCompletionInkLightHex: UInt32 = 0x0B3D78
+        static let inlineCompletionInkDarkHex: UInt32 = 0xE0EEFF
+        static let inlineCompletionInkBlackHex: UInt32 = 0xFFFFFF
+        static let inlineCompletionInkPrivateHex: UInt32 = 0xF7F2FD
+
+        static let inlineCompletionCornerRadius: CGFloat = 3
+        static let inlineCompletionTrailingPadding: CGFloat = 2
+        static let inlineCompletionVerticalPadding: CGFloat = 1
+        static let inlineCompletionCaretWidth: CGFloat = 1.5
+        static let inlineCompletionCaretHeight: CGFloat = 15
+
         static func inlineCompletionBg(_ mode: AppearanceMode) -> Color {
             switch mode {
             case .light: rgba(0x007AFF, 0.16)
@@ -2100,29 +2111,78 @@ enum OrivMacV3 {
 
         static func inlineCompletionInk(_ mode: AppearanceMode) -> Color {
             switch mode {
-            case .light: Theme.hex(0x0B3D78)
-            case .dark: Theme.hex(0xE0EEFF)
-            case .black: Theme.hex(0xFFFFFF)
-            case .private: Theme.hex(0xF7F2FD)
+            case .light: Theme.hex(inlineCompletionInkLightHex)
+            case .dark: Theme.hex(inlineCompletionInkDarkHex)
+            case .black: Theme.hex(inlineCompletionInkBlackHex)
+            case .private: Theme.hex(inlineCompletionInkPrivateHex)
             }
         }
 
-        static func tabHintFill(_ mode: AppearanceMode) -> Color {
+        static func inlineCompletionNSBackground(_ mode: AppearanceMode) -> NSColor {
+            NSColor(inlineCompletionBg(mode))
+        }
+
+        static func inlineCompletionNSForeground(_ mode: AppearanceMode) -> NSColor {
+            NSColor(inlineCompletionInk(mode))
+        }
+
+        static func inlineCompletionNSCaret(_ mode: AppearanceMode) -> NSColor {
+            NSColor(focusBorder(mode))
+        }
+
+        @MainActor static var clearSelectionNSColor: NSColor { .clear }
+        @MainActor static var defaultSelectionAttributes: [NSAttributedString.Key: Any] {
+            [
+                .backgroundColor: NSColor.selectedTextBackgroundColor,
+                .foregroundColor: NSColor.selectedTextColor,
+            ]
+        }
+        @MainActor static var focusedNSFont: NSFont { NSFont.systemFont(ofSize: 13.5) }
+        @MainActor static var focusedTypedNSFont: NSFont { NSFont.systemFont(ofSize: 13.5, weight: .medium) }
+        @MainActor static var restNSFont: NSFont { NSFont.systemFont(ofSize: 13, weight: .medium) }
+
+        static let tabHintSolidLightHex: UInt32 = 0xF1F1F2
+        static let tabHintSolidDarkHex: UInt32 = 0x363A43
+        static let tabHintSolidBlackHex: UInt32 = 0x2A2A2E
+        static let tabHintSolidPrivateHex: UInt32 = 0x443060
+
+        static func tabHintFill(_ mode: AppearanceMode, solid: Bool = false) -> Color {
+            if solid {
+                switch mode {
+                case .light: return Theme.hex(tabHintSolidLightHex)
+                case .dark: return Theme.hex(tabHintSolidDarkHex)
+                case .black: return Theme.hex(tabHintSolidBlackHex)
+                case .private: return Theme.hex(tabHintSolidPrivateHex)
+                }
+            }
             switch mode {
-            case .light: rgba(0x0F172A, 0.06)
-            case .dark: rgba(0xFFFFFF, 0.09)
-            case .black: Theme.hex(0x2A2A2E)
-            case .private: rgba(0xD8B4FE, 0.12)
+            case .light: return rgba(0x0F172A, 0.06)
+            case .dark: return rgba(0xFFFFFF, 0.09)
+            case .black: return Theme.hex(tabHintSolidBlackHex)
+            case .private: return rgba(0xD8B4FE, 0.12)
             }
         }
 
-        static func tabHintBorder(_ mode: AppearanceMode) -> Color {
+        static func tabHintBorder(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return Card.rimIncreasedContrast(mode) }
             switch mode {
-            case .light: rgba(0x0F172A, 0.10)
-            case .dark: rgba(0xFFFFFF, 0.14)
-            case .black: Theme.hex(0x3F3F46)
-            case .private: rgba(0xD8B4FE, 0.22)
+            case .light: return rgba(0x0F172A, 0.10)
+            case .dark: return rgba(0xFFFFFF, 0.14)
+            case .black: return Theme.hex(0x3F3F46)
+            case .private: return rgba(0xD8B4FE, 0.22)
             }
+        }
+
+        static func tabHintInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            Ink.secondary(mode, increasedContrast: increasedContrast)
+        }
+
+        static func focusSearchIconInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            focusBorder(mode, increasedContrast: increasedContrast)
+        }
+
+        static func clearIconInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            Suggestions.headerInk(mode, increasedContrast: increasedContrast)
         }
 
         static let privatePillFill = rgba(0xC084FC, 0.24)
@@ -2258,30 +2318,82 @@ enum OrivMacV3 {
     }
 
     enum Suggestions {
-        static func scrim(_ mode: AppearanceMode) -> Color {
+        static func scrim(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return .clear }
             switch mode {
-            case .light: rgba(0x0F1420, 0.08)
-            case .dark: rgba(0x000000, 0.24)
-            case .black: rgba(0x000000, 0.40)
-            case .private: rgba(0x080410, 0.28)
+            case .light: return rgba(0x0F1420, 0.08)
+            case .dark: return rgba(0x000000, 0.24)
+            case .black: return rgba(0x000000, 0.40)
+            case .private: return rgba(0x080410, 0.28)
             }
         }
 
-        static func selectedFill(_ mode: AppearanceMode) -> LinearGradient {
+        // Group headers over the elevated popover surface (tuned for >= 4.5:1 on popoverSolid in all modes).
+        static let headerLightHex: UInt32 = 0x6E7380
+        static let headerDarkHex: UInt32 = 0x9097A6
+        static let headerBlackHex: UInt32 = 0x8A8A8A
+        static let headerPrivateHex: UInt32 = 0x9683B0
+
+        static func headerInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return Ink.secondary(mode, increasedContrast: true) }
+            switch mode {
+            case .light: return Theme.hex(headerLightHex)
+            case .dark: return Theme.hex(headerDarkHex)
+            case .black: return Theme.hex(headerBlackHex)
+            case .private: return Theme.hex(headerPrivateHex)
+            }
+        }
+
+        static func rowHover(_ mode: AppearanceMode, solid: Bool = false) -> Color {
+            if solid {
+                switch mode {
+                case .light: return Theme.hex(0xF0F2F6)
+                case .dark: return Theme.hex(0x2E323D)
+                case .black: return Theme.hex(0x1C1C20)
+                case .private: return Theme.hex(0x382555)
+                }
+            }
+            switch mode {
+            case .light: return rgba(0x0F172A, 0.045)
+            case .dark: return rgba(0xFFFFFF, 0.06)
+            case .black: return Theme.hex(0x1C1C20)
+            case .private: return rgba(0xD8B4FE, 0.08)
+            }
+        }
+
+        static let selectedSolidLightHex: UInt32 = 0xD6E9FF
+        static let selectedSolidDarkHex: UInt32 = 0x293F66
+        static let selectedSolidBlackHex: UInt32 = 0x252A36
+        static let selectedSolidPrivateHex: UInt32 = 0x522D7C
+
+        static func selectedFill(_ mode: AppearanceMode, solid: Bool = false) -> LinearGradient {
+            if solid || mode == .black {
+                let hex: UInt32 = switch mode {
+                case .light: selectedSolidLightHex
+                case .dark: selectedSolidDarkHex
+                case .black: selectedSolidBlackHex
+                case .private: selectedSolidPrivateHex
+                }
+                return LinearGradient(colors: [Theme.hex(hex), Theme.hex(hex)], startPoint: .top, endPoint: .bottom)
+            }
             switch mode {
             case .light:
-                LinearGradient(colors: [rgba(0x007AFF, 0.15), rgba(0x007AFF, 0.11)],
-                               startPoint: .top, endPoint: .bottom)
+                return LinearGradient(colors: [rgba(0x007AFF, 0.15), rgba(0x007AFF, 0.11)],
+                                      startPoint: .top, endPoint: .bottom)
             case .dark:
-                LinearGradient(colors: [rgba(0x3B82F6, 0.28), rgba(0x3B82F6, 0.22)],
-                               startPoint: .top, endPoint: .bottom)
+                return LinearGradient(colors: [rgba(0x3B82F6, 0.28), rgba(0x3B82F6, 0.22)],
+                                      startPoint: .top, endPoint: .bottom)
             case .black:
-                LinearGradient(colors: [Theme.hex(0x252A36), Theme.hex(0x252A36)],
-                               startPoint: .top, endPoint: .bottom)
+                return LinearGradient(colors: [Theme.hex(selectedSolidBlackHex), Theme.hex(selectedSolidBlackHex)],
+                                      startPoint: .top, endPoint: .bottom)
             case .private:
-                LinearGradient(colors: [rgba(0xA855F7, 0.32), rgba(0xA855F7, 0.24)],
-                               startPoint: .top, endPoint: .bottom)
+                return LinearGradient(colors: [rgba(0xA855F7, 0.32), rgba(0xA855F7, 0.24)],
+                                      startPoint: .top, endPoint: .bottom)
             }
+        }
+
+        static func selectedTopHighlight(_ mode: AppearanceMode) -> Color? {
+            mode == .light ? rgba(0xFFFFFF, 0.72) : nil
         }
 
         static func selectedBorder(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
@@ -2311,56 +2423,128 @@ enum OrivMacV3 {
             }
         }
 
-        static func alreadyOpenPillFill(_ mode: AppearanceMode) -> Color {
+        static let alreadyOpenPillSolidLightHex: UInt32 = 0xDEEDFF
+        static let alreadyOpenPillSolidDarkHex: UInt32 = 0x28395A
+        static let alreadyOpenPillSolidBlackHex: UInt32 = 0x1D2C47
+        static let alreadyOpenPillSolidPrivateHex: UInt32 = 0x4B316B
+        static let alreadyOpenPillInkLightHex: UInt32 = 0x0B3D78
+        static let alreadyOpenPillInkDarkHex: UInt32 = 0xCFE4FF
+        static let alreadyOpenPillInkPrivateHex: UInt32 = 0xEAD2FF
+
+        static func alreadyOpenPillFill(_ mode: AppearanceMode, solid: Bool = false) -> Color {
+            if solid {
+                switch mode {
+                case .light: return Theme.hex(alreadyOpenPillSolidLightHex)
+                case .dark: return Theme.hex(alreadyOpenPillSolidDarkHex)
+                case .black: return Theme.hex(alreadyOpenPillSolidBlackHex)
+                case .private: return Theme.hex(alreadyOpenPillSolidPrivateHex)
+                }
+            }
             switch mode {
-            case .light: rgba(0x007AFF, 0.12)
-            case .dark, .black: rgba(0x3B82F6, 0.22)
-            case .private: rgba(0xC084FC, 0.22)
+            case .light: return rgba(0x007AFF, 0.12)
+            case .dark, .black: return rgba(0x3B82F6, 0.22)
+            case .private: return rgba(0xC084FC, 0.22)
             }
         }
 
-        static func alreadyOpenPillBorder(_ mode: AppearanceMode) -> Color {
+        static func alreadyOpenPillBorder(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return alreadyOpenPillInk(mode) }
             switch mode {
-            case .light: rgba(0x007AFF, 0.20)
-            case .dark, .black: rgba(0x93C5FD, 0.30)
-            case .private: rgba(0xD8B4FE, 0.34)
+            case .light: return rgba(0x007AFF, 0.20)
+            case .dark, .black: return rgba(0x93C5FD, 0.30)
+            case .private: return rgba(0xD8B4FE, 0.34)
             }
         }
 
         static func alreadyOpenPillInk(_ mode: AppearanceMode) -> Color {
             switch mode {
-            case .light: Theme.hex(0x0B3D78)
-            case .dark, .black: Theme.hex(0xCFE4FF)
-            case .private: Theme.hex(0xEAD2FF)
+            case .light: Theme.hex(alreadyOpenPillInkLightHex)
+            case .dark, .black: Theme.hex(alreadyOpenPillInkDarkHex)
+            case .private: Theme.hex(alreadyOpenPillInkPrivateHex)
             }
         }
 
-        static func returnKeyChipFill(_ mode: AppearanceMode) -> Color {
+        static let returnKeyChipSolidLightHex: UInt32 = 0xF6FAFF
+        static let returnKeyChipSolidDarkHex: UInt32 = 0x475A7B
+        static let returnKeyChipSolidBlackHex: UInt32 = 0x444852
+        static let returnKeyChipSolidPrivateHex: UInt32 = 0x6A4593
+        static let returnKeyChipInkLightHex: UInt32 = 0x0B3D78
+        static let returnKeyChipInkDarkHex: UInt32 = 0xFFFFFF
+
+        static func returnKeyChipFill(_ mode: AppearanceMode, solid: Bool = false) -> Color {
+            if solid {
+                switch mode {
+                case .light: return Theme.hex(returnKeyChipSolidLightHex)
+                case .dark: return Theme.hex(returnKeyChipSolidDarkHex)
+                case .black: return Theme.hex(returnKeyChipSolidBlackHex)
+                case .private: return Theme.hex(returnKeyChipSolidPrivateHex)
+                }
+            }
             switch mode {
-            case .light: rgba(0xFFFFFF, 0.78)
-            case .dark, .black: rgba(0xFFFFFF, 0.14)
-            case .private: rgba(0xD8B4FE, 0.18)
+            case .light: return rgba(0xFFFFFF, 0.78)
+            case .dark, .black: return rgba(0xFFFFFF, 0.14)
+            case .private: return rgba(0xD8B4FE, 0.18)
             }
         }
 
-        static func returnKeyChipBorder(_ mode: AppearanceMode) -> Color {
+        static func returnKeyChipBorder(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return returnKeyChipInk(mode) }
             switch mode {
-            case .light: rgba(0x007AFF, 0.25)
-            case .dark, .black: rgba(0x93C5FD, 0.32)
-            case .private: rgba(0xD8B4FE, 0.36)
+            case .light: return rgba(0x007AFF, 0.25)
+            case .dark, .black: return rgba(0x93C5FD, 0.32)
+            case .private: return rgba(0xD8B4FE, 0.36)
             }
         }
 
         static func returnKeyChipInk(_ mode: AppearanceMode) -> Color {
-            mode == .light ? Theme.hex(0x0B3D78) : Theme.hex(0xFFFFFF)
+            mode == .light ? Theme.hex(returnKeyChipInkLightHex) : Theme.hex(returnKeyChipInkDarkHex)
         }
 
-        static func enginePillFill(_ mode: AppearanceMode) -> Color {
+        static func returnKeyChipShadow(_ mode: AppearanceMode) -> DualShadow {
+            mode == .light ? DualShadow(primary: ShadowSpec(color: rgba(0x007AFF, 0.08), radius: 2, y: 1)) : .none
+        }
+
+        static let enginePillSolidLightHex: UInt32 = 0xF0F2F4
+        static let enginePillSolidDarkHex: UInt32 = 0x34363F
+        static let enginePillSolidBlackHex: UInt32 = 0x222226
+        static let enginePillSolidPrivateHex: UInt32 = 0x3B2955
+        static let enginePillInkLightHex: UInt32 = 0x5A5F6B
+
+        static func enginePillFill(_ mode: AppearanceMode, solid: Bool = false) -> Color {
+            if solid {
+                switch mode {
+                case .light: return Theme.hex(enginePillSolidLightHex)
+                case .dark: return Theme.hex(enginePillSolidDarkHex)
+                case .black: return Theme.hex(enginePillSolidBlackHex)
+                case .private: return Theme.hex(enginePillSolidPrivateHex)
+                }
+            }
             switch mode {
-            case .light: rgba(0x0F172A, 0.05)
-            case .dark: rgba(0xFFFFFF, 0.08)
-            case .black: Theme.hex(0x222226)
-            case .private: rgba(0xD8B4FE, 0.10)
+            case .light: return rgba(0x0F172A, 0.05)
+            case .dark: return rgba(0xFFFFFF, 0.08)
+            case .black: return Theme.hex(enginePillSolidBlackHex)
+            case .private: return rgba(0xD8B4FE, 0.10)
+            }
+        }
+
+        static func enginePillInk(_ mode: AppearanceMode, increasedContrast: Bool = false) -> Color {
+            if increasedContrast { return Ink.secondary(mode, increasedContrast: true) }
+            return mode == .light ? Theme.hex(enginePillInkLightHex) : Ink.secondary(mode)
+        }
+
+        static func searchIconFill(_ mode: AppearanceMode, selected: Bool = false) -> Color {
+            if selected {
+                switch mode {
+                case .light: return rgba(0x007AFF, 0.12)
+                case .dark, .black: return rgba(0xFFFFFF, 0.14)
+                case .private: return rgba(0xD8B4FE, 0.18)
+                }
+            }
+            switch mode {
+            case .light: return rgba(0x0F172A, 0.06)
+            case .dark: return rgba(0xFFFFFF, 0.08)
+            case .black: return Theme.hex(enginePillSolidBlackHex)
+            case .private: return rgba(0xD8B4FE, 0.10)
             }
         }
 
@@ -2835,6 +3019,9 @@ enum OrivMacV3 {
         static let addressFocusLeadingPadding: CGFloat = 10
         static let addressFocusTrailingPadding: CGFloat = 6
         static let addressFocusGap: CGFloat = 8
+        static let addressFocusIconWidth: CGFloat = 16
+        static let addressTabHintPaddingHorizontal: CGFloat = 6
+        static let addressTabHintPaddingVertical: CGFloat = 2
         static let privatePillHeight: CGFloat = 24
         static let privatePillPaddingHorizontal: CGFloat = 9
         static let privatePillGap: CGFloat = 5
@@ -2843,11 +3030,22 @@ enum OrivMacV3 {
         static let suggestionsWidth: CGFloat = 576
         static let suggestionsTopGap: CGFloat = 7
         static let suggestionsPadding: CGFloat = 8
+        static let suggestionGroupPaddingTop: CGFloat = 6
+        static let suggestionGroupPaddingBottom: CGFloat = 4
+        static let suggestionDividerPaddingVertical: CGFloat = 5
         static let suggestionRowHeight: CGFloat = 46
         static let suggestionRowPaddingHorizontal: CGFloat = 10
         static let suggestionRowGap: CGFloat = 11
+        static let suggestionTextGap: CGFloat = 1
+        static let suggestionChipGap: CGFloat = 6
         static let suggestionIconSize: CGFloat = 24
         static let suggestionSearchRowHeight: CGFloat = 38
+        static let suggestionAlreadyOpenPaddingHorizontal: CGFloat = 9
+        static let suggestionAlreadyOpenPaddingVertical: CGFloat = 3
+        static let suggestionReturnChipPaddingHorizontal: CGFloat = 7
+        static let suggestionReturnChipPaddingVertical: CGFloat = 2
+        static let suggestionEnginePillPaddingHorizontal: CGFloat = 8
+        static let suggestionEnginePillPaddingVertical: CGFloat = 2
         static let handoffHeight: CGFloat = 44
         static let handoffTopOffset: CGFloat = 58
         static let handoffHorizontalInset: CGFloat = 24
@@ -2933,6 +3131,10 @@ enum OrivMacV3 {
         static let sectionCount: Font = .system(size: 11, weight: .medium).monospacedDigit()
         static let shortcutHint: Font = .system(size: 10.5, weight: .medium).monospacedDigit()
         static let shortcutHintBold: Font = .system(size: 10.5, weight: .semibold).monospacedDigit()
+        static let suggestionAlreadyOpenArrow: Font = .system(size: 10, weight: .semibold)
+        static let suggestionSearchSymbol: Font = .system(size: 13, weight: .medium)
+        static let suggestionEnginePill: Font = .system(size: 11, weight: .regular)
+        static let addressFocusSearchIcon: Font = .system(size: 14, weight: .medium)
         static let appIconMonogram: Font = .system(size: 28, weight: .bold)
         static let tightTracking: CGFloat = -0.065
         static let labelTracking: CGFloat = 0.22

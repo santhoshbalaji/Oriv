@@ -298,6 +298,9 @@ assert "OrivMacV3.Toolbar.groupTint(" in mac
 assert "OrivMacV3.Toolbar.scrollEdge(" in mac
 assert "OrivMacV3.Address.restFill(" in mac
 assert "OrivMacV3.Address.focusFill(" in mac
+assert "OrivMacV3.Popover.glassFill(" in mac
+assert "OrivMacV3.Suggestions.scrim(" in mac
+assert "OrivMacV3.Suggestions.selectedFill(" in mac
 assert "ConnectionCue(" in mac and "cue.color(theme)" in mac
 assert ".scrollEdgeEffectStyle(.soft, for: .top)" in mac
 assert "MacAddressPalette" not in mac
@@ -536,20 +539,76 @@ v3_surface_pairs = [
     ("v3 Toolbar Dark solid", "secondary IC", v3_hex("secondaryICDarkHex"), v3_hex("solidDarkHex"), 4.5),
     ("v3 Toolbar Black solid", "secondary IC", v3_hex("secondaryICBlackHex"), v3_hex("solidBlackHex"), 4.5),
     ("v3 Toolbar Private solid", "secondary IC", v3_hex("secondaryICPrivateHex"), v3_hex("solidPrivateHex"), 4.5),
-    # Popover & Suggestions solid fallbacks
+    # Popover & Suggestions solid fallbacks (Light, Dark, Black, Private, RT and IC)
     ("v3 Popover Light", "primary", v3_hex("primaryLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
     ("v3 Popover Light", "secondary", v3_hex("secondaryLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
-    ("v3 Popover Light", "tertiary", v3_hex("tertiaryCardLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
+    ("v3 Popover Light", "secondary IC", v3_hex("secondaryICLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
+    ("v3 Popover Light", "header", v3_hex("headerLightHex"), v3_hex("popoverSolidLightHex"), 4.5),
     ("v3 Popover Dark", "primary", v3_hex("primaryDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
     ("v3 Popover Dark", "secondary", v3_hex("secondaryDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
+    ("v3 Popover Dark", "secondary IC", v3_hex("secondaryICDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
+    ("v3 Popover Dark", "header", v3_hex("headerDarkHex"), v3_hex("popoverSolidDarkHex"), 4.5),
     ("v3 Popover Black", "primary", v3_hex("primaryBlackHex"), v3_hex("popoverSolidBlackHex"), 4.5),
+    ("v3 Popover Black", "secondary", v3_hex("secondaryBlackHex"), v3_hex("popoverSolidBlackHex"), 4.5),
+    ("v3 Popover Black", "secondary IC", v3_hex("secondaryICBlackHex"), v3_hex("popoverSolidBlackHex"), 4.5),
+    ("v3 Popover Black", "header", v3_hex("headerBlackHex"), v3_hex("popoverSolidBlackHex"), 4.5),
     ("v3 Popover Private", "primary", v3_hex("primaryPrivateHex"), v3_hex("popoverSolidPrivateHex"), 4.5),
+    ("v3 Popover Private", "secondary", v3_hex("secondaryPrivateHex"), v3_hex("popoverSolidPrivateHex"), 4.5),
+    ("v3 Popover Private", "secondary IC", v3_hex("secondaryICPrivateHex"), v3_hex("popoverSolidPrivateHex"), 4.5),
+    ("v3 Popover Private", "header", v3_hex("headerPrivateHex"), v3_hex("popoverSolidPrivateHex"), 4.5),
+    # Suggestion selection pills (translucent gradient stops & RT/IC solid)
     ("v3 Popover Light selected", "title", v3_hex("selectedTitleLightHex"), composite("007AFF", v3_hex("popoverSolidLightHex"), 0.15), 4.5),
     ("v3 Popover Light selected", "url", v3_hex("selectedURLLightHex"), composite("007AFF", v3_hex("popoverSolidLightHex"), 0.15), 4.5),
+    ("v3 Popover Light selected solid", "title", v3_hex("selectedTitleLightHex"), v3_hex("selectedSolidLightHex"), 4.5),
+    ("v3 Popover Light selected solid", "url", v3_hex("selectedURLLightHex"), v3_hex("selectedSolidLightHex"), 4.5),
     ("v3 Popover Dark selected", "title", "FFFFFF", composite("3B82F6", v3_hex("popoverSolidDarkHex"), 0.28), 4.5),
     ("v3 Popover Dark selected", "url", v3_hex("selectedURLDarkHex"), composite("3B82F6", v3_hex("popoverSolidDarkHex"), 0.28), 4.5),
+    ("v3 Popover Dark selected solid", "title", "FFFFFF", v3_hex("selectedSolidDarkHex"), 4.5),
+    ("v3 Popover Dark selected solid", "url", v3_hex("selectedURLDarkHex"), v3_hex("selectedSolidDarkHex"), 4.5),
+    ("v3 Popover Black selected solid", "title", "FFFFFF", v3_hex("selectedSolidBlackHex"), 4.5),
+    ("v3 Popover Black selected solid", "url", v3_hex("selectedURLDarkHex"), v3_hex("selectedSolidBlackHex"), 4.5),
     ("v3 Popover Private selected", "title", "FFFFFF", composite("A855F7", v3_hex("popoverSolidPrivateHex"), 0.32), 4.5),
     ("v3 Popover Private selected", "url", v3_hex("selectedURLPrivateHex"), composite("A855F7", v3_hex("popoverSolidPrivateHex"), 0.32), 4.5),
+    ("v3 Popover Private selected solid", "title", "FFFFFF", v3_hex("selectedSolidPrivateHex"), 4.5),
+    ("v3 Popover Private selected solid", "url", v3_hex("selectedURLPrivateHex"), v3_hex("selectedSolidPrivateHex"), 4.5),
+    # Suggestion chips ("Already open", return key, search engine pill) & Tab hint chip
+    ("v3 Suggestions Light alreadyOpen", "chip", v3_hex("alreadyOpenPillInkLightHex"), composite("007AFF", v3_hex("popoverSolidLightHex"), 0.12), 4.5),
+    ("v3 Suggestions Light alreadyOpen solid", "chip", v3_hex("alreadyOpenPillInkLightHex"), v3_hex("alreadyOpenPillSolidLightHex"), 4.5),
+    ("v3 Suggestions Dark alreadyOpen", "chip", v3_hex("alreadyOpenPillInkDarkHex"), composite("3B82F6", v3_hex("popoverSolidDarkHex"), 0.22), 4.5),
+    ("v3 Suggestions Dark alreadyOpen solid", "chip", v3_hex("alreadyOpenPillInkDarkHex"), v3_hex("alreadyOpenPillSolidDarkHex"), 4.5),
+    ("v3 Suggestions Black alreadyOpen solid", "chip", v3_hex("alreadyOpenPillInkDarkHex"), v3_hex("alreadyOpenPillSolidBlackHex"), 4.5),
+    ("v3 Suggestions Private alreadyOpen", "chip", v3_hex("alreadyOpenPillInkPrivateHex"), composite("C084FC", v3_hex("popoverSolidPrivateHex"), 0.22), 4.5),
+    ("v3 Suggestions Private alreadyOpen solid", "chip", v3_hex("alreadyOpenPillInkPrivateHex"), v3_hex("alreadyOpenPillSolidPrivateHex"), 4.5),
+    ("v3 Suggestions Light returnChip", "chip", v3_hex("returnKeyChipInkLightHex"), composite("FFFFFF", v3_hex("selectedSolidLightHex"), 0.78), 4.5),
+    ("v3 Suggestions Light returnChip solid", "chip", v3_hex("returnKeyChipInkLightHex"), v3_hex("returnKeyChipSolidLightHex"), 4.5),
+    ("v3 Suggestions Dark returnChip", "chip", v3_hex("returnKeyChipInkDarkHex"), composite("FFFFFF", v3_hex("selectedSolidDarkHex"), 0.14), 4.5),
+    ("v3 Suggestions Dark returnChip solid", "chip", v3_hex("returnKeyChipInkDarkHex"), v3_hex("returnKeyChipSolidDarkHex"), 4.5),
+    ("v3 Suggestions Black returnChip solid", "chip", v3_hex("returnKeyChipInkDarkHex"), v3_hex("returnKeyChipSolidBlackHex"), 4.5),
+    ("v3 Suggestions Private returnChip", "chip", v3_hex("returnKeyChipInkDarkHex"), composite("D8B4FE", v3_hex("selectedSolidPrivateHex"), 0.18), 4.5),
+    ("v3 Suggestions Private returnChip solid", "chip", v3_hex("returnKeyChipInkDarkHex"), v3_hex("returnKeyChipSolidPrivateHex"), 4.5),
+    ("v3 Suggestions Light enginePill", "chip", v3_hex("enginePillInkLightHex"), composite("0F172A", v3_hex("popoverSolidLightHex"), 0.05), 4.5),
+    ("v3 Suggestions Light enginePill solid", "chip", v3_hex("enginePillInkLightHex"), v3_hex("enginePillSolidLightHex"), 4.5),
+    ("v3 Suggestions Light enginePill IC", "chip", v3_hex("secondaryICLightHex"), v3_hex("enginePillSolidLightHex"), 4.5),
+    ("v3 Suggestions Dark enginePill", "chip", v3_hex("secondaryDarkHex"), composite("FFFFFF", v3_hex("popoverSolidDarkHex"), 0.08), 4.5),
+    ("v3 Suggestions Dark enginePill solid", "chip", v3_hex("secondaryDarkHex"), v3_hex("enginePillSolidDarkHex"), 4.5),
+    ("v3 Suggestions Dark enginePill IC", "chip", v3_hex("secondaryICDarkHex"), v3_hex("enginePillSolidDarkHex"), 4.5),
+    ("v3 Suggestions Black enginePill solid", "chip", v3_hex("secondaryBlackHex"), v3_hex("enginePillSolidBlackHex"), 4.5),
+    ("v3 Suggestions Black enginePill IC", "chip", v3_hex("secondaryICBlackHex"), v3_hex("enginePillSolidBlackHex"), 4.5),
+    ("v3 Suggestions Private enginePill", "chip", v3_hex("secondaryPrivateHex"), composite("D8B4FE", v3_hex("popoverSolidPrivateHex"), 0.10), 4.5),
+    ("v3 Suggestions Private enginePill solid", "chip", v3_hex("secondaryPrivateHex"), v3_hex("enginePillSolidPrivateHex"), 4.5),
+    ("v3 Suggestions Private enginePill IC", "chip", v3_hex("secondaryICPrivateHex"), v3_hex("enginePillSolidPrivateHex"), 4.5),
+    ("v3 Address Light tabHint", "chip", v3_hex("secondaryLightHex"), composite("0F172A", v3_hex("focusSolidLightHex"), 0.06), 4.5),
+    ("v3 Address Light tabHint solid", "chip", v3_hex("secondaryICLightHex"), v3_hex("tabHintSolidLightHex"), 4.5),
+    ("v3 Address Dark tabHint", "chip", v3_hex("secondaryDarkHex"), composite("FFFFFF", v3_hex("focusSolidDarkHex"), 0.09), 4.5),
+    ("v3 Address Dark tabHint solid", "chip", v3_hex("secondaryICDarkHex"), v3_hex("tabHintSolidDarkHex"), 4.5),
+    ("v3 Address Black tabHint solid", "chip", v3_hex("secondaryBlackHex"), v3_hex("tabHintSolidBlackHex"), 4.5),
+    ("v3 Address Private tabHint", "chip", v3_hex("secondaryPrivateHex"), composite("D8B4FE", v3_hex("focusSolidPrivateHex"), 0.12), 4.5),
+    ("v3 Address Private tabHint solid", "chip", v3_hex("secondaryICPrivateHex"), v3_hex("tabHintSolidPrivateHex"), 4.5),
+    # Inline completion highlight over focused capsule solid fallbacks
+    ("v3 Address Light completion", "completion", v3_hex("inlineCompletionInkLightHex"), composite("007AFF", v3_hex("focusSolidLightHex"), 0.16), 4.5),
+    ("v3 Address Dark completion", "completion", v3_hex("inlineCompletionInkDarkHex"), composite("3B82F6", v3_hex("focusSolidDarkHex"), 0.28), 4.5),
+    ("v3 Address Black completion", "completion", v3_hex("inlineCompletionInkBlackHex"), composite("3B82F6", v3_hex("focusSolidBlackHex"), 0.30), 4.5),
+    ("v3 Address Private completion", "completion", v3_hex("inlineCompletionInkPrivateHex"), composite("C084FC", v3_hex("focusSolidPrivateHex"), 0.28), 4.5),
     # Handoff bar & Move button
     ("v3 Handoff Private", "message", v3_hex("messageInkHex"), v3_hex("solidBgHex"), 4.5),
     ("v3 Handoff Move button top", "ink", "FFFFFF", v3_hex("moveButtonTopHex"), 4.5),

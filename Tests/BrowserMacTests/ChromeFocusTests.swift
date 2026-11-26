@@ -1274,17 +1274,71 @@ import XCTest
             try await wait("Zoom control did not appear") { self.marker("browserZoomGeometry", in: w) != nil }
             XCTAssertEqual(try frame("browserZoomGeometry").midY, capsule.midY, accuracy: 1)
             XCTAssertEqual(try frame("browserAddressGeometry"), capsule)
+            let navBeforeFocus = try frame("browserNavGroupGeometry")
+            let actionsBeforeFocus = try frame("browserActionsGroupGeometry")
             c.focusAddress()
-            try await wait("Editing selection or attached suggestions did not mount") {
-                field.currentEditor()?.selectedRange == NSRange(location: 0, length: url.absoluteString.utf16.count)
-                    && self.marker("browserAddressSuggestionsGeometry", in: w) != nil
+            try await wait("Editing selection, expanded capsule, scrim, or attached suggestions did not mount") {
+                guard field.currentEditor()?.selectedRange == NSRange(location: 0, length: url.absoluteString.utf16.count),
+                      self.marker("browserAddressSuggestionsGeometry", in: w) != nil,
+                      self.marker("browserAddressScrimGeometry", in: w) != nil,
+                      self.marker("browserAddressClearGeometry", in: w) != nil,
+                      let current = self.marker("browserAddressGeometry", in: w) else { return false }
+                let rect = current.convert(current.bounds, to: nil)
+                return rect.width > capsule.width + 1
+                    && abs(rect.height - OrivMacV3.ToolbarLayout.addressFocusHeight) <= 1
             }
+            let focusedCapsule = try frame("browserAddressGeometry")
+            XCTAssertGreaterThan(focusedCapsule.width, capsule.width, "Focused capsule expands toward 576 pt")
+            XCTAssertLessThanOrEqual(focusedCapsule.width, OrivMacV3.ToolbarLayout.addressFocusWidth + 1)
+            XCTAssertEqual(focusedCapsule.height, OrivMacV3.ToolbarLayout.addressFocusHeight, accuracy: 1)
+            XCTAssertEqual(focusedCapsule.midX, capsule.midX, accuracy: 1, "Focused expansion stays centered")
+            XCTAssertEqual(focusedCapsule.midY, capsule.midY, accuracy: 1, "Focused expansion keeps toolbar baseline")
+            XCTAssertEqual(try frame("browserNavGroupGeometry"), navBeforeFocus, "Focused expansion must not move leading toolbar pill")
+            XCTAssertEqual(try frame("browserActionsGroupGeometry"), actionsBeforeFocus, "Focused expansion must not move trailing toolbar pill")
+            XCTAssertNotNil(marker("browserAddressSearchIconGeometry", in: w), "Focused capsule replaces connection cue with search icon")
+            XCTAssertNil(marker("browserSiteInformationGeometry", in: w))
             let panel = try frame("browserAddressSuggestionsGeometry")
-            XCTAssertEqual(panel.minX, capsule.minX, accuracy: 1)
-            XCTAssertEqual(panel.width, capsule.width, accuracy: 1)
-            XCTAssertEqual(capsule.minY - panel.maxY, OrivSpacing.xxs, accuracy: 1)
-            XCTAssertEqual(try frame("browserAddressGeometry"), capsule)
+            XCTAssertEqual(panel.minX, focusedCapsule.minX, accuracy: 1)
+            XCTAssertEqual(panel.width, focusedCapsule.width, accuracy: 1)
+            XCTAssertEqual(focusedCapsule.minY - panel.maxY, OrivMacV3.ToolbarLayout.suggestionsTopGap, accuracy: 1)
             try capture("editing-suggestions-zoom")
+
+            // At wider window width, the focused capsule reaches its full 576 × 36 ideal dimensions.
+            w.setContentSize(NSSize(width: 1280, height: 760))
+            try await wait("Wide focused capsule did not reach 576 pt") {
+                guard let current = self.marker("browserAddressGeometry", in: w) else { return false }
+                let rect = current.convert(current.bounds, to: nil)
+                return abs(rect.width - OrivMacV3.ToolbarLayout.addressFocusWidth) <= 1
+            }
+            let wideFocusedCapsule = try frame("browserAddressGeometry")
+            let widePanel = try frame("browserAddressSuggestionsGeometry")
+            XCTAssertEqual(wideFocusedCapsule.width, OrivMacV3.ToolbarLayout.addressFocusWidth, accuracy: 1)
+            XCTAssertEqual(wideFocusedCapsule.height, OrivMacV3.ToolbarLayout.addressFocusHeight, accuracy: 1)
+            XCTAssertEqual(widePanel.width, OrivMacV3.ToolbarLayout.addressFocusWidth, accuracy: 1)
+            XCTAssertEqual(wideFocusedCapsule.minY - widePanel.maxY, OrivMacV3.ToolbarLayout.suggestionsTopGap, accuracy: 1)
+            w.setContentSize(NSSize(width: 1000, height: 760))
+
+            // Clicking the scrim below the popover dismisses focus, suggestions, and scrim.
+            let scrimView = try XCTUnwrap(marker("browserAddressScrimGeometry", in: w))
+            let scrimRect = scrimView.convert(scrimView.bounds, to: nil)
+            try click(NSPoint(x: scrimRect.minX + 24, y: scrimRect.minY + 24), in: w)
+            try await wait("Clicking the scrim did not dismiss address editing and suggestions") {
+                field.currentEditor() == nil
+                    && self.marker("browserAddressSuggestionsGeometry", in: w) == nil
+                    && self.marker("browserAddressScrimGeometry", in: w) == nil
+            }
+
+            // Re-focus and verify the clear button clears the address while keeping focus.
+            c.focusAddress()
+            try await wait("Clear button did not reappear after refocusing") {
+                self.marker("browserAddressClearGeometry", in: w) != nil
+            }
+            try click("browserAddressClearGeometry", in: w)
+            try await wait("Clear button did not clear the address while keeping focus") {
+                c.profileUI.address.isEmpty && field.currentEditor() != nil
+                    && self.marker("browserAddressSuggestionsGeometry", in: w) == nil
+                    && self.marker("browserAddressScrimGeometry", in: w) == nil
+            }
 
             _ = c.session.addTab(isPrivate: true, load: false)
             try await wait("Private address did not mount") {

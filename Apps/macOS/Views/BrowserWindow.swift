@@ -27,6 +27,7 @@ struct BrowserWindow: View {
     @State private var sidebarContainsKeyboardFocus = false
     @State private var addressFocused = false
     @State private var addressHovered = false
+    @State private var inlineCompletionActive = false
     @State private var passwordGuideFallback = false
     @State private var requestingPassword = false
     @FocusState private var findFocused: Bool
@@ -95,10 +96,17 @@ struct BrowserWindow: View {
         // and the start-page column share the center of the page viewport.
         return ceil(buttons + dividers + gaps + 2 * OrivMacV3.ToolbarLayout.groupPadding)
     }
+    private var showsAddressSuggestions: Bool {
+        addressFocused && !ui.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     private var addressWidth: CGFloat {
         let cardWidth = max(0, windowWidth - controller.sidebar.reservation - cardInset)
         let reserved = 2 * (OrivMacV3.ToolbarLayout.paddingHorizontal + toolbarSideWidth + OrivSpacing.small)
-        return min(OrivMacV3.ToolbarLayout.addressRestWidth, max(OrivMacV3.ToolbarLayout.addressMinWidth, cardWidth - reserved))
+        let ideal = addressFocused ? OrivMacV3.ToolbarLayout.addressFocusWidth : OrivMacV3.ToolbarLayout.addressRestWidth
+        return min(ideal, max(OrivMacV3.ToolbarLayout.addressMinWidth, cardWidth - reserved))
+    }
+    private var addressHeight: CGFloat {
+        addressFocused ? OrivMacV3.ToolbarLayout.addressFocusHeight : OrivMacV3.ToolbarLayout.addressRestHeight
     }
     private var compactAddress: String? { tab?.url.flatMap(URLDisplay.site) }
     private var compactAddressWidth: CGFloat? {
@@ -145,6 +153,9 @@ struct BrowserWindow: View {
             }
             .onChange(of: controller.scoped(tab?.url)) { old, new in
                 if old.owner == new.owner, !addressFocused { syncAddress() }
+            }
+            .onChange(of: addressFocused) { _, focused in
+                if !focused { inlineCompletionActive = false }
             }
     }
 
@@ -267,11 +278,17 @@ struct BrowserWindow: View {
             }
             ZStack(alignment: .top) {
                 page
+                if showsAddressSuggestions && !webpageFullscreen {
+                    addressSuggestionsScrim
+                        .zIndex(0.5)
+                        .transition(.opacity)
+                }
                 mainTopBar.zIndex(1)
                     .opacity(webpageFullscreen ? 0 : 1)
                     .allowsHitTesting(!webpageFullscreen)
                     .accessibilityHidden(webpageFullscreen)
             }
+            .animation(OrivMacV3.Motion.standard(reduceMotion: reduceMotion), value: showsAddressSuggestions)
             .background(OrivMacV3.Card.fill(v3Mode))
             .clipShape(cardShape)
             .overlay {
@@ -381,16 +398,18 @@ struct BrowserWindow: View {
         }
         .overlayPreferenceValue(MacAddressBounds.self) { anchor in
             GeometryReader { geometry in
-                if let anchor, addressFocused && !ui.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let anchor, showsAddressSuggestions {
                     let rect = geometry[anchor]
                     let leading = layoutDirection == .rightToLeft ? geometry.size.width - rect.maxX : rect.minX
                     addressSuggestions.frame(width: rect.width)
                         .browserGeometryMarker("browserAddressSuggestionsGeometry")
                         .padding(.leading, max(0, leading))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .offset(y: rect.maxY + OrivSpacing.xxs)
+                        .offset(y: rect.maxY + OrivMacV3.ToolbarLayout.suggestionsTopGap)
+                        .transition(.opacity)
                 }
             }
+            .animation(OrivMacV3.Motion.popover(reduceMotion: reduceMotion), value: showsAddressSuggestions)
         }
     }
 
@@ -570,7 +589,10 @@ struct BrowserWindow: View {
         let recipe = addressFocused
             ? OrivMacV3.Address.focusFill(v3Mode)
             : (addressHovered ? OrivMacV3.Address.hoverFill(v3Mode) : OrivMacV3.Address.restFill(v3Mode))
-        return AddressBarLayout(centered: !addressFocused && compactAddress != nil, spacing: OrivSpacing.xs) {
+        let leadingPadding = addressFocused ? OrivMacV3.ToolbarLayout.addressFocusLeadingPadding : OrivMacV3.ToolbarLayout.addressRestPaddingHorizontal
+        let trailingPadding = addressFocused ? OrivMacV3.ToolbarLayout.addressFocusTrailingPadding : OrivMacV3.ToolbarLayout.addressRestPaddingHorizontal
+        let layoutSpacing = addressFocused ? OrivMacV3.ToolbarLayout.addressFocusGap : OrivSpacing.xs
+        return AddressBarLayout(centered: !addressFocused && compactAddress != nil, spacing: layoutSpacing) {
             addressLeadingControls
             AddressField(text: $ui.address, isEditing: $addressFocused,
                          placeholder: placeholder, displayText: compactAddress,
@@ -585,12 +607,13 @@ struct BrowserWindow: View {
                 return controller.addressError == nil
             }, cancel: { syncAddress() }, completion: ui.addressMatches.completion,
                          hasSelectedSuggestion: ui.addressMatches.selected != nil && ui.addressMatches.query == ui.address,
-                         moveSelection: { ui.addressMatches.move($0) })
+                         moveSelection: { ui.addressMatches.move($0) },
+                         onInlineCompletionChange: { inlineCompletionActive = $0 })
                 .frame(idealWidth: compactAddressWidth, maxWidth: compactAddressWidth ?? .infinity)
                 .frame(height: OrivMacV3.ToolbarLayout.addressInlineIconSize)
                 .overlay(alignment: .leading) {
                     if ui.address.isEmpty && (addressFocused || compactAddress == nil) {
-                        Text(placeholder).font(OrivType.body).foregroundStyle(toolbarSecondaryInk)
+                        Text(placeholder).font(addressFocused ? OrivMacV3.Typography.addressFocused : OrivType.body).foregroundStyle(toolbarSecondaryInk)
                             .lineLimit(1).truncationMode(.tail)
                             .browserGeometryMarker("browserAddressPlaceholderGeometry")
                             .padding(.leading, OrivSpacing.xxs)
@@ -599,8 +622,9 @@ struct BrowserWindow: View {
                 }
             addressTrailingControls
         }
-        .padding(.horizontal, OrivMacV3.ToolbarLayout.addressRestPaddingHorizontal)
-        .frame(height: OrivMacV3.ToolbarLayout.addressRestHeight)
+        .padding(.leading, leadingPadding)
+        .padding(.trailing, trailingPadding)
+        .frame(height: addressHeight)
         .frame(minWidth: OrivMacV3.ToolbarLayout.addressMinWidth, idealWidth: addressWidth, maxWidth: addressWidth)
         .background { AddressCapsuleHitArea { controller.focusAddress() } }
         .modifier(OptionalForegroundStyle(color: usesOpaqueToolbar ? toolbarInk : nil))
@@ -632,6 +656,7 @@ struct BrowserWindow: View {
             }
         }
         .orivV3Shadow(addressFocused ? OrivMacV3.Address.focusShadow(v3Mode) : OrivMacV3.Address.restShadow(v3Mode))
+        .animation(OrivMacV3.Motion.addressFocus(reduceMotion: reduceMotion), value: addressFocused)
         .onHover { addressHovered = $0 }
         .anchorPreference(key: MacAddressBounds.self, value: .bounds) { $0 }
         .browserGeometryMarker("browserAddressGeometry")
@@ -659,7 +684,13 @@ struct BrowserWindow: View {
                 .accessibilityLabel("Private browsing")
                 .browserGeometryMarker("privateAddressPillGeometry")
             }
-            if let tab, tab.url != nil {
+            if addressFocused {
+                Image(systemName: "magnifyingglass").font(OrivMacV3.Typography.addressFocusSearchIcon)
+                    .foregroundStyle(OrivMacV3.Address.focusSearchIconInk(v3Mode, increasedContrast: increasedContrast))
+                    .frame(width: OrivMacV3.ToolbarLayout.addressFocusIconWidth, height: OrivTarget.macMinimum.height)
+                    .accessibilityHidden(true).allowsHitTesting(false)
+                    .browserGeometryMarker("browserAddressSearchIconGeometry")
+            } else if let tab, tab.url != nil {
                 let cue = ConnectionCue(tab)
                 let cueColor: Color? = (usesOpaqueToolbar || cue == .notSecure || cue == .recording) ? cue.color(theme) : nil
                 Button { ui.showSiteInfo.toggle() } label: {
@@ -692,8 +723,44 @@ struct BrowserWindow: View {
     }
 
     private var addressTrailingControls: some View {
-        HStack(spacing: OrivSpacing.xxs) {
-            if let tab, tab.url != nil {
+        HStack(spacing: OrivSpacing.xs) {
+            if addressFocused {
+                if inlineCompletionActive {
+                    let chipShape = RoundedRectangle(cornerRadius: OrivMacV3.Radius.tabHint, style: .continuous)
+                    Text("Tab")
+                        .font(OrivMacV3.Typography.shortcutHintBold)
+                        .foregroundStyle(OrivMacV3.Address.tabHintInk(v3Mode, increasedContrast: increasedContrast))
+                        .padding(.horizontal, OrivMacV3.ToolbarLayout.addressTabHintPaddingHorizontal)
+                        .padding(.vertical, OrivMacV3.ToolbarLayout.addressTabHintPaddingVertical)
+                        .background(OrivMacV3.Address.tabHintFill(v3Mode, solid: requiresSolidScrollEdge), in: chipShape)
+                        .overlay {
+                            chipShape.strokeBorder(
+                                OrivMacV3.Address.tabHintBorder(v3Mode, increasedContrast: increasedContrast),
+                                lineWidth: increasedContrast ? OrivOutline.enhanced : OrivOutline.hairline
+                            )
+                        }
+                        .fixedSize()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .browserGeometryMarker("browserAddressTabHintGeometry")
+                }
+                if !ui.address.isEmpty {
+                    Button {
+                        ui.address = ""
+                        inlineCompletionActive = false
+                        controller.focusAddress()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").font(OrivIcon.toolbarFont)
+                            .foregroundStyle(OrivMacV3.Address.clearIconInk(v3Mode, increasedContrast: increasedContrast))
+                            .frame(width: OrivTarget.macMinimum.width, height: OrivTarget.macMinimum.height)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(ToolbarButtonStyle())
+                    .accessibilityLabel("Clear address")
+                    .help("Clear address")
+                    .browserGeometryMarker("browserAddressClearGeometry")
+                }
+            } else if let tab, tab.url != nil {
                 if tab.pageZoom != 1 {
                     Button { tab.resetZoom() } label: {
                         Text("\(Int(tab.pageZoom * 100))%").font(OrivType.caption.monospacedDigit())
@@ -720,6 +787,21 @@ struct BrowserWindow: View {
                 Spacer(minLength: .zero).frame(width: OrivTarget.macMinimum.width).accessibilityHidden(true)
             }
         }
+    }
+
+    private var addressSuggestionsScrim: some View {
+        OrivMacV3.Suggestions.scrim(v3Mode, increasedContrast: increasedContrast)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { AddressScrimHitArea { dismissAddressEditing() } }
+            .accessibilityHidden(true)
+            .browserGeometryMarker("browserAddressScrimGeometry", when: !increasedContrast)
+    }
+
+    private func dismissAddressEditing() {
+        addressFocused = false
+        inlineCompletionActive = false
+        windowContext.window?.makeFirstResponder(nil)
+        syncAddress()
     }
 
     // Site privacy, share, and browser actions share one trailing glass capsule.
@@ -1115,9 +1197,18 @@ private struct AddressProgressBar: View {
     }
 }
 
-/// The address field's suggestion popover. Separate so it can be rendered on its own.
+/// The address field's floating Liquid Glass suggestion popover.
 struct AddressSuggestionList: View {
     @Environment(\.browserTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.v3AppearanceMode) private var inheritedMode
+    @Environment(\.colorSchemeContrast) private var systemContrast
+    @Environment(\.chromeContrastOverride) private var captureContrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.chromeReduceTransparencyOverride) private var captureReduceTransparency
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var hoveredID: URL?
+
     let suggestions: [BrowserSuggestion]
     let selectedIndex: Int?
     let address: String
@@ -1126,28 +1217,238 @@ struct AddressSuggestionList: View {
     let choose: (BrowserSuggestion) -> Void
     let submit: () -> Void
 
+    private var mode: OrivMacV3.AppearanceMode {
+        if inheritedMode == .private { return .private }
+        return OrivMacV3.AppearanceMode.resolve(theme: theme, colorScheme: colorScheme, isPrivateWindow: false)
+    }
+
+    private var contrast: ColorSchemeContrast { captureContrast ?? systemContrast }
+    private var increasedContrast: Bool { contrast == .increased }
+    private var usesSolid: Bool {
+        OrivMacV3.usesOpaqueSurface(theme: theme, reduceTransparency: reduceTransparency,
+                                    captureReduceTransparency: captureReduceTransparency, contrast: contrast)
+    }
+
+    private var displayedRows: [(index: Int?, match: BrowserSuggestion)] {
+        var rows: [(Int?, BrowserSuggestion)] = suggestions.enumerated().map { ($0.offset, $0.element) }
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, !suggestions.contains(where: { $0.source == .search }) {
+            rows.append((nil, BrowserSuggestion(title: "Search for ‘\(trimmed)’", url: engine.searchURL(trimmed), source: .search)))
+        }
+        return rows
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: OrivSpacing.xs) {
-            ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, match in
-                if index == 0 || suggestions[index - 1].source != match.source {
-                    SectionHeader(title: match.source.rawValue)
-                        .padding(.horizontal, OrivSpacing.medium).padding(.top, OrivSpacing.xs)
+        let rows = displayedRows
+        let popoverShape = RoundedRectangle(cornerRadius: OrivMacV3.Radius.sidebar, style: .continuous)
+        return VStack(alignment: .leading, spacing: .zero) {
+            ForEach(Array(rows.enumerated()), id: \.element.match.id) { position, item in
+                let match = item.match
+                let isSelected = item.index != nil && selectedIndex == item.index
+                let isHovered = hoveredID == match.id
+                let startsGroup = position == 0 || rows[position - 1].match.source != match.source
+
+                if position > 0 && startsGroup {
+                    Rectangle()
+                        .fill(OrivMacV3.Suggestions.divider(mode, increasedContrast: increasedContrast))
+                        .frame(height: increasedContrast ? OrivOutline.enhanced : OrivOutline.hairline)
+                        .padding(.horizontal, OrivMacV3.ToolbarLayout.suggestionRowPaddingHorizontal)
+                        .padding(.vertical, OrivMacV3.ToolbarLayout.suggestionDividerPaddingVertical)
+                        .accessibilityHidden(true)
                 }
+
+                if startsGroup && match.source != .search {
+                    Text(match.source.rawValue)
+                        .font(OrivMacV3.Typography.sectionLabel)
+                        .tracking(OrivMacV3.Typography.labelTracking)
+                        .foregroundStyle(OrivMacV3.Suggestions.headerInk(mode, increasedContrast: increasedContrast))
+                        .padding(.top, OrivMacV3.ToolbarLayout.suggestionGroupPaddingTop)
+                        .padding(.bottom, OrivMacV3.ToolbarLayout.suggestionGroupPaddingBottom)
+                        .padding(.horizontal, OrivMacV3.ToolbarLayout.suggestionRowPaddingHorizontal)
+                        .accessibilityAddTraits(.isHeader)
+                }
+
                 Button { choose(match) } label: {
-                    AddressSuggestionRow(suggestion: match, query: address, isPrivate: isPrivate)
-                        .padding(.horizontal, OrivLayout.rowInset).frame(height: OrivLayout.suggestionRowHeight).contentShape(Rectangle())
-                        .modifier(ListSelection(selected: selectedIndex == index))
-                }.buttonStyle(.plain).accessibilityAddTraits(selectedIndex == index ? [.isSelected] : [])
+                    rowContent(for: match, selected: isSelected, hovered: isHovered)
+                }
+                .buttonStyle(.plain)
+                .onHover { inside in
+                    if inside { hoveredID = match.id }
+                    else if hoveredID == match.id { hoveredID = nil }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+                .modifier(SuggestionAddressAccessibility(url: match.source == .search ? nil : match.url))
             }
-            // Snapshot/noninteractive callers can still supply local matches.
-            if !suggestions.contains(where: { $0.source == .search }) {
-                Button { choose(BrowserSuggestion(title: "Search for ‘\(address)’", url: engine.searchURL(address), source: .search)) } label: {
-                    Label("Search for ‘\(address)’", systemImage: "magnifyingglass")
-                        .lineLimit(1).truncationMode(.middle)
-                        .foregroundStyle(theme.text).padding(.horizontal, OrivLayout.rowInset).frame(height: OrivLayout.controlHeight).frame(maxWidth: .infinity, alignment: .leading)
-                }.buttonStyle(.plain)
+        }
+        .padding(OrivMacV3.ToolbarLayout.suggestionsPadding)
+        .orivV3Glass(OrivMacV3.Popover.glassFill(mode), in: popoverShape)
+        .orivV3Shadow(OrivMacV3.Popover.elevation(mode))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Address suggestions")
+    }
+
+    @ViewBuilder
+    private func rowContent(for match: BrowserSuggestion, selected: Bool, hovered: Bool) -> some View {
+        let isSearch = match.source == .search
+        let rowRadius = isSearch ? OrivMacV3.Radius.sidebarSearch : OrivMacV3.Radius.row
+        let rowShape = RoundedRectangle(cornerRadius: rowRadius, style: .continuous)
+        let targetHeight = isSearch ? OrivMacV3.ToolbarLayout.suggestionSearchRowHeight : OrivMacV3.ToolbarLayout.suggestionRowHeight
+        Group {
+            if isSearch {
+                searchRowBody(match, selected: selected)
+            } else {
+                matchRowBody(match, selected: selected)
             }
-        }.font(OrivType.body).padding(OrivSpacing.small).modifier(OrivMaterial.overlay())
+        }
+        .padding(.horizontal, OrivMacV3.ToolbarLayout.suggestionRowPaddingHorizontal)
+        .frame(minHeight: targetHeight, maxHeight: typeSize.isAccessibilitySize ? nil : targetHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            if selected {
+                rowShape.fill(OrivMacV3.Suggestions.selectedFill(mode, solid: usesSolid))
+                    .overlay {
+                        if !increasedContrast, let highlight = OrivMacV3.Suggestions.selectedTopHighlight(mode) {
+                            rowShape.inset(by: OrivOutline.hairline)
+                                .stroke(
+                                    LinearGradient(colors: [highlight, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.14)),
+                                    lineWidth: OrivOutline.hairline
+                                )
+                        }
+                    }
+                    .overlay {
+                        rowShape.strokeBorder(
+                            OrivMacV3.Suggestions.selectedBorder(mode, increasedContrast: increasedContrast),
+                            lineWidth: increasedContrast ? OrivOutline.focus : OrivOutline.hairline
+                        )
+                    }
+            } else if hovered {
+                rowShape.fill(OrivMacV3.Suggestions.rowHover(mode, solid: usesSolid))
+            }
+        }
+        .contentShape(rowShape)
+    }
+
+    private func matchRowBody(_ match: BrowserSuggestion, selected: Bool) -> some View {
+        let title = match.title.isEmpty ? (URLDisplay.site(match.url) ?? "Page") : match.title
+        let titleInk = selected ? OrivMacV3.Suggestions.selectedTitleInk(mode) : OrivMacV3.Ink.primary(mode)
+        let urlInk = selected ? OrivMacV3.Suggestions.selectedURLInk(mode) : OrivMacV3.Ink.secondary(mode, increasedContrast: increasedContrast)
+        return HStack(spacing: OrivMacV3.ToolbarLayout.suggestionRowGap) {
+            SiteIdentity(url: match.url, size: OrivMacV3.ToolbarLayout.suggestionIconSize, isPrivate: isPrivate, isSelected: selected)
+            VStack(alignment: .leading, spacing: OrivMacV3.ToolbarLayout.suggestionTextGap) {
+                suggestionText(title, query: address)
+                    .font(OrivMacV3.Typography.sidebarRow)
+                    .foregroundStyle(titleInk)
+                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                suggestionText(displayAddress(for: match.url), query: address)
+                    .font(OrivMacV3.Typography.suggestionURL)
+                    .foregroundStyle(urlInk)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: OrivMacV3.ToolbarLayout.suggestionChipGap) {
+                if match.tabID != nil {
+                    alreadyOpenPill
+                }
+                if selected {
+                    returnKeyChip
+                }
+            }
+        }
+    }
+
+    private func searchRowBody(_ match: BrowserSuggestion, selected: Bool) -> some View {
+        let iconShape = RoundedRectangle(cornerRadius: OrivMacV3.Radius.profileAvatar, style: .continuous)
+        let titleInk = selected ? OrivMacV3.Suggestions.selectedTitleInk(mode) : OrivMacV3.Ink.primary(mode)
+        let symbolInk = selected ? OrivMacV3.Suggestions.selectedTitleInk(mode) : OrivMacV3.Ink.secondary(mode, increasedContrast: increasedContrast)
+        let engineInk = selected ? OrivMacV3.Suggestions.selectedURLInk(mode) : OrivMacV3.Suggestions.enginePillInk(mode, increasedContrast: increasedContrast)
+        return HStack(spacing: OrivMacV3.ToolbarLayout.suggestionRowGap) {
+            ZStack {
+                iconShape.fill(OrivMacV3.Suggestions.searchIconFill(mode, selected: selected))
+                Image(systemName: "magnifyingglass")
+                    .font(OrivMacV3.Typography.suggestionSearchSymbol)
+                    .foregroundStyle(symbolInk)
+            }
+            .frame(width: OrivMacV3.ToolbarLayout.suggestionIconSize, height: OrivMacV3.ToolbarLayout.suggestionIconSize)
+            .accessibilityHidden(true)
+
+            suggestionText(match.title, query: address)
+                .font(OrivMacV3.Typography.sidebarRow)
+                .foregroundStyle(titleInk)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: OrivMacV3.ToolbarLayout.suggestionChipGap) {
+                Text(engine.rawValue)
+                    .font(OrivMacV3.Typography.suggestionEnginePill)
+                    .foregroundStyle(engineInk)
+                    .padding(.horizontal, OrivMacV3.ToolbarLayout.suggestionEnginePillPaddingHorizontal)
+                    .padding(.vertical, OrivMacV3.ToolbarLayout.suggestionEnginePillPaddingVertical)
+                    .background(OrivMacV3.Suggestions.enginePillFill(mode, solid: usesSolid), in: Capsule())
+                    .fixedSize()
+                if selected {
+                    returnKeyChip
+                }
+            }
+        }
+    }
+
+    private var alreadyOpenPill: some View {
+        HStack(spacing: OrivSpacing.xs) {
+            Image(systemName: "arrow.right")
+                .font(OrivMacV3.Typography.suggestionAlreadyOpenArrow)
+                .accessibilityHidden(true)
+            Text(OrivStrings.alreadyOpen)
+                .font(OrivMacV3.Typography.shortcutHintBold)
+        }
+        .foregroundStyle(OrivMacV3.Suggestions.alreadyOpenPillInk(mode))
+        .padding(.horizontal, OrivMacV3.ToolbarLayout.suggestionAlreadyOpenPaddingHorizontal)
+        .padding(.vertical, OrivMacV3.ToolbarLayout.suggestionAlreadyOpenPaddingVertical)
+        .background(OrivMacV3.Suggestions.alreadyOpenPillFill(mode, solid: usesSolid), in: Capsule())
+        .overlay {
+            OrivMacV3.CapsuleBorder(
+                color: OrivMacV3.Suggestions.alreadyOpenPillBorder(mode, increasedContrast: increasedContrast),
+                lineWidth: increasedContrast ? OrivOutline.enhanced : OrivOutline.hairline
+            )
+        }
+        .fixedSize()
+    }
+
+    private var returnKeyChip: some View {
+        let shape = RoundedRectangle(cornerRadius: OrivMacV3.Radius.accessory, style: .continuous)
+        return Text("↵")
+            .font(OrivMacV3.Typography.sectionLabel)
+            .foregroundStyle(OrivMacV3.Suggestions.returnKeyChipInk(mode))
+            .padding(.horizontal, OrivMacV3.ToolbarLayout.suggestionReturnChipPaddingHorizontal)
+            .padding(.vertical, OrivMacV3.ToolbarLayout.suggestionReturnChipPaddingVertical)
+            .background(OrivMacV3.Suggestions.returnKeyChipFill(mode, solid: usesSolid), in: shape)
+            .overlay {
+                shape.strokeBorder(
+                    OrivMacV3.Suggestions.returnKeyChipBorder(mode, increasedContrast: increasedContrast),
+                    lineWidth: increasedContrast ? OrivOutline.enhanced : OrivOutline.hairline
+                )
+            }
+            .orivV3Shadow(OrivMacV3.Suggestions.returnKeyChipShadow(mode))
+            .fixedSize()
+            .accessibilityHidden(true)
+    }
+
+    private func displayAddress(for url: URL) -> String {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.user = nil
+        components?.password = nil
+        let value = components?.string ?? url.absoluteString
+        return value.replacingOccurrences(of: "^https?://", with: "", options: .regularExpression)
+    }
+}
+
+private struct SuggestionAddressAccessibility: ViewModifier {
+    let url: URL?
+    @ViewBuilder func body(content: Content) -> some View {
+        if let url { content.accessibilityCustomContent(Text("Address"), Text(verbatim: url.absoluteString)) }
+        else { content }
     }
 }
 

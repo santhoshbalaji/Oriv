@@ -560,16 +560,17 @@ struct DesignSystemGallery: View {
                     Image(systemName: "magnifyingglass")
                         .font(OrivMacV3.Typography.detailSemibold)
                         .foregroundStyle(OrivMacV3.Focus.addressRing(mode, increasedContrast: v3Increased))
-                    HStack(spacing: OrivSpacing.xxs) {
+                    HStack(spacing: .zero) {
                         Text("dev")
                             .font(OrivMacV3.Typography.addressFocusedTyped)
                             .foregroundStyle(primary)
                         Text("eloper.apple.com")
                             .font(OrivMacV3.Typography.addressFocused)
                             .foregroundStyle(OrivMacV3.Address.inlineCompletionInk(mode))
-                            .padding(.horizontal, OrivSpacing.xs)
+                            .padding(.trailing, OrivMacV3.Address.inlineCompletionTrailingPadding)
+                            .padding(.vertical, OrivMacV3.Address.inlineCompletionVerticalPadding)
                             .background(OrivMacV3.Address.inlineCompletionBg(mode),
-                                        in: RoundedRectangle(cornerRadius: OrivMacV3.Radius.tabHint, style: .continuous))
+                                        in: RoundedRectangle(cornerRadius: OrivMacV3.Address.inlineCompletionCornerRadius, style: .continuous))
                         Text("/documentation/")
                             .font(OrivMacV3.Typography.addressFocused)
                             .foregroundStyle(tertiary)
