@@ -1017,6 +1017,12 @@ public final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate {
         endRefreshing()
         view.findInteraction?.dismissFindNavigator()
         #endif
+        // The view can outlive this tab: WebKit's fullscreen or Picture in Picture window,
+        // or any other holder, keeps its page running. Silence it now instead of relying on
+        // deallocation, so a closed or discarded tab never keeps playing.
+        view.closeAllMediaPresentations(completionHandler: nil)
+        view.setAllMediaPlaybackSuspended(true, completionHandler: nil)
+        view.pauseAllMediaPlayback(completionHandler: nil)
         view.navigationDelegate = nil
         view.uiDelegate = nil
         view.stopLoading()

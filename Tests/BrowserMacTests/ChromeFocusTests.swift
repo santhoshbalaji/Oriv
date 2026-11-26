@@ -1828,3 +1828,37 @@ import XCTest
         XCTAssertFalse(w.unhandled.contains("keyDown:"), "Page keys must not fall through to the alert sound: \(w.unhandled)")
     }
 }
+
+
+@MainActor final class ClosedTabMediaTests: BackgroundUITestCase {
+    func testClosingATabStopsItsMediaEvenIfTheViewIsStillHeld() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let w = BackgroundUIMode.Window(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentViewController = NSHostingController(rootView: BrowserWindow(controller: c).browserAppearance(.dark))
+        w.setContentSize(NSSize(width: 1100, height: 760))
+        BackgroundUIMode.show(w)
+        defer { w.close() }
+        let media = c.session.addTab(url: nil, select: true, load: false)
+        // A muted, looping video drawn from a canvas: it plays without a user gesture.
+        media.webView.loadHTMLString("""
+            <html><body><canvas id=c width=64 height=64></canvas><video id=v muted playsinline></video><script>
+            const canvas = document.getElementById('c'), g = canvas.getContext('2d'); let n = 0;
+            setInterval(() => { g.fillStyle = `hsl(${n++ % 360},80%,50%)`; g.fillRect(0, 0, 64, 64); }, 30);
+            const v = document.getElementById('v'); v.srcObject = canvas.captureStream(30); v.play();
+            </script></body></html>
+            """, baseURL: URL(string: "http://127.0.0.1:18768/closed-media"))
+        try await eventually("media page", timeout: 10) { media.url != nil && !media.webView.isLoading }
+        let view = media.webView // An outside holder, like a fullscreen or PiP window.
+        try await eventually("video playing", timeout: 10) {
+            ((try? await view.evaluateJavaScript("!document.getElementById('v').paused")) as? Bool) == true
+        }
+        c.requestCloseTab(media.id)
+        try await eventually("closed tab's video paused", timeout: 5) {
+            ((try? await view.evaluateJavaScript("document.getElementById('v').paused")) as? Bool) == true
+        }
+        let state = await view.requestMediaPlaybackState()
+        XCTAssertNotEqual(state, .playing, "A closed tab must not keep playing")
+    }
+}
