@@ -1785,3 +1785,46 @@ import XCTest
     func resetSpringLoading() {}
 }
 
+
+
+@MainActor final class WebKeyFallthroughTests: BackgroundUITestCase {
+    /// Records key presses that reach the window unclaimed, where AppKit plays its alert sound.
+    final class RecordingWindow: BackgroundUIMode.Window {
+        var unhandled: [String] = []
+        override func noResponder(for eventSelector: Selector) {
+            unhandled.append(NSStringFromSelector(eventSelector))
+            super.noResponder(for: eventSelector)
+        }
+    }
+
+    func testPageKeysThePageDidNotCancelDoNotBeep() async throws {
+        let c = BrowserController(testing: true); defer { c.shutdown() }
+        let w = RecordingWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentViewController = NSHostingController(rootView: BrowserWindow(controller: c).browserAppearance(.dark))
+        w.setContentSize(NSSize(width: 1100, height: 760))
+        BackgroundUIMode.show(w)
+        defer { w.close() }
+        let tab = try XCTUnwrap(c.session.selectedTab)
+        // Like YouTube's shortcuts outside the player: the page reacts but does not cancel.
+        tab.webView.loadHTMLString("<html><body><script>window.keys=[];document.addEventListener('keydown',e=>keys.push(e.key));</script><p>Short page</p></body></html>",
+                                   baseURL: URL(string: "http://127.0.0.1:18768/keys"))
+        try await eventually("page loaded", timeout: 10) { !tab.webView.isLoading && tab.url != nil }
+        try await Task.sleep(for: .milliseconds(300))
+        let right = String(UnicodeScalar(UInt16(NSRightArrowFunctionKey))!)
+        for (code, characters) in [(UInt16(124), right), (UInt16(37), "l")] {
+            w.makeFirstResponder(tab.webView)
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                w.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
+                    characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)))
+            }
+        }
+        try await eventually("page received both keys") {
+            let keys = (try? await tab.webView.evaluateJavaScript("keys.join(',')")) as? String
+            return keys == "ArrowRight,l"
+        }
+        XCTAssertFalse(w.unhandled.contains("keyDown:"), "Page keys must not fall through to the alert sound: \(w.unhandled)")
+    }
+}
