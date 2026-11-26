@@ -56,19 +56,18 @@ struct StartPage: View {
             let cardHeight = proxy.size.height
             // Render without a scroll view whenever the page fits (the normal
             // case); fall back to scrolling only on short windows.
-            let regularMargin = OrivMacV3.StartLayout.headerTopMargin(for: cardHeight, hasTopBars: hasTopBars)
-            let compactMargin = OrivMacV3.StartLayout.headerTopMargin(for: .zero, hasTopBars: hasTopBars)
+            // Narrow cards wrap the bookmarks to two rows, so they use the compact top
+            // margin. Decided from the width (not by a second ViewThatFits candidate,
+            // which can oscillate) so the page still fits without scrolling.
+            let topMargin = cardWidth < OrivMacV3.StartLayout.bookmarkWrapCardWidth
+                ? OrivMacV3.StartLayout.headerTopMargin(for: .zero, hasTopBars: hasTopBars)
+                : OrivMacV3.StartLayout.headerTopMargin(for: cardHeight, hasTopBars: hasTopBars)
             ViewThatFits(in: .vertical) {
-                pageContent(cardWidth: cardWidth, topMargin: regularMargin)
-                    .frame(width: max(1, cardWidth))
-                    .frame(minHeight: max(1, cardHeight), alignment: .top)
-                // Narrow cards wrap bookmarks and stack the cards; tighten the top
-                // margin before resorting to scrolling.
-                pageContent(cardWidth: cardWidth, topMargin: compactMargin)
+                pageContent(cardWidth: cardWidth, topMargin: topMargin)
                     .frame(width: max(1, cardWidth))
                     .frame(minHeight: max(1, cardHeight), alignment: .top)
                 ScrollView(.vertical) {
-                    pageContent(cardWidth: cardWidth, topMargin: compactMargin)
+                    pageContent(cardWidth: cardWidth, topMargin: topMargin)
                         .frame(width: max(1, cardWidth))
                 }
                 .scrollIndicators(.automatic)

@@ -805,12 +805,16 @@ import XCTest
                     let dx = sameTarget && previousDistance?.target == item.target ? (previousDistance?.x ?? x) : x
                     let dy = sameTarget && previousDistance?.target == item.target ? (previousDistance?.y ?? y) : y
                     distances[item.id] = (item.target, dx, dy)
+                    // An interval that spans a retarget moved toward the old target until
+                    // the new one landed, so bound only that interval by the farther target.
+                    let boundX = sameTarget ? dx : max(dx, abs(old.target.midX - old.frame.midX))
+                    let boundY = sameTarget ? dy : max(dy, abs(old.target.midY - old.frame.midY))
                     let step = min(1, 3 * (dt + 1 / Double(screen.maximumFramesPerSecond)) / SidebarReflowMotion.duration)
                     // Hosted runners deliver frames irregularly, so the per-frame
                     // slope bound is a local check; overshoot is checked everywhere.
                     if !Self.isHostedCI {
-                        XCTAssertLessThanOrEqual(abs(item.frame.midX - old.frame.midX), dx * step + 1.5, scenario.rawValue)
-                        XCTAssertLessThanOrEqual(abs(item.frame.midY - old.frame.midY), dy * step + 1.5, scenario.rawValue)
+                        XCTAssertLessThanOrEqual(abs(item.frame.midX - old.frame.midX), boundX * step + 1.5, scenario.rawValue)
+                        XCTAssertLessThanOrEqual(abs(item.frame.midY - old.frame.midY), boundY * step + 1.5, scenario.rawValue)
                     }
                     if sameTarget {
                         XCTAssertLessThanOrEqual(abs(item.target.midX - item.frame.midX), x + 1.5, scenario.rawValue)
@@ -1205,6 +1209,8 @@ import XCTest
         w.makeFirstResponder(nil)
         let focusRequest = c.addressFocusRequest
         let reload = XCTNSNotificationExpectation(name: BrowserTab.navigationStarted, object: tab.webView)
+        // While focused the trailing slot shows Clear; Reload returns once the blur lands.
+        try await wait("Reload did not return after the address lost focus") { self.marker("browserReloadGeometry", in: w) != nil }
         try click("browserReloadGeometry", in: w)
         await fulfillment(of: [reload], timeout: 5)
         XCTAssertEqual(c.addressFocusRequest, focusRequest)
