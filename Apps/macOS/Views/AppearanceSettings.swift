@@ -553,6 +553,8 @@ private struct SettingsToolbar: NSViewRepresentable {
         var increasedContrast = false
         var opaqueColor = Color(nsColor: .windowBackgroundColor)
         private var sizedPane: SettingsPane?
+        private var appliedBackground: Color?
+        private var appliedBackgroundOnce = false
         private lazy var settingsToolbar: NSToolbar = {
             let toolbar = NSToolbar(identifier: "OrivSettings")
             toolbar.delegate = self
@@ -565,6 +567,7 @@ private struct SettingsToolbar: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            appliedBackgroundOnce = false
             installToolbar()
         }
 
@@ -579,9 +582,17 @@ private struct SettingsToolbar: NSViewRepresentable {
                 window.setAccessibilityIdentifier("orivSettingsWindow")
                 window.toolbar = settingsToolbar
             }
-            window.isOpaque = opaqueBackground
-            window.backgroundColor = opaqueBackground ? NSColor(opaqueColor) : .clear
-            window.titlebarSeparatorStyle = increasedContrast ? .line : .none
+            // Assign window state only when it changes: each assignment invalidates the hosting
+            // view's environment, which re-runs this update and loops on heavy panes.
+            if window.isOpaque != opaqueBackground { window.isOpaque = opaqueBackground }
+            let background: Color? = opaqueBackground ? opaqueColor : nil
+            if !appliedBackgroundOnce || appliedBackground != background {
+                appliedBackgroundOnce = true
+                appliedBackground = background
+                window.backgroundColor = background.map { NSColor($0) } ?? .clear
+            }
+            let separator: NSTitlebarSeparatorStyle = increasedContrast ? .line : .none
+            if window.titlebarSeparatorStyle != separator { window.titlebarSeparatorStyle = separator }
             resizeWindow(for: selection, in: window)
             if settingsToolbar.itemIdentifiers != identifiers { settingsToolbar.itemIdentifiers = identifiers }
             if settingsToolbar.selectedItemIdentifier != selection.identifier {
