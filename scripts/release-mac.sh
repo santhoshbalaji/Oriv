@@ -1,10 +1,10 @@
 #!/bin/bash
 # Builds the Developer ID public beta: archive, export, notarize, DMG, Sparkle signature.
 #
-# usage: ORIV_TEAM_ID=<team> scripts/release-mac.sh [--publish]
+# usage: ORIV_DEVELOPMENT_TEAM=<team> scripts/release-mac.sh [--publish]
 #
 # Needs, on the release Mac:
-#   - a "Developer ID Application" certificate for ORIV_TEAM_ID in the login keychain;
+#   - a "Developer ID Application" certificate for ORIV_DEVELOPMENT_TEAM in the login keychain;
 #   - a notarytool keychain profile, ORIV_NOTARY_PROFILE (default "oriv-notary"), made once with
 #     `xcrun notarytool store-credentials oriv-notary --key <AuthKey.p8> --key-id <id> --issuer <issuer>`;
 #   - Sparkle's EdDSA private key in the login keychain (created once with Sparkle's generate_keys).
@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 
 publish=0
 [[ "${1:-}" == "--publish" ]] && publish=1
-: "${ORIV_TEAM_ID:?Set ORIV_TEAM_ID to the Developer ID team}"
+: "${ORIV_DEVELOPMENT_TEAM:?Set ORIV_DEVELOPMENT_TEAM to the Developer ID team}"
 profile="${ORIV_NOTARY_PROFILE:-oriv-notary}"
 
 version=$(awk '/MARKETING_VERSION:/ {print $2; exit}' project.yml)
@@ -35,19 +35,19 @@ fi
 mkdir -p "$out"
 log() { printf '\n== %s\n' "$*"; }
 
-identity=$(security find-identity -v -p codesigning | awk -v team="($ORIV_TEAM_ID)" '/"Developer ID Application:/ && index($0, team) {print $2; exit}')
+identity=$(security find-identity -v -p codesigning | awk -v team="($ORIV_DEVELOPMENT_TEAM)" '/"Developer ID Application:/ && index($0, team) {print $2; exit}')
 [[ -n "$identity" ]] || { echo "No Developer ID Application certificate for this team in the keychain." >&2; exit 1; }
 
 log "Archive $version ($build)"
 xcodebuild -project PersonalBrowser.xcodeproj -scheme OrivReleaseMac -configuration ContinuityRelease \
   -destination 'generic/platform=macOS' -derivedDataPath "$derived" -archivePath "$out/Oriv.xcarchive" \
-  DEVELOPMENT_TEAM="$ORIV_TEAM_ID" ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO -allowProvisioningUpdates \
+  DEVELOPMENT_TEAM="$ORIV_DEVELOPMENT_TEAM" ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO -allowProvisioningUpdates \
   archive > "$out/archive.log" 2>&1 || { tail -30 "$out/archive.log"; exit 1; }
 
 log "Export with Developer ID"
 options="$out/ExportOptions.plist"
 cp Config/Distribution/MacDeveloperID.plist "$options"
-plutil -replace teamID -string "$ORIV_TEAM_ID" "$options"
+plutil -replace teamID -string "$ORIV_DEVELOPMENT_TEAM" "$options"
 xcodebuild -exportArchive -archivePath "$out/Oriv.xcarchive" -exportPath "$out/export" \
   -exportOptionsPlist "$options" -allowProvisioningUpdates > "$out/export.log" 2>&1 || { tail -30 "$out/export.log"; exit 1; }
 rm "$options"

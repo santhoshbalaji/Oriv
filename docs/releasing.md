@@ -23,7 +23,7 @@ The public beta ships as a notarized DMG on GitHub Releases. Sparkle updates ins
 ## Each release
 
 1. Set `MARKETING_VERSION` and a higher `CURRENT_PROJECT_VERSION` in `project.yml` for both apps. Run `xcodegen generate`, and add a `## <version>` section to `docs/releases/CHANGELOG.md`.
-2. Commit, then run `ORIV_TEAM_ID=<team> scripts/release-mac.sh` from a clean checkout of that commit. The script:
+2. Commit, then run `ORIV_DEVELOPMENT_TEAM=<team> scripts/release-mac.sh` from a clean checkout of that commit. The script:
    - archives a universal build and exports it with Developer ID;
    - checks the signature, hardened runtime, sandbox and production iCloud entitlements, and the feed URL;
    - notarizes and staples the app;
