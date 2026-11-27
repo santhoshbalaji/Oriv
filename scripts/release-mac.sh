@@ -55,8 +55,11 @@ app="$out/export/Oriv.app"
 
 log "Verify signature, entitlements and update feed"
 codesign --verify --deep --strict "$app"
-codesign -dv "$app" 2>&1 | grep -q '^Authority=Developer ID Application' || { echo "Not signed with Developer ID." >&2; exit 1; }
-codesign -dv "$app" 2>&1 | grep -q 'flags=.*runtime' || { echo "Hardened runtime is off." >&2; exit 1; }
+# Only -dvv lists the certificate chain. Capture first: with pipefail, grep -q
+# closing the pipe early would make codesign's exit status fail the check.
+signing=$(codesign -dvv "$app" 2>&1)
+grep -q '^Authority=Developer ID Application' <<<"$signing" || { echo "Not signed with Developer ID." >&2; exit 1; }
+grep -q 'flags=.*runtime' <<<"$signing" || { echo "Hardened runtime is off." >&2; exit 1; }
 codesign -d --entitlements :- "$app" > "$out/entitlements.plist" 2>/dev/null
 python3 -I - "$out/entitlements.plist" <<'PY'
 import plistlib, sys
@@ -71,8 +74,8 @@ PY
   || { echo "The update feed URL is missing." >&2; exit 1; }
 [[ "$(plutil -extract CFBundleVersion raw "$app/Contents/Info.plist")" == "$build" ]] \
   || { echo "The built CFBundleVersion doesn't match project.yml." >&2; exit 1; }
-lipo -archs "$app/Contents/MacOS/Oriv" | grep -q 'x86_64' && lipo -archs "$app/Contents/MacOS/Oriv" | grep -q 'arm64' \
-  || { echo "The app isn't universal." >&2; exit 1; }
+archs=$(lipo -archs "$app/Contents/MacOS/Oriv")
+[[ " $archs " == *" x86_64 "* && " $archs " == *" arm64 "* ]] || { echo "The app isn't universal." >&2; exit 1; }
 
 notarize() {
   local file="$1" result
