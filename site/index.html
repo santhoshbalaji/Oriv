@@ -1,0 +1,3183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Oriv — Quiet, Private, Native Browser for Mac &amp; iPhone</title>
+<meta name="description" content="Oriv is a free, private, open-source native browser for Mac and iPhone built with SwiftUI and Apple WebKit. Public beta for macOS 26+, iPhone coming soon." />
+<meta name="theme-color" content="#0D070C" />
+<link rel="canonical" href="https://oriv.dev/" />
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Oriv" />
+<meta property="og:url" content="https://oriv.dev/" />
+<meta property="og:title" content="Oriv — Quiet by design" />
+<meta property="og:description" content="A free, private, native browser for Mac and iPhone, built with SwiftUI and Apple WebKit. Open source, in public beta." />
+<meta property="og:image" content="https://oriv.dev/assets/og.jpg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Oriv, a quiet native browser for Mac and iPhone" />
+<meta name="twitter:card" content="summary_large_image" />
+<script>
+  (function () {
+    var root = document.documentElement;
+    root.classList.add('js');
+    var params = new URLSearchParams(window.location.search);
+    var forceStill = params.get('motion') === 'reduce';
+    var reduced = forceStill || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (!reduced) {
+      root.classList.add('motion-on');
+    } else {
+      root.classList.add('motion-reduced');
+    }
+    if (params.has('progress')) {
+      root.classList.add('is-scrubbed');
+    }
+  })();
+</script>
+<style>
+  /* ==========================================================================
+     ORIV.DEV v3 — CINEMATIC STORY SYSTEM (REAL APP SCREENSHOTS)
+     Typography: System San Francisco only
+     Brand: Plum #652A3A / #381925, Porcelain #FFF7ED
+     Profiles: Mulberry, Ocean, Fern, Amethyst Dusk
+  ========================================================================== */
+  :root {
+    --font-sf: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+
+    /* Core brand */
+    --plum: #652A3A;
+    --plum-deep: #381925;
+    --plum-bright: #9E4761;
+    --porcelain: #FFF7ED;
+    --porcelain-soft: rgba(255, 247, 237, 0.78);
+    --porcelain-mute: rgba(255, 247, 237, 0.56);
+    --porcelain-hair: rgba(255, 247, 237, 0.14);
+
+    /* Cinema dark stage */
+    --cinema-bg: #0B060A;
+    --cinema-surface: rgba(25, 16, 23, 0.72);
+    --cinema-border: rgba(255, 247, 237, 0.14);
+
+    /* Profile palettes */
+    --mulberry-glow: rgba(196, 112, 184, 0.28);
+    --ocean-glow: rgba(88, 166, 255, 0.28);
+    --fern-glow: rgba(93, 211, 140, 0.26);
+    --private-cue: #D5AAF8;
+    --private-accent: #713692;
+
+    /* Layout metrics */
+    --nav-h: 58px;
+    --max-w: 1180px;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    background: var(--cinema-bg);
+    color: var(--porcelain);
+    font-family: var(--font-sf);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow-x: clip;
+  }
+
+  body {
+    font-family: var(--font-sf);
+    background: var(--cinema-bg);
+    color: var(--porcelain);
+    line-height: 1.5;
+    overflow-x: clip;
+    position: relative;
+  }
+
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  img, svg { display: block; max-width: 100%; }
+
+  :focus-visible {
+    outline: 2px solid var(--porcelain);
+    outline-offset: 3px;
+    border-radius: 8px;
+  }
+
+  .skip-link {
+    position: fixed;
+    left: -9999px;
+    top: 12px;
+    z-index: 999;
+    padding: 10px 18px;
+    border-radius: 999px;
+    background: var(--porcelain);
+    color: var(--plum-deep);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .skip-link:focus { left: 16px; }
+
+  /* Scrubbed ?progress=0.xx viewport lock (keeps scrollY=0 for deterministic headless screenshots) */
+  html.is-scrubbed,
+  html.is-scrubbed body {
+    height: 100vh;
+    overflow: hidden;
+  }
+  html.is-scrubbed .scene-sticky {
+    position: relative !important;
+    top: auto !important;
+  }
+  html.is-scrubbed *,
+  html.is-scrubbed *::before,
+  html.is-scrubbed *::after {
+    transition: none !important;
+  }
+
+  /* ==========================================================================
+     REAL-TIME FLUID MESH CANVAS
+  ========================================================================== */
+  #mesh-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 280ms ease;
+  }
+  html:not(.js) #mesh-canvas {
+    display: none;
+  }
+
+  .cinema-vignette {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 85% 75% at 50% 44%, transparent 38%, rgba(7, 4, 8, 0.56) 100%);
+  }
+
+  /* ==========================================================================
+     PERSISTENT FLOATING HEADER (DOWNLOAD ALWAYS VISIBLE)
+  ========================================================================== */
+  .site-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--nav-h);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    background: rgba(14, 8, 13, 0.58);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    border-bottom: 1px solid rgba(255, 247, 237, 0.10);
+    transition: background 240ms ease, border-color 240ms ease, color 240ms ease;
+  }
+  .site-nav.is-light {
+    background: rgba(255, 247, 237, 0.86);
+    border-bottom-color: rgba(56, 25, 37, 0.12);
+    color: var(--plum-deep);
+  }
+  .site-nav-inner {
+    width: 100%;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .brand-lockup {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .brand-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
+  .brand-name {
+    font-size: 16.5px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+  .beta-badge {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255, 247, 237, 0.10);
+    border: 1px solid rgba(255, 247, 237, 0.18);
+    color: var(--porcelain-soft);
+  }
+  .site-nav.is-light .beta-badge {
+    background: rgba(101, 42, 58, 0.09);
+    border-color: rgba(101, 42, 58, 0.20);
+    color: var(--plum);
+  }
+
+  .chapter-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 247, 237, 0.06);
+    border: 1px solid rgba(255, 247, 237, 0.10);
+    border-radius: 999px;
+    padding: 3px;
+  }
+  .site-nav.is-light .chapter-nav {
+    background: rgba(56, 25, 37, 0.06);
+    border-color: rgba(56, 25, 37, 0.10);
+  }
+  .chapter-link {
+    font-size: 12px;
+    font-weight: 560;
+    padding: 4px 11px;
+    border-radius: 999px;
+    color: var(--porcelain-mute);
+    transition: background 180ms ease, color 180ms ease;
+    white-space: nowrap;
+  }
+  .chapter-link:hover { color: var(--porcelain); }
+  .chapter-link.is-active {
+    background: rgba(255, 247, 237, 0.15);
+    color: var(--porcelain);
+  }
+  .site-nav.is-light .chapter-link { color: rgba(56, 25, 37, 0.68); }
+  .site-nav.is-light .chapter-link:hover { color: var(--plum-deep); }
+  .site-nav.is-light .chapter-link.is-active {
+    background: var(--plum);
+    color: var(--porcelain);
+  }
+
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .nav-gh-link {
+    font-size: 13px;
+    font-weight: 560;
+    color: var(--porcelain-soft);
+    padding: 6px 11px;
+    border-radius: 999px;
+    transition: background 160ms ease, color 160ms ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .nav-gh-link:hover {
+    background: rgba(255, 247, 237, 0.10);
+    color: var(--porcelain);
+  }
+  .site-nav.is-light .nav-gh-link { color: rgba(56, 25, 37, 0.78); }
+  .site-nav.is-light .nav-gh-link:hover {
+    background: rgba(56, 25, 37, 0.08);
+    color: var(--plum-deep);
+  }
+
+  .nav-download-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 34px;
+    padding: 0 15px;
+    border-radius: 999px;
+    background: var(--porcelain);
+    color: var(--plum-deep);
+    font-size: 13px;
+    font-weight: 660;
+    letter-spacing: -0.01em;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+    white-space: nowrap;
+  }
+  .nav-download-btn:hover {
+    transform: translateY(-1px);
+    background: #FFFFFF;
+  }
+  .site-nav.is-light .nav-download-btn {
+    background: var(--plum);
+    color: var(--porcelain);
+    box-shadow: 0 4px 16px rgba(101, 42, 58, 0.26);
+  }
+  .site-nav.is-light .nav-download-btn:hover { background: var(--plum-deep); }
+
+  .nav-progress-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: transparent;
+    pointer-events: none;
+  }
+  .nav-progress-fill {
+    height: 100%;
+    width: 100%;
+    transform-origin: left center;
+    transform: scaleX(0);
+    background: linear-gradient(90deg, #E7A0B5 0%, #FFF7ED 50%, #D5AAF8 100%);
+  }
+  .site-nav.is-light .nav-progress-fill {
+    background: linear-gradient(90deg, var(--plum) 0%, var(--plum-deep) 100%);
+  }
+
+  /* ==========================================================================
+     MAIN STORY CONTAINER & PINNED SCROLL SCENES
+  ========================================================================== */
+  main {
+    position: relative;
+    z-index: 2;
+  }
+
+  .scene {
+    position: relative;
+    padding: 96px 0 88px;
+  }
+  .scene-sticky {
+    position: relative;
+    width: 100%;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 0 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  html.js.motion-on .scene { padding: 0; }
+  html.js.motion-on .scene[data-scene="opening"]  { height: 240vh; }
+  html.js.motion-on .scene[data-scene="privacy"]  { height: 290vh; }
+  html.js.motion-on .scene[data-scene="address"]  { height: 240vh; }
+  html.js.motion-on .scene[data-scene="profiles"] { height: 320vh; }
+  html.js.motion-on .scene[data-scene="private"]  { height: 210vh; }
+  html.js.motion-on .scene[data-scene="sync"]     { height: 260vh; }
+
+  html.js.motion-on .scene-sticky {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    padding-top: calc(var(--nav-h) + 12px);
+    padding-bottom: 20px;
+    overflow: hidden;
+    justify-content: center;
+  }
+
+  /* ==========================================================================
+     REAL SCREENSHOT PRESENTATION (ZERO FAKE CHROME, TRANSPARENT CORNERS)
+  ========================================================================== */
+  .mac-shot-img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1440 / 848;
+    border: 0;
+    background: transparent;
+    filter:
+      drop-shadow(0 36px 70px rgba(0, 0, 0, 0.78))
+      drop-shadow(0 12px 26px rgba(0, 0, 0, 0.48));
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .mac-shot-img.is-private-shot {
+    filter:
+      drop-shadow(0 38px 82px rgba(0, 0, 0, 0.88))
+      drop-shadow(0 0 58px rgba(113, 54, 146, 0.42));
+  }
+
+  /* ==========================================================================
+     SHARED EDITORIAL SCENE TYPOGRAPHY
+  ========================================================================== */
+  .scene-head {
+    text-align: center;
+    max-width: 760px;
+    margin: 0 auto 20px;
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
+  }
+  .scene-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 247, 237, 0.70);
+    margin-bottom: 10px;
+  }
+  .scene-kicker .k-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #F4BFD1;
+    box-shadow: 0 0 12px #F4BFD1;
+  }
+  .scene-title {
+    font-size: clamp(2.15rem, 4.2vw, 3.65rem);
+    font-weight: 740;
+    line-height: 1.04;
+    letter-spacing: -0.04em;
+    color: var(--porcelain);
+    margin-bottom: 10px;
+  }
+  .scene-sub {
+    font-size: clamp(0.98rem, 1.35vw, 1.14rem);
+    line-height: 1.48;
+    color: var(--porcelain-soft);
+    max-width: 620px;
+    margin: 0 auto;
+    letter-spacing: -0.01em;
+  }
+
+  /* ==========================================================================
+     SCENE 1: OPENING — KOLAM WEAVE + HERO + RISING REAL MAC WINDOW
+  ========================================================================== */
+  .opening-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    perspective: 1400px;
+  }
+
+  .hero-kolam-wrap {
+    position: absolute;
+    left: 50%;
+    top: 42%;
+    width: min(650px, 86vw);
+    height: min(650px, 86vw);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 1;
+    will-change: transform, opacity;
+  }
+  .hero-kolam-glow {
+    position: absolute;
+    inset: 4%;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle, rgba(168, 66, 98, 0.36) 0%, rgba(101, 42, 58, 0.24) 44%, rgba(56, 25, 37, 0) 74%);
+    filter: blur(28px);
+  }
+  .hero-kolam-orbit {
+    position: absolute;
+    inset: 2%;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 247, 237, 0.09);
+  }
+  .hero-kolam-orbit::after {
+    content: "";
+    position: absolute;
+    inset: 14%;
+    border-radius: 50%;
+    border: 1px dashed rgba(255, 247, 237, 0.08);
+  }
+  .hero-kolam-svg {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    filter: drop-shadow(0 0 38px rgba(244, 184, 204, 0.24)) drop-shadow(0 18px 44px rgba(20, 6, 12, 0.72));
+  }
+  .kolam-ghost {
+    fill: none;
+    stroke: rgba(255, 247, 237, 0.08);
+    stroke-width: 66;
+    stroke-linecap: butt;
+    stroke-linejoin: round;
+  }
+  .kolam-strand {
+    fill: none;
+    stroke: url(#kolamGrad);
+    stroke-width: 66;
+    stroke-linecap: butt;
+    stroke-linejoin: round;
+    stroke-dasharray: 820;
+    stroke-dashoffset: 0;
+  }
+
+  .hero-copy::before {
+    content: "";
+    position: absolute;
+    inset: -32px -48px;
+    z-index: -1;
+    border-radius: 999px;
+    background: radial-gradient(ellipse 68% 64% at 50% 48%, rgba(22, 10, 17, 0.64) 0%, rgba(22, 10, 17, 0.26) 58%, transparent 82%);
+    pointer-events: none;
+  }
+  .hero-copy {
+    position: relative;
+    z-index: 4;
+    text-align: center;
+    max-width: 820px;
+    padding: 0 12px;
+    will-change: transform, opacity;
+  }
+  html.js.motion-on .hero-copy {
+    position: absolute;
+    top: clamp(78px, 12vh, 134px);
+    left: 50%;
+    width: min(820px, 92vw);
+    transform: translate3d(-50%, 0, 0);
+  }
+
+  .hero-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 14px 6px 10px;
+    border-radius: 999px;
+    background: rgba(56, 25, 37, 0.62);
+    border: 1px solid rgba(255, 247, 237, 0.22);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--porcelain);
+    margin-bottom: 20px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.26);
+  }
+  .hero-pill-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #F4BFD1;
+    box-shadow: 0 0 12px #F4BFD1;
+  }
+
+  .hero-h1 {
+    font-size: clamp(3rem, 7.2vw, 5.75rem);
+    font-weight: 760;
+    line-height: 0.98;
+    letter-spacing: -0.048em;
+    margin-bottom: 18px;
+    background: linear-gradient(180deg, #FFFFFF 0%, #FFF7ED 58%, #E6C7D0 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  }
+  .hero-lead {
+    font-size: clamp(1.06rem, 1.75vw, 1.32rem);
+    line-height: 1.48;
+    color: rgba(255, 247, 237, 0.88);
+    max-width: 640px;
+    margin: 0 auto 28px;
+    letter-spacing: -0.015em;
+  }
+
+  .hero-ctas {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .btn-porcelain {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    height: 50px;
+    padding: 0 26px;
+    border-radius: 999px;
+    background: var(--porcelain);
+    color: var(--plum-deep);
+    font-size: 15.5px;
+    font-weight: 680;
+    letter-spacing: -0.015em;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.55) inset;
+    transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+  }
+  .btn-porcelain:hover {
+    transform: translateY(-2px);
+    background: #FFFFFF;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.50), 0 0 0 1px #FFFFFF inset;
+  }
+  .btn-glass {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    height: 50px;
+    padding: 0 22px;
+    border-radius: 999px;
+    background: rgba(255, 247, 237, 0.09);
+    color: var(--porcelain);
+    border: 1px solid rgba(255, 247, 237, 0.24);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    font-size: 14.5px;
+    font-weight: 580;
+    letter-spacing: -0.01em;
+    transition: background 160ms ease, border-color 160ms ease;
+  }
+  .btn-glass:hover {
+    background: rgba(255, 247, 237, 0.16);
+    border-color: rgba(255, 247, 237, 0.42);
+  }
+  .pill-soon {
+    font-size: 10.5px;
+    font-weight: 680;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255, 247, 237, 0.16);
+    color: var(--porcelain);
+    letter-spacing: 0.01em;
+  }
+  .hero-meta {
+    font-size: 12.5px;
+    color: var(--porcelain-mute);
+    letter-spacing: -0.005em;
+  }
+  .hero-scroll-cue {
+    position: absolute;
+    bottom: 20px;
+    right: 28px;
+    z-index: 6;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(16, 9, 14, 0.76);
+    border: 1px solid rgba(255, 247, 237, 0.18);
+    backdrop-filter: blur(12px);
+    font-size: 12px;
+    font-weight: 560;
+    color: var(--porcelain-soft);
+    pointer-events: none;
+  }
+  html:not(.motion-on) .hero-scroll-cue { display: none; }
+
+  .hero-window-wrap {
+    position: relative;
+    z-index: 5;
+    width: min(1020px, 90vw, calc((100vh - 120px) * 1440 / 848));
+    margin-top: 38px;
+    transform-origin: center top;
+    will-change: transform, opacity;
+  }
+  html.js.motion-on .hero-window-wrap { margin-top: 0; }
+
+  /* ==========================================================================
+     SCENE 2: "THE WEB IS LOUD." -> "ORIV QUIETS IT."
+  ========================================================================== */
+  .privacy-head-stack {
+    position: relative;
+    min-height: 112px;
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto 16px;
+    display: grid;
+    place-items: center;
+  }
+  .privacy-head-phase {
+    grid-area: 1 / 1;
+    text-align: center;
+    will-change: transform, opacity;
+  }
+  html:not(.motion-on) .privacy-head-loud { display: none; }
+
+  .privacy-stage-wrap {
+    position: relative;
+    width: min(960px, 88vw, calc((100vh - 220px) * 1440 / 848));
+    z-index: 4;
+  }
+
+  .privacy-shot-frame {
+    position: relative;
+    width: 100%;
+  }
+
+  /* Clipped stage matching the real Mac window bounds for the shield sweep & page clutter */
+  .privacy-overlay-layer {
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 8;
+  }
+
+  /* Illustrative intrusive video ad floating over the article's media area */
+  .clutter-ad-slot {
+    position: absolute;
+    left: 27.2%;
+    right: 9.0%;
+    top: 50.6%;
+    bottom: 12.2%;
+    z-index: 4;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(164, 48, 32, 0.94) 0%, rgba(112, 28, 36, 0.96) 100%);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.56);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px;
+    text-align: center;
+    will-change: transform, opacity;
+  }
+  .clutter-ad-tag {
+    font-size: 11px;
+    font-weight: 760;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: #F59E0B;
+    color: #1F1205;
+  }
+  .clutter-ad-bar {
+    width: min(190px, 65%);
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.24);
+    overflow: hidden;
+  }
+  .clutter-ad-bar span {
+    display: block;
+    width: 34%;
+    height: 100%;
+    background: #FBBF24;
+  }
+
+  /* Illustrative cookie consent banner floating over the lower webpage area */
+  .clutter-cookie-wall {
+    position: absolute;
+    left: 21.5%;
+    right: 3.2%;
+    bottom: 3.5%;
+    z-index: 12;
+    border-radius: 14px;
+    padding: 16px 20px;
+    background: rgba(28, 22, 27, 0.96);
+    border: 1px solid rgba(251, 146, 60, 0.45);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    will-change: transform, opacity;
+  }
+  .cookie-wall-copy h4 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #FFF7ED;
+  }
+  .cookie-wall-btns {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .cw-btn-accept {
+    padding: 7px 14px;
+    border-radius: 8px;
+    background: #F59E0B;
+    color: #1A1004;
+    font-size: 12px;
+    font-weight: 720;
+  }
+  .cw-btn-manage {
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 12px;
+    font-weight: 560;
+  }
+
+  /* Cookie Rejected confirmation toast during sweep */
+  .cookie-rejected-toast {
+    position: absolute;
+    left: 59%;
+    bottom: 10%;
+    transform: translateX(-50%);
+    z-index: 15;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(22, 56, 38, 0.94);
+    border: 1px solid rgba(110, 231, 183, 0.48);
+    color: #D1FAE5;
+    font-size: 12px;
+    font-weight: 620;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.48);
+    opacity: 0;
+    white-space: nowrap;
+    will-change: transform, opacity;
+  }
+
+  /* Orbiting floating tracker / noise cards around the window */
+  .noise-chip {
+    position: absolute;
+    z-index: 18;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 12px;
+    background: rgba(34, 16, 22, 0.90);
+    border: 1px solid rgba(255, 138, 128, 0.36);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.56);
+    font-size: 12px;
+    font-weight: 600;
+    color: #FFDAD6;
+    white-space: nowrap;
+    pointer-events: none;
+    will-change: transform, opacity;
+  }
+  .noise-chip .nc-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #FB7185;
+    box-shadow: 0 0 10px #FB7185;
+  }
+  .nc-1 { top: 44px; left: -34px; }
+  .nc-2 { top: 174px; right: -46px; }
+  .nc-3 { bottom: 132px; left: -28px; }
+  .nc-4 { bottom: 38px; right: -46px; }
+  .nc-5 { top: 76px; right: 44px; }
+
+  /* Luminous Shield Wave sweeping across the webpage */
+  .shield-wave {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 19%;
+    width: 140px;
+    z-index: 16;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 247, 237, 0.14) 55%, rgba(244, 191, 209, 0.42) 92%, transparent 100%);
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+
+  /* Real Site Privacy Panel sliding in beside the window in quiet beat */
+  .site-privacy-shot-wrap {
+    position: absolute;
+    top: 6%;
+    right: -72px;
+    width: min(286px, 30%);
+    z-index: 24;
+    will-change: transform, opacity;
+  }
+  .site-privacy-shot {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 720 / 1118;
+    border-radius: 14px;
+    border: 0;
+    filter:
+      drop-shadow(0 28px 56px rgba(0, 0, 0, 0.78))
+      drop-shadow(0 8px 20px rgba(0, 0, 0, 0.48));
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  /* Default settled state for no-JS / reduced motion */
+  html:not(.motion-on) .clutter-ad-slot,
+  html:not(.motion-on) .clutter-cookie-wall,
+  html:not(.motion-on) .noise-chip,
+  html:not(.motion-on) .shield-wave {
+    display: none;
+  }
+
+  /* ==========================================================================
+     SCENE 3: "A FEW LETTERS IS ENOUGH." — REAL ADDRESS BAR & SUGGESTIONS
+  ========================================================================== */
+  .address-stage {
+    width: min(940px, 88vw, calc((100vh - 255px) * 1440 / 848));
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .address-shot-wrap {
+    width: 100%;
+    will-change: transform, opacity;
+  }
+
+  .shortcut-ribbon {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    will-change: transform, opacity;
+  }
+  .sc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255, 247, 237, 0.06);
+    border: 1px solid rgba(255, 247, 237, 0.12);
+    font-size: 12px;
+    color: var(--porcelain-soft);
+  }
+  .sc-chip kbd {
+    font-family: var(--font-sf);
+    font-size: 11px;
+    font-weight: 680;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: rgba(255, 247, 237, 0.13);
+    color: var(--porcelain);
+  }
+
+  /* ==========================================================================
+     SCENE 4: PROFILES — PERSONAL (MULBERRY) -> WORK (OCEAN) -> STUDY (FERN)
+  ========================================================================== */
+  .profile-pills {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(255, 247, 237, 0.07);
+    border: 1px solid rgba(255, 247, 237, 0.14);
+    margin-bottom: 14px;
+    position: relative;
+    z-index: 10;
+  }
+  .prof-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 620;
+    color: rgba(255, 247, 237, 0.68);
+    transition: background 200ms ease, color 200ms ease;
+  }
+  .prof-pill-tone {
+    opacity: 0.64;
+    font-weight: 520;
+  }
+  .prof-pill-btn .p-sw {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+  .prof-pill-btn[data-p="personal"] .p-sw { background: #D98FD6; }
+  .prof-pill-btn[data-p="work"] .p-sw { background: #6CB8FF; }
+  .prof-pill-btn[data-p="study"] .p-sw { background: #73E29F; }
+  .prof-pill-btn.is-active {
+    background: rgba(255, 247, 237, 0.16);
+    color: #FFFFFF;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  }
+
+  .profiles-stage-wrap {
+    position: relative;
+    width: min(940px, 88vw, calc((100vh - 255px) * 1440 / 848));
+    z-index: 4;
+  }
+  .profiles-shot-deck {
+    position: relative;
+    display: grid;
+    width: 100%;
+  }
+  .profile-shot-item {
+    grid-area: 1 / 1;
+    width: 100%;
+    will-change: transform, opacity;
+  }
+
+  /* Two-finger swipe gesture pill floating near sidebar base */
+  .swipe-gesture-cue {
+    position: absolute;
+    left: 24px;
+    bottom: 24px;
+    z-index: 25;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(18, 12, 20, 0.84);
+    border: 1px solid rgba(255, 247, 237, 0.24);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    font-size: 11px;
+    font-weight: 600;
+    color: #FFF7ED;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.46);
+    pointer-events: none;
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+  .swipe-fingers {
+    display: inline-flex;
+    gap: 3px;
+  }
+  .swipe-fingers span {
+    width: 6px;
+    height: 11px;
+    border-radius: 999px;
+    background: #FFF7ED;
+  }
+
+  /* Reduced-motion interactive profile toggle */
+  html.js.motion-reduced .profile-shot-item { display: none; }
+  html.js.motion-reduced .profiles-shot-deck[data-active-profile="personal"] .profile-shot-item[data-pane="personal"],
+  html.js.motion-reduced .profiles-shot-deck[data-active-profile="work"] .profile-shot-item[data-pane="work"],
+  html.js.motion-reduced .profiles-shot-deck[data-active-profile="study"] .profile-shot-item[data-pane="study"] {
+    display: block;
+  }
+
+  /* No-JS fallback: stack all three profile shots visibly */
+  html:not(.js) .profiles-shot-deck {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  html:not(.js) .profile-shot-item {
+    grid-area: auto;
+  }
+  html:not(.js) .profile-pills,
+  html:not(.js) .swipe-gesture-cue {
+    display: none;
+  }
+
+  /* ==========================================================================
+     SCENE 5: "PRIVATE, UNMISTAKABLY." — AMETHYST DUSK
+  ========================================================================== */
+  .scene[data-scene="private"] .scene-sticky {
+    max-width: none;
+    width: 100%;
+  }
+  .private-dimmer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background:
+      radial-gradient(ellipse 58% 54% at 50% 56%, rgba(113, 54, 146, 0.38), rgba(10, 6, 18, 0.94) 68%),
+      #07040C;
+    z-index: 0;
+    pointer-events: none;
+    will-change: opacity;
+  }
+  .private-win-wrap {
+    position: relative;
+    z-index: 4;
+    width: min(960px, 88vw, calc((100vh - 210px) * 1440 / 848));
+    will-change: transform, opacity;
+  }
+
+  /* ==========================================================================
+     SCENE 6: "MAC AND IPHONE, IN STEP." — SYNC BRIDGE & REAL DEVICES
+  ========================================================================== */
+  .sync-stage {
+    width: min(1220px, 94vw);
+    display: grid;
+    grid-template-columns: minmax(0, 1.24fr) minmax(300px, 0.94fr) auto;
+    align-items: center;
+    gap: 22px;
+    position: relative;
+    z-index: 4;
+  }
+
+  .sync-mac-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+    will-change: transform, opacity;
+  }
+  .sync-mac-shot-wrap {
+    width: 100%;
+  }
+  .sync-device-label {
+    text-align: center;
+    margin-top: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--porcelain-soft);
+  }
+
+  /* Center Sync Threads + Privacy Boundary Infographic */
+  .sync-bridge {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+    min-width: 0;
+    will-change: transform, opacity;
+  }
+  .bridge-zone {
+    border-radius: 16px;
+    padding: 15px 16px;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+  .bridge-syncs {
+    background: linear-gradient(135deg, rgba(101, 42, 58, 0.30) 0%, rgba(44, 68, 108, 0.28) 100%);
+    border: 1px solid rgba(255, 247, 237, 0.18);
+  }
+  .bridge-never {
+    background: rgba(22, 11, 18, 0.82);
+    border: 1px solid rgba(244, 191, 209, 0.28);
+  }
+  .bridge-eyebrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .bridge-syncs .bridge-eyebrow { color: #BAE6FD; }
+  .bridge-never .bridge-eyebrow { color: #F4BFD1; }
+
+  .sync-threads-svg {
+    width: 100%;
+    height: 44px;
+    margin-bottom: 8px;
+    overflow: visible;
+  }
+  .sync-thread-bg {
+    fill: none;
+    stroke: rgba(255, 247, 237, 0.14);
+    stroke-width: 1.5;
+  }
+  .sync-thread-glow {
+    fill: none;
+    stroke: url(#syncThreadGrad);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-dasharray: 280;
+    stroke-dashoffset: 0;
+  }
+
+  .bridge-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .b-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.09);
+    border: 0.5px solid rgba(255, 255, 255, 0.16);
+    color: #FFF7ED;
+  }
+
+  .boundary-diagram {
+    display: grid;
+    grid-template-columns: 1fr 2px auto;
+    align-items: center;
+    gap: 12px;
+  }
+  .boundary-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .boundary-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-radius: 9px;
+    background: rgba(255, 247, 237, 0.06);
+    border: 0.5px solid rgba(244, 191, 209, 0.22);
+    font-size: 12px;
+    font-weight: 600;
+    color: #FFF7ED;
+    will-change: transform, opacity;
+  }
+  .boundary-wall {
+    width: 2px;
+    height: 100%;
+    min-height: 98px;
+    background: linear-gradient(180deg, transparent, #F4BFD1 20%, #FFF7ED 50%, #F4BFD1 80%, transparent);
+    box-shadow: 0 0 14px rgba(244, 191, 209, 0.72);
+    border-radius: 2px;
+  }
+  .boundary-shield-note {
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: rgba(255, 247, 237, 0.68);
+    max-width: 78px;
+    text-align: center;
+  }
+  .boundary-pw-foot {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 0.5px solid rgba(255, 247, 237, 0.14);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+  }
+  .pw-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255, 247, 237, 0.07);
+    border: 0.5px solid rgba(255, 247, 237, 0.16);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--porcelain);
+  }
+  .pw-tag {
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 999px;
+  }
+  .pw-tag-now {
+    background: rgba(110, 231, 183, 0.18);
+    color: #7FD99A;
+  }
+  .pw-tag-coming {
+    background: rgba(244, 191, 209, 0.20);
+    color: #F4BFD1;
+  }
+
+  /* Minimal iPhone Silhouette around Real iPhone Screenshots (No Fake Status Bar) */
+  .iphone-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    will-change: transform, opacity;
+  }
+  .ios-sheet-tabs {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    margin-bottom: 10px;
+    border-radius: 999px;
+    background: rgba(255, 247, 237, 0.07);
+    border: 1px solid rgba(255, 247, 237, 0.14);
+  }
+  .ios-tab-btn {
+    font-size: 10.5px;
+    font-weight: 620;
+    padding: 4px 8px;
+    border-radius: 999px;
+    color: rgba(255, 247, 237, 0.66);
+    transition: background 180ms ease, color 180ms ease;
+    white-space: nowrap;
+  }
+  .ios-tab-btn:hover { color: #FFFFFF; }
+  .ios-tab-btn.is-active {
+    background: var(--plum);
+    color: #FFF7ED;
+  }
+
+  .iphone-shell {
+    width: min(226px, calc((100vh - 300px) * 804 / 1748));
+    border-radius: 36px;
+    padding: 6px;
+    background: linear-gradient(155deg, #2C2730 0%, #141117 100%);
+    border: 1px solid rgba(255, 247, 237, 0.22);
+    box-shadow:
+      0 34px 76px rgba(0, 0, 0, 0.78),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+  .iphone-screen-stack {
+    display: grid;
+    border-radius: 30px;
+    overflow: hidden;
+    background: #0D0D10;
+  }
+  .ios-shot {
+    grid-area: 1 / 1;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 804 / 1748;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 220ms ease;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .ios-shot.is-active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* No-JS fallback for iPhone shots */
+  html:not(.js) .ios-sheet-tabs { display: none; }
+  html:not(.js) .iphone-shell { width: 226px; }
+  html:not(.js) .ios-shot { display: none; }
+  html:not(.js) .ios-shot.is-active { display: block; opacity: 1; }
+
+  /* ==========================================================================
+     ACT 7: "MADE IN THE OPEN." — STRIPE-ANGLED PORCELAIN FINALE
+  ========================================================================== */
+  .finale {
+    position: relative;
+    z-index: 8;
+    background: var(--porcelain);
+    color: var(--plum-deep);
+    padding: 136px 0 68px;
+    margin-top: -1px;
+    clip-path: polygon(0 58px, 100% 0, 100% 100%, 0 100%);
+  }
+  .finale-wrap {
+    width: 100%;
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  .also-strip {
+    max-width: 920px;
+    margin: 0 auto 44px;
+    text-align: center;
+  }
+  .also-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--plum);
+    margin-bottom: 14px;
+  }
+  .also-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+  }
+  .also-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: #FFFFFF;
+    border: 1px solid rgba(56, 25, 37, 0.13);
+    box-shadow: 0 4px 14px rgba(56, 25, 37, 0.045);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--plum-deep);
+  }
+  .also-chip svg {
+    color: var(--plum);
+    flex-shrink: 0;
+  }
+
+  .finale-hero {
+    text-align: center;
+    max-width: 780px;
+    margin: 0 auto 64px;
+  }
+  .finale-seal {
+    width: 92px;
+    height: 92px;
+    border-radius: 24px;
+    margin: 0 auto 26px;
+    background: linear-gradient(155deg, #743144 0%, #652A3A 48%, #381925 100%);
+    box-shadow:
+      0 22px 48px -12px rgba(56, 25, 37, 0.44),
+      inset 0 1px 0 rgba(255, 247, 237, 0.32);
+    display: grid;
+    place-items: center;
+    padding: 14px;
+  }
+  .finale-seal img { width: 100%; height: 100%; }
+  .finale-eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--plum);
+    margin-bottom: 12px;
+  }
+  .finale-hero h2 {
+    font-size: clamp(2.5rem, 5.4vw, 4.35rem);
+    font-weight: 760;
+    line-height: 1.02;
+    letter-spacing: -0.045em;
+    color: var(--plum-deep);
+    margin-bottom: 16px;
+  }
+  .finale-hero p {
+    font-size: clamp(1.05rem, 1.55vw, 1.22rem);
+    line-height: 1.55;
+    color: rgba(56, 25, 37, 0.78);
+    max-width: 610px;
+    margin: 0 auto 30px;
+  }
+  .finale-ctas {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .btn-plum {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    height: 52px;
+    padding: 0 28px;
+    border-radius: 999px;
+    background: var(--plum);
+    color: var(--porcelain);
+    font-size: 15.5px;
+    font-weight: 660;
+    letter-spacing: -0.015em;
+    box-shadow: 0 14px 34px rgba(101, 42, 58, 0.28), inset 0 1px 0 rgba(255, 247, 237, 0.24);
+    transition: transform 160ms ease, background 160ms ease;
+  }
+  .btn-plum:hover {
+    background: var(--plum-deep);
+    transform: translateY(-2px);
+  }
+  .btn-plum-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 52px;
+    padding: 0 24px;
+    border-radius: 999px;
+    background: rgba(56, 25, 37, 0.05);
+    border: 1.5px solid rgba(56, 25, 37, 0.22);
+    color: var(--plum-deep);
+    font-size: 15px;
+    font-weight: 620;
+    transition: background 160ms ease, border-color 160ms ease;
+  }
+  .btn-plum-outline:hover {
+    background: rgba(56, 25, 37, 0.10);
+    border-color: var(--plum);
+  }
+  .finale-meta {
+    font-size: 13px;
+    color: rgba(56, 25, 37, 0.64);
+  }
+
+  .details-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 56px;
+  }
+  .detail-card {
+    background: #FFFFFF;
+    border: 1px solid rgba(56, 25, 37, 0.12);
+    border-radius: 18px;
+    padding: 22px;
+    box-shadow: 0 6px 24px rgba(56, 25, 37, 0.05);
+  }
+  .detail-card-k {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--plum);
+    margin-bottom: 8px;
+  }
+  .detail-card h3 {
+    font-size: 16.5px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--plum-deep);
+    margin-bottom: 7px;
+  }
+  .detail-card p {
+    font-size: 13.5px;
+    line-height: 1.54;
+    color: rgba(56, 25, 37, 0.74);
+  }
+
+  .faq-section {
+    max-width: 780px;
+    margin: 0 auto 64px;
+  }
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .faq-item {
+    background: #FFFFFF;
+    border: 1px solid rgba(56, 25, 37, 0.12);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .faq-item summary {
+    list-style: none;
+    padding: 16px 20px;
+    font-size: 15px;
+    font-weight: 640;
+    color: var(--plum-deep);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    cursor: pointer;
+  }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-plus {
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--plum);
+    transition: transform 180ms ease;
+    flex-shrink: 0;
+  }
+  .faq-item[open] .faq-plus { transform: rotate(45deg); }
+  .faq-body {
+    padding: 0 20px 16px;
+    font-size: 14px;
+    line-height: 1.58;
+    color: rgba(56, 25, 37, 0.76);
+  }
+
+  .site-footer {
+    border-top: 1px solid rgba(56, 25, 37, 0.14);
+    padding-top: 28px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 13px;
+    color: rgba(56, 25, 37, 0.70);
+  }
+  .footer-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 640;
+    color: var(--plum-deep);
+  }
+  .footer-brand img {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+  }
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 22px;
+    font-weight: 560;
+  }
+  .footer-links a:hover {
+    color: var(--plum);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  /* ==========================================================================
+     DOWNLOAD SHEET MODAL
+  ========================================================================== */
+  .dl-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: rgba(8, 4, 9, 0.72);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .dl-backdrop.is-open { display: flex; }
+  .dl-modal {
+    width: min(460px, 100%);
+    border-radius: 24px;
+    padding: 28px;
+    background: linear-gradient(165deg, #25131E 0%, #140B11 100%);
+    border: 1px solid rgba(255, 247, 237, 0.20);
+    box-shadow: 0 36px 90px rgba(0, 0, 0, 0.78);
+    color: var(--porcelain);
+    position: relative;
+  }
+  .dl-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 247, 237, 0.10);
+    color: var(--porcelain);
+    display: grid;
+    place-items: center;
+    font-size: 16px;
+  }
+  .dl-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  .dl-head img {
+    width: 52px;
+    height: 52px;
+    border-radius: 13px;
+  }
+  .dl-head h3 {
+    font-size: 20px;
+    font-weight: 720;
+    letter-spacing: -0.02em;
+  }
+  .dl-head p {
+    font-size: 13px;
+    color: var(--porcelain-soft);
+  }
+  #dl-modal[data-state="soon"] .dl-ready,
+  #dl-modal[data-state="ready"] .dl-soon { display: none; }
+  .dl-specs {
+    border-radius: 14px;
+    padding: 14px 16px;
+    background: rgba(255, 247, 237, 0.06);
+    border: 1px solid rgba(255, 247, 237, 0.12);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--porcelain-soft);
+    margin-bottom: 18px;
+  }
+  .dl-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* ==========================================================================
+     NO-JS STACKED LAYOUT HELPERS
+  ========================================================================== */
+  html:not(.js) .scene {
+    padding: 76px 0 64px;
+  }
+  html:not(.js) .hero-window-wrap,
+  html:not(.js) .privacy-stage-wrap,
+  html:not(.js) .address-stage,
+  html:not(.js) .profiles-stage-wrap,
+  html:not(.js) .private-win-wrap {
+    width: min(960px, 92vw);
+  }
+  html:not(.js) .site-privacy-shot-wrap {
+    right: -12px;
+    top: 8%;
+  }
+
+  /* ==========================================================================
+     RESPONSIVE (390px TO 1600px — ZERO HORIZONTAL OVERFLOW)
+  ========================================================================== */
+  @media (max-width: 1180px) {
+    .site-privacy-shot-wrap { right: -12px; }
+    .nc-1 { left: -10px; }
+    .nc-2 { right: -10px; }
+    .nc-3 { left: -10px; }
+    .nc-4 { right: -10px; }
+  }
+
+  @media (max-width: 1060px) {
+    .chapter-nav { display: none; }
+    .details-strip { grid-template-columns: repeat(2, 1fr); }
+    .site-privacy-shot-wrap { right: 8px; }
+    .sync-stage {
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+    }
+    .sync-mac-col { display: none; }
+  }
+
+  @media (max-width: 820px) {
+    :root { --nav-h: 54px; }
+    .site-nav-inner { padding: 0 14px; gap: 10px; }
+    .beta-badge, .nav-gh-link { display: none; }
+    .nav-download-btn { height: 32px; padding: 0 13px; font-size: 12.5px; }
+
+    .scene-sticky { padding-left: 14px; padding-right: 14px; }
+    html.js.motion-on .scene[data-scene="opening"]  { height: 240vh; }
+    html.js.motion-on .scene[data-scene="privacy"]  { height: 290vh; }
+    html.js.motion-on .scene[data-scene="address"]  { height: 240vh; }
+    html.js.motion-on .scene[data-scene="profiles"] { height: 320vh; }
+    html.js.motion-on .scene[data-scene="private"]  { height: 210vh; }
+    html.js.motion-on .scene[data-scene="sync"]     { height: 260vh; }
+
+    .hero-kolam-wrap { width: 320px; height: 320px; top: 38%; }
+    html.js.motion-on .hero-copy { top: 72px; }
+    .hero-h1 { font-size: 2.65rem; }
+    .hero-lead { font-size: 0.98rem; margin-bottom: 20px; }
+    .btn-porcelain, .btn-glass { height: 44px; padding: 0 18px; font-size: 14px; }
+    .hero-pill { font-size: 11.5px; margin-bottom: 14px; }
+    .hero-scroll-cue { display: none; }
+
+    .hero-window-wrap,
+    .privacy-stage-wrap,
+    .address-stage,
+    .profiles-stage-wrap,
+    .private-win-wrap {
+      width: 100%;
+    }
+
+    .scene-head { margin-bottom: 12px; }
+    .scene-kicker { margin-bottom: 6px; font-size: 11px; }
+    .scene-title { font-size: 1.78rem; margin-bottom: 6px; }
+    .scene-sub { font-size: 0.88rem; line-height: 1.42; }
+    .privacy-head-stack { min-height: 92px; margin-bottom: 10px; }
+
+    /* Scene 2 mobile: real Mac window + real Site Privacy panel stacked/overlapping cleanly */
+    .privacy-stage-wrap {
+      padding-bottom: 238px;
+    }
+    .clutter-ad-slot {
+      padding: 8px;
+      gap: 6px;
+    }
+    .clutter-ad-tag { font-size: 9px; padding: 2px 7px; }
+    .clutter-cookie-wall {
+      left: 20%;
+      right: 3%;
+      bottom: 4%;
+      padding: 8px 10px;
+      gap: 8px;
+      border-radius: 10px;
+    }
+    .cookie-wall-copy h4 { font-size: 11.5px; }
+    .cw-btn-accept, .cw-btn-manage { padding: 4px 8px; font-size: 10px; }
+    .cookie-rejected-toast { font-size: 10.5px; padding: 6px 11px; }
+    .noise-chip { font-size: 10.5px; padding: 6px 10px; }
+    .nc-1 { top: -10px; left: 4px; }
+    .nc-2 { top: 48px; right: 4px; }
+    .nc-3 { top: 158px; left: 4px; }
+    .nc-4 { top: 172px; right: 4px; }
+    .nc-5 { display: none; }
+
+    .site-privacy-shot-wrap {
+      position: absolute;
+      top: 104px;
+      left: 50%;
+      right: auto;
+      width: 220px;
+      margin-left: -110px;
+    }
+    html:not(.js) .privacy-stage-wrap { padding-bottom: 0; }
+    html:not(.js) .site-privacy-shot-wrap {
+      position: relative;
+      top: auto;
+      left: auto;
+      margin: 16px auto 0;
+      width: 240px;
+    }
+
+    /* Scene 3 mobile */
+    .shortcut-ribbon { gap: 6px; }
+    .sc-chip { font-size: 11px; padding: 5px 9px; }
+
+    /* Scene 4 mobile: real Mac profile shots with Mulberry/Ocean/Fern glow */
+    .profile-pills { gap: 3px; padding: 3px; margin-bottom: 12px; }
+    .prof-pill-btn { padding: 5px 9px; font-size: 11px; gap: 5px; }
+    .swipe-gesture-cue {
+      left: 50%;
+      bottom: -44px;
+      font-size: 11px;
+      padding: 6px 12px;
+    }
+
+    /* Scene 6 mobile: Sync Bridge + real iPhone silhouette (exact 804:1748 aspect ratio) */
+    .scene[data-scene="sync"] .scene-head { margin-bottom: 6px; }
+    .scene[data-scene="sync"] .scene-kicker { margin-bottom: 3px; font-size: 10.5px; }
+    .scene[data-scene="sync"] .scene-title { font-size: 1.56rem; margin-bottom: 4px; }
+    .scene[data-scene="sync"] .scene-sub { font-size: 0.82rem; line-height: 1.32; }
+    .sync-stage {
+      grid-template-columns: 1fr;
+      gap: 8px;
+      width: 100%;
+    }
+    .sync-bridge { gap: 6px; }
+    .bridge-zone { padding: 8px 11px; border-radius: 13px; }
+    .bridge-eyebrow { font-size: 10px; margin-bottom: 5px; }
+    .sync-threads-svg { height: 18px; margin-bottom: 4px; }
+    .bridge-chips { gap: 5px; }
+    .b-chip { font-size: 10px; padding: 3px 8px; }
+    .boundary-items { gap: 4px; }
+    .boundary-item { padding: 3px 8px; font-size: 10.5px; border-radius: 7px; }
+    .boundary-wall { min-height: 58px; }
+    .boundary-pw-foot { margin-top: 6px; padding-top: 6px; gap: 5px; }
+    .pw-pill { font-size: 10px; padding: 3px 8px; }
+    .ios-sheet-tabs { margin-bottom: 6px; padding: 2px; }
+    .ios-tab-btn { font-size: 10px; padding: 3px 8px; }
+    .iphone-shell {
+      width: min(132px, calc((100vh - 530px) * 804 / 1748));
+      min-width: 116px;
+      border-radius: 22px;
+      padding: 4px;
+    }
+    .iphone-screen-stack { border-radius: 18px; }
+    .sync-device-label { margin-top: 5px; font-size: 10.5px; }
+
+    /* Finale mobile */
+    .finale {
+      padding: 96px 0 48px;
+      min-height: auto;
+      clip-path: polygon(0 32px, 100% 0, 100% 100%, 0 100%);
+    }
+    .finale-wrap { padding: 0 18px; }
+    .also-chips { gap: 7px; }
+    .also-chip { font-size: 12px; padding: 6px 11px; }
+    .details-strip { grid-template-columns: 1fr; gap: 12px; }
+    .site-footer { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#story">Skip to content</a>
+
+<!-- Real-time fluid gradient mesh canvas -->
+<canvas id="mesh-canvas" aria-hidden="true"></canvas>
+<div class="cinema-vignette" aria-hidden="true"></div>
+
+<!-- Persistent Top Bar (Download for Mac always visible) -->
+<header class="site-nav" id="site-nav">
+  <div class="site-nav-inner">
+    <a class="brand-lockup" href="#opening" aria-label="Oriv home">
+      <img class="brand-icon" src="assets/Oriv-Icon-Default.png" alt="" width="28" height="28" />
+      <span class="brand-name">Oriv</span>
+      <span class="beta-badge">Public beta</span>
+    </a>
+
+    <nav class="chapter-nav" aria-label="Story chapters">
+      <a class="chapter-link is-active" href="#opening" data-chap="opening">Overview</a>
+      <a class="chapter-link" href="#privacy" data-chap="privacy">Privacy</a>
+      <a class="chapter-link" href="#address" data-chap="address">Address Bar</a>
+      <a class="chapter-link" href="#profiles" data-chap="profiles">Profiles</a>
+      <a class="chapter-link" href="#private" data-chap="private">Private</a>
+      <a class="chapter-link" href="#sync" data-chap="sync">Sync</a>
+      <a class="chapter-link" href="#open-source" data-chap="open-source">Open Source</a>
+    </nav>
+
+    <div class="nav-right">
+      <a class="nav-gh-link" href="https://github.com/santhoshbalaji/Oriv" target="_blank" rel="noopener noreferrer">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55v-1.94c-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.83 1.18 3.09 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.66.79.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+        <span>GitHub</span>
+      </a>
+      <button class="nav-download-btn" type="button" data-open-download>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>
+        <span>Download for Mac</span>
+      </button>
+    </div>
+  </div>
+  <div class="nav-progress-track" aria-hidden="true">
+    <div class="nav-progress-fill" id="nav-progress-fill"></div>
+  </div>
+</header>
+
+<main id="story">
+
+  <!-- ========================================================================
+       SCENE 1: OPENING — SELF-WEAVING KOLAM + HERO + RISING REAL MAC WINDOW
+  ======================================================================== -->
+  <section class="scene" id="opening" data-scene="opening" aria-label="Introduction">
+    <div class="scene-sticky">
+      <div class="opening-stage">
+
+        <!-- Monumental Woven Kolam Hero Artwork -->
+        <div class="hero-kolam-wrap" id="hero-kolam" aria-hidden="true">
+          <div class="hero-kolam-glow"></div>
+          <div class="hero-kolam-orbit"></div>
+          <svg class="hero-kolam-svg" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="kolamGrad" x1="18%" y1="15%" x2="86%" y2="88%">
+                <stop offset="0%" stop-color="#FFF7ED" stop-opacity="0.78"/>
+                <stop offset="50%" stop-color="#E8A2B8" stop-opacity="0.62"/>
+                <stop offset="100%" stop-color="#FFF7ED" stop-opacity="0.76"/>
+              </linearGradient>
+            </defs>
+            <g class="kolam-ghost">
+              <path d="M 468.657,689.947 L 462.049,685.312 L 455.480,680.544 L 448.954,675.645 L 442.478,670.620 L 436.055,665.471 L 429.691,660.204 L 423.390,654.823 L 417.158,649.331 L 411.000,643.732 L 404.920,638.032 L 398.922,632.234 L 393.012,626.343 L 387.194,620.364 L 381.473,614.301 L 375.852,608.159 L 370.337,601.942 L 364.932,595.656 L 359.640,589.305 L 354.466,582.894 L 349.414,576.428 L 344.488,569.913 L 339.691,563.352 L 335.028,556.752 L 330.502,550.118 L 326.116,543.454 L 321.874,536.765 L 317.779,530.058 L 313.834,523.336 L 310.043,516.606 L 306.407,509.872 L 302.931,503.139 L 299.617,496.414 L 296.467,489.701 L 293.484,483.004 L 290.669,476.331 L 288.026,469.685 L 285.557,463.071 L 283.262,456.496 L 281.144,449.963 L 279.206,443.479 L 277.447,437.047 L 275.869,430.674 L 274.475,424.363 L 273.264,418.120 L 272.238,411.950 L 271.397,405.857 L 270.742,399.846 L 270.274,393.922 L 269.993,388.090 L 269.900,382.353 L 269.993,376.717 L 270.274,371.185 L 270.742,365.762 L 271.397,360.453 L 272.238,355.260 L 273.264,350.189 L 274.475,345.243 L 275.869,340.426 L 277.447,335.742 L 279.206,331.194 L 281.144,326.787 L 283.262,322.522 L 285.557,318.404 L 288.026,314.436 L 290.669,310.620 L 293.484,306.961 L 296.467,303.460 L 299.617,300.120 L 302.931,296.944 L 306.407,293.935 L 310.043,291.094 L 313.834,288.425 L 317.779,285.928 L 321.874,283.606 L 326.116,281.461 L 330.502,279.494 L 335.028,277.708 L 339.691,276.102 L 344.488,274.679 L 349.414,273.439 L 354.466,272.385 L 359.640,271.515 L 364.932,270.832 L 370.337,270.335 L 375.852,270.025 L 381.473,269.902 L 387.194,269.967 L 393.012,270.219 L 398.922,270.657 L 404.920,271.283 L 411.000,272.095 L 417.158,273.092 L 423.390,274.275 L 429.691,275.641 L 436.055,277.190 L 442.478,278.921 L 448.954,280.832 L 455.480,282.922 L 462.049,285.189 L 468.657,287.632"/>
+              <path d="M 555.343,334.053 L 561.951,338.688 L 568.520,343.456 L 575.046,348.355 L 581.522,353.380 L 587.945,358.529 L 594.309,363.796 L 600.610,369.177 L 606.842,374.669 L 613.000,380.268 L 619.080,385.968 L 625.078,391.766 L 630.988,397.657 L 636.806,403.636 L 642.527,409.699 L 648.148,415.841 L 653.663,422.058 L 659.068,428.344 L 664.360,434.695 L 669.534,441.106 L 674.586,447.572 L 679.512,454.087 L 684.309,460.648 L 688.972,467.248 L 693.498,473.882 L 697.884,480.546 L 702.126,487.235 L 706.221,493.942 L 710.166,500.664 L 713.957,507.394 L 717.593,514.128 L 721.069,520.861 L 724.383,527.586 L 727.533,534.299 L 730.516,540.996 L 733.331,547.669 L 735.974,554.315 L 738.443,560.929 L 740.738,567.504 L 742.856,574.037 L 744.794,580.521 L 746.553,586.953 L 748.131,593.326 L 749.525,599.637 L 750.736,605.880 L 751.762,612.050 L 752.603,618.143 L 753.258,624.154 L 753.726,630.078 L 754.007,635.910 L 754.100,641.647 L 754.007,647.283 L 753.726,652.815 L 753.258,658.238 L 752.603,663.547 L 751.762,668.740 L 750.736,673.811 L 749.525,678.757 L 748.131,683.574 L 746.553,688.258 L 744.794,692.806 L 742.856,697.213 L 740.738,701.478 L 738.443,705.596 L 735.974,709.564 L 733.331,713.380 L 730.516,717.039 L 727.533,720.540 L 724.383,723.880 L 721.069,727.056 L 717.593,730.065 L 713.957,732.906 L 710.166,735.575 L 706.221,738.072 L 702.126,740.394 L 697.884,742.539 L 693.498,744.506 L 688.972,746.292 L 684.309,747.898 L 679.512,749.321 L 674.586,750.561 L 669.534,751.615 L 664.360,752.485 L 659.068,753.168 L 653.663,753.665 L 648.148,753.975 L 642.527,754.098 L 636.806,754.033 L 630.988,753.781 L 625.078,753.343 L 619.080,752.717 L 613.000,751.905 L 606.842,750.908 L 600.610,749.725 L 594.309,748.359 L 587.945,746.810 L 581.522,745.079 L 575.046,743.168 L 568.520,741.078 L 561.951,738.811 L 555.343,736.368"/>
+              <path d="M 689.947,555.343 L 685.312,561.951 L 680.544,568.520 L 675.645,575.046 L 670.620,581.522 L 665.471,587.945 L 660.204,594.309 L 654.823,600.610 L 649.331,606.842 L 643.732,613.000 L 638.032,619.080 L 632.234,625.078 L 626.343,630.988 L 620.364,636.806 L 614.301,642.527 L 608.159,648.148 L 601.942,653.663 L 595.656,659.068 L 589.305,664.360 L 582.894,669.534 L 576.428,674.586 L 569.913,679.512 L 563.352,684.309 L 556.752,688.972 L 550.118,693.498 L 543.454,697.884 L 536.765,702.126 L 530.058,706.221 L 523.336,710.166 L 516.606,713.957 L 509.872,717.593 L 503.139,721.069 L 496.414,724.383 L 489.701,727.533 L 483.004,730.516 L 476.331,733.331 L 469.685,735.974 L 463.071,738.443 L 456.496,740.738 L 449.963,742.856 L 443.479,744.794 L 437.047,746.553 L 430.674,748.131 L 424.363,749.525 L 418.120,750.736 L 411.950,751.762 L 405.857,752.603 L 399.846,753.258 L 393.922,753.726 L 388.090,754.007 L 382.353,754.100 L 376.717,754.007 L 371.185,753.726 L 365.762,753.258 L 360.453,752.603 L 355.260,751.762 L 350.189,750.736 L 345.243,749.525 L 340.426,748.131 L 335.742,746.553 L 331.194,744.794 L 326.787,742.856 L 322.522,740.738 L 318.404,738.443 L 314.436,735.974 L 310.620,733.331 L 306.961,730.516 L 303.460,727.533 L 300.120,724.383 L 296.944,721.069 L 293.935,717.593 L 291.094,713.957 L 288.425,710.166 L 285.928,706.221 L 283.606,702.126 L 281.461,697.884 L 279.494,693.498 L 277.708,688.972 L 276.102,684.309 L 274.679,679.512 L 273.439,674.586 L 272.385,669.534 L 271.515,664.360 L 270.832,659.068 L 270.335,653.663 L 270.025,648.148 L 269.902,642.527 L 269.967,636.806 L 270.219,630.988 L 270.657,625.078 L 271.283,619.080 L 272.095,613.000 L 273.092,606.842 L 274.275,600.610 L 275.641,594.309 L 277.190,587.945 L 278.921,581.522 L 280.832,575.046 L 282.922,568.520 L 285.189,561.951 L 287.632,555.343"/>
+              <path d="M 334.053,468.657 L 338.688,462.049 L 343.456,455.480 L 348.355,448.954 L 353.380,442.478 L 358.529,436.055 L 363.796,429.691 L 369.177,423.390 L 374.669,417.158 L 380.268,411.000 L 385.968,404.920 L 391.766,398.922 L 397.657,393.012 L 403.636,387.194 L 409.699,381.473 L 415.841,375.852 L 422.058,370.337 L 428.344,364.932 L 434.695,359.640 L 441.106,354.466 L 447.572,349.414 L 454.087,344.488 L 460.648,339.691 L 467.248,335.028 L 473.882,330.502 L 480.546,326.116 L 487.235,321.874 L 493.942,317.779 L 500.664,313.834 L 507.394,310.043 L 514.128,306.407 L 520.861,302.931 L 527.586,299.617 L 534.299,296.467 L 540.996,293.484 L 547.669,290.669 L 554.315,288.026 L 560.929,285.557 L 567.504,283.262 L 574.037,281.144 L 580.521,279.206 L 586.953,277.447 L 593.326,275.869 L 599.637,274.475 L 605.880,273.264 L 612.050,272.238 L 618.143,271.397 L 624.154,270.742 L 630.078,270.274 L 635.910,269.993 L 641.647,269.900 L 647.283,269.993 L 652.815,270.274 L 658.238,270.742 L 663.547,271.397 L 668.740,272.238 L 673.811,273.264 L 678.757,274.475 L 683.574,275.869 L 688.258,277.447 L 692.806,279.206 L 697.213,281.144 L 701.478,283.262 L 705.596,285.557 L 709.564,288.026 L 713.380,290.669 L 717.039,293.484 L 720.540,296.467 L 723.880,299.617 L 727.056,302.931 L 730.065,306.407 L 732.906,310.043 L 735.575,313.834 L 738.072,317.779 L 740.394,321.874 L 742.539,326.116 L 744.506,330.502 L 746.292,335.028 L 747.898,339.691 L 749.321,344.488 L 750.561,349.414 L 751.615,354.466 L 752.485,359.640 L 753.168,364.932 L 753.665,370.337 L 753.975,375.852 L 754.098,381.473 L 754.033,387.194 L 753.781,393.012 L 753.343,398.922 L 752.717,404.920 L 751.905,411.000 L 750.908,417.158 L 749.725,423.390 L 748.359,429.691 L 746.810,436.055 L 745.079,442.478 L 743.168,448.954 L 741.078,455.480 L 738.811,462.049 L 736.368,468.657"/>
+            </g>
+            <g class="kolam-strands">
+              <path class="kolam-strand" data-strand="0" d="M 468.657,689.947 L 462.049,685.312 L 455.480,680.544 L 448.954,675.645 L 442.478,670.620 L 436.055,665.471 L 429.691,660.204 L 423.390,654.823 L 417.158,649.331 L 411.000,643.732 L 404.920,638.032 L 398.922,632.234 L 393.012,626.343 L 387.194,620.364 L 381.473,614.301 L 375.852,608.159 L 370.337,601.942 L 364.932,595.656 L 359.640,589.305 L 354.466,582.894 L 349.414,576.428 L 344.488,569.913 L 339.691,563.352 L 335.028,556.752 L 330.502,550.118 L 326.116,543.454 L 321.874,536.765 L 317.779,530.058 L 313.834,523.336 L 310.043,516.606 L 306.407,509.872 L 302.931,503.139 L 299.617,496.414 L 296.467,489.701 L 293.484,483.004 L 290.669,476.331 L 288.026,469.685 L 285.557,463.071 L 283.262,456.496 L 281.144,449.963 L 279.206,443.479 L 277.447,437.047 L 275.869,430.674 L 274.475,424.363 L 273.264,418.120 L 272.238,411.950 L 271.397,405.857 L 270.742,399.846 L 270.274,393.922 L 269.993,388.090 L 269.900,382.353 L 269.993,376.717 L 270.274,371.185 L 270.742,365.762 L 271.397,360.453 L 272.238,355.260 L 273.264,350.189 L 274.475,345.243 L 275.869,340.426 L 277.447,335.742 L 279.206,331.194 L 281.144,326.787 L 283.262,322.522 L 285.557,318.404 L 288.026,314.436 L 290.669,310.620 L 293.484,306.961 L 296.467,303.460 L 299.617,300.120 L 302.931,296.944 L 306.407,293.935 L 310.043,291.094 L 313.834,288.425 L 317.779,285.928 L 321.874,283.606 L 326.116,281.461 L 330.502,279.494 L 335.028,277.708 L 339.691,276.102 L 344.488,274.679 L 349.414,273.439 L 354.466,272.385 L 359.640,271.515 L 364.932,270.832 L 370.337,270.335 L 375.852,270.025 L 381.473,269.902 L 387.194,269.967 L 393.012,270.219 L 398.922,270.657 L 404.920,271.283 L 411.000,272.095 L 417.158,273.092 L 423.390,274.275 L 429.691,275.641 L 436.055,277.190 L 442.478,278.921 L 448.954,280.832 L 455.480,282.922 L 462.049,285.189 L 468.657,287.632"/>
+              <path class="kolam-strand" data-strand="1" d="M 555.343,334.053 L 561.951,338.688 L 568.520,343.456 L 575.046,348.355 L 581.522,353.380 L 587.945,358.529 L 594.309,363.796 L 600.610,369.177 L 606.842,374.669 L 613.000,380.268 L 619.080,385.968 L 625.078,391.766 L 630.988,397.657 L 636.806,403.636 L 642.527,409.699 L 648.148,415.841 L 653.663,422.058 L 659.068,428.344 L 664.360,434.695 L 669.534,441.106 L 674.586,447.572 L 679.512,454.087 L 684.309,460.648 L 688.972,467.248 L 693.498,473.882 L 697.884,480.546 L 702.126,487.235 L 706.221,493.942 L 710.166,500.664 L 713.957,507.394 L 717.593,514.128 L 721.069,520.861 L 724.383,527.586 L 727.533,534.299 L 730.516,540.996 L 733.331,547.669 L 735.974,554.315 L 738.443,560.929 L 740.738,567.504 L 742.856,574.037 L 744.794,580.521 L 746.553,586.953 L 748.131,593.326 L 749.525,599.637 L 750.736,605.880 L 751.762,612.050 L 752.603,618.143 L 753.258,624.154 L 753.726,630.078 L 754.007,635.910 L 754.100,641.647 L 754.007,647.283 L 753.726,652.815 L 753.258,658.238 L 752.603,663.547 L 751.762,668.740 L 750.736,673.811 L 749.525,678.757 L 748.131,683.574 L 746.553,688.258 L 744.794,692.806 L 742.856,697.213 L 740.738,701.478 L 738.443,705.596 L 735.974,709.564 L 733.331,713.380 L 730.516,717.039 L 727.533,720.540 L 724.383,723.880 L 721.069,727.056 L 717.593,730.065 L 713.957,732.906 L 710.166,735.575 L 706.221,738.072 L 702.126,740.394 L 697.884,742.539 L 693.498,744.506 L 688.972,746.292 L 684.309,747.898 L 679.512,749.321 L 674.586,750.561 L 669.534,751.615 L 664.360,752.485 L 659.068,753.168 L 653.663,753.665 L 648.148,753.975 L 642.527,754.098 L 636.806,754.033 L 630.988,753.781 L 625.078,753.343 L 619.080,752.717 L 613.000,751.905 L 606.842,750.908 L 600.610,749.725 L 594.309,748.359 L 587.945,746.810 L 581.522,745.079 L 575.046,743.168 L 568.520,741.078 L 561.951,738.811 L 555.343,736.368"/>
+              <path class="kolam-strand" data-strand="2" d="M 689.947,555.343 L 685.312,561.951 L 680.544,568.520 L 675.645,575.046 L 670.620,581.522 L 665.471,587.945 L 660.204,594.309 L 654.823,600.610 L 649.331,606.842 L 643.732,613.000 L 638.032,619.080 L 632.234,625.078 L 626.343,630.988 L 620.364,636.806 L 614.301,642.527 L 608.159,648.148 L 601.942,653.663 L 595.656,659.068 L 589.305,664.360 L 582.894,669.534 L 576.428,674.586 L 569.913,679.512 L 563.352,684.309 L 556.752,688.972 L 550.118,693.498 L 543.454,697.884 L 536.765,702.126 L 530.058,706.221 L 523.336,710.166 L 516.606,713.957 L 509.872,717.593 L 503.139,721.069 L 496.414,724.383 L 489.701,727.533 L 483.004,730.516 L 476.331,733.331 L 469.685,735.974 L 463.071,738.443 L 456.496,740.738 L 449.963,742.856 L 443.479,744.794 L 437.047,746.553 L 430.674,748.131 L 424.363,749.525 L 418.120,750.736 L 411.950,751.762 L 405.857,752.603 L 399.846,753.258 L 393.922,753.726 L 388.090,754.007 L 382.353,754.100 L 376.717,754.007 L 371.185,753.726 L 365.762,753.258 L 360.453,752.603 L 355.260,751.762 L 350.189,750.736 L 345.243,749.525 L 340.426,748.131 L 335.742,746.553 L 331.194,744.794 L 326.787,742.856 L 322.522,740.738 L 318.404,738.443 L 314.436,735.974 L 310.620,733.331 L 306.961,730.516 L 303.460,727.533 L 300.120,724.383 L 296.944,721.069 L 293.935,717.593 L 291.094,713.957 L 288.425,710.166 L 285.928,706.221 L 283.606,702.126 L 281.461,697.884 L 279.494,693.498 L 277.708,688.972 L 276.102,684.309 L 274.679,679.512 L 273.439,674.586 L 272.385,669.534 L 271.515,664.360 L 270.832,659.068 L 270.335,653.663 L 270.025,648.148 L 269.902,642.527 L 269.967,636.806 L 270.219,630.988 L 270.657,625.078 L 271.283,619.080 L 272.095,613.000 L 273.092,606.842 L 274.275,600.610 L 275.641,594.309 L 277.190,587.945 L 278.921,581.522 L 280.832,575.046 L 282.922,568.520 L 285.189,561.951 L 287.632,555.343"/>
+              <path class="kolam-strand" data-strand="3" d="M 334.053,468.657 L 338.688,462.049 L 343.456,455.480 L 348.355,448.954 L 353.380,442.478 L 358.529,436.055 L 363.796,429.691 L 369.177,423.390 L 374.669,417.158 L 380.268,411.000 L 385.968,404.920 L 391.766,398.922 L 397.657,393.012 L 403.636,387.194 L 409.699,381.473 L 415.841,375.852 L 422.058,370.337 L 428.344,364.932 L 434.695,359.640 L 441.106,354.466 L 447.572,349.414 L 454.087,344.488 L 460.648,339.691 L 467.248,335.028 L 473.882,330.502 L 480.546,326.116 L 487.235,321.874 L 493.942,317.779 L 500.664,313.834 L 507.394,310.043 L 514.128,306.407 L 520.861,302.931 L 527.586,299.617 L 534.299,296.467 L 540.996,293.484 L 547.669,290.669 L 554.315,288.026 L 560.929,285.557 L 567.504,283.262 L 574.037,281.144 L 580.521,279.206 L 586.953,277.447 L 593.326,275.869 L 599.637,274.475 L 605.880,273.264 L 612.050,272.238 L 618.143,271.397 L 624.154,270.742 L 630.078,270.274 L 635.910,269.993 L 641.647,269.900 L 647.283,269.993 L 652.815,270.274 L 658.238,270.742 L 663.547,271.397 L 668.740,272.238 L 673.811,273.264 L 678.757,274.475 L 683.574,275.869 L 688.258,277.447 L 692.806,279.206 L 697.213,281.144 L 701.478,283.262 L 705.596,285.557 L 709.564,288.026 L 713.380,290.669 L 717.039,293.484 L 720.540,296.467 L 723.880,299.617 L 727.056,302.931 L 730.065,306.407 L 732.906,310.043 L 735.575,313.834 L 738.072,317.779 L 740.394,321.874 L 742.539,326.116 L 744.506,330.502 L 746.292,335.028 L 747.898,339.691 L 749.321,344.488 L 750.561,349.414 L 751.615,354.466 L 752.485,359.640 L 753.168,364.932 L 753.665,370.337 L 753.975,375.852 L 754.098,381.473 L 754.033,387.194 L 753.781,393.012 L 753.343,398.922 L 752.717,404.920 L 751.905,411.000 L 750.908,417.158 L 749.725,423.390 L 748.359,429.691 L 746.810,436.055 L 745.079,442.478 L 743.168,448.954 L 741.078,455.480 L 738.811,462.049 L 736.368,468.657"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- Opening Headline + 5-Second Clarity -->
+        <div class="hero-copy" id="hero-copy">
+          <div class="hero-pill">
+            <span class="hero-pill-dot" aria-hidden="true"></span>
+            <span>Public Beta</span>
+          </div>
+          <h1 class="hero-h1">Quiet by design.</h1>
+          <p class="hero-lead">
+            A free, private, native browser for Mac and iPhone with SwiftUI and Apple WebKit.
+          </p>
+          <div class="hero-ctas">
+            <button class="btn-porcelain" type="button" data-open-download>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>
+              <span>Download for Mac</span>
+            </button>
+            <a class="btn-glass" href="#sync">
+              <span>iPhone</span>
+              <span class="pill-soon">Coming soon</span>
+            </a>
+          </div>
+          <p class="hero-meta">Free notarized DMG, macOS 26+ (Apple silicon, Intel), automatic updates.</p>
+        </div>
+
+        <!-- Real Oriv Mac Start Window rising into view as you scroll -->
+        <div class="hero-window-wrap" id="hero-window-wrap">
+          <img
+            class="mac-shot-img"
+            src="assets/shots/mac-start.webp"
+            alt="Oriv for Mac in dark Personal profile showing the Where to start page with search bar, bookmarks grid, frequently visited sites, and sidebar"
+            width="1440"
+            height="848"
+            decoding="async"
+            fetchpriority="high"
+          />
+        </div>
+
+        <div class="hero-scroll-cue" id="hero-scroll-cue" aria-hidden="true">
+          <span>Scroll</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14"/><path d="m6 13 6 6 6-6"/></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       SCENE 2: "THE WEB IS LOUD." -> "ORIV QUIETS IT."
+  ======================================================================== -->
+  <section class="scene" id="privacy" data-scene="privacy" aria-labelledby="privacy-heading">
+    <div class="scene-sticky">
+      <div class="privacy-head-stack">
+        <div class="privacy-head-phase privacy-head-loud" id="priv-head-loud">
+          <div class="scene-kicker"><span class="k-dot"></span><span>Privacy</span></div>
+          <h2 class="scene-title">The web is loud.</h2>
+          <p class="scene-sub">Ads, cookie walls, and trackers crowd pages.</p>
+        </div>
+        <div class="privacy-head-phase privacy-head-quiet" id="priv-head-quiet">
+          <div class="scene-kicker"><span class="k-dot"></span><span>Privacy</span></div>
+          <h2 class="scene-title" id="privacy-heading">Oriv quiets it.</h2>
+          <p class="scene-sub">WebKit ad blocking, cookie rejection, YouTube protection. No analytics or telemetry.</p>
+        </div>
+      </div>
+
+      <div class="privacy-stage-wrap" id="privacy-stage-wrap">
+        <!-- Illustrative floating noise & tracker clutter chips around the window -->
+        <div class="noise-chip nc-1" data-noise="0"><span class="nc-dot"></span><span>Tracker</span></div>
+        <div class="noise-chip nc-2" data-noise="1"><span class="nc-dot"></span><span>Cookie wall</span></div>
+        <div class="noise-chip nc-3" data-noise="2"><span class="nc-dot"></span><span>Beacon</span></div>
+        <div class="noise-chip nc-4" data-noise="3"><span class="nc-dot"></span><span>Pre-roll ad</span></div>
+        <div class="noise-chip nc-5" data-noise="4"><span class="nc-dot"></span><span>Ad slot</span></div>
+
+        <!-- Real Oriv Mac Window (Personal profile, Fieldnotes article) -->
+        <div class="privacy-shot-frame">
+          <img
+            class="mac-shot-img"
+            src="assets/shots/mac-page-personal.webp"
+            alt="Oriv for Mac in Personal profile with Mulberry sidebar showing the Fieldnotes article Designing calm interfaces on docs.example.com"
+            width="1440"
+            height="848"
+            loading="lazy"
+            decoding="async"
+          />
+
+          <!-- Illustrative web clutter & shield sweep overlays (clear completely on scroll) -->
+          <div class="privacy-overlay-layer" aria-hidden="true">
+            <div class="shield-wave" id="shield-wave"></div>
+
+            <div class="clutter-ad-slot" id="clutter-ad">
+              <span class="clutter-ad-tag">Video Ad</span>
+              <div class="clutter-ad-bar"><span></span></div>
+            </div>
+
+            <div class="clutter-cookie-wall" id="clutter-cookie">
+              <div class="cookie-wall-copy">
+                <h4>Cookies?</h4>
+              </div>
+              <div class="cookie-wall-btns">
+                <span class="cw-btn-manage">Manage</span>
+                <span class="cw-btn-accept">Accept</span>
+              </div>
+            </div>
+
+            <div class="cookie-rejected-toast" id="cookie-toast">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg>
+              <span>Cookie banner rejected</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real Site Privacy Panel sliding in beside the window -->
+        <div class="site-privacy-shot-wrap" id="site-privacy-pop">
+          <img
+            class="site-privacy-shot"
+            src="assets/shots/mac-site-privacy.webp"
+            alt="Oriv Site Privacy panel showing Off, Balanced, and Strict blocking modes, per-site ad, tracker, link cleaning, HTTPS upgrade, and cookie banner rejection controls for docs.example.com"
+            width="360"
+            height="559"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       SCENE 3: "A FEW LETTERS IS ENOUGH." — REAL ADDRESS BAR & SUGGESTIONS
+  ======================================================================== -->
+  <section class="scene" id="address" data-scene="address" aria-labelledby="address-heading">
+    <div class="scene-sticky">
+      <div class="scene-head">
+        <div class="scene-kicker"><span class="k-dot"></span><span>Address Bar</span></div>
+        <h2 class="scene-title" id="address-heading">A few letters is enough.</h2>
+        <p class="scene-sub">Inline completion and local suggestions from tabs, bookmarks, and history.</p>
+      </div>
+
+      <div class="address-stage">
+        <div class="address-shot-wrap" id="address-shot-wrap">
+          <img
+            class="mac-shot-img"
+            src="assets/shots/mac-address.webp"
+            alt="Oriv address bar typing dev with inline completion to developer.apple.com and local suggestions grouped into Switch to Tab, Bookmarks, and History"
+            width="1440"
+            height="848"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+
+        <div class="shortcut-ribbon" id="shortcut-ribbon" aria-label="Mac keyboard shortcuts">
+          <span class="sc-chip"><kbd>⌘T</kbd>Tab</span>
+          <span class="sc-chip"><kbd>⌘L</kbd>Address</span>
+          <span class="sc-chip"><kbd>⇧⌘A</kbd>Search</span>
+          <span class="sc-chip"><kbd>⌘⇧N</kbd>Private</span>
+          <span class="sc-chip"><kbd>⌥⌘S</kbd>Sidebar</span>
+          <span class="sc-chip"><kbd>⌥⇧⌘P</kbd>Pin</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       SCENE 4: "EVERY SPACE, ITS OWN COLOUR." — REAL PROFILE SHOTS
+  ======================================================================== -->
+  <section class="scene" id="profiles" data-scene="profiles" aria-labelledby="profiles-heading">
+    <div class="scene-sticky">
+      <div class="scene-head">
+        <div class="scene-kicker"><span class="k-dot"></span><span>Profiles</span></div>
+        <h2 class="scene-title" id="profiles-heading">Every space, its own colour.</h2>
+        <p class="scene-sub">Separate tabs, bookmarks, history, and logins. Two-finger swipe to switch.</p>
+      </div>
+
+      <div class="profile-pills" role="tablist" aria-label="Preview browser profiles">
+        <button class="prof-pill-btn is-active" type="button" role="tab" aria-selected="true" data-p="personal">
+          <span class="p-sw"></span><span>Personal</span><span class="prof-pill-tone">Mulberry</span>
+        </button>
+        <button class="prof-pill-btn" type="button" role="tab" aria-selected="false" data-p="work">
+          <span class="p-sw"></span><span>Work</span><span class="prof-pill-tone">Ocean</span>
+        </button>
+        <button class="prof-pill-btn" type="button" role="tab" aria-selected="false" data-p="study">
+          <span class="p-sw"></span><span>Study</span><span class="prof-pill-tone">Fern</span>
+        </button>
+      </div>
+
+      <div class="profiles-stage-wrap">
+        <div class="profiles-shot-deck" id="profiles-deck" data-active-profile="personal">
+          <div class="profile-shot-item" data-pane="personal">
+            <img
+              class="mac-shot-img"
+              src="assets/shots/mac-page-personal.webp"
+              alt="Oriv Personal profile with Mulberry sidebar tint and its own pinned tab, open tabs, and Designing calm interfaces article"
+              width="1440"
+              height="848"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+          <div class="profile-shot-item" data-pane="work">
+            <img
+              class="mac-shot-img"
+              src="assets/shots/mac-profile-work.webp"
+              alt="Oriv Work profile with Ocean sidebar tint showing separate work tabs and the article A little room to think"
+              width="1440"
+              height="848"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+          <div class="profile-shot-item" data-pane="study">
+            <img
+              class="mac-shot-img"
+              src="assets/shots/mac-profile-study.webp"
+              alt="Oriv Study profile with Fern sidebar tint showing separate study tabs and the article Materials and meaning"
+              width="1440"
+              height="848"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+        </div>
+
+        <div class="swipe-gesture-cue" id="swipe-cue" aria-hidden="true">
+          <span class="swipe-fingers"><span></span><span></span></span>
+          <span>Two-finger swipe</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       SCENE 5: "PRIVATE, UNMISTAKABLY." — AMETHYST DUSK
+  ======================================================================== -->
+  <section class="scene" id="private" data-scene="private" aria-labelledby="private-heading">
+    <div class="scene-sticky">
+      <div class="private-dimmer" id="private-dimmer" aria-hidden="true"></div>
+
+      <div class="scene-head">
+        <div class="scene-kicker"><span class="k-dot" style="background:#D5AAF8;box-shadow:0 0 12px #D5AAF8"></span><span>Amethyst Dusk</span></div>
+        <h2 class="scene-title" id="private-heading">Private, unmistakably.</h2>
+        <p class="scene-sub">Lights dim into Amethyst Dusk for temporary private windows.</p>
+      </div>
+
+      <div class="private-win-wrap" id="private-win-wrap">
+        <img
+          class="mac-shot-img is-private-shot"
+          src="assets/shots/mac-private.webp"
+          alt="Oriv Private Browsing window in Amethyst Dusk showing private sidebar, private search bar, and temporary data summary"
+          width="1440"
+          height="848"
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       SCENE 6: "MAC AND IPHONE, IN STEP." — SYNC THREADS & REAL DEVICES
+  ======================================================================== -->
+  <section class="scene" id="sync" data-scene="sync" aria-labelledby="sync-heading">
+    <div class="scene-sticky">
+      <div class="scene-head">
+        <div class="scene-kicker"><span class="k-dot" style="background:#93C5FD;box-shadow:0 0 12px #93C5FD"></span><span>iCloud Sync</span></div>
+        <h2 class="scene-title" id="sync-heading">Mac and iPhone, in step.</h2>
+        <p class="scene-sub">Opt-in iCloud sync across devices. Logins, cookies, and passwords never sync.</p>
+      </div>
+
+      <div class="sync-stage">
+        <!-- Left: Real Mac screenshot -->
+        <div class="sync-mac-col" id="sync-mac-col">
+          <div class="sync-mac-shot-wrap">
+            <img
+              class="mac-shot-img"
+              src="assets/shots/mac-page-personal.webp"
+              alt="Oriv for Mac open to the Fieldnotes article synced via iCloud"
+              width="1440"
+              height="848"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+          <div class="sync-device-label">Mac, macOS 26+</div>
+        </div>
+
+        <!-- Center: Animated Sync Threads + Physical Never-Sync Boundary Infographic -->
+        <div class="sync-bridge" id="sync-bridge">
+          <div class="bridge-zone bridge-syncs">
+            <div class="bridge-eyebrow">
+              <span>Syncs via iCloud</span>
+            </div>
+            <svg class="sync-threads-svg" viewBox="0 0 360 44" aria-hidden="true">
+              <defs>
+                <linearGradient id="syncThreadGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#F4BFD1"/>
+                  <stop offset="50%" stop-color="#FFF7ED"/>
+                  <stop offset="100%" stop-color="#7DD3FC"/>
+                </linearGradient>
+              </defs>
+              <path class="sync-thread-bg" d="M 4 10 C 100 10, 120 34, 200 22 C 260 12, 300 10, 356 10"/>
+              <path class="sync-thread-bg" d="M 4 22 C 110 32, 160 8, 250 22 C 295 30, 325 22, 356 22"/>
+              <path class="sync-thread-bg" d="M 4 34 C 90 34, 150 14, 240 32 C 295 40, 320 34, 356 34"/>
+              <path class="sync-thread-glow" data-sync-path="0" d="M 4 10 C 100 10, 120 34, 200 22 C 260 12, 300 10, 356 10"/>
+              <path class="sync-thread-glow" data-sync-path="1" d="M 4 22 C 110 32, 160 8, 250 22 C 295 30, 325 22, 356 22"/>
+              <path class="sync-thread-glow" data-sync-path="2" d="M 4 34 C 90 34, 150 14, 240 32 C 295 40, 320 34, 356 34"/>
+            </svg>
+            <div class="bridge-chips">
+              <span class="b-chip">Tabs</span>
+              <span class="b-chip">Bookmarks</span>
+              <span class="b-chip">History</span>
+              <span class="b-chip">Profile settings</span>
+            </div>
+          </div>
+
+          <div class="bridge-zone bridge-never">
+            <div class="bridge-eyebrow">
+              <span>Never syncs</span>
+            </div>
+            <div class="boundary-diagram">
+              <div class="boundary-items">
+                <div class="boundary-item" data-bound="0"><span>Logins</span></div>
+                <div class="boundary-item" data-bound="1"><span>Cookies</span></div>
+                <div class="boundary-item" data-bound="2"><span>Passwords</span></div>
+              </div>
+              <div class="boundary-wall" aria-hidden="true"></div>
+              <div class="boundary-shield-note">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F4BFD1" stroke-width="2" style="margin:0 auto 4px"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+                <span>On device</span>
+              </div>
+            </div>
+            <div class="boundary-pw-foot">
+              <span class="pw-pill"><span>Apple Passwords AutoFill</span><span class="pw-tag pw-tag-now">Now</span></span>
+              <span class="pw-pill"><span>iCloud Passwords extension</span><span class="pw-tag pw-tag-coming">Coming</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Simple iPhone silhouette with real iPhone screenshots -->
+        <div class="iphone-col" id="sync-iphone-col">
+          <div class="ios-sheet-tabs" role="tablist" aria-label="iPhone screens">
+            <button class="ios-tab-btn is-active" type="button" role="tab" aria-selected="true" data-ios="browse">Browse</button>
+            <button class="ios-tab-btn" type="button" role="tab" aria-selected="false" data-ios="tabs">Tabs</button>
+            <button class="ios-tab-btn" type="button" role="tab" aria-selected="false" data-ios="bookmarks">Bookmarks</button>
+            <button class="ios-tab-btn" type="button" role="tab" aria-selected="false" data-ios="settings">Settings</button>
+          </div>
+
+          <div class="iphone-shell">
+            <div class="iphone-screen-stack">
+              <img
+                class="ios-shot is-active"
+                data-ios-view="browse"
+                src="assets/shots/iphone-page.webp"
+                alt="Oriv for iPhone in dark mode showing the Fieldnotes article Materials and meaning with the floating bottom address bar"
+                width="402"
+                height="874"
+                loading="lazy"
+                decoding="async"
+              />
+              <img
+                class="ios-shot"
+                data-ios-view="tabs"
+                src="assets/shots/iphone-tabs.webp"
+                alt="Oriv for iPhone tab grid showing open tabs, Personal profile switcher, and Tabs or Private toggle"
+                width="402"
+                height="874"
+                loading="lazy"
+                decoding="async"
+              />
+              <img
+                class="ios-shot"
+                data-ios-view="bookmarks"
+                src="assets/shots/iphone-bookmarks.webp"
+                alt="Oriv for iPhone Bookmarks sheet with saved demo sites and search bar"
+                width="402"
+                height="874"
+                loading="lazy"
+                decoding="async"
+              />
+              <img
+                class="ios-shot"
+                data-ios-view="settings"
+                src="assets/shots/iphone-settings.webp"
+                alt="Oriv for iPhone Settings sheet showing Profile, Sync, Appearance, Search engine, and privacy toggles"
+                width="402"
+                height="874"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+          </div>
+          <div class="sync-device-label">iPhone, iOS 26+ (TestFlight, then App Store)</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       ACT 7: "MADE IN THE OPEN." — STRIPE-ANGLED PORCELAIN FINALE
+  ======================================================================== -->
+  <section class="finale" id="open-source" aria-labelledby="finale-heading">
+    <div class="finale-wrap">
+      <div class="finale-hero">
+        <div class="finale-seal">
+          <img src="assets/Oriv-Mark.svg" alt="Oriv woven kolam mark" width="64" height="64" />
+        </div>
+        <div class="finale-eyebrow">MIT Open Source</div>
+        <h2 id="finale-heading">Made in the open.</h2>
+        <p>
+          Free, MIT-licensed, maintained on GitHub by Santhosh Balaji S.
+        </p>
+        <div class="finale-ctas">
+          <button class="btn-plum" type="button" data-open-download>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>
+            <span>Download for Mac</span>
+          </button>
+          <a class="btn-plum-outline" href="https://github.com/santhoshbalaji/Oriv" target="_blank" rel="noopener noreferrer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55v-1.94c-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.83 1.18 3.09 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.66.79.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+            <span>View on GitHub</span>
+          </a>
+        </div>
+        <div class="finale-meta">
+          Mac: free notarized DMG, macOS 26+ (Apple silicon, Intel), automatic updates. iPhone: iOS 26+, coming soon.
+        </div>
+      </div>
+
+      <!-- Compact "Also in Oriv" Mac features row -->
+      <div class="also-strip" aria-label="Additional Mac features">
+        <div class="also-label">Also in Oriv</div>
+        <div class="also-chips">
+          <span class="also-chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h12M4 18h14"/></svg>
+            <span>Reading view</span>
+          </span>
+          <span class="also-chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <span>Find</span>
+          </span>
+          <span class="also-chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M11 8v6M8 11h6M20 20l-3.5-3.5"/></svg>
+            <span>Zoom</span>
+          </span>
+          <span class="also-chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9V3h12v6"/><rect x="4" y="9" width="16" height="8" rx="2"/><path d="M7 14h10v7H7z"/></svg>
+            <span>Print, PDF</span>
+          </span>
+          <span class="also-chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h2M11 10h2M15 10h2M8 14h8"/></svg>
+            <span>Shortcuts</span>
+          </span>
+          <span class="also-chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 17v5"/><path d="M7 4h10l-1 6 3 3H5l3-3-1-6z"/></svg>
+            <span>Pinned tabs</span>
+          </span>
+          <span class="also-chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+            <span>Liquid Glass sidebar</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Compact Facts Strip -->
+      <div class="details-strip" id="facts">
+        <div class="detail-card">
+          <div class="detail-card-k">Privacy</div>
+          <h3>No analytics or telemetry</h3>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card-k">Passwords</div>
+          <h3>Apple Passwords AutoFill</h3>
+          <p>iCloud extension: Coming.</p>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card-k">iPhone</div>
+          <h3>TestFlight, then App Store</h3>
+        </div>
+        <div class="detail-card">
+          <div class="detail-card-k">Platform</div>
+          <h3>SwiftUI, Apple WebKit</h3>
+        </div>
+      </div>
+
+      <!-- Compact 3-question FAQ -->
+      <div class="faq-section" id="faq">
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary><span>What systems are supported?</span><span class="faq-plus" aria-hidden="true">+</span></summary>
+            <div class="faq-body">macOS 26+ (Apple silicon, Intel) now; iOS 26+ coming soon.</div>
+          </details>
+          <details class="faq-item">
+            <summary><span>How do passwords work?</span><span class="faq-plus" aria-hidden="true">+</span></summary>
+            <div class="faq-body">Apple Passwords AutoFill works now; iCloud Passwords extension coming.</div>
+          </details>
+          <details class="faq-item">
+            <summary><span>Does Oriv collect telemetry?</span><span class="faq-plus" aria-hidden="true">+</span></summary>
+            <div class="faq-body">No analytics or telemetry; suggestions stay local on device.</div>
+          </details>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <footer class="site-footer">
+        <div class="footer-brand">
+          <img src="assets/Oriv-Icon-Default.png" alt="" width="24" height="24" />
+          <span>Oriv, MIT, Santhosh Balaji S</span>
+        </div>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="privacy/">Privacy Policy</a>
+          <a href="support/">Support</a>
+          <a href="https://github.com/santhoshbalaji/Oriv/releases" target="_blank" rel="noopener noreferrer">Changelog</a>
+          <a href="https://github.com/santhoshbalaji/Oriv" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </nav>
+      </footer>
+    </div>
+  </section>
+
+</main>
+
+<!-- Download Sheet Modal -->
+<!-- Set data-state="ready" and the DMG link below when the Mac public beta is published. -->
+<div class="dl-backdrop" id="dl-modal" data-state="soon" role="dialog" aria-modal="true" aria-labelledby="dl-modal-title">
+  <div class="dl-modal">
+    <button class="dl-close" type="button" id="dl-close" aria-label="Close download dialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    <div class="dl-head">
+      <img src="assets/Oriv-Icon-Default.png" alt="" width="52" height="52" />
+      <div>
+        <h3 id="dl-modal-title">Download Oriv</h3>
+        <p>Public Beta, MIT</p>
+      </div>
+    </div>
+    <div class="dl-specs">
+      <div>Free notarized DMG, automatic updates, macOS 26+ (Apple silicon, Intel).</div>
+      <div class="dl-soon">The Mac public beta is almost here. Watch the GitHub repository for releases to hear the moment it&rsquo;s out.</div>
+    </div>
+    <div class="dl-actions">
+      <a class="btn-porcelain dl-ready" href="https://github.com/santhoshbalaji/Oriv/releases/latest" target="_blank" rel="noopener noreferrer">
+        <span>Download DMG</span>
+      </a>
+      <a class="btn-porcelain dl-soon" href="https://github.com/santhoshbalaji/Oriv" target="_blank" rel="noopener noreferrer">
+        <span>Watch on GitHub</span>
+      </a>
+      <a class="btn-glass dl-ready" href="https://github.com/santhoshbalaji/Oriv" target="_blank" rel="noopener noreferrer">
+        <span>GitHub</span>
+      </a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var root = document.documentElement;
+  var motionOn = root.classList.contains('motion-on');
+  var params = new URLSearchParams(window.location.search);
+  var forcedProgress = params.has('progress') ? clamp(parseFloat(params.get('progress')) || 0, 0, 1) : null;
+
+  function clamp(v, min, max) {
+    return v < min ? min : (v > max ? max : v);
+  }
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+  function invLerp(a, b, v) {
+    if (a === b) return v >= b ? 1 : 0;
+    return clamp((v - a) / (b - a), 0, 1);
+  }
+  function smoothstep(a, b, v) {
+    var t = invLerp(a, b, v);
+    return t * t * (3 - 2 * t);
+  }
+  function easeOutCubic(t) {
+    t = clamp(t, 0, 1);
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  /* --------------------------------------------------------------------------
+     DOM REFERENCES
+  -------------------------------------------------------------------------- */
+  var nav = document.getElementById('site-nav');
+  var navProgressFill = document.getElementById('nav-progress-fill');
+  var chapLinks = Array.prototype.slice.call(document.querySelectorAll('.chapter-link'));
+
+  var scenes = {
+    opening: document.getElementById('opening'),
+    privacy: document.getElementById('privacy'),
+    address: document.getElementById('address'),
+    profiles: document.getElementById('profiles'),
+    private: document.getElementById('private'),
+    sync: document.getElementById('sync'),
+    finale: document.getElementById('open-source')
+  };
+
+  // Scene 1
+  var heroKolam = document.getElementById('hero-kolam');
+  var kolamStrands = Array.prototype.slice.call(document.querySelectorAll('.kolam-strand'));
+  var heroCopy = document.getElementById('hero-copy');
+  var heroWinWrap = document.getElementById('hero-window-wrap');
+  var heroScrollCue = document.getElementById('hero-scroll-cue');
+
+  var kolamLengths = kolamStrands.map(function (p) {
+    var len = 820;
+    try { len = Math.ceil(p.getTotalLength()); } catch (e) {}
+    p.style.strokeDasharray = String(len);
+    return len;
+  });
+
+  // Scene 2
+  var privHeadLoud = document.getElementById('priv-head-loud');
+  var privHeadQuiet = document.getElementById('priv-head-quiet');
+  var noiseChips = Array.prototype.slice.call(document.querySelectorAll('.noise-chip'));
+  var clutterAd = document.getElementById('clutter-ad');
+  var clutterCookie = document.getElementById('clutter-cookie');
+  var cookieToast = document.getElementById('cookie-toast');
+  var shieldWave = document.getElementById('shield-wave');
+  var sitePrivPop = document.getElementById('site-privacy-pop');
+
+  // Scene 3
+  var addrShotWrap = document.getElementById('address-shot-wrap');
+  var shortcutRibbon = document.getElementById('shortcut-ribbon');
+
+  // Scene 4
+  var profilesDeck = document.getElementById('profiles-deck');
+  var profPillBtns = Array.prototype.slice.call(document.querySelectorAll('.prof-pill-btn'));
+  var profileItems = Array.prototype.slice.call(document.querySelectorAll('.profile-shot-item'));
+  var swipeCue = document.getElementById('swipe-cue');
+  var manualProfileOverride = null;
+
+  // Scene 5
+  var privateDimmer = document.getElementById('private-dimmer');
+  var privateWinWrap = document.getElementById('private-win-wrap');
+
+  // Scene 6
+  var syncMacCol = document.getElementById('sync-mac-col');
+  var syncBridge = document.getElementById('sync-bridge');
+  var syncIphoneCol = document.getElementById('sync-iphone-col');
+  var syncPaths = Array.prototype.slice.call(document.querySelectorAll('.sync-thread-glow'));
+  var syncPathLens = syncPaths.map(function (p) {
+    var len = 380;
+    try { len = Math.ceil(p.getTotalLength()); } catch (e) {}
+    p.style.strokeDasharray = String(len);
+    return len;
+  });
+  var boundaryItems = Array.prototype.slice.call(document.querySelectorAll('.boundary-item'));
+  var iosTabBtns = Array.prototype.slice.call(document.querySelectorAll('.ios-tab-btn'));
+  var iosShots = Array.prototype.slice.call(document.querySelectorAll('.ios-shot'));
+  var manualIosTab = null;
+
+  /* --------------------------------------------------------------------------
+     REAL-TIME FLUID MESH GRADIENT RENDERER (CANVAS 2D)
+  -------------------------------------------------------------------------- */
+  var canvas = document.getElementById('mesh-canvas');
+  var ctx = canvas ? canvas.getContext('2d', { alpha: false }) : null;
+  var canvasW = 0, canvasH = 0;
+
+  var PALETTE_STOPS = [
+    { p: 0.00, bg: [14, 7, 13],  c1: [118, 42, 68],  c2: [72, 27, 46],   c3: [174, 88, 120], c4: [88, 42, 84] },
+    { p: 0.16, bg: [16, 9, 13],  c1: [146, 48, 44],  c2: [94, 34, 52],   c3: [164, 92, 46],  c4: [62, 28, 46] },
+    { p: 0.26, bg: [12, 9, 15],  c1: [86, 40, 62],   c2: [38, 52, 78],   c3: [101, 42, 58],  c4: [42, 68, 56] },
+    { p: 0.39, bg: [10, 12, 20], c1: [34, 70, 132],  c2: [86, 36, 58],   c3: [54, 98, 172],  c4: [30, 38, 66] },
+    { p: 0.49, bg: [14, 8, 16],  c1: [118, 56, 110], c2: [66, 33, 62],   c3: [154, 78, 140], c4: [86, 38, 62] },
+    { p: 0.55, bg: [8, 14, 22],  c1: [40, 92, 148],  c2: [26, 52, 78],   c3: [58, 124, 192], c4: [30, 64, 108] },
+    { p: 0.60, bg: [9, 16, 12],  c1: [49, 104, 66],  c2: [34, 59, 38],   c3: [64, 140, 88],  c4: [36, 78, 54] },
+    { p: 0.73, bg: [8, 5, 14],   c1: [96, 44, 130],  c2: [51, 38, 61],   c3: [132, 74, 178], c4: [38, 22, 60] },
+    { p: 0.87, bg: [12, 9, 18],  c1: [101, 42, 58],  c2: [38, 64, 108],  c3: [136, 68, 98],  c4: [56, 25, 37] },
+    { p: 1.00, bg: [16, 8, 14],  c1: [101, 42, 58],  c2: [56, 25, 37],   c3: [142, 64, 90],  c4: [56, 25, 37] }
+  ];
+
+  function samplePalette(p) {
+    p = clamp(p, 0, 1);
+    var a = PALETTE_STOPS[0];
+    var b = PALETTE_STOPS[PALETTE_STOPS.length - 1];
+    for (var i = 0; i < PALETTE_STOPS.length - 1; i++) {
+      if (p >= PALETTE_STOPS[i].p && p <= PALETTE_STOPS[i + 1].p) {
+        a = PALETTE_STOPS[i];
+        b = PALETTE_STOPS[i + 1];
+        break;
+      }
+    }
+    var t = invLerp(a.p, b.p, p);
+    function lerpRGB(u, v) {
+      return [
+        Math.round(lerp(u[0], v[0], t)),
+        Math.round(lerp(u[1], v[1], t)),
+        Math.round(lerp(u[2], v[2], t))
+      ];
+    }
+    return {
+      bg: lerpRGB(a.bg, b.bg),
+      c1: lerpRGB(a.c1, b.c1),
+      c2: lerpRGB(a.c2, b.c2),
+      c3: lerpRGB(a.c3, b.c3),
+      c4: lerpRGB(a.c4, b.c4)
+    };
+  }
+
+  function resizeCanvas() {
+    if (!canvas) return;
+    canvasW = Math.max(320, Math.round(window.innerWidth * 0.36));
+    canvasH = Math.max(240, Math.round(window.innerHeight * 0.36));
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+  }
+
+  function renderMesh(globalP, timeSec) {
+    if (!ctx || !canvasW || !canvasH) return;
+    var pal = samplePalette(globalP);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgb(' + pal.bg[0] + ',' + pal.bg[1] + ',' + pal.bg[2] + ')';
+    ctx.fillRect(0, 0, canvasW, canvasH);
+
+    var phase = timeSec * 0.28 + globalP * 5.2;
+    var orbs = [
+      { x: canvasW * (0.24 + 0.16 * Math.sin(phase * 0.9)),        y: canvasH * (0.22 + 0.14 * Math.cos(phase * 0.7)),        r: Math.max(canvasW, canvasH) * 0.66, c: pal.c1, a: 0.78 },
+      { x: canvasW * (0.80 + 0.14 * Math.cos(phase * 0.8 + 1.2)),  y: canvasH * (0.28 + 0.16 * Math.sin(phase * 0.6 + 0.8)),  r: Math.max(canvasW, canvasH) * 0.62, c: pal.c3, a: 0.64 },
+      { x: canvasW * (0.48 + 0.18 * Math.sin(phase * 0.55 + 2.4)), y: canvasH * (0.78 + 0.12 * Math.cos(phase * 0.65 + 1.9)), r: Math.max(canvasW, canvasH) * 0.68, c: pal.c2, a: 0.76 },
+      { x: canvasW * (0.14 + 0.14 * Math.cos(phase * 0.75 + 3.1)), y: canvasH * (0.84 + 0.12 * Math.sin(phase * 0.8 + 0.5)),  r: Math.max(canvasW, canvasH) * 0.54, c: pal.c4, a: 0.62 }
+    ];
+
+    ctx.globalCompositeOperation = 'screen';
+    for (var i = 0; i < orbs.length; i++) {
+      var o = orbs[i];
+      var g = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r);
+      g.addColorStop(0, 'rgba(' + o.c[0] + ',' + o.c[1] + ',' + o.c[2] + ',' + o.a + ')');
+      g.addColorStop(0.52, 'rgba(' + o.c[0] + ',' + o.c[1] + ',' + o.c[2] + ',' + (o.a * 0.34) + ')');
+      g.addColorStop(1, 'rgba(' + o.c[0] + ',' + o.c[1] + ',' + o.c[2] + ',0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, canvasW, canvasH);
+    }
+
+    ctx.globalCompositeOperation = 'lighter';
+    var sheen = ctx.createLinearGradient(0, canvasH * 0.12, canvasW, canvasH * 0.82);
+    sheen.addColorStop(0, 'rgba(255, 247, 237, 0)');
+    sheen.addColorStop(0.48, 'rgba(255, 247, 237, 0.045)');
+    sheen.addColorStop(0.52, 'rgba(255, 247, 237, 0.015)');
+    sheen.addColorStop(1, 'rgba(255, 247, 237, 0)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(0, 0, canvasW, canvasH);
+  }
+
+  function sceneProgress(el, scrollY, vh) {
+    if (!el) return 1;
+    var top = el.offsetTop;
+    var travel = Math.max(1, el.offsetHeight - vh);
+    return clamp((scrollY - top) / travel, 0, 1);
+  }
+
+  /* --------------------------------------------------------------------------
+     PROFILE SWITCHER (SCENE 4 — REAL PROFILE SCREENSHOTS)
+  -------------------------------------------------------------------------- */
+  var PROFILE_KEYS = ['personal', 'work', 'study'];
+
+  function setActiveProfileUI(activeKey, slideProgress) {
+    if (!profilesDeck) return;
+    profilesDeck.setAttribute('data-active-profile', activeKey);
+
+    profPillBtns.forEach(function (btn) {
+      var isOn = btn.getAttribute('data-p') === activeKey;
+      btn.classList.toggle('is-active', isOn);
+      btn.setAttribute('aria-selected', isOn ? 'true' : 'false');
+    });
+
+    if (motionOn && typeof slideProgress === 'number') {
+      profileItems.forEach(function (item) {
+        var idx = PROFILE_KEYS.indexOf(item.getAttribute('data-pane'));
+        var delta = idx - slideProgress;
+        var op = clamp(1 - Math.abs(delta) * 1.65, 0, 1);
+        var tx = delta * (isMobile ? 28 : 48);
+        var sc = 1 - Math.abs(delta) * 0.03;
+        item.style.transform = 'translate3d(' + tx.toFixed(1) + 'px, 0, 0) scale(' + sc.toFixed(4) + ')';
+        item.style.opacity = op.toFixed(3);
+        item.style.zIndex = Math.abs(delta) < 0.5 ? '3' : '1';
+      });
+    }
+  }
+
+  function setIosSheet(key) {
+    iosTabBtns.forEach(function (btn) {
+      var on = btn.getAttribute('data-ios') === key;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    iosShots.forEach(function (img) {
+      img.classList.toggle('is-active', img.getAttribute('data-ios-view') === key);
+    });
+  }
+
+  /* --------------------------------------------------------------------------
+     MASTER CHOREOGRAPHY UPDATE (PURE GPU TRANSFORMS + OPACITY)
+  -------------------------------------------------------------------------- */
+  var currentScroll = 0;
+  var targetScroll = 0;
+  var isMobile = window.innerWidth <= 820;
+  var activeChapterId = 'opening';
+  var isOnFinale = false;
+
+  function applyChoreography(scrollY, timeSec) {
+    var vh = window.innerHeight || 900;
+    var maxScroll = Math.max(1, getTotalStoryHeight() - vh);
+    var globalP = clamp(scrollY / maxScroll, 0, 1);
+
+    if (navProgressFill) {
+      navProgressFill.style.transform = 'scaleX(' + globalP.toFixed(4) + ')';
+    }
+
+    if (scenes.finale) {
+      var finaleTop = scenes.finale.offsetTop;
+      var overFinale = (scrollY + 86) >= finaleTop;
+      if (overFinale !== isOnFinale) {
+        isOnFinale = overFinale;
+        nav.classList.toggle('is-light', isOnFinale);
+      }
+      if (canvas) {
+        canvas.style.opacity = scrollY > finaleTop + vh * 0.35 ? '0' : '1';
+      }
+    }
+
+    var chapOrder = ['opening', 'privacy', 'address', 'profiles', 'private', 'sync', 'open-source'];
+    var newActive = 'opening';
+    for (var ci = 0; ci < chapOrder.length; ci++) {
+      var cid = chapOrder[ci];
+      var cel = cid === 'open-source' ? scenes.finale : scenes[cid];
+      if (cel && scrollY >= cel.offsetTop - vh * 0.5) {
+        newActive = cid;
+      }
+    }
+    if (newActive !== activeChapterId) {
+      activeChapterId = newActive;
+      chapLinks.forEach(function (a) {
+        a.classList.toggle('is-active', a.getAttribute('data-chap') === activeChapterId);
+      });
+    }
+
+    if (!isOnFinale || scrollY < (scenes.finale ? scenes.finale.offsetTop + vh * 0.35 : 999999)) {
+      renderMesh(globalP, timeSec);
+    }
+
+    if (!motionOn) return;
+
+    /* ---- SCENE 1: OPENING (KOLAM WEAVE + HERO DISSOLVE + REAL MAC WINDOW RISE) ---- */
+    var t1 = sceneProgress(scenes.opening, scrollY, vh);
+    var weaveT = smoothstep(0.0, 0.50, t1);
+    kolamStrands.forEach(function (path, i) {
+      var len = kolamLengths[i];
+      var startFill = 0.66 - i * 0.05;
+      var fill = clamp(lerp(startFill, 1.0, clamp(weaveT * 1.15 - i * 0.06, 0, 1)), 0, 1);
+      path.style.strokeDashoffset = (len * (1 - fill)).toFixed(1);
+    });
+    if (heroKolam) {
+      var kScale = lerp(1.0, 1.24, smoothstep(0.10, 0.95, t1));
+      var kRot = lerp(-5, 10, t1);
+      var kSurge = lerp(0.62, 0.96, smoothstep(0.06, 0.34, t1));
+      var kOp = lerp(kSurge, 0.16, smoothstep(0.42, 0.88, t1));
+      heroKolam.style.transform = 'translate3d(-50%, -50%, 0) scale(' + kScale.toFixed(4) + ') rotate(' + kRot.toFixed(2) + 'deg)';
+      heroKolam.style.opacity = kOp.toFixed(3);
+    }
+
+    if (heroCopy) {
+      var copyExit = smoothstep(0.06, 0.44, t1);
+      var copyY = lerp(0, -96, copyExit);
+      var copyScale = lerp(1.0, 0.92, copyExit);
+      heroCopy.style.transform = 'translate3d(-50%, ' + copyY.toFixed(1) + 'px, 0) scale(' + copyScale.toFixed(4) + ')';
+      heroCopy.style.opacity = (1 - copyExit).toFixed(3);
+      heroCopy.style.pointerEvents = copyExit > 0.65 ? 'none' : 'auto';
+    }
+
+    if (heroScrollCue) {
+      heroScrollCue.style.opacity = (1 - smoothstep(0.0, 0.14, t1)).toFixed(3);
+    }
+
+    if (heroWinWrap) {
+      var winRise = easeOutCubic(invLerp(0.0, 0.72, t1));
+      var startY = isMobile ? 255 : 432;
+      var wY = lerp(startY, isMobile ? 8 : 10, winRise);
+      var wRx = lerp(16, 0, winRise);
+      var wSc = lerp(0.88, 1.0, winRise);
+      var wOp = lerp(0.90, 1.0, smoothstep(0.0, 0.35, t1));
+      heroWinWrap.style.transform = 'translate3d(0, ' + wY.toFixed(1) + 'px, 0) rotateX(' + wRx.toFixed(2) + 'deg) scale(' + wSc.toFixed(4) + ')';
+      heroWinWrap.style.opacity = wOp.toFixed(3);
+    }
+
+    /* ---- SCENE 2: "THE WEB IS LOUD." -> "ORIV QUIETS IT." ---- */
+    var t2 = sceneProgress(scenes.privacy, scrollY, vh);
+    var sweep = smoothstep(0.28, 0.68, t2);
+
+    if (privHeadLoud) {
+      var loudOut = smoothstep(0.32, 0.46, t2);
+      privHeadLoud.style.opacity = (1 - loudOut).toFixed(3);
+      privHeadLoud.style.transform = 'translate3d(0, ' + (-18 * loudOut).toFixed(1) + 'px, 0)';
+    }
+    if (privHeadQuiet) {
+      var qIn = smoothstep(0.50, 0.66, t2);
+      privHeadQuiet.style.opacity = qIn.toFixed(3);
+      privHeadQuiet.style.transform = 'translate3d(0, ' + (18 * (1 - qIn)).toFixed(1) + 'px, 0)';
+    }
+
+    var noiseDirs = [
+      [-54, -28], [58, -18], [-48, 34], [52, 38], [40, -44]
+    ];
+    noiseChips.forEach(function (chip, idx) {
+      var enter = smoothstep(0.0, 0.14, t2);
+      var exit = smoothstep(0.28 + idx * 0.045, 0.54 + idx * 0.045, t2);
+      var dir = noiseDirs[idx] || [40, -20];
+      var dx = lerp(dir[0] * 0.25, 0, enter) + dir[0] * exit * 1.4;
+      var dy = lerp(dir[1] * 0.25, 0, enter) + dir[1] * exit * 1.3;
+      var sc = lerp(0.92, 1.0, enter) * lerp(1.0, 0.72, exit);
+      var op = clamp(enter * (1 - exit), 0, 1);
+      chip.style.transform = 'translate3d(' + dx.toFixed(1) + 'px, ' + dy.toFixed(1) + 'px, 0) scale(' + sc.toFixed(3) + ')';
+      chip.style.opacity = op.toFixed(3);
+    });
+
+    if (shieldWave) {
+      var waveVis = Math.sin(sweep * Math.PI);
+      shieldWave.style.opacity = (waveVis * 0.95).toFixed(3);
+      shieldWave.style.transform = 'translate3d(' + lerp(-140, 820, sweep).toFixed(1) + 'px, 0, 0)';
+    }
+
+    if (clutterAd) {
+      var adOut = smoothstep(0.32, 0.54, t2);
+      clutterAd.style.opacity = (1 - adOut).toFixed(3);
+      clutterAd.style.transform = 'scale(' + lerp(1, 0.92, adOut).toFixed(3) + ')';
+    }
+
+    if (clutterCookie) {
+      var cwOut = smoothstep(0.36, 0.58, t2);
+      clutterCookie.style.opacity = (1 - cwOut).toFixed(3);
+      clutterCookie.style.transform = 'translate3d(0, ' + (34 * cwOut).toFixed(1) + 'px, 0) scale(' + lerp(1, 0.95, cwOut).toFixed(3) + ')';
+    }
+
+    if (cookieToast) {
+      var toastIn = smoothstep(0.50, 0.60, t2);
+      var toastOut = smoothstep(0.74, 0.86, t2);
+      var toastOp = clamp(toastIn * (1 - toastOut), 0, 1);
+      cookieToast.style.opacity = toastOp.toFixed(3);
+      cookieToast.style.transform = 'translate3d(-50%, ' + lerp(12, 0, toastIn).toFixed(1) + 'px, 0)';
+    }
+
+    // Real Site Privacy panel slides cleanly in beside the window
+    if (sitePrivPop) {
+      var popIn = easeOutCubic(invLerp(0.64, 0.86, t2));
+      var popX = isMobile ? 0 : lerp(22, 0, popIn);
+      var popY = isMobile ? lerp(20, 0, popIn) : lerp(-10, 0, popIn);
+      sitePrivPop.style.opacity = popIn.toFixed(3);
+      sitePrivPop.style.transform = 'translate3d(' + popX.toFixed(1) + 'px, ' + popY.toFixed(1) + 'px, 0) scale(' + lerp(0.94, 1, popIn).toFixed(3) + ')';
+    }
+
+    /* ---- SCENE 3: "A FEW LETTERS IS ENOUGH." (REAL ADDRESS BAR SHOT) ---- */
+    var t3 = sceneProgress(scenes.address, scrollY, vh);
+    if (addrShotWrap) {
+      var zIn = easeOutCubic(invLerp(0.0, 0.42, t3));
+      var fScale = lerp(0.94, 1.0, zIn);
+      var fY = lerp(24, 0, zIn);
+      addrShotWrap.style.transform = 'translate3d(0, ' + fY.toFixed(1) + 'px, 0) scale(' + fScale.toFixed(4) + ')';
+      addrShotWrap.style.opacity = lerp(0.58, 1.0, zIn).toFixed(3);
+    }
+    if (shortcutRibbon) {
+      var scIn = smoothstep(0.36, 0.62, t3);
+      shortcutRibbon.style.opacity = scIn.toFixed(3);
+      shortcutRibbon.style.transform = 'translate3d(0, ' + lerp(12, 0, scIn).toFixed(1) + 'px, 0)';
+    }
+
+    /* ---- SCENE 4: PROFILES — PERSONAL -> WORK -> STUDY (REAL SHOTS) ---- */
+    var t4 = sceneProgress(scenes.profiles, scrollY, vh);
+    if (manualProfileOverride !== null) {
+      var mIdx = PROFILE_KEYS.indexOf(manualProfileOverride);
+      setActiveProfileUI(manualProfileOverride, mIdx);
+      if (swipeCue) swipeCue.style.opacity = '0';
+    } else {
+      var slide1 = smoothstep(0.28, 0.38, t4);
+      var slide2 = smoothstep(0.64, 0.74, t4);
+      var slideVal = slide1 + slide2;
+      var activeKey = slideVal < 0.5 ? 'personal' : (slideVal < 1.5 ? 'work' : 'study');
+      setActiveProfileUI(activeKey, slideVal);
+
+      if (swipeCue) {
+        var cue1 = Math.sin(invLerp(0.24, 0.42, t4) * Math.PI);
+        var cue2 = Math.sin(invLerp(0.60, 0.78, t4) * Math.PI);
+        var cueOp = Math.max(cue1, cue2);
+        var cueX = cue1 >= cue2
+          ? lerp(16, -16, invLerp(0.24, 0.42, t4))
+          : lerp(16, -16, invLerp(0.60, 0.78, t4));
+        swipeCue.style.opacity = (cueOp * 0.95).toFixed(3);
+        swipeCue.style.transform = isMobile
+          ? 'translate3d(calc(-50% + ' + cueX.toFixed(1) + 'px), 0, 0)'
+          : 'translate3d(' + cueX.toFixed(1) + 'px, 0, 0)';
+      }
+    }
+
+    /* ---- SCENE 5: "PRIVATE, UNMISTAKABLY." — AMETHYST DUSK ---- */
+    var t5 = sceneProgress(scenes.private, scrollY, vh);
+    if (privateDimmer) {
+      var dimIn = smoothstep(0.0, 0.42, t5);
+      privateDimmer.style.opacity = lerp(0.18, 0.96, dimIn).toFixed(3);
+    }
+    if (privateWinWrap) {
+      var pRise = easeOutCubic(invLerp(0.0, 0.52, t5));
+      privateWinWrap.style.transform = 'translate3d(0, ' + lerp(28, 0, pRise).toFixed(1) + 'px, 0) scale(' + lerp(0.95, 1.0, pRise).toFixed(4) + ')';
+      privateWinWrap.style.opacity = lerp(0.55, 1.0, pRise).toFixed(3);
+    }
+
+    /* ---- SCENE 6: "MAC AND IPHONE, IN STEP." — SYNC & BOUNDARY ---- */
+    var t6 = sceneProgress(scenes.sync, scrollY, vh);
+    var foldIn = easeOutCubic(invLerp(0.0, 0.42, t6));
+
+    if (syncMacCol) {
+      syncMacCol.style.transform = 'translate3d(' + lerp(40, 0, foldIn).toFixed(1) + 'px, 0, 0) scale(' + lerp(1.03, 1.0, foldIn).toFixed(4) + ')';
+      syncMacCol.style.opacity = lerp(0.65, 1.0, foldIn).toFixed(3);
+    }
+    if (syncIphoneCol) {
+      syncIphoneCol.style.transform = 'translate3d(' + lerp(42, 0, foldIn).toFixed(1) + 'px, ' + lerp(16, 0, foldIn).toFixed(1) + 'px, 0) scale(' + lerp(0.92, 1.0, foldIn).toFixed(4) + ')';
+      syncIphoneCol.style.opacity = lerp(0.25, 1.0, foldIn).toFixed(3);
+    }
+    if (syncBridge) {
+      var brIn = smoothstep(0.14, 0.48, t6);
+      syncBridge.style.opacity = brIn.toFixed(3);
+      syncBridge.style.transform = 'translate3d(0, ' + lerp(16, 0, brIn).toFixed(1) + 'px, 0)';
+    }
+
+    syncPaths.forEach(function (path, idx) {
+      var len = syncPathLens[idx];
+      var flow = smoothstep(0.24 + idx * 0.06, 0.70 + idx * 0.06, t6);
+      path.style.strokeDashoffset = (len * (1 - flow)).toFixed(1);
+    });
+
+    boundaryItems.forEach(function (item, idx) {
+      var bIn = smoothstep(0.46 + idx * 0.07, 0.68 + idx * 0.07, t6);
+      item.style.opacity = lerp(0.35, 1.0, bIn).toFixed(3);
+      item.style.transform = 'translate3d(' + lerp(-12, 0, bIn).toFixed(1) + 'px, 0, 0)';
+    });
+
+    // Cycle real iPhone screens gently on scroll (hold Browse at hero beat, then Tabs, Bookmarks, Settings)
+    if (manualIosTab === null) {
+      var iosKey = t6 < 0.68 ? 'browse' : (t6 < 0.80 ? 'tabs' : (t6 < 0.90 ? 'bookmarks' : 'settings'));
+      setIosSheet(iosKey);
+    }
+  }
+
+  /* --------------------------------------------------------------------------
+     INTERACTIVE CONTROLS (PROFILE PILLS, IPHONE SHEETS, DOWNLOAD MODAL)
+  -------------------------------------------------------------------------- */
+  profPillBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var p = btn.getAttribute('data-p');
+      manualProfileOverride = p;
+      setActiveProfileUI(p, PROFILE_KEYS.indexOf(p));
+    });
+  });
+
+  var lastUserScrollY = 0;
+  window.addEventListener('scroll', function () {
+    targetScroll = window.scrollY || window.pageYOffset || 0;
+    if (manualProfileOverride !== null && Math.abs(targetScroll - lastUserScrollY) > 60) {
+      manualProfileOverride = null;
+    }
+    lastUserScrollY = targetScroll;
+  }, { passive: true });
+
+  iosTabBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      manualIosTab = btn.getAttribute('data-ios');
+      setIosSheet(manualIosTab);
+    });
+  });
+
+  chapLinks.forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      var href = link.getAttribute('href');
+      if (!href || href.charAt(0) !== '#') return;
+      var target = document.querySelector(href);
+      if (!target) return;
+      e.preventDefault();
+      var vh = window.innerHeight || 900;
+      var offset = target.offsetTop;
+      if (motionOn && target.classList.contains('scene')) {
+        var beatMap = {
+          opening: 0.0,
+          privacy: 0.78,
+          address: 0.72,
+          profiles: 0.50,
+          private: 0.60,
+          sync: 0.62
+        };
+        var beat = beatMap[target.getAttribute('data-scene')];
+        if (typeof beat === 'number') {
+          offset = target.offsetTop + Math.max(0, target.offsetHeight - vh) * beat;
+        }
+      }
+      window.scrollTo({ top: offset, behavior: motionOn ? 'smooth' : 'auto' });
+    });
+  });
+
+  // Download modal
+  var dlModal = document.getElementById('dl-modal');
+  var dlClose = document.getElementById('dl-close');
+  var lastFocusEl = null;
+
+  function openDownloadModal() {
+    if (!dlModal) return;
+    lastFocusEl = document.activeElement;
+    dlModal.classList.add('is-open');
+    if (dlClose) dlClose.focus();
+  }
+  function closeDownloadModal() {
+    if (!dlModal) return;
+    dlModal.classList.remove('is-open');
+    if (lastFocusEl && lastFocusEl.focus) lastFocusEl.focus();
+  }
+
+  Array.prototype.slice.call(document.querySelectorAll('[data-open-download]')).forEach(function (btn) {
+    btn.addEventListener('click', openDownloadModal);
+  });
+  if (dlClose) dlClose.addEventListener('click', closeDownloadModal);
+  if (dlModal) {
+    dlModal.addEventListener('click', function (e) {
+      if (e.target === dlModal) closeDownloadModal();
+    });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && dlModal && dlModal.classList.contains('is-open')) {
+      closeDownloadModal();
+    }
+  });
+
+  /* --------------------------------------------------------------------------
+     RESIZE, VISIBILITY & RAF ENGINE + DETERMINISTIC ?progress=0.xx
+  -------------------------------------------------------------------------- */
+  resizeCanvas();
+  window.addEventListener('resize', function () {
+    isMobile = window.innerWidth <= 820;
+    resizeCanvas();
+    applyChoreography(currentScroll, performance.now() * 0.001);
+  }, { passive: true });
+
+  var rafId = null;
+  var startTime = performance.now();
+
+  function tick(now) {
+    if (document.hidden) {
+      rafId = null;
+      return;
+    }
+    var timeSec = (now - startTime) * 0.001;
+    currentScroll = targetScroll;
+    applyChoreography(currentScroll, timeSec);
+    if (motionOn && forcedProgress === null) {
+      rafId = requestAnimationFrame(tick);
+    } else {
+      rafId = null;
+    }
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && motionOn && forcedProgress === null && !rafId) {
+      rafId = requestAnimationFrame(tick);
+    }
+  });
+
+  var storyMain = document.getElementById('story');
+  var sceneList = Array.prototype.slice.call(document.querySelectorAll('.scene'));
+
+  function getTotalStoryHeight() {
+    if (!storyMain) return document.documentElement.scrollHeight;
+    return storyMain.scrollHeight;
+  }
+
+  function applyForcedProgress(p) {
+    var vh = window.innerHeight || 900;
+    var totalH = getTotalStoryHeight();
+    var maxScroll = Math.max(1, totalH - vh);
+    var virtualY = Math.round(p * maxScroll);
+    currentScroll = virtualY;
+    targetScroll = virtualY;
+
+    if (storyMain) {
+      storyMain.style.transform = 'translate3d(0, ' + (-virtualY) + 'px, 0)';
+    }
+    sceneList.forEach(function (sec) {
+      var sticky = sec.querySelector('.scene-sticky');
+      if (!sticky) return;
+      var top = sec.offsetTop;
+      var travel = Math.max(0, sec.offsetHeight - vh);
+      var stickY = clamp(virtualY - top, 0, travel);
+      sticky.style.transform = 'translate3d(0, ' + stickY + 'px, 0)';
+    });
+
+    applyChoreography(virtualY, p * 8.0);
+  }
+
+  function releaseScrubbedMode() {
+    if (!root.classList.contains('is-scrubbed')) return;
+    var resumeY = currentScroll;
+    forcedProgress = null;
+    root.classList.remove('is-scrubbed');
+    if (storyMain) storyMain.style.transform = '';
+    sceneList.forEach(function (sec) {
+      var sticky = sec.querySelector('.scene-sticky');
+      if (sticky) sticky.style.transform = '';
+    });
+    window.scrollTo(0, resumeY);
+    targetScroll = resumeY;
+    currentScroll = resumeY;
+    if (motionOn && !rafId) {
+      rafId = requestAnimationFrame(tick);
+    }
+  }
+
+  window.__orivSetProgress = function (p) {
+    root.classList.add('is-scrubbed');
+    forcedProgress = clamp(Number(p) || 0, 0, 1);
+    applyForcedProgress(forcedProgress);
+  };
+
+  if (forcedProgress !== null) {
+    window.addEventListener('wheel', releaseScrubbedMode, { once: true, passive: true });
+    window.addEventListener('touchstart', releaseScrubbedMode, { once: true, passive: true });
+    applyForcedProgress(forcedProgress);
+    requestAnimationFrame(function () {
+      applyForcedProgress(forcedProgress);
+    });
+  } else {
+    targetScroll = window.scrollY || window.pageYOffset || 0;
+    currentScroll = targetScroll;
+    applyChoreography(currentScroll, 0);
+    if (motionOn) {
+      rafId = requestAnimationFrame(tick);
+    }
+  }
+})();
+</script>
+</body>
+</html>
