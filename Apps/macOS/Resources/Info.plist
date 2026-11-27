@@ -47,6 +47,14 @@
 	<string>$(ORIV_CONTINUITY_CONTAINER)</string>
 	<key>OrivPushEnvironment</key>
 	<string>$(ORIV_PUSH_ENVIRONMENT)</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
+	<key>SUFeedURL</key>
+	<string>$(ORIV_SPARKLE_FEED_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(ORIV_SPARKLE_PUBLIC_KEY)</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

@@ -360,6 +360,14 @@ struct AppearanceSettings: View {
                 LabeledContent("WebKit", value: runtime.webKitBuild)
                 LabeledContent("Protection list version", value: AdBlocker.rulesVersion)
             }.textSelection(.enabled)
+            if AppUpdater.shared.isAvailable {
+                @Bindable var updater = AppUpdater.shared
+                SettingsGroup("Updates", detail: "Oriv checks oriv.dev for a new version about once a day and asks before installing it.") {
+                    Toggle("Check for updates automatically", isOn: $updater.automaticallyChecks)
+                    Button("Check for Updates…") { updater.checkForUpdates() }
+                        .disabled(!updater.canCheckForUpdates)
+                }
+            }
             SettingsGroup("Open source") {
                 Button("Acknowledgments…") { acknowledgments = true }
             }

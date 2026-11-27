@@ -6,6 +6,8 @@ options:
     macOS: '26.0'
     iOS: '26.0'
   createIntermediateGroups: true
+  # Keeps regenerated project and scheme stamps stable across XcodeGen versions.
+  xcodeVersion: '14.3'
   postGenCommand: python3 scripts/normalize-xcode-capabilities.py
 configs:
   Debug: debug
@@ -16,6 +18,9 @@ configs:
 packages:
   BrowserKit:
     path: Packages/BrowserKit
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 settings:
   base:
     SWIFT_VERSION: '6.0'
@@ -27,6 +32,11 @@ settings:
     ORIV_CONTINUITY_CONTAINER: ''
     ORIV_HANDOFF_ACTIVITY: com.santhoshbalaji.oriv.dev.browsing
     ORIV_PUSH_ENVIRONMENT: production
+    # Sparkle updates only the Developer ID public beta (ContinuityRelease).
+    # An empty feed leaves the updater off in development and ad-hoc builds.
+    ORIV_SPARKLE_FEED_URL: ''
+    # Public half of the update-signing key; the private half stays in the release Mac's keychain.
+    ORIV_SPARKLE_PUBLIC_KEY: gzqYliM9/Slk6RIOYgAEetaUnbORXPtrXa/BTuhjBCY=
   configs:
     Debug:
       OTHER_SWIFT_FLAGS: "$(inherited) -Xfrontend -warn-long-expression-type-checking=200 -Xfrontend -warn-long-function-bodies=300"
@@ -49,6 +59,7 @@ settings:
       ORIV_BUILD_CHANNEL: Release
       ORIV_CONTINUITY_CONTAINER: iCloud.com.santhoshbalaji.oriv.browser.dev
       ORIV_HANDOFF_ACTIVITY: com.santhoshbalaji.oriv.browsing
+      ORIV_SPARKLE_FEED_URL: https://oriv.dev/appcast.xml
     BrowserDevelopment:
       ORIV_PUSH_ENVIRONMENT: development
       CODE_SIGN_STYLE: Automatic
@@ -81,6 +92,8 @@ targets:
       product: BrowserCore
     - package: BrowserKit
       product: BrowserEngine
+    - package: Sparkle
+      product: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.personalbrowser.mac
@@ -98,8 +111,8 @@ targets:
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent: true
         CODE_SIGN_ENTITLEMENTS: Apps/macOS/PersonalBrowser.entitlements
         ENABLE_HARDENED_RUNTIME: true
-        MARKETING_VERSION: 0.29.0
-        CURRENT_PROJECT_VERSION: '50'
+        MARKETING_VERSION: 0.30.0
+        CURRENT_PROJECT_VERSION: '51'
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: local.personalbrowser.qa
@@ -121,6 +134,10 @@ targets:
         OrivBuildChannel: "$(ORIV_BUILD_CHANNEL)"
         OrivContinuityContainer: "$(ORIV_CONTINUITY_CONTAINER)"
         OrivPushEnvironment: "$(ORIV_PUSH_ENVIRONMENT)"
+        SUFeedURL: "$(ORIV_SPARKLE_FEED_URL)"
+        SUPublicEDKey: "$(ORIV_SPARKLE_PUBLIC_KEY)"
+        SUEnableInstallerLauncherService: true
+        SUEnableSystemProfiling: false
         NSUserActivityTypes:
         - "$(ORIV_HANDOFF_ACTIVITY)"
         NSPrincipalClass: NSApplication
@@ -166,8 +183,8 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Apps/iOS/Mobile.entitlements
         GENERATE_INFOPLIST_FILE: true
         TARGETED_DEVICE_FAMILY: '1,2'
-        MARKETING_VERSION: 0.29.0
-        CURRENT_PROJECT_VERSION: '50'
+        MARKETING_VERSION: 0.30.0
+        CURRENT_PROJECT_VERSION: '51'
         INFOPLIST_KEY_CFBundleDisplayName: Oriv-Dev
       configs:
         BrowserDevelopment:

@@ -51,6 +51,13 @@ for path in (root / 'Apps').rglob('*.entitlements'):
             expected = environment if key.endswith('environment') else ['CloudKit'] if key.endswith('services') else ['iCloud.com.santhoshbalaji.oriv.browser.dev']
             if values[key] != expected: failures.append(f'{path.relative_to(root)} has an unexpected continuity capability')
             continue
+        if 'temporary-exception' in key:
+            # Only Sparkle's installer services, and only in the Developer ID public beta.
+            sparkle = ['$(PRODUCT_BUNDLE_IDENTIFIER)-spks', '$(PRODUCT_BUNDLE_IDENTIFIER)-spki']
+            if (path.relative_to(root).as_posix() != 'Apps/macOS/ContinuityRelease.entitlements'
+                    or key != 'com.apple.security.temporary-exception.mach-lookup.global-name' or values[key] != sparkle):
+                failures.append(f'{path.relative_to(root)} declares an unreviewed sandbox exception {key}')
+            continue
         if 'icloud' in key or 'application-groups' in key or key in ('com.apple.security.network.server', 'com.apple.security.personal-information.calendars'):
             failures.append(f'{path.relative_to(root)} declares retired capability {key}')
 for platform in ('macOS', 'iOS'):
@@ -63,4 +70,4 @@ for platform in ('macOS', 'iOS'):
         failures.append(f'{path.relative_to(root)} has unexpected URL registrations: {schemes}')
 if failures:
     raise SystemExit('\n'.join(failures))
-print('Browser scope: two shared packages; optional browser-only CloudKit transport; page-derived ephemeral site icons; no AI/EventKit clients, extension target or retired entitlements.')
+print('Browser scope: two shared packages; optional browser-only CloudKit transport; page-derived ephemeral site icons; Sparkle updates only in the Developer ID beta; no AI/EventKit clients, extension target or retired entitlements.')
