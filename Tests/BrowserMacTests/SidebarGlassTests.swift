@@ -314,6 +314,21 @@ import XCTest
         XCTAssertEqual(blue.treatment(on: light), .bare)
         XCTAssertEqual(blue.treatment(on: nearBlue), .cushion(light: true))
 
+        // Shaped like apple.com's favicon: a grey disc with a black mark. Tinting
+        // it with the row ink turned the whole icon into a plain white circle.
+        let disc = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+            NSColor(srgbRed: 0.82, green: 0.82, blue: 0.84, alpha: 1).setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 2, dy: 2)).fill()
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 20, dy: 18)).fill()
+            return true
+        }
+        let decodedDisc = await cache.decode(try XCTUnwrap(disc.tiffRepresentation))
+        let twoTone = try XCTUnwrap(decodedDisc)
+        XCTAssertEqual(twoTone.analysis.kind, .transparentGlyph)
+        XCTAssertEqual(twoTone.treatment(on: dark), .bare)
+        XCTAssertEqual(twoTone.treatment(on: light), .bare)
+
         let opaque = NSImage(size: NSSize(width: 32, height: 32), flipped: false) { rect in
             NSColor.black.setFill(); NSBezierPath(rect: rect).fill()
             NSColor.white.setFill(); NSBezierPath(ovalIn: rect.insetBy(dx: 8, dy: 8)).fill()

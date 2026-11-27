@@ -59,6 +59,9 @@ public struct FaviconAnalysis: Sendable {
     public let edgeOpacity: Double
     public let avgLuminance: Double
     public let peakLuminance: Double
+    /// The 10th-percentile luminance; with `peakLuminance` it separates a
+    /// single-tone glyph from artwork drawn in two tones (a dark mark on a light disc).
+    public let floorLuminance: Double
     public let avgChroma: Double
     public let edgeLuminance: Double
 
@@ -74,9 +77,13 @@ public struct FaviconAnalysis: Sendable {
         if kind == .fullBleed {
             return .fullBleed(hairline: contrastAcrossBacking(edgeLuminance) < 1.35)
         }
-        // Transparent monochrome icons follow the ink of the row or active pill.
-        if avgChroma < 0.08 { return .ink }
-        if max(contrastAcrossBacking(avgLuminance), contrastAcrossBacking(peakLuminance) * 0.85) >= 3 {
+        // Transparent single-tone icons follow the ink of the row or active pill.
+        // A grey icon drawn in two tones keeps its own pixels: tinting it would
+        // flood the inner mark into one solid shape.
+        let twoTone = Self.contrast(floorLuminance, peakLuminance) >= 3
+        if avgChroma < 0.08 && !twoTone { return .ink }
+        let detail = twoTone ? contrastAcrossBacking(floorLuminance) * 0.85 : 0
+        if max(contrastAcrossBacking(avgLuminance), contrastAcrossBacking(peakLuminance) * 0.85, detail) >= 3 {
             return .bare
         }
         func effectiveContrast(_ surface: Double) -> Double {
@@ -139,12 +146,16 @@ public struct FaviconAnalysis: Sendable {
         avgLuminance = luminanceSum / totalAlpha
         avgChroma = chromaSum / totalAlpha
         edgeLuminance = opaqueEdgeCount == 0 ? avgLuminance : edgeLuminanceSum / Double(opaqueEdgeCount)
-        var cumulativeAlpha = 0.0
-        let peak = histogram.firstIndex {
-            cumulativeAlpha += $0
-            return cumulativeAlpha >= totalAlpha * 0.9
-        } ?? histogram.count - 1
-        peakLuminance = Double(peak) / Double(histogram.count - 1)
+        func percentile(_ fraction: Double) -> Double {
+            var cumulativeAlpha = 0.0
+            let bin = histogram.firstIndex {
+                cumulativeAlpha += $0
+                return cumulativeAlpha >= totalAlpha * fraction
+            } ?? histogram.count - 1
+            return Double(bin) / Double(histogram.count - 1)
+        }
+        peakLuminance = percentile(0.9)
+        floorLuminance = percentile(0.1)
     }
 }
 
