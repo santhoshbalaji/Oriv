@@ -30,7 +30,7 @@ The public beta ships as a notarized DMG on GitHub Releases. Sparkle updates ins
    - builds, signs, notarizes and staples the DMG, then checks it with Gatekeeper;
    - signs the DMG for Sparkle and adds it to `site/appcast.xml`.
 3. To publish, rerun with `--publish`, or do it by hand: tag `v<version>`, then create a GitHub **prerelease** with the DMG and its `.sha256`, using that version's changelog section as notes.
-4. Commit `site/appcast.xml`. The first time only, also set `data-state="ready"` on the download dialog in `site/index.html`. Merge to `main`, and the Pages workflow publishes the feed, at which point installed copies see the update.
+4. Commit `site/appcast.xml`, and point the **Download DMG** link in `site/index.html` at the new DMG. GitHub's `/releases/latest` skips prereleases, so the link names the version. Merge to `main`, and the Pages workflow publishes the feed, at which point installed copies see the update.
 
 Publish the GitHub release before the appcast reaches oriv.dev, so the DMG link works when Sparkle first sees it.
 

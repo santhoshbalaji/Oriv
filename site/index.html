@@ -2469,8 +2469,8 @@
 </main>
 
 <!-- Download Sheet Modal -->
-<!-- Set data-state="ready" and the DMG link below when the Mac public beta is published. -->
-<div class="dl-backdrop" id="dl-modal" data-state="soon" role="dialog" aria-modal="true" aria-labelledby="dl-modal-title">
+<!-- Each release: point the Download DMG link at the new version's DMG (prereleases aren't /releases/latest). -->
+<div class="dl-backdrop" id="dl-modal" data-state="ready" role="dialog" aria-modal="true" aria-labelledby="dl-modal-title">
   <div class="dl-modal">
     <button class="dl-close" type="button" id="dl-close" aria-label="Close download dialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     <div class="dl-head">
@@ -2485,7 +2485,7 @@
       <div class="dl-soon">The Mac public beta is almost here. Watch the GitHub repository for releases to hear the moment it&rsquo;s out.</div>
     </div>
     <div class="dl-actions">
-      <a class="btn-porcelain dl-ready" href="https://github.com/santhoshbalaji/Oriv/releases/latest" target="_blank" rel="noopener noreferrer">
+      <a class="btn-porcelain dl-ready" href="https://github.com/santhoshbalaji/Oriv/releases/download/v0.30.0/Oriv-0.30.0-macOS.dmg">
         <span>Download DMG</span>
       </a>
       <a class="btn-porcelain dl-soon" href="https://github.com/santhoshbalaji/Oriv" target="_blank" rel="noopener noreferrer">

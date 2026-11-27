@@ -1,9 +1,18 @@
 <?xml version='1.0' encoding='utf-8'?>
-<rss version="2.0">
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel>
     <title>Oriv</title>
     <link>https://oriv.dev/</link>
     <description>Updates for Oriv for Mac.</description>
     <language>en</language>
+    <item>
+      <title>Oriv 0.30.0</title>
+      <pubDate>Fri, 27 Nov 2026 13:37:19 GMT</pubDate>
+      <sparkle:version>51</sparkle:version>
+      <sparkle:shortVersionString>0.30.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/santhoshbalaji/Oriv/releases/tag/v0.30.0</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/santhoshbalaji/Oriv/releases/download/v0.30.0/Oriv-0.30.0-macOS.dmg" length="13366944" type="application/octet-stream" sparkle:edSignature="wM/EMQWme3ksoYSEwMGs6Ut6Ulp0p3A496J/yvJ8s0mBNYM27m8D4XIAc+fFWViMGTKDHF2iM4oXm26GTYiRAw==" />
+    </item>
   </channel>
 </rss>
