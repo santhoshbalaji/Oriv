@@ -48,7 +48,10 @@ struct PersonalBrowserApp: App {
         .defaultSize(width: 1250, height: 820)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
-        .commands { BrowserCommands(regularController: controller, profiles: profiles) }
+        .commands {
+            BrowserCommands(regularController: controller, profiles: profiles)
+            CheckForUpdatesCommand()
+        }
 
         Window("Oriv — Private", id: "external-private") {
             Group {
@@ -105,6 +108,8 @@ struct PersonalBrowserApp: App {
     weak var profiles: BrowserProfiles?
     func applicationWillFinishLaunching(_ notification: Notification) { BackgroundUIMode.installAtLaunch() }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Starts Sparkle in Developer ID builds; a no-op everywhere else.
+        _ = AppUpdater.shared
         #if DEBUG
         if SyncTimingProbe.requested {
             Task {
