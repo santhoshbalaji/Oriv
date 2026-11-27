@@ -89,6 +89,7 @@ import WebKit
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-b" { await renderSidebarBScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar-attached" { await renderAttachedSidebarScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"] == "sidebar" { await renderSidebarScenes(into: directory, activate: activate) }
+        else if environment["ORIV_GLASS_SCENE"] == "landing" { await renderLandingScenes(into: directory, activate: activate) }
         else if environment["ORIV_GLASS_SCENE"]?.isEmpty == false { await renderGlassScenes(into: directory, activate: activate) }
         else { await renderScenes(into: directory, activate: activate) }
         manifest.backgroundUI = BackgroundUIMode.audit()
@@ -1747,6 +1748,11 @@ import WebKit
                           expectedFields: ["addressField": isCompletionScene ? "developer.apple.com" : (isFocusedScene ? address : "docs.example.com")],
                           appearance: sceneAppearance,
                           prepare: { window in
+                // Activating the window can restore the tab's address, which doesn't resolve.
+                if tab.errorMessage != nil || tab.webView.title?.isEmpty != false {
+                    tab.webView.loadHTMLString(html, baseURL: URL(string: address))
+                    try? await Task.sleep(for: .milliseconds(1_200))
+                }
                 if mode.hasSuffix("scrolled") {
                     _ = try? await tab.webView.evaluateJavaScript("window.scrollTo(0, 560)")
                     try? await Task.sleep(for: .milliseconds(500))
@@ -1800,6 +1806,83 @@ import WebKit
                 manifest.skipped.append("mac-glass-\(mode)-expanded: native Menu is a separate AppKit tracking window, constrained to a display. Opening it would violate the background-only policy. Toolbar/layout evidence only.")
             }
             profiles.shutdown()
+        }
+    }
+
+    private static func landingBackdrop(_ rgb: (Double, Double, Double)) -> NSWindow {
+        let frame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1800, height: 1100)
+        let window = BackgroundUIMode.Window(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.backgroundColor = NSColor(srgbRed: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1)
+        window.ignoresMouseEvents = true
+        BackgroundUIMode.show(window, key: false, activate: false)
+        return window
+    }
+
+    /// Real product shots for oriv.dev: a loaded page, each profile's colour and the
+    /// Site Privacy panel, all in dark appearance with synthetic content.
+    private static func renderLandingScenes(into directory: URL, activate: Bool) async {
+        let size = CGSize(width: 1440, height: 848)
+        let light = ProcessInfo.processInfo.environment["ORIV_LANDING_APPEARANCE"] == "light"
+        let appearance: BrowserAppearance = light ? .light : .dark
+        let suffix = light ? "-light" : ""
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        guard let work = try? profiles.create(name: "Work", color: .ocean, symbol: .work),
+              let study = try? profiles.create(name: "Study", color: .fern, symbol: .study) else {
+            manifest.failures.append("landing: could not create profile fixtures")
+            return
+        }
+        let scenes: [(name: String, id: UUID, card: Int, tabs: [String], backdrop: (Double, Double, Double))] = [
+            ("personal", BrowserProfile.personalID, 0, ["A little room to think", "Night Radio", "Weekend routes"], (0.40, 0.16, 0.23)),
+            ("work", work.id, 1, ["Pull requests", "Design review", "Team handbook"], (0.10, 0.20, 0.33)),
+            ("study", study.id, 2, ["Swift concurrency", "WebKit reference", "Research notes"], (0.12, 0.25, 0.15)),
+        ]
+        for scene in scenes {
+            do { try profiles.select(scene.id) } catch {
+                manifest.failures.append("landing-\(scene.name): could not select profile: \(error)")
+                continue
+            }
+            let controller = profiles.controller
+            controller.appearance = appearance
+            controller.sidebarColor = .profile
+            let tab = controller.session.selectedTab!
+            let address = URL(string: "https://docs.example.com/designing-calm-interfaces")!
+            let html = ChromeVisualFixture.html(dark: !light, card: scene.card)
+            tab.webView.loadHTMLString(html, baseURL: address)
+            for (index, title) in scene.tabs.enumerated() {
+                let url = URL(string: "https://\(scene.name).example/\(index)")!
+                let background = controller.session.addTab(url: url, select: false, load: false)
+                background.webView.loadHTMLString("<title>\(title)</title><body></body>", baseURL: url)
+                if index == 0 { controller.session.togglePinned(background.id) }
+            }
+            try? await Task.sleep(for: .milliseconds(900))
+            // Liquid Glass samples whatever is behind the window. Stand in for a
+            // wallpaper in the scene's colour so the desktop doesn't tint the shot.
+            let backdrop = landingBackdrop(scene.backdrop)
+            await capture("mac-glass-landing-\(scene.name)\(suffix)", directory, size, key: activate, settle: 1_400,
+                          compositeWeb: tab.webView, appearance: appearance, prepare: { _ in
+                // Selecting a profile can restore the tab's address, which doesn't resolve.
+                if tab.webView.title?.isEmpty != false || tab.errorMessage != nil {
+                    tab.webView.loadHTMLString(html, baseURL: address)
+                    try? await Task.sleep(for: .milliseconds(1_200))
+                }
+            }) {
+                BrowserWindow(controller: controller, profiles: profiles)
+            }
+            backdrop.orderOut(nil); backdrop.close()
+            if scene.name == "personal" {
+                await capture("mac-glass-landing-site-privacy\(suffix)", directory, CGSize(width: 360, height: 640), key: activate,
+                              settle: 900, appearance: appearance, fitHeight: true,
+                              prepare: { window in
+                    // The panel focuses its mode picker for keyboard users; a product shot shows it at rest.
+                    window.makeFirstResponder(nil)
+                    try? await Task.sleep(for: .milliseconds(300))
+                }) {
+                    AdBlockingPopover(session: controller.session)
+                        .environment(\.siteIcons, controller.session.siteIcons)
+                }
+            }
         }
     }
 

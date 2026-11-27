@@ -14,6 +14,7 @@
 #   ORIV_GLASS_SCENE=sidebar-color captures Balanced tints and the Settings control.
 #   ORIV_GLASS_SCENE=sidebar-chromatic captures the selected row, pins and accessibility fallbacks.
 #   ORIV_GLASS_SCENE=sidebar-width captures the expanded sidebar and inventories the File menu.
+#   ORIV_GLASS_SCENE=landing captures the oriv.dev product shots: each profile colour and Site Privacy.
 #   The default PID-validated PNG bridge captures only the app's own window IDs.
 #   ORIV_CAPTURE_RENDERER=inprocess opts into ScreenCaptureKit instead.
 #   The output directory must not exist or must be empty. Default: build/visual-runs/<timestamp>-mac
@@ -71,8 +72,11 @@ if [[ "$GLASS" == 1 ]]; then
   if [[ "${ORIV_GLASS_SCENE:-}" == p3-rtl ]]; then
     launch_args=(--args -AppleTextDirection YES -NSForceRightToLeftWritingDirection YES)
   fi
-  /usr/bin/open -g -n -W --env ORIV_BACKGROUND_UI="$ORIV_BACKGROUND_UI" --env ORIV_FOREGROUND_UI="${ORIV_FOREGROUND_UI:-}" --env BROWSER_TESTING=1 --env ORIV_VISUAL_SNAPSHOTS=1 \
-    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_CAPTURE_RENDERER="${ORIV_CAPTURE_RENDERER:-}" --env ORIV_SIDEBAR_COLLAPSED="${ORIV_SIDEBAR_COLLAPSED:-}" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_CHROME_TIMING="${ORIV_CHROME_TIMING:-}" --env ORIV_FULLSCREEN_EVIDENCE="${ORIV_FULLSCREEN_EVIDENCE:-}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
+  # ORIV_CAPTURE_FRONT=1 launches in front so captured windows look active (product shots).
+  open_background=(-g)
+  if [[ "${ORIV_CAPTURE_FRONT:-}" == 1 && "${ORIV_FOREGROUND_UI:-}" == 1 ]]; then open_background=(); fi
+  /usr/bin/open "${open_background[@]}" -n -W --env ORIV_BACKGROUND_UI="$ORIV_BACKGROUND_UI" --env ORIV_FOREGROUND_UI="${ORIV_FOREGROUND_UI:-}" --env BROWSER_TESTING=1 --env ORIV_VISUAL_SNAPSHOTS=1 \
+    --env ORIV_SNAPSHOT_RUN_ID="$RUN_ID" --env ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" --env ORIV_CAPTURE_RENDERER="${ORIV_CAPTURE_RENDERER:-}" --env ORIV_SIDEBAR_COLLAPSED="${ORIV_SIDEBAR_COLLAPSED:-}" --env ORIV_GLASS_SCENE="${ORIV_GLASS_SCENE:-all}" --env ORIV_LANDING_APPEARANCE="${ORIV_LANDING_APPEARANCE:-}" --env ORIV_CHROME_TIMING="${ORIV_CHROME_TIMING:-}" --env ORIV_FULLSCREEN_EVIDENCE="${ORIV_FULLSCREEN_EVIDENCE:-}" --env ORIV_SCROLL_EVIDENCE="${ORIV_SCROLL_EVIDENCE:-}" --env ORIV_LIVE_SITES="${ORIV_LIVE_SITES:-}" --env ORIV_LIVE_DARK_INDICES="${ORIV_LIVE_DARK_INDICES:-}" --env ORIV_LIVE_SCROLL_INDICES="${ORIV_LIVE_SCROLL_INDICES:-}" \
     "$APP" "${launch_args[@]}" > "$DERIVED.run.log" 2>&1 &
 else
   ORIV_BACKGROUND_UI="$ORIV_BACKGROUND_UI" ORIV_FOREGROUND_UI="${ORIV_FOREGROUND_UI:-}" BROWSER_TESTING=1 ORIV_VISUAL_SNAPSHOTS=1 ORIV_SNAPSHOT_RUN_ID="$RUN_ID" ORIV_SNAPSHOT_ACTIVATE="$ACTIVATE" ORIV_BATCH_VISUALS="${ORIV_BATCH_VISUALS:-}" \
@@ -140,6 +144,9 @@ if os.environ.get("ORIV_BATCH_VISUALS") == "1":
     expected = {"mac-batch-" + part + "-" + mode for part in ("sidebar", "suggestions") for mode in ("light", "dark")}
 if sys.argv[4] == "1": expected = {"mac-glass-" + mode for mode in ("light", "light-scrolled", "dark", "dark-scrolled", "theme", "theme-scrolled", "focused", "focused-dark", "focused-completion", "focused-completion-dark", "menu", "private", "reduced", "insecure", "start-light", "start-dark", "start-private", "start-focused", "start-narrow-772", "start-narrow-600", "start-short")}
 if sys.argv[4] == "1" and os.environ.get("ORIV_GLASS_SCENE", "all") != "all": expected = {"mac-glass-" + os.environ["ORIV_GLASS_SCENE"]}
+if os.environ.get("ORIV_GLASS_SCENE") == "landing":
+    suffix = "-light" if os.environ.get("ORIV_LANDING_APPEARANCE") == "light" else ""
+    expected = {"mac-glass-landing-" + name + suffix for name in ("personal", "work", "study", "site-privacy")}
 if os.environ.get("ORIV_GLASS_SCENE") == "start-page":
     expected = {"mac-glass-" + mode for mode in ("start-light", "start-dark", "start-private", "start-focused", "start-narrow-772", "start-narrow-600", "start-short")}
 if os.environ.get("ORIV_GLASS_SCENE") == "page-menu":
