@@ -11,17 +11,25 @@ import SwiftUI
     private var generation = 0
     func update(_ query: String, session: BrowserSession, isPrivate: Bool) async {
         generation += 1; let generation = generation
-        self.query = query; selected = nil; completion = nil; rows = []
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let search = trimmed.isEmpty ? nil
+            : BrowserSuggestion(title: "Search for ‘\(trimmed)’", url: session.settings.searchEngine.searchURL(trimmed), source: .search)
+        self.query = query; selected = nil
+        if let search {
+            // Keep the previous matches on screen until this query's arrive.
+            // Clearing them first collapsed the popover to its search row for
+            // a frame on every keystroke. The inline completion is only shown
+            // while it still extends the typed text.
+            rows = rows.filter { $0.source != .search } + [search]
+        } else {
+            rows = []; completion = nil
+        }
         let matches = await session.indexedSuggestions(for: query, isPrivate: isPrivate)
         guard !Task.isCancelled, generation == self.generation else { return }
         selected = nil
         completion = LocalSuggestionIndex.completion(for: query, matches: matches)
         let order: [BrowserSuggestion.Source] = [.tab, .bookmark, .history]
-        rows = order.flatMap { source in matches.filter { $0.source == source } }
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !query.isEmpty {
-            rows.append(BrowserSuggestion(title: "Search for ‘\(query)’", url: session.settings.searchEngine.searchURL(query), source: .search))
-        }
+        rows = order.flatMap { source in matches.filter { $0.source == source } } + (search.map { [$0] } ?? [])
     }
     func move(_ offset: Int) {
         guard !rows.isEmpty else { return }
