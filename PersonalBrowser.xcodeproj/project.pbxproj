@@ -1195,7 +1195,7 @@
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile";
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = ContinuityRelease;
 		};
@@ -1220,7 +1220,7 @@
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -1600,7 +1600,7 @@
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -1904,7 +1904,7 @@
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = ContinuityDevelopment;
 		};
@@ -1929,7 +1929,7 @@
 				PRODUCT_MODULE_NAME = OrivMobile;
 				PRODUCT_NAME = "Oriv-Mobile-Dev";
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = BrowserDevelopment;
 		};

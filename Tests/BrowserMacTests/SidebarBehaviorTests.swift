@@ -159,8 +159,12 @@ import XCTest
         try SessionFileStore(fileURL: profileRoot.appendingPathComponent("session.json"))
             .save(BrowserSnapshot(tabs: [home, sleeping], selectedTabID: home.id), discardPrevious: true)
         let disk = SiteIconDiskCache(directory: profileRoot.appendingPathComponent("Favicons"))
-        let renderer = ImageRenderer(content: Color(red: 0.13, green: 0.50, blue: 0.40).frame(width: 32, height: 32))
-        let image = try XCTUnwrap(renderer.cgImage)
+        // Draw with Core Graphics: ImageRenderer can return a blank image on headless CI runners.
+        let context = try XCTUnwrap(CGContext(data: nil, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(srgbRed: 0.13, green: 0.50, blue: 0.40, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        let image = try XCTUnwrap(context.makeImage())
         let png = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
         let decoded = await disk.decode(png)
         let icon = try XCTUnwrap(decoded)
