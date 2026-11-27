@@ -37,3 +37,22 @@ Publish the GitHub release before the appcast reaches oriv.dev, so the DMG link 
 ## Versions
 
 `docs/releases/history.json` maps every private build (0.5.0–0.29.0) to its commit, and each has a `v<version>` tag. The public beta starts at 0.30.0. Versions before it were never distributed.
+
+# Releasing Oriv for iPhone
+
+The iPhone app (`com.santhoshbalaji.oriv.ios`) is iPhone-only and goes out through TestFlight, then the App Store. It meets Apple's default-browser requirements: http/https schemes, WebKit only, a start page with an address field, and no full photo-library, always-on location, HomeKit, Bluetooth or Health permissions. The default-browser entitlement is added to `Apps/iOS/ContinuityRelease.entitlements` only after Apple grants it.
+
+## One-time setup
+
+1. Create the app in App Store Connect: **Apps → + → New App**, platform iOS, bundle ID `com.santhoshbalaji.oriv.ios`.
+2. Put the App Store Connect API key at `$HOME/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8` on the release Mac (mode 600). The same key also serves notarization.
+
+## Each upload
+
+Use a `CURRENT_PROJECT_VERSION` higher than any build already uploaded. Commit, then run:
+
+```
+ORIV_DEVELOPMENT_TEAM=<team> ORIV_ASC_ISSUER_ID=<issuer> scripts/release-iphone.sh
+```
+
+The script archives the ContinuityRelease build, then checks the bundle ID, build number, iPhone-only device family, privacy manifest and the default-browser privacy rules. It then uploads to App Store Connect. The build appears in TestFlight after Apple processes it. External testers and a public link need Beta App Review once per version.

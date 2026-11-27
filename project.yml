@@ -182,7 +182,8 @@ targets:
         CODE_SIGN_IDENTITY: Apple Development
         CODE_SIGN_ENTITLEMENTS: Apps/iOS/Mobile.entitlements
         GENERATE_INFOPLIST_FILE: true
-        TARGETED_DEVICE_FAMILY: '1,2'
+        # iPhone only for the public beta.
+        TARGETED_DEVICE_FAMILY: '1'
         MARKETING_VERSION: 0.30.0
         CURRENT_PROJECT_VERSION: '51'
         INFOPLIST_KEY_CFBundleDisplayName: Oriv-Dev
@@ -207,8 +208,11 @@ targets:
         NSMicrophoneUsageDescription: Allow websites you choose to use your microphone.
         NSLocationWhenInUseUsageDescription: Allow websites you choose to use your
           location.
-        NSPhotoLibraryUsageDescription: Choose photos to upload to a website.
+        # Add-only: Apple rejects full photo library access in default-browser apps.
+        # Website uploads use the system photo picker, which needs no permission.
         NSPhotoLibraryAddUsageDescription: Save images you choose from websites to Photos.
+        # HTTPS and Apple's own frameworks only; exempt from export documentation.
+        ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
           NSAllowsArbitraryLoadsInWebContent: true
         CFBundleURLTypes:
@@ -225,11 +229,6 @@ targets:
         - "$(ORIV_HANDOFF_ACTIVITY)"
         UISupportedInterfaceOrientations:
         - UIInterfaceOrientationPortrait
-        - UIInterfaceOrientationLandscapeLeft
-        - UIInterfaceOrientationLandscapeRight
-        UISupportedInterfaceOrientations~ipad:
-        - UIInterfaceOrientationPortrait
-        - UIInterfaceOrientationPortraitUpsideDown
         - UIInterfaceOrientationLandscapeLeft
         - UIInterfaceOrientationLandscapeRight
   BrowserMacTests:
