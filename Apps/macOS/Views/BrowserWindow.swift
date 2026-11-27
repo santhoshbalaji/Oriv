@@ -31,7 +31,6 @@ struct BrowserWindow: View {
     @State private var startAddressSlot: CGRect? = nil
     @State private var addressMorphOpacity: Double = 1
     @State private var addressMorphFadeTask: Task<Void, Never>?
-    @Namespace private var addressMorphNamespace
     @State private var passwordGuideFallback = false
     @State private var requestingPassword = false
     @FocusState private var findFocused: Bool
@@ -157,30 +156,35 @@ struct BrowserWindow: View {
             }
             .onChange(of: controller.scoped(session.selectedTabID)) { old, new in
                 guard old.owner == new.owner else { return }
-                addressFocused = false; syncAddress()
+                // Leave focus without the focus spring: the capsule is already moving home in
+                // this switch, and a second, later resize read as a stutter.
+                var instant = Transaction()
+                instant.disablesAnimations = true
+                withTransaction(instant) { addressFocused = false; endAddressEditing() }
+                syncAddress()
                 ui.showFind = false; ui.showSiteInfo = false; ui.showProtection = false
             }
             .onChange(of: controller.scoped(tab?.url)) { old, new in
                 if old.owner == new.owner, !addressFocused { syncAddress() }
             }
-            .onChange(of: isStartPage) { _, onStart in
-                if !onStart { startAddressSlot = nil }
+            .onChange(of: isStartPage) { _, _ in
+                // The capsule moves home in the same frame as the page content, then fades in.
+                // A travelling morph is driven frame by frame on the main thread, which a tab
+                // switch keeps busy (web view mount, sidebar, start page), so it stuttered and
+                // its glass drifted away from the text. The last measured slot is kept, so a
+                // return to a start page lands exactly in its first frame.
                 addressMorphFadeTask?.cancel()
                 addressMorphFadeTask = nil
-                if reduceMotion && !BackgroundUIMode.isEnabled {
-                    // Snap geometry without travel, then run the <= 0.15 s reduced opacity fade.
-                    var instant = Transaction()
-                    instant.animation = nil
-                    withTransaction(instant) { addressMorphOpacity = 0.2 }
-                    addressMorphFadeTask = Task { @MainActor in
-                        await Task.yield()
-                        guard !Task.isCancelled else { return }
-                        withAnimation(OrivMacV3.Motion.addressMorph(reduceMotion: true)) {
-                            addressMorphOpacity = 1
-                        }
+                guard !BackgroundUIMode.isEnabled else { addressMorphOpacity = 1; return }
+                var instant = Transaction()
+                instant.animation = nil
+                withTransaction(instant) { addressMorphOpacity = OrivMacV3.Motion.addressSwitchStartOpacity }
+                addressMorphFadeTask = Task { @MainActor in
+                    await Task.yield()
+                    guard !Task.isCancelled else { return }
+                    withAnimation(OrivMacV3.Motion.addressSwitchFade(reduceMotion: reduceMotion)) {
+                        addressMorphOpacity = 1
                     }
-                } else if addressMorphOpacity != 1 {
-                    addressMorphOpacity = 1
                 }
             }
             .onChange(of: addressFocused) { _, focused in
@@ -349,29 +353,21 @@ struct BrowserWindow: View {
                             return startRect.minY
                         }
                         if useStartSlot {
-                            return OrivMacV3.StartLayout.headerTopMargin(for: cardProxy.size.height, hasTopBars: hasPageTopBars)
-                                + OrivMacV3.StartLayout.profileChipAvatar
-                                + OrivMacV3.StartLayout.titleTopGap
-                                + OrivMacV3.ToolbarLayout.addressFocusHeight
-                                + OrivMacV3.StartLayout.bigFieldTopMargin
+                            return OrivMacV3.StartLayout.bigFieldTop(for: cardProxy.size, hasTopBars: hasPageTopBars)
                         }
                         return (MacBrowserLayout.headerHeight - targetHeight) / 2
                     }()
-                    GlassEffectContainer(spacing: OrivMacV3.ToolbarLayout.groupGap) {
-                        addressCapsule(isBigField: useStartSlot, width: targetWidth, height: targetHeight)
-                            .glassEffectID("addressCapsule", in: addressMorphNamespace)
-                            .glassEffectTransition(reduceMotion ? .identity : .matchedGeometry)
-                            .padding(.leading, max(0, leading))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                            .offset(y: top)
-                            .opacity(webpageFullscreen ? 0 : addressMorphOpacity)
-                            .allowsHitTesting(!webpageFullscreen)
-                            .accessibilityHidden(webpageFullscreen)
-                            // Key morph travel strictly on `isStartPage` so start-page layout and
-                            // window resizing never lag; under Reduce Motion geometry snaps instantly.
-                            .animation(OrivMacV3.Motion.addressMorphGeometry(reduceMotion: reduceMotion), value: isStartPage)
-                            .animation(OrivMacV3.Motion.addressFocus(reduceMotion: reduceMotion), value: addressFocused)
-                    }
+                    addressCapsule(isBigField: useStartSlot, width: targetWidth, height: targetHeight)
+                        .padding(.leading, max(0, leading))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .offset(y: top)
+                        .opacity(webpageFullscreen ? 0 : addressMorphOpacity)
+                        .allowsHitTesting(!webpageFullscreen)
+                        .accessibilityHidden(webpageFullscreen)
+                        // A start/page switch never animates geometry, even when focus changes in
+                        // the same update (closing a focused new tab); focus alone still springs.
+                        .transaction(value: isStartPage) { $0.animation = nil }
+                        .animation(OrivMacV3.Motion.addressFocus(reduceMotion: reduceMotion), value: addressFocused)
                 }
             }
             .animation(OrivMacV3.Motion.standard(reduceMotion: reduceMotion), value: showsAddressSuggestions)
@@ -689,6 +685,15 @@ struct BrowserWindow: View {
         .orivV3Glass(OrivMacV3.Toolbar.groupTint(v3Mode), in: Capsule())
         .orivV3Shadow(OrivMacV3.Toolbar.groupShadow(v3Mode))
         .browserGeometryMarker("browserNavGroupGeometry")
+    }
+
+    /// The focus state alone does not stop AppKit's field editor: without this, a tab
+    /// switch leaves the toolbar showing the full URL with a live selection.
+    private func endAddressEditing() {
+        guard let window = windowContext.window,
+              let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+              editor.delegate is FocusAwareAddressField else { return }
+        window.makeFirstResponder(nil)
     }
 
     private func addressCapsule(isBigField: Bool, width: CGFloat, height: CGFloat) -> some View {
@@ -1191,7 +1196,10 @@ struct BrowserWindow: View {
         }
         else {
             StartPage(session: session, isPrivate: tab.isPrivate, profile: profiles?.active ?? controller.profile, hasTopBars: hasPageTopBars, openLibrary: { controller.library = $0 }, onAddressSlotChange: { rect in
-                if startAddressSlot != rect { startAddressSlot = rect }
+                guard startAddressSlot != rect else { return }
+                var instant = Transaction()
+                instant.animation = nil
+                withTransaction(instant) { startAddressSlot = rect }
             }, addressSlotSpace: Self.pageCardSpace)
                 .overlay {
                     HomeProfileFade(epoch: controller.sidebarDragID,
@@ -1201,6 +1209,10 @@ struct BrowserWindow: View {
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
+                // Fade in with the capsule; leave at once so no half-faded start page lingers
+                // over a web page that is still drawing.
+                .transition(.asymmetric(insertion: .opacity.animation(OrivMacV3.Motion.addressSwitchFade(reduceMotion: reduceMotion)),
+                                        removal: .identity))
         }
     }
 

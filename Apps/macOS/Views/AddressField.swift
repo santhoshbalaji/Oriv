@@ -77,6 +77,8 @@ struct AddressField: NSViewRepresentable {
         field.isSelectable = true
         field.isBezeled = false
         field.drawsBackground = false
+        // The capsule draws its own focus halo; AppKit's ring would box the text inside it.
+        field.focusRingType = .none
         field.font = Self.font
         field.placeholderString = showsNativePlaceholder ? placeholder : nil
         field.lineBreakMode = .byTruncatingMiddle

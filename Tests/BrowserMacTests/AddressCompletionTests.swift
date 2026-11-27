@@ -1,4 +1,6 @@
 import AppKit
+import BrowserCore
+import BrowserEngine
 import Observation
 import SwiftUI
 import XCTest
@@ -25,6 +27,31 @@ private struct CompletionFixture: View {
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
             characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
         NSApp.sendEvent(event)
+    }
+    func testSuggestionsStayOnScreenWhileTheNextKeystrokeIsMatched() async throws {
+        let session = BrowserSession(dataStore: .nonPersistent(), settings: BrowserSettings(defaults: nil))
+        defer { session.shutdown() }
+        _ = session.importBookmarks([Bookmark(title: "Example saved", url: URL(string: "https://example.test/saved")!)])
+        let model = AddressSuggestions()
+        await model.update("exa", session: session, isPrivate: false)
+        XCTAssertEqual(model.rows.map(\.source), [.bookmark, .search])
+        XCTAssertEqual(model.completion, "example.test")
+
+        // Run the next keystroke's update up to its off-main lookup. The
+        // popover used to collapse to its search row here, then refill.
+        let next = Task { await model.update("exam", session: session, isPrivate: false) }
+        await Task.yield()
+        XCTAssertEqual(model.query, "exam")
+        XCTAssertEqual(model.rows.map(\.source), [.bookmark, .search])
+        XCTAssertEqual(model.rows.last?.url, session.settings.searchEngine.searchURL("exam"))
+        XCTAssertEqual(model.completion, "example.test")
+        await next.value
+        XCTAssertEqual(model.rows.map(\.source), [.bookmark, .search])
+        XCTAssertEqual(model.rows.last?.url, session.settings.searchEngine.searchURL("exam"))
+
+        await model.update("", session: session, isPrivate: false)
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertNil(model.completion)
     }
     func testInlineSuffixSelectionAcceptanceAndDeletionSuppression() async throws {
         let state = CompletionState()

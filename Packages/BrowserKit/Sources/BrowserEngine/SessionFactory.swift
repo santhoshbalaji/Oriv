@@ -57,7 +57,8 @@ import WebKit
         )
     }
 
-    private static func profileDefaults(for profile: BrowserProfile, bundleID: String) -> UserDefaults? {
+    /// The per-profile preference store, also read for profiles whose session is not loaded.
+    public static func profileDefaults(for profile: BrowserProfile, bundleID: String) -> UserDefaults? {
         profile.defaultsName(bundleID: bundleID).flatMap { UserDefaults(suiteName: $0) }
             ?? (profile.isPersonal ? .standard : nil)
     }

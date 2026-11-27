@@ -179,6 +179,77 @@ final class ProfileSwipeTests: XCTestCase {
         return window
     }
 
+    /// Mirrors the app scene: the window follows the active profile's own appearance.
+    private struct AppearanceFixture: View {
+        let profiles: BrowserProfiles
+        var body: some View {
+            BrowserWindow(controller: profiles.controller, profiles: profiles)
+                .browserAppearance(profiles.controller.appearance)
+        }
+    }
+
+    func testProfileSwitchAppliesEachProfilesAppearance() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        try profiles.select(BrowserProfile.personalID)
+        profiles.controller.appearance = .dark
+        try profiles.select(work.id)
+        profiles.controller.appearance = .light
+        try profiles.select(BrowserProfile.personalID)
+
+        let window = makeWindow(AppearanceFixture(profiles: profiles))
+        defer { window.close() }
+        func isDark() -> Bool {
+            window.contentView?.layoutSubtreeIfNeeded()
+            return window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        }
+        let systemDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        try await eventually("Personal opens dark") { isDark() }
+
+        try profiles.select(work.id)
+        try await eventually("Work switches the window to light") { !isDark() }
+        try profiles.select(BrowserProfile.personalID)
+        try await eventually("Personal switches the window back to dark") { isDark() }
+
+        // "System" must release the previous profile's forced appearance.
+        try profiles.select(work.id)
+        profiles.controller.appearance = .system
+        try profiles.select(BrowserProfile.personalID)
+        try await eventually("Personal is dark again") { isDark() }
+        try profiles.select(work.id)
+        try await eventually("Work follows the system appearance") { isDark() == systemDark }
+        profiles.controller.appearance = .light
+        try await eventually("Work is light") { !isDark() }
+        profiles.controller.appearance = .system
+        try await eventually("Choosing System releases Light") { isDark() == systemDark }
+    }
+
+    func testUnloadedProfilePreviewUsesItsSavedAppearanceAndSidebarColor() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profiles = BrowserProfiles(rootDirectory: root, testing: true)
+        defer { profiles.shutdown() }
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        XCTAssertNil(profiles.loadedController(work.id), "Work stays unloaded until it is selected")
+        let suite = "oriv.saved-chrome." + UUID().uuidString
+        let store = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { store.removePersistentDomain(forName: suite) }
+        store.set(BrowserAppearance.light.rawValue, forKey: "browserAppearance")
+        store.set(SidebarColor.rose.rawValue, forKey: SidebarColor.preferenceKey)
+        profiles.savedPreferencesOverride = { $0.id == work.id ? store : nil }
+
+        let saved = profiles.savedChrome(for: work)
+        XCTAssertEqual(saved.appearance, .light, "The swipe preview uses Work's own appearance, not System")
+        XCTAssertEqual(saved.sidebarColor, .rose, "The swipe preview uses Work's own sidebar color, not Graphite")
+
+        profiles.controller.appearance = .t3Code
+        let active = profiles.savedChrome(for: profiles.active)
+        XCTAssertEqual(active.appearance, .t3Code, "A loaded profile reports its live appearance")
+    }
+
     func testProfileSwitchTurnBudget() async throws {
         guard ProcessInfo.processInfo.environment["ORIV_PROFILE_SWITCH_BUDGET"] == "1" else {
             throw XCTSkip("Opt-in profile switch timing")
@@ -287,6 +358,75 @@ final class ProfileSwipeTests: XCTestCase {
             XCTAssertLessThanOrEqual(percentile(drag, 0.95), 5)
         }
         XCTAssertLessThanOrEqual(percentile(revisit, 0.95), 3 * percentile(tabTurns, 0.95))
+    }
+
+    func testSwipeSwitchRestylesTheSelectedTabHighlight() async throws {
+        let profiles = BrowserProfiles(testing: true)
+        defer { profiles.shutdown() }
+        profiles.profileSwipePreference = .on
+        let work = try profiles.create(name: "Work", color: .ocean, symbol: .work)
+        try profiles.select(work.id)
+        profiles.controller.sidebarColor = .profile
+        profiles.controller.session.addTab(url: URL(string: "https://example.com/work")!, select: true, load: false)
+        try profiles.select(BrowserProfile.personalID)
+        profiles.controller.sidebarColor = .profile
+        profiles.controller.sidebar.setPreference(false)
+        profiles.controller.session.addTab(url: URL(string: "https://example.com/personal")!, select: true, load: false)
+        let window = makeWindow(Fixture(profiles: profiles).frame(width: 1000, height: 600))
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        func marker(_ name: String) -> NSView? {
+            content.layoutSubtreeIfNeeded()
+            return descendants(content).first {
+                $0.identifier?.rawValue == name && $0.window === window && !$0.bounds.isEmpty && !$0.isHiddenOrHasHiddenAncestor
+            }
+        }
+        /// Mean hue of the selected row's coloured pixels, as drawn.
+        func selectedRowHue() throws -> Double {
+            let id = try XCTUnwrap(profiles.controller.session.selectedTabID)
+            var row = marker("sidebarSelection-\(id.uuidString)")
+            while let view = row, !String(describing: type(of: view)).contains("SidebarAccessibleRow") { row = view.superview }
+            let view = try XCTUnwrap(row)
+            let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: rep)
+            var x = 0.0, y = 0.0
+            for py in stride(from: 0, to: rep.pixelsHigh, by: 2) { for px in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB), c.saturationComponent > 0.3, c.alphaComponent > 0.2 else { continue }
+                x += cos(c.hueComponent * 2 * .pi); y += sin(c.hueComponent * 2 * .pi)
+            } }
+            return (atan2(y, x) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+        }
+        func expectedHue(_ color: ProfileColor) -> Double {
+            let dark = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let hex = Theme.SidebarChromaticTokens.resolve(.profile, profile: color, dark: dark, black: false).active
+            let rgb = NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                              blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+            return rgb.hueComponent * 360
+        }
+        func assertHighlight(_ color: ProfileColor, _ label: String) throws {
+            let drawn = try selectedRowHue(), expected = expectedHue(color)
+            let difference = abs((drawn - expected + 540).truncatingRemainder(dividingBy: 360) - 180)
+            XCTAssertLessThan(difference, 25, "\(label): highlight hue \(Int(drawn))° should match \(Int(expected))°")
+        }
+
+        try await eventually("profile dots laid out") { marker("sidebarProfileDot-1") != nil }
+        try await Task.sleep(for: .milliseconds(300))
+        try assertHighlight(.mulberry, "Personal before swiping")
+        for (round, destination) in [(1, work.id), (2, BrowserProfile.personalID), (3, work.id)] {
+            let row = try XCTUnwrap(marker("sidebarSelection-\(try XCTUnwrap(profiles.controller.session.selectedTabID).uuidString)"))
+            let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+            let delta: Int32 = destination == work.id ? -150 : 150
+            let start = Double(round) * 10
+            for (phase, value, time) in [(NSEvent.Phase.began, delta > 0 ? 4 : -4, start), (.changed, delta, start + 0.02),
+                                         (.ended, 0, start + 0.04)] as [(NSEvent.Phase, Int32, TimeInterval)] {
+                _ = profiles.sidebarSwitch.route(try wheel(phase, x: value, time: time), window: window, profiles: profiles,
+                                                 source: profiles.controller, location: point)
+            }
+            try await eventually("swipe reached the destination") { profiles.active.id == destination }
+            try await eventually("swipe settled") { content.layoutSubtreeIfNeeded(); return !profiles.sidebarSwitch.isCovering }
+            try await Task.sleep(for: .milliseconds(400))
+            try assertHighlight(destination == work.id ? .ocean : .mulberry, "After swipe \(round)")
+        }
     }
 
     func testSwipeSwitchFocusesLoadedPage() async throws {

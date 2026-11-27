@@ -18,6 +18,8 @@ typealias CoverImage = UIImageView
 /// after attachment supplies the rendering barrier before cover dismissal.
 final class TabSwitchCover: CoverView {
     private let imageView = CoverImage()
+    /// Where the snapshot's content top sits below the cover's top edge.
+    private var imageTopInset: CGFloat = 0
     private var generation = 0
     private var confirming = false
     private var renderAttempts = 0
@@ -95,7 +97,9 @@ final class TabSwitchCover: CoverView {
             #else
             imageView.image = UIImage(cgImage:cg)
             #endif
-        } else { imageView.image = nil }
+            imageTopInset = snapshot.topInset
+        } else { imageView.image = nil; imageTopInset = 0 }
+        layoutCover()
         #if os(macOS)
         label.isHidden = fadesWhenReady || imageView.image != nil
         #else
@@ -224,7 +228,14 @@ final class TabSwitchCover: CoverView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         #endif
+        #if os(macOS)
+        // Top-aligned in a frame that starts below the obscured band, so the snapshot's
+        // content lines up with the live page instead of sitting a toolbar higher.
+        let inset = min(max(0, imageTopInset), bounds.height)
+        imageView.frame = CGRect(x: 0, y: isFlipped ? inset : 0, width: bounds.width, height: bounds.height - inset)
+        #else
         imageView.frame = bounds
+        #endif
         label.frame = CGRect(x:16,y:bounds.midY-16,width:max(0,bounds.width-32),height:32)
     }
 }

@@ -508,6 +508,9 @@ import UIKit
     }
 
     func testCNAMEHostAllowsTopLevelAndBlocksSameOriginSubresource() async throws {
+        // Compiles the bundled CNAME list cold in a fresh namespace, like the cold compile
+        // benchmark; a hosted iPhone simulator runner needed more than the 120 s default.
+        executionTimeAllowance = 180
         let data = WKWebsiteDataStore.nonPersistent()
         var proxy = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: 18768))
         proxy.allowFailover = false

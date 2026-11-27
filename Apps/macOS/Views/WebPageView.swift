@@ -119,6 +119,16 @@ final class WebViewHost: NSView {
         }
     }
 
+    /// WebKit passes a key press back up the responder chain when the page saw it but did
+    /// not cancel it, for example YouTube's seek keys while its player is not focused. Left
+    /// unclaimed, AppKit plays the alert sound. Absorb plain keys here, as browsers do; Escape,
+    /// Tab and modified keys still continue to the window and its commands.
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option])
+        if modifiers.isEmpty, event.keyCode != 53, event.keyCode != 48 { return }
+        super.keyDown(with: event)
+    }
+
     override func layout() {
         super.layout()
         guard webView.fullscreenState == .notInFullscreen, webView.superview === self else { return }

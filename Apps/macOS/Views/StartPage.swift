@@ -62,9 +62,7 @@ struct StartPage: View {
             // Narrow cards wrap the bookmarks to two rows, so they use the compact top
             // margin. Decided from the width (not by a second ViewThatFits candidate,
             // which can oscillate) so the page still fits without scrolling.
-            let topMargin = cardWidth < OrivMacV3.StartLayout.bookmarkWrapCardWidth
-                ? OrivMacV3.StartLayout.headerTopMargin(for: .zero, hasTopBars: hasTopBars)
-                : OrivMacV3.StartLayout.headerTopMargin(for: cardHeight, hasTopBars: hasTopBars)
+            let topMargin = OrivMacV3.StartLayout.pageTopMargin(for: proxy.size, hasTopBars: hasTopBars)
             ViewThatFits(in: .vertical) {
                 pageContent(cardWidth: cardWidth, topMargin: topMargin)
                     .frame(width: max(1, cardWidth))

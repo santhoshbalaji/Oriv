@@ -3471,6 +3471,22 @@ enum OrivMacV3 {
             return min(columnWidth, max(min(columnMinWidth, available), available))
         }
 
+        static let heroTitleLineHeight: CGFloat = 35
+
+        /// The start page's header margin: narrow cards wrap bookmarks to two rows,
+        /// so they use the compact margin whatever their height.
+        static func pageTopMargin(for cardSize: CGSize, hasTopBars: Bool) -> CGFloat {
+            cardSize.width < bookmarkWrapCardWidth
+                ? headerTopMargin(for: .zero, hasTopBars: hasTopBars)
+                : headerTopMargin(for: cardSize.height, hasTopBars: hasTopBars)
+        }
+
+        /// Where the big field sits before the start page reports its measured slot.
+        static func bigFieldTop(for cardSize: CGSize, hasTopBars: Bool) -> CGFloat {
+            pageTopMargin(for: cardSize, hasTopBars: hasTopBars) + profileChipAvatar + titleTopGap
+                + heroTitleLineHeight + bigFieldTopMargin
+        }
+
         static func headerTopMargin(for cardHeight: CGFloat, hasTopBars: Bool = false) -> CGFloat {
             let base: CGFloat
             if cardHeight >= shortWindowHeightThreshold {
@@ -3541,7 +3557,13 @@ enum OrivMacV3 {
         static let standard = Animation.easeInOut(duration: standardDuration)
         static let standardReduced = Animation.easeInOut(duration: reducedDuration)
         static let addressFocus = Animation.spring(response: 0.24, dampingFraction: 0.88)
-        static let addressMorph = Animation.spring(response: 0.34, dampingFraction: 0.90)
+        /// Start page <-> toolbar: the capsule moves home in one frame, then fades in from
+        /// this opacity, with the start page fading in on the same curve.
+        static let addressSwitchStartOpacity: Double = 0.35
+        static let addressSwitchFade = Animation.easeOut(duration: 0.14)
+        static let addressSwitchFadeReduced = Animation.easeOut(duration: 0.1)
+        static func addressSwitchFade(reduceMotion: Bool) -> Animation { reduceMotion ? addressSwitchFadeReduced : addressSwitchFade }
+        static let addressMorph = Animation.timingCurve(0.2, 0.85, 0.25, 1.0, duration: 0.22)
         static let addressMorphReduced = Animation.easeInOut(duration: reducedDuration)
         static let popover = Animation.spring(response: 0.22, dampingFraction: 0.92)
         static let popoverReduced = Animation.easeInOut(duration: popoverReducedDuration)

@@ -37,6 +37,10 @@ struct NativeSidebarTabs: NSViewRepresentable {
     let expandedWidth: CGFloat
     var overflowing = true
     let searchRequest: ProfileScoped<SidebarTabQuery>?
+    /// The profile's sidebar style, passed in explicitly: a style change alone does not
+    /// reliably re-run `updateNSView`, so after a profile swipe the rebound rows kept the
+    /// previous profile's highlight until some unrelated update repainted them.
+    var style: SidebarChromaticStyle? = nil
     var searching: Bool { searchRequest != nil }
     let confirmClose: (UUID, Bool) -> Void
 
@@ -518,7 +522,8 @@ private struct SidebarSection {
         let old = configuration
         if let old, old.controller !== value.controller { detach() }
         let oldSize = self.environment.dynamicTypeSize
-        let oldStyle = self.environment.sidebarStyle
+        let oldStyle = cachedStyle ?? self.environment.sidebarStyle
+        let resolvedStyle = value.style ?? environment.sidebarStyle
         let directionChanged = self.environment.layoutDirection != environment.layoutDirection
         let oldShown = selectedID
         let ownsFocus = list.window?.firstResponder === list
@@ -540,8 +545,8 @@ private struct SidebarSection {
         self.environment = environment
         var rowEnv = environment
         rowEnv.sidebarDefersIconHydration = { [weak self] url in self?.deferIconHydration(url) == true }
+        rowEnv.sidebarChromaticStyle = resolvedStyle
         rowEnvironment = rowEnv
-        let resolvedStyle = environment.sidebarStyle
         cachedStyle = resolvedStyle
         cachedMode = OrivMacV3.AppearanceMode.resolve(theme: environment.browserTheme,
                                                       colorScheme: environment.colorScheme,
@@ -616,7 +621,7 @@ private struct SidebarSection {
             select(highlight ?? newActive, reveal: changesLayout && dragUpdate == nil && drag == nil)
         }
         let keepArtwork = dragUpdate != nil || ((drag != nil || isDropUpdate) && !needsLayout &&
-            oldStyle == environment.sidebarStyle && old?.searchRequest == value.searchRequest &&
+            oldStyle == resolvedStyle && old?.searchRequest == value.searchRequest &&
             old?.duplicateTitles == value.duplicateTitles)
         if isDropUpdate && keepArtwork && !changesActive { return }
         if case .move(let id) = dragUpdate, !changesActive {
@@ -687,15 +692,18 @@ private struct SidebarSection {
         list.layoutSubtreeIfNeeded()
         guard let frame = list.layoutAttributesForItem(at: path)?.frame else { return }
         let section = sections[path.section]
+        var target = frame
         if section.heading != nil,
            let first = list.layoutAttributesForItem(at: IndexPath(item: 0, section: path.section)),
            first.frame.minY == frame.minY,
            let header = list.layoutAttributesForSupplementaryElement(ofKind: NSCollectionView.elementKindSectionHeader,
                                                                     at: IndexPath(item: 0, section: path.section)) {
-            list.scrollToVisible(frame.union(header.frame))
-        } else {
-            list.scrollToVisible(frame)
+            target = frame.union(header.frame)
         }
+        // Already on screen: skip the scroll and the second synchronous layout, which
+        // otherwise run on every tab switch and delay the window's next frame.
+        guard !list.visibleRect.contains(target) else { return }
+        list.scrollToVisible(target)
         list.layoutSubtreeIfNeeded()
     }
 
@@ -835,13 +843,18 @@ private struct SidebarSection {
         // A host subtitle only helps when it says something the title doesn't.
         let subtitle = configuration.duplicateTitles.contains(tab.displayTitle)
             ? tab.url?.host.flatMap { $0.caseInsensitiveCompare(tab.displayTitle) == .orderedSame ? nil : $0 } : nil
-        let environment = self.rowEnvironment
+        let capturedEnvironment = self.rowEnvironment
         let active = activeID == tab.id
         let icons = configuration.rail || configuration.peek
         let peek = configuration.peek
-        let style = cachedStyle
-        let mode = cachedMode
-        return { selected, preview in
+        let capturedStyle = cachedStyle
+        let capturedMode = cachedMode
+        return { [weak self] selected, preview in
+            // Read the profile's current style when drawing: a selection change can redraw
+            // a row from this closure after a profile rebind, before it is configured again.
+            let environment = self?.rowEnvironment ?? capturedEnvironment
+            let style = self?.cachedStyle ?? capturedStyle
+            let mode = self?.cachedMode ?? capturedMode
             var content = SidebarTabArtwork(tab: tab, selected: selected, active: active, tile: grid,
                                             rail: icons, peek: peek, hovered: hovered,
                                             hoveredAccessory: accessory, subtitle: subtitle,
